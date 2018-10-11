@@ -104,9 +104,9 @@ CHECK_CLEANFILES+=$(EXTLINK_DIRS)
 
 # Example directory
 # Note: no '/' after DESTDIR.  Explanation in commence.am
-EXAMPLEHLDIR=${DESTDIR}$(exec_prefix)/share/rest_vol_examples/c/hl
-EXAMPLEDIR=${DESTDIR}$(exec_prefix)/share/rest_vol_examples/c
-EXAMPLETOPDIR=${DESTDIR}$(exec_prefix)/share/rest_vol_examples
+EXAMPLEHLDIR=${DESTDIR}$(exec_prefix)/share/daos_vol_examples/c/hl
+EXAMPLEDIR=${DESTDIR}$(exec_prefix)/share/daos_vol_examples/c
+EXAMPLETOPDIR=${DESTDIR}$(exec_prefix)/share/daos_vol_examples
 EXAMPLEBASEDIR=${DESTDIR}$(exec_prefix)/share
 
 # List dependencies for each program.  Normally, automake would take

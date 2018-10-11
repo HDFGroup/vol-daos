@@ -1322,7 +1322,7 @@ test_file_property_lists(void)
 
 
 
-    /* Due to the nature of needing to supply a FAPL with the REST VOL having been set on it to the H5Fcreate() call,
+    /* Due to the nature of needing to supply a FAPL with the DAOS VOL having been set on it to the H5Fcreate() call,
      * we cannot exactly test using H5P_DEFAULT as the FAPL for one of the create calls in this test. However, the
      * use of H5Fget_create_plist() will still be used to check that the FAPL is correct after both creating and
      * opening a file
@@ -1391,7 +1391,7 @@ test_file_property_lists(void)
         goto error;
     }
 
-    /* For completeness' sake, check to make sure the REST VOL is set on each of the FAPLs */
+    /* For completeness' sake, check to make sure the DAOS VOL is set on each of the FAPLs */
 
 
 

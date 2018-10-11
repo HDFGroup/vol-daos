@@ -18,15 +18,15 @@
 # DAOS VOL test suite Makefile(.in)
 #
 
-HDF5_INSTALL_DIR=@DRV_HDF5_INSTALL_DIR@
+HDF5_INSTALL_DIR=@DV_HDF5_INSTALL_DIR@
 
-AM_CFLAGS=@AM_CFLAGS@ @DRV_CFLAGS@
+AM_CFLAGS=@AM_CFLAGS@ @DV_CFLAGS@
 AM_CPPFLAGS=@AM_CPPFLAGS@ @DV_CPPFLAGS@
 AM_LDFLAGS=@AM_LDFLAGS@ @DV_LDFLAGS@
 
 ACLOCAL_AMFLAGS=-I m4
 
-LIBRESTVOL = $(top_builddir)/src/libdaosvol.la
+LIBDAOSVOL = $(top_builddir)/src/libdaosvol.la
 
 # Defines for building the test suite
 test_PROGRAMS = test_daos_vol

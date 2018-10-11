@@ -1,0 +1,60 @@
+#
+# Copyright by The HDF Group.
+# Copyright by the Board of Trustees of the University of Illinois.
+# All rights reserved.
+#
+# This file is part of HDF5.  The full HDF5 copyright notice, including
+# terms governing use, modification, and redistribution, is contained in
+# the files COPYING and Copyright.html.  COPYING can be found at the root
+# of the source code distribution tree; Copyright.html can be found at the
+# root level of an installed copy of the electronic HDF5 document set and
+# is linked from the top-level documents page.  It can also be found at
+# http://hdfgroup.org/HDF5/doc/Copyright.html.  If you do not have
+# access to either file, you may request a copy from help@hdfgroup.org.
+##
+## Makefile.am
+## Run automake to generate a Makefile.in from this file.
+#
+# DAOS VOL Makefile(.in)
+#
+
+HDF5_INSTALL_DIR=@DV_HDF5_INSTALL_DIR@
+
+AM_CFLAGS=@AM_CFLAGS@ @DV_CFLAGS@ -I$(HDF5_INSTALL_DIR)/include
+AM_CPPFLAGS=@AM_CPPFLAGS@ @DV_CPPFLAGS@
+AM_LDFLAGS=@AM_LDFLAGS@ @DV_LDFLAGS@
+
+ACLOCAL_AMFLAGS=-I m4
+
+# Add in the linker flags for UUID
+if !UUID_DEFAULT_DIR
+    AM_CFLAGS += -I$(UUID_INSTALL_DIR)/include -L$(UUID_INSTALL_DIR)/lib$(LIB_SUFFIX)
+endif
+
+AM_CFLAGS += -luuid
+
+# Our main target, the DAOS VOL plugin library
+lib_LTLIBRARIES=libdaosvol.la
+
+# DAOS VOL's source file and private headers
+libdaosvol_la_SOURCES=daos_vol.c daos_vol.h
+
+# Public headers
+include_HEADERS=daos_vol_public.h daos_vol_config.h
+
+# install libdaosvol.settings in lib directory
+settingsdir=$(libdir)
+settings_DATA=libdaosvol.settings
+
+# Automake needs to be taught how to build lib, progs, and tests targets.
+# These will be filled in automatically for the most part (e.g.,
+# lib_LIBRARIES are built for lib target), but EXTRA_LIB, EXTRA_PROG, and
+# EXTRA_TEST variables are supplied to allow the user to force targets to
+# be built at certain times.
+LIB = $(lib_LTLIBRARIES)
+PROGS = 
+
+# lib/progs/tests targets recurse into subdirectories. build-* targets
+# build files in this directory.
+build-lib: $(LIB)
+build-progs: $(LIB) $(PROGS)

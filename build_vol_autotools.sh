@@ -28,6 +28,14 @@ HDF5_DIR="hdf5"
 HDF5_INSTALL_DIR="${INSTALL_DIR}"
 build_hdf5=true
 
+# Directories specifying where components of DAOS have been installed to.
+# If any of these are not set, this script should fail.
+DAOS_INSTALL_DIR=""
+DAOS_LIB_DIRS=""
+DAOS_MPI_DIR=""
+DAOS_INCLUDES=""
+DAOS_LINK=""
+
 # Determine the number of processors to use when
 # building in parallel with Autotools make
 NPROCS=0
@@ -44,7 +52,7 @@ UUID_LINK="-luuid"
 DAOS_VOL_LINK="-ldaosvol"
 
 # Extra compiler options passed to the various steps, such as -Wall
-COMP_OPTS="-Wall -pedantic -Wunused-macros"
+COMP_OPTS="-Wall -pedantic -Wunused-macros -I${SCRIPT_DIR}/src"
 
 # Extra options passed to the DAOS VOL's configure script
 DV_OPTS=""
@@ -79,13 +87,15 @@ usage()
     echo "      -H DIR  To specify a directory where HDF5 has already"
     echo "              been built."
     echo
+    echo "      -D DIR  To specify a directory where DAOS has been built."
+    echo
     echo "      -U DIR  To specify the top-level directory where the UUID"
     echo "              library is installed, if it was not installed to a"
     echo "              system directory."
     echo
 }
 
-optspec=":htdmH:U:P:-"
+optspec=":htdmH:U:P:D:-"
 while getopts "$optspec" optchar; do
     case "${optchar}" in
     h)
@@ -124,6 +134,62 @@ while getopts "$optspec" optchar; do
         echo "Set HDF5 install directory to: ${HDF5_INSTALL_DIR}"
         echo
         ;;
+    D)
+        # Set the base directory where DAOS is installed
+        DAOS_INSTALL_DIR="$OPTARG"
+
+        # Set the directory where the DAOS includes should be located at
+        if [ -d "${DAOS_INSTALL_DIR}/include" ]; then
+            DAOS_INCLUDES="-I${DAOS_INSTALL_DIR}/include"
+        else
+            echo "DAOS include dir not found; cannot continue"
+            exit 1
+        fi
+
+        # Set the directory where the CART includes should be located at
+        if [ -d "${DAOS_INSTALL_DIR}/modules/cart/include" ]; then
+            DAOS_INCLUDES="${DAOS_INCLUDES} -I${DAOS_INSTALL_DIR}/modules/cart/include"
+        else
+            echo "CART include dir not found; cannot continue"
+            exit 1
+        fi
+
+        # Set the directory where the DAOS library should be located at
+        if [ -d "${DAOS_INSTALL_DIR}/lib" ]; then
+            DAOS_LIB_DIRS="${DAOS_INSTALL_DIR}/lib"
+            DAOS_LINK="-L${DAOS_INSTALL_DIR}/lib"
+        else
+            echo "DAOS lib dir not found; cannot continue"
+            exit 1
+        fi
+
+        # Set the directory where the DAOS version of MPI should be located at
+        DAOS_MPI_DIR="${DAOS_INSTALL_DIR}/modules/ompi"
+
+        if [ -d "${DAOS_MPI_DIR}" ]; then
+            # Set the directory where the MPI library should be located at
+            if [ -d "${DAOS_MPI_DIR}/lib" ]; then
+                DAOS_LIB_DIRS="${DAOS_LIB_DIRS}:${DAOS_MPI_DIR}/lib"
+                DAOS_LINK="${DAOS_LINK} -L${DAOS_MPI_DIR}/lib"
+            else
+                echo "DAOS MPI lib not found; cannot continue"
+                exit 1
+            fi
+
+            if [ -f "${DAOS_MPI_DIR}/bin/mpicc" ]; then
+                export CC="${DAOS_MPI_DIR}/bin/mpicc"
+            else
+                echo "mpicc not found; cannot continue"
+                exit 1
+            fi
+        else
+            echo "DAOS MPI dir not found; cannot continue"
+            exit 1
+        fi
+
+        echo "DAOS install dir set to: ${DAOS_INSTALL_DIR}"
+        echo
+        ;;
     U)
         UUID_DIR="$OPTARG"
         UUID_LINK="-L${UUID_DIR}/lib ${UUID_LINK}"
@@ -154,6 +220,34 @@ if [ "$NPROCS" -eq "0" ]; then
     fi
 fi
 
+# Set up environment
+if [ -z "${DAOS_INSTALL_DIR}" ]; then
+    echo "DAOS install dir is not set; cannot continue"
+    exit 1
+fi
+
+if [ -z "${DAOS_LIB_DIRS}" ]; then
+    echo "DAOS lib dirs not set; cannot continue"
+    exit 1
+fi
+
+if [ -z "${DAOS_MPI_DIR}" ]; then
+    echo "DAOS MPI dir is not set; cannot continue"
+    exit 1
+fi
+
+if [ -z "${DAOS_INCLUDES}" ]; then
+    echo "DAOS includes not set; cannot continue"
+    exit 1
+fi
+
+if [ -z "${DAOS_LINK}" ]; then
+    echo "DAOS linking is not set; cannot continue"
+    exit 1
+fi
+
+export LD_LIBRARY_PATH="${DAOS_LIB_DIRS}"
+COMP_OPTS="${COMP_OPTS} ${DAOS_INCLUDES} ${DAOS_LINK} -ldaos -lmpi"
 
 # If the user hasn't already, first build HDF5
 if [ "$build_hdf5" = true ]; then
@@ -169,9 +263,9 @@ if [ "$build_hdf5" = true ]; then
     # If we are building the tools with DAOS VOL support, link in the already built
     # DAOS VOL library, along with UUID.
     if [ "${build_tools}" = true ]; then
-        ./configure --prefix="${HDF5_INSTALL_DIR}" CFLAGS="${COMP_OPTS} -L${INSTALL_DIR}/lib ${DAOS_VOL_LINK} ${UUID_LINK}" || exit 1
+        ./configure --prefix="${HDF5_INSTALL_DIR}" --enable-parallel CFLAGS="${COMP_OPTS} -L${INSTALL_DIR}/lib ${DAOS_VOL_LINK} ${UUID_LINK}" || exit 1
     else
-        ./configure --prefix="${HDF5_INSTALL_DIR}" CFLAGS="${COMP_OPTS}" || exit 1
+        ./configure --prefix="${HDF5_INSTALL_DIR}" --enable-parallel CFLAGS="${COMP_OPTS}" || exit 1
     fi
 
     make -j${NPROCS} && make install || exit 1
@@ -194,6 +288,10 @@ mkdir -p "${INSTALL_DIR}"
 cd "${SCRIPT_DIR}"
 
 ./autogen.sh || exit 1
+
+# Set up paths for finding the relevant DAOS includes needed
+CC=
+LD_LIBRARY_PATH=${DAOS_LIB_DIR}
 
 ./configure --prefix="${INSTALL_DIR}" ${DV_OPTS} CFLAGS="${COMP_OPTS}" || exit 1
 

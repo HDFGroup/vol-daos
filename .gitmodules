@@ -1,0 +1,4 @@
+[submodule "hdf5"]
+	path = hdf5
+	url = ssh://git@bitbucket.hdfgroup.org:7999/~jhenderson/hdf5.git
+	branch = feature/hdf5_ff_additions

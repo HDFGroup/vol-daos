@@ -19,8 +19,8 @@
  *
  * Purpose:	The public header file for the DAOS-M VOL plugin.
  */
-#ifndef H5VLdaosm_public_H
-#define H5VLdaosm_public_H
+#ifndef daos_vol_public_H
+#define daos_vol_public_H
 
 #define H5_HAVE_EFF 1 /* DSMINC */
 
@@ -58,4 +58,4 @@ H5_DLL herr_t H5Pset_daosm_snap_open(hid_t fapl_id,
 }
 #endif
 
-#endif /* H5VLdaosm_H */
+#endif /* daos_vol_public_H */

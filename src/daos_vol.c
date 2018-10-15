@@ -37,7 +37,7 @@
 #include "H5Sprivate.h"         /* Dataspaces                           */
 #include "H5TRprivate.h"        /* Transactions                         */
 #include "H5VLprivate.h"        /* VOL plugins                          */
-#include "H5VLdaosm.h"          /* DAOS-M plugin                        */
+#include "daos_vol.h"           /* DAOS-M plugin                        */
 int tmp_g=0;
 hid_t H5VL_DAOSM_g = -1;
 

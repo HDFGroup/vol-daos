@@ -19,13 +19,13 @@
  *
  * Purpose:	The private header file for the DAOS-M VOL plugin.
  */
-#ifndef H5VLdaosm_H
-#define H5VLdaosm_H
+#ifndef daos_vol_H
+#define daos_vol_H
 
 #define H5_HAVE_EFF 1 /* DSMINC */
 
 /* Include package's public header */
-#include "H5VLdaosm_public.h"
+#include "daos_vol_public.h"
 
 #ifdef H5_HAVE_EFF
 
@@ -157,4 +157,4 @@ H5_DLL herr_t H5VL_daosm_map_close(void *_map, hid_t dxpl_id, void **req);
 }
 #endif
 
-#endif /* H5VLdaosm_H */
+#endif /* daos_vol_H */

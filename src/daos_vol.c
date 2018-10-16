@@ -20,26 +20,30 @@
  * Purpose: The DAOS-M VOL plugin where access is forwarded to the DAOS-M
  * library 
  */
- 
-#define H5O_FRIEND              /* Suppress error about including H5Opkg */
 
-#include "H5private.h"          /* Generic Functions                    */
-#include "H5Dprivate.h"         /* Datasets                             */
-#include "H5Eprivate.h"         /* Error handling                       */
-#include "H5Fprivate.h"         /* Files                                */
-#include "H5FDprivate.h"        /* File drivers                         */
-#include "H5FFprivate.h"        /* Fast Forward                         */
-#include "H5Iprivate.h"         /* IDs                                  */
-#include "H5Mprivate.h"         /* Maps                                 */
-#include "H5MMprivate.h"        /* Memory management                    */
-#include "H5Opkg.h"             /* Objects                              */
-#include "H5Pprivate.h"         /* Property lists                       */
-#include "H5Sprivate.h"         /* Dataspaces                           */
-#include "H5TRprivate.h"        /* Transactions                         */
-#include "H5VLprivate.h"        /* VOL plugins                          */
+#include "H5public.h"           /* Generic Functions                    */
+#include "H5Dpublic.h"          /* Datasets                             */
+#include "H5Epublic.h"          /* Error handling                       */
+#include "H5Fpublic.h"          /* Files                                */
+#include "H5FDpublic.h"         /* File drivers                         */
+#include "H5Ipublic.h"          /* IDs                                  */
+#include "H5Opublic.h"          /* Objects                              */
+#include "H5Ppublic.h"          /* Property lists                       */
+#include "H5Spublic.h"          /* Dataspaces                           */
+#include "H5VLpublic.h"         /* VOL plugins                          */
+
 #include "daos_vol.h"           /* DAOS-M plugin                        */
-int tmp_g=0;
+#include "daos_vol_err.h"       /* DAOS-M plugin error handling         */
+#include "daos_vol_config.h"    /* DAOS-M plugin configuration header   */
+
+#include "daos_vol_mem.h"       /* DAOS-M plugin memory management      */
+
+int tmp_g = 0;
 hid_t H5VL_DAOSM_g = -1;
+
+/* Identifiers for HDF5's error API */
+hid_t dv_err_stack_g = -1;
+hid_t dv_err_class_g = -1;
 
 /*
  * Macros
@@ -246,17 +250,18 @@ static herr_t H5VL_daosm_datatype_close(void *_dtype, hid_t dxpl_id,
 static herr_t H5VL_daosm_object_close(void *_obj, hid_t dxpl_id, void **req);
 
 /* Free list definitions */
+/* DSMINC
 H5FL_DEFINE(H5VL_daosm_file_t);
 H5FL_DEFINE(H5VL_daosm_group_t);
 H5FL_DEFINE(H5VL_daosm_dset_t);
 H5FL_DEFINE(H5VL_daosm_dtype_t);
 H5FL_DEFINE(H5VL_daosm_map_t);
-H5FL_DEFINE(H5VL_daosm_attr_t);
+H5FL_DEFINE(H5VL_daosm_attr_t);*/
 
 /* The DAOS-M VOL plugin struct */
 static H5VL_class_t H5VL_daosm_g = {
     HDF5_VOL_DAOSM_VERSION_1,                   /* Version number */
-    H5_VOL_DAOSM,                               /* Plugin value */
+    H5_VOL_DAOS_CLS_VAL,                        /* Plugin value */
     "daos_m",                                   /* name */
     NULL,                                       /* initialize */
     H5VL_daosm_term,                            /* terminate */
@@ -396,15 +401,17 @@ H5VLdaosm_init(MPI_Comm pool_comm, uuid_t _pool_uuid, char *pool_grp)
     int ret;
     herr_t ret_value = SUCCEED;            /* Return value */
 
-    FUNC_ENTER_API(FAIL)
-
     /* Check if already initialized */
     if(H5VL_DAOSM_g >= 0)
-        HGOTO_DONE(SUCCEED)
+        D_GOTO_DONE(SUCCEED)
+
+    /* Initialize HDF5 */
+    if (H5open() < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "HDF5 failed to initialize")
 
     /* Initialize daos */
     if (daos_init() < 0)
-        HGOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "DAOS failed to initialize")
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "DAOS failed to initialize")
 
     /* Obtain the process rank and size from the communicator attached to the
      * fapl ID */
@@ -447,7 +454,7 @@ H5VLdaosm_init(MPI_Comm pool_comm, uuid_t _pool_uuid, char *pool_grp)
 
         /* Connect to the pool */
         if(0 != (ret = daos_pool_connect(pool_uuid, pool_grp, svcl, DAOS_PC_RW, &H5VL_daosm_poh_g, &pool_info, NULL /*event*/)))
-            HGOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't connect to pool: %d", ret)
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't connect to pool: %d", ret)
 
         /* Bcast pool handle if there are other processes */
         if(pool_num_procs > 1) {
@@ -456,15 +463,15 @@ H5VLdaosm_init(MPI_Comm pool_comm, uuid_t _pool_uuid, char *pool_grp)
             glob.iov_buf_len = 0;
             glob.iov_len = 0;
             if(0 != (ret = daos_pool_local2global(H5VL_daosm_poh_g, &glob)))
-                HGOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't get global pool handle size: %d", ret)
+                D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't get global pool handle size: %d", ret)
             gh_buf_size = (uint64_t)glob.iov_buf_len;
 
             /* Check if the global handle won't fit into the static buffer */
-            HDassert(sizeof(gh_buf_static) >= sizeof(uint64_t));
+            assert(sizeof(gh_buf_static) >= sizeof(uint64_t));
             if(gh_buf_size + sizeof(uint64_t) > sizeof(gh_buf_static)) {
                 /* Allocate dynamic buffer */
-                if(NULL == (gh_buf_dyn = (char *)H5MM_malloc(gh_buf_size + sizeof(uint64_t))))
-                    HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate space for global pool handle")
+                if(NULL == (gh_buf_dyn = (char *)DV_malloc(gh_buf_size + sizeof(uint64_t))))
+                    D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate space for global pool handle")
 
                 /* Use dynamic buffer */
                 gh_buf = gh_buf_dyn;
@@ -479,26 +486,26 @@ H5VLdaosm_init(MPI_Comm pool_comm, uuid_t _pool_uuid, char *pool_grp)
             glob.iov_buf_len = gh_buf_size;
             glob.iov_len = 0;
             if(0 != (ret = daos_pool_local2global(H5VL_daosm_poh_g, &glob)))
-                HGOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't get global pool handle: %d", ret)
-            HDassert(glob.iov_len == glob.iov_buf_len);
+                D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't get global pool handle: %d", ret)
+            assert(glob.iov_len == glob.iov_buf_len);
 
             /* We are about to bcast so we no longer need to bcast on failure */
             must_bcast = FALSE;
 
             /* MPI_Bcast gh_buf */
             if(MPI_SUCCESS != MPI_Bcast(gh_buf, (int)sizeof(gh_buf_static), MPI_BYTE, 0, pool_comm))
-                HGOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't bcast global pool handle")
+                D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't bcast global pool handle")
 
             /* Need a second bcast if we had to allocate a dynamic buffer */
             if(gh_buf == gh_buf_dyn)
                 if(MPI_SUCCESS != MPI_Bcast((char *)p, (int)gh_buf_size, MPI_BYTE, 0, pool_comm))
-                    HGOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't bcast global pool handle (second bcast)")
+                    D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't bcast global pool handle (second bcast)")
         } /* end if */
     } /* end if */
     else {
         /* Receive global handle */
         if(MPI_SUCCESS != MPI_Bcast(gh_buf, (int)sizeof(gh_buf_static), MPI_BYTE, 0, pool_comm))
-            HGOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't bcast global pool handle")
+            D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't bcast global pool handle")
 
         /* Decode handle length */
         p = (uint8_t *)gh_buf;
@@ -506,21 +513,21 @@ H5VLdaosm_init(MPI_Comm pool_comm, uuid_t _pool_uuid, char *pool_grp)
 
         /* Check for gh_buf_size set to 0 - indicates failure */
         if(gh_buf_size == 0)
-            HGOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "lead process failed to initialize")
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "lead process failed to initialize")
 
         /* Check if we need to perform another bcast */
         if(gh_buf_size + sizeof(uint64_t) > sizeof(gh_buf_static)) {
             /* Check if we need to allocate a dynamic buffer */
             if(gh_buf_size > sizeof(gh_buf_static)) {
                 /* Allocate dynamic buffer */
-                if(NULL == (gh_buf_dyn = (char *)H5MM_malloc(gh_buf_size)))
-                    HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate space for global pool handle")
+                if(NULL == (gh_buf_dyn = (char *)DV_malloc(gh_buf_size)))
+                    D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate space for global pool handle")
                 gh_buf = gh_buf_dyn;
             } /* end if */
 
             /* Receive global handle */
             if(MPI_SUCCESS != MPI_Bcast(gh_buf, (int)gh_buf_size, MPI_BYTE, 0, pool_comm))
-                HGOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't bcast global pool handle (second bcast)")
+                D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't bcast global pool handle (second bcast)")
 
             p = (uint8_t *)gh_buf;
         } /* end if */
@@ -530,27 +537,27 @@ H5VLdaosm_init(MPI_Comm pool_comm, uuid_t _pool_uuid, char *pool_grp)
         glob.iov_buf_len = gh_buf_size;
         glob.iov_len = gh_buf_size;
         if(0 != (ret = daos_pool_global2local(glob, &H5VL_daosm_poh_g)))
-            HGOTO_ERROR(H5E_VOL, H5E_CANTOPENOBJ, FAIL, "can't get local pool handle: %d", ret)
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTOPENOBJ, FAIL, "can't get local pool handle: %d", ret)
     } /* end else */
 
     /* Register the DAOS-M VOL, if it isn't already */
     if(H5VL_daosm_init() < 0)
-        HGOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "unable to initialize FF DAOS-M VOL plugin")
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "unable to initialize FF DAOS-M VOL plugin")
 
 done:
     if(ret_value < 0) {
         /* Bcast gh_buf as '0' if necessary - this will trigger failures in the
          * other processes so we do not need to do the second bcast. */
         if(must_bcast) {
-            HDmemset(gh_buf_static, 0, sizeof(gh_buf_static));
+            memset(gh_buf_static, 0, sizeof(gh_buf_static));
             if(MPI_SUCCESS != MPI_Bcast(gh_buf_static, sizeof(gh_buf_static), MPI_BYTE, 0, pool_comm))
-                HDONE_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't bcast empty global handle")
+                D_DONE_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't bcast empty global handle")
         } /* end if */
     } /* end if */
 
-    H5MM_xfree(gh_buf_dyn);
+    DV_free(gh_buf_dyn);
 
-    FUNC_LEAVE_API(ret_value)
+    D_FUNC_LEAVE_API
 } /* end H5VLdaosm_init() */
 
 
@@ -572,29 +579,27 @@ H5VL_daosm_init(void)
 {
     herr_t ret_value = SUCCEED;            /* Return value */
 
-    FUNC_ENTER_NOAPI(FAIL)
-
     /* Register interfaces that might not be initialized in time (for example if
      * we open an object without knowing its type first, H5Oopen will not
      * initialize that type) */
     if(H5G_init() < 0)
-        HGOTO_ERROR(H5E_FUNC, H5E_CANTINIT, FAIL, "unable to initialize group interface")
+        D_GOTO_ERROR(H5E_FUNC, H5E_CANTINIT, FAIL, "unable to initialize group interface")
     if(H5M_init() < 0)
-        HGOTO_ERROR(H5E_FUNC, H5E_CANTINIT, FAIL, "unable to initialize map interface")
+        D_GOTO_ERROR(H5E_FUNC, H5E_CANTINIT, FAIL, "unable to initialize map interface")
     if(H5D_init() < 0)
-        HGOTO_ERROR(H5E_FUNC, H5E_CANTINIT, FAIL, "unable to initialize dataset interface")
+        D_GOTO_ERROR(H5E_FUNC, H5E_CANTINIT, FAIL, "unable to initialize dataset interface")
     if(H5T_init() < 0)
-        HGOTO_ERROR(H5E_FUNC, H5E_CANTINIT, FAIL, "unable to initialize datatype interface")
+        D_GOTO_ERROR(H5E_FUNC, H5E_CANTINIT, FAIL, "unable to initialize datatype interface")
 
     /* Register the DAOS-M VOL, if it isn't already */
     if(NULL == H5I_object_verify(H5VL_DAOSM_g, H5I_VOL)) {
         if((H5VL_DAOSM_g = H5VL_register((const H5VL_class_t *)&H5VL_daosm_g, 
                                           sizeof(H5VL_class_t), TRUE)) < 0)
-            HGOTO_ERROR(H5E_ATOM, H5E_CANTINSERT, FAIL, "can't create ID for DAOS-M plugin")
+            D_GOTO_ERROR(H5E_ATOM, H5E_CANTINSERT, FAIL, "can't create ID for DAOS-M plugin")
     } /* end if */
 
 done:
-    FUNC_LEAVE_NOAPI(ret_value)
+    D_FUNC_LEAVE
 } /* end H5VL_daosm_init() */
 
 
@@ -615,15 +620,14 @@ H5VLdaosm_term(void)
 {
     herr_t ret_value = SUCCEED;            /* Return value */
 
-    FUNC_ENTER_API(FAIL)
-    H5TRACE0("e","");
+    /* H5TRACE0("e",""); DSMINC */
 
     /* Terminate the plugin */
     if(H5VL_daosm_term(-1) < 0)
-        HGOTO_ERROR(H5E_VOL, H5E_CLOSEERROR, FAIL, "can't close DAOS-M VOL plugin")
+        D_GOTO_ERROR(H5E_VOL, H5E_CLOSEERROR, FAIL, "can't close DAOS-M VOL plugin")
 
 done:
-    FUNC_LEAVE_API(ret_value)
+    D_FUNC_LEAVE_API
 } /* end H5VLdaosm_term() */
 
 
@@ -820,7 +824,7 @@ H5VL_daosm_fapl_copy(const void *_old_fa)
 
     FUNC_ENTER_NOAPI_NOINIT
 
-    if(NULL == (new_fa = (H5VL_daosm_fapl_t *)H5MM_malloc(sizeof(H5VL_daosm_fapl_t))))
+    if(NULL == (new_fa = (H5VL_daosm_fapl_t *)DV_malloc(sizeof(H5VL_daosm_fapl_t))))
         HGOTO_ERROR(H5E_RESOURCE, H5E_NOSPACE, NULL, "memory allocation failed")
 
     /* Copy the general information */
@@ -876,7 +880,7 @@ H5VL_daosm_fapl_free(void *_fa)
             HGOTO_ERROR(H5E_INTERNAL, H5E_CANTFREE, FAIL, "Communicator/Info free failed")
 
     /* free the struct */
-    H5MM_xfree(fa);
+    DV_free(fa);
 
 done:
     FUNC_LEAVE_NOAPI(ret_value)
@@ -1217,7 +1221,7 @@ H5VL_daosm_file_create(const char *name, unsigned flags, hid_t fcpl_id,
             HDassert(sizeof(gh_buf_static) >= 2 * sizeof(uint64_t));
             if(gh_buf_size + 2 * sizeof(uint64_t) > sizeof(gh_buf_static)) {
                 /* Allocate dynamic buffer */
-                if(NULL == (gh_buf_dyn = (char *)H5MM_malloc(gh_buf_size + 2 * sizeof(uint64_t))))
+                if(NULL == (gh_buf_dyn = (char *)DV_malloc(gh_buf_size + 2 * sizeof(uint64_t))))
                     HGOTO_ERROR(H5E_FILE, H5E_CANTALLOC, NULL, "can't allocate space for global container handle")
 
                 /* Use dynamic buffer */
@@ -1275,7 +1279,7 @@ H5VL_daosm_file_create(const char *name, unsigned flags, hid_t fcpl_id,
             /* Check if we need to allocate a dynamic buffer */
             if(gh_buf_size > sizeof(gh_buf_static)) {
                 /* Allocate dynamic buffer */
-                if(NULL == (gh_buf_dyn = (char *)H5MM_malloc(gh_buf_size)))
+                if(NULL == (gh_buf_dyn = (char *)DV_malloc(gh_buf_size)))
                     HGOTO_ERROR(H5E_FILE, H5E_CANTALLOC, NULL, "can't allocate space for global pool handle")
                 gh_buf = gh_buf_dyn;
             } /* end if */
@@ -1323,8 +1327,7 @@ done:
     } /* end if */
 
     /* Clean up */
-    H5MM_xfree(gh_buf_dyn);
-
+    DV_free(gh_buf_dyn);
 
     FUNC_LEAVE_NOAPI(ret_value)
 } /* end H5VL_daosm_file_create() */
@@ -1512,7 +1515,7 @@ H5VL_daosm_file_open(const char *name, unsigned flags, hid_t fapl_id,
             /* Check if the file open info won't fit into the static buffer */
             if(gh_len + gcpl_len + 4 * sizeof(uint64_t) > sizeof(foi_buf_static)) {
                 /* Allocate dynamic buffer */
-                if(NULL == (foi_buf_dyn = (char *)H5MM_malloc(gh_len + gcpl_len + 4 * sizeof(uint64_t))))
+                if(NULL == (foi_buf_dyn = (char *)DV_malloc(gh_len + gcpl_len + 4 * sizeof(uint64_t))))
                     HGOTO_ERROR(H5E_FILE, H5E_CANTALLOC, NULL, "can't allocate space for global container handle")
 
                 /* Use dynamic buffer */
@@ -1585,7 +1588,7 @@ H5VL_daosm_file_open(const char *name, unsigned flags, hid_t fapl_id,
             /* Check if we need to allocate a dynamic buffer */
             if(gh_len + gcpl_len > sizeof(foi_buf_static)) {
                 /* Allocate dynamic buffer */
-                if(NULL == (foi_buf_dyn = (char *)H5MM_malloc(gh_len + gcpl_len)))
+                if(NULL == (foi_buf_dyn = (char *)DV_malloc(gh_len + gcpl_len)))
                     HGOTO_ERROR(H5E_FILE, H5E_CANTALLOC, NULL, "can't allocate space for global pool handle")
                 foi_buf = foi_buf_dyn;
             } /* end if */
@@ -1638,8 +1641,8 @@ done:
     } /* end if */
 
     /* Clean up buffers */
-    foi_buf_dyn = (char *)H5MM_xfree(foi_buf_dyn);
-    gcpl_buf = H5MM_xfree(gcpl_buf);
+    foi_buf_dyn = (char *)DV_free(foi_buf_dyn);
+    gcpl_buf = DV_free(gcpl_buf);
 
     FUNC_LEAVE_NOAPI(ret_value)
 } /* end H5VL_daosm_file_open() */
@@ -1969,7 +1972,7 @@ H5VL_daosm_link_read(H5VL_daosm_group_t *grp, const char *name, size_t name_len,
     /* Check if val_buf was large enough */
     if(iod.iod_size > (uint64_t)H5VL_DAOSM_LINK_VAL_BUF_SIZE) {
         /* Allocate new value buffer */
-        if(NULL == (val_buf_dyn = (uint8_t *)H5MM_malloc(iod.iod_size)))
+        if(NULL == (val_buf_dyn = (uint8_t *)DV_malloc(iod.iod_size)))
             HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate link value buffer")
 
         /* Point to new buffer */
@@ -2005,7 +2008,7 @@ H5VL_daosm_link_read(H5VL_daosm_group_t *grp, const char *name, size_t name_len,
                 HDmemmove(val->target.soft,  val->target.soft + 1, iod.iod_size - 1);
             } /* end if */
             else {
-                if(NULL == (val->target.soft = (char *)H5MM_malloc(iod.iod_size)))
+                if(NULL == (val->target.soft = (char *)DV_malloc(iod.iod_size)))
                     HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate link value buffer")
                 HDmemcpy(val->target.soft, val_buf + 1, iod.iod_size - 1);
             } /* end else */
@@ -2025,7 +2028,7 @@ H5VL_daosm_link_read(H5VL_daosm_group_t *grp, const char *name, size_t name_len,
 done:
     if(val_buf_dyn) {
         HDassert(ret_value == FAIL);
-        H5MM_free(val_buf_dyn);
+        DV_free(val_buf_dyn);
     } /* end if */
 
     FUNC_LEAVE_NOAPI(ret_value)
@@ -2333,7 +2336,7 @@ H5VL_daosm_link_specific(void *_item, H5VL_loc_params_t loc_params,
                 HDmemset(&anchor, 0, sizeof(anchor));
 
                 /* Allocate dkey_buf */
-                if(NULL == (dkey_buf = (char *)H5MM_malloc(H5VL_DAOSM_ITER_SIZE_INIT)))
+                if(NULL == (dkey_buf = (char *)DV_malloc(H5VL_DAOSM_ITER_SIZE_INIT)))
                     HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for dkeys")
                 dkey_buf_len = H5VL_DAOSM_ITER_SIZE_INIT;
 
@@ -2361,9 +2364,9 @@ H5VL_daosm_link_specific(void *_item, H5VL_loc_params_t loc_params,
                          * try again, otherwise fail */
                         if(ret == -DER_KEY2BIG) {
                             /* Allocate larger buffer */
-                            H5MM_free(dkey_buf);
+                            DV_free(dkey_buf);
                             dkey_buf_len *= 2;
-                            if(NULL == (dkey_buf = (char *)H5MM_malloc(dkey_buf_len)))
+                            if(NULL == (dkey_buf = (char *)DV_malloc(dkey_buf_len)))
                                 HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for dkeys")
 
                             /* Update sgl */
@@ -2396,7 +2399,7 @@ H5VL_daosm_link_specific(void *_item, H5VL_loc_params_t loc_params,
                                 linfo.u.val_size = HDstrlen(link_val.target.soft) + 1;
 
                                 /* Free soft link value */
-                                link_val.target.soft = (char *)H5MM_xfree(link_val.target.soft);
+                                link_val.target.soft = (char *)DV_free(link_val.target.soft);
                             } /* end else */
 
                             /* Make callback */
@@ -2439,7 +2442,7 @@ done:
             HDONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group")
         target_grp = NULL;
     } /* end else */
-    dkey_buf = (char *)H5MM_xfree(dkey_buf);
+    dkey_buf = (char *)DV_free(dkey_buf);
 
     FUNC_LEAVE_NOAPI(ret_value)
 } /* end H5VL_iod_link_specific() */
@@ -2519,7 +2522,7 @@ done:
     /* Clean up */
     if(link_val_alloc) {
         HDassert(link_val.type == H5L_TYPE_SOFT);
-        H5MM_free(link_val.target.soft);
+        DV_free(link_val.target.soft);
     } /* end if */
 
     if(target_grp)
@@ -2588,7 +2591,7 @@ H5VL_daosm_group_traverse(H5VL_daosm_item_t *item, const char *path,
     while(next_obj) {
         /* Free gcpl_buf_out */
         if(gcpl_buf_out)
-            *gcpl_buf_out = H5MM_xfree(*gcpl_buf_out);
+            *gcpl_buf_out = DV_free(*gcpl_buf_out);
 
         /* Follow link to next group in path */
         HDassert(next_obj > *obj_name);
@@ -2689,7 +2692,7 @@ H5VL_daosm_group_create_helper(H5VL_daosm_file_t *file, hid_t gcpl_id,
         /* Encode GCPL */
         if(H5Pencode(gcpl_id, NULL, &gcpl_size) < 0)
             HGOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of gcpl")
-        if(NULL == (gcpl_buf = H5MM_malloc(gcpl_size)))
+        if(NULL == (gcpl_buf = DV_malloc(gcpl_size)))
             HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized gcpl")
         if(H5Pencode(gcpl_id, gcpl_buf, &gcpl_size) < 0)
             HGOTO_ERROR(H5E_SYM, H5E_CANTENCODE, NULL, "can't serialize gcpl")
@@ -2760,7 +2763,7 @@ done:
             HDONE_ERROR(H5E_FILE, H5E_CLOSEERROR, NULL, "can't close group")
 
     /* Free memory */
-    gcpl_buf = H5MM_xfree(gcpl_buf);
+    gcpl_buf = DV_free(gcpl_buf);
 
     FUNC_LEAVE_NOAPI(ret_value)
 } /* end H5VL_daosm_group_create_helper() */
@@ -2899,7 +2902,7 @@ H5VL_daosm_group_open_helper(H5VL_daosm_file_t *file, daos_obj_id_t oid,
 
     /* Allocate buffer for GCPL */
     gcpl_len = iod.iod_size;
-    if(NULL == (gcpl_buf = H5MM_malloc(gcpl_len)))
+    if(NULL == (gcpl_buf = DV_malloc(gcpl_len)))
         HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized gcpl")
 
     /* Set up sgl */
@@ -2941,7 +2944,7 @@ done:
             HDONE_ERROR(H5E_SYM, H5E_CLOSEERROR, NULL, "can't close group")
 
     /* Free memory */
-    gcpl_buf = H5MM_xfree(gcpl_buf);
+    gcpl_buf = DV_free(gcpl_buf);
 
     FUNC_LEAVE_NOAPI(ret_value)
 } /* end H5VL_daosm_group_open_helper() */
@@ -3077,14 +3080,14 @@ H5VL_daosm_group_open(void *_item, H5VL_loc_params_t loc_params,
                 /* Encode GCPL */
                 if(H5Pencode(grp->gcpl_id, NULL, &gcpl_size) < 0)
                     HGOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of gcpl")
-                if(NULL == (gcpl_buf = (uint8_t *)H5MM_malloc(gcpl_size)))
+                if(NULL == (gcpl_buf = (uint8_t *)DV_malloc(gcpl_size)))
                     HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized gcpl")
                 gcpl_len = (uint64_t)gcpl_size;
                 if(H5Pencode(grp->gcpl_id, gcpl_buf, &gcpl_size) < 0)
                     HGOTO_ERROR(H5E_SYM, H5E_CANTENCODE, NULL, "can't serialize gcpl")
             } /* end if */
             else {
-                gcpl_buf = (uint8_t *)H5MM_xfree(gcpl_buf);
+                gcpl_buf = (uint8_t *)DV_free(gcpl_buf);
                 gcpl_len = 0;
 
                 /* Follow link to group */
@@ -3149,7 +3152,7 @@ H5VL_daosm_group_open(void *_item, H5VL_loc_params_t loc_params,
         if(gcpl_len + 3 * sizeof(uint64_t) > sizeof(ginfo_buf_static)) {
             /* Allocate a dynamic buffer if necessary */
             if(gcpl_len > sizeof(ginfo_buf_static)) {
-                if(NULL == (gcpl_buf = (uint8_t *)H5MM_malloc(gcpl_len)))
+                if(NULL == (gcpl_buf = (uint8_t *)DV_malloc(gcpl_len)))
                     HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate space for global pool handle")
                 p = gcpl_buf;
             } /* end if */
@@ -3190,7 +3193,7 @@ done:
         HDONE_ERROR(H5E_SYM, H5E_CLOSEERROR, NULL, "can't close group")
 
     /* Free memory */
-    gcpl_buf = (uint8_t *)H5MM_xfree(gcpl_buf);
+    gcpl_buf = (uint8_t *)DV_free(gcpl_buf);
 
     FUNC_LEAVE_NOAPI(ret_value)
 } /* end H5VL_daosm_group_open() */
@@ -3417,7 +3420,7 @@ done:
         if(src_memb_type_id >= 0)
             if(H5I_dec_app_ref(src_memb_type_id) < 0)
                 HDONE_ERROR(H5E_DATATYPE, H5E_CANTDEC, FAIL, "failed to close source member type")
-        memb_name = (char *)H5MM_xfree(memb_name);
+        memb_name = (char *)DV_free(memb_name);
     } /* end if */
 
     FUNC_LEAVE_NOAPI(ret_value)
@@ -3486,22 +3489,22 @@ H5VL_daosm_tconv_init(hid_t src_type_id, size_t *src_type_size,
 
         /* Allocate conversion buffer if it is not being reused */
         if(!reuse || (*reuse != H5VL_DAOSM_TCONV_REUSE_TCONV))
-            if(NULL == (*tconv_buf = H5MM_malloc(num_elem * (*src_type_size
+            if(NULL == (*tconv_buf = DV_malloc(num_elem * (*src_type_size
                     > *dst_type_size ? *src_type_size : *dst_type_size))))
                 HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate type conversion buffer")
 
         /* Allocate background buffer if one is needed and it is not being
          * reused */
         if(need_bkg && (!reuse || (*reuse != H5VL_DAOSM_TCONV_REUSE_BKG)))
-            if(NULL == (*bkg_buf = H5MM_calloc(num_elem * *dst_type_size)))
+            if(NULL == (*bkg_buf = DV_calloc(num_elem * *dst_type_size)))
                 HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate background buffer")
     } /* end else */
 
 done:
     /* Cleanup on failure */
     if(ret_value < 0) {
-        *tconv_buf = H5MM_xfree(*tconv_buf);
-        *bkg_buf = H5MM_xfree(*bkg_buf);
+        *tconv_buf = DV_free(*tconv_buf);
+        *bkg_buf = DV_free(*bkg_buf);
         if(reuse)
             *reuse = H5VL_DAOSM_TCONV_REUSE_NONE;
     } /* end if */
@@ -3611,7 +3614,7 @@ H5VL_daosm_dataset_create(void *_item,
         /* Encode datatype */
         if(H5Tencode(type_id, NULL, &type_size) < 0)
             HGOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of datatype")
-        if(NULL == (type_buf = H5MM_malloc(type_size)))
+        if(NULL == (type_buf = DV_malloc(type_size)))
             HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized datatype")
         if(H5Tencode(type_id, type_buf, &type_size) < 0)
             HGOTO_ERROR(H5E_DATASET, H5E_CANTENCODE, NULL, "can't serialize datatype")
@@ -3619,7 +3622,7 @@ H5VL_daosm_dataset_create(void *_item,
         /* Encode dataspace */
         if(H5Sencode(space_id, NULL, &space_size) < 0)
             HGOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of dataaspace")
-        if(NULL == (space_buf = H5MM_malloc(space_size)))
+        if(NULL == (space_buf = DV_malloc(space_size)))
             HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized dataaspace")
         if(H5Sencode(space_id, space_buf, &space_size) < 0)
             HGOTO_ERROR(H5E_DATASET, H5E_CANTENCODE, NULL, "can't serialize dataaspace")
@@ -3627,7 +3630,7 @@ H5VL_daosm_dataset_create(void *_item,
         /* Encode DCPL */
         if(H5Pencode(dcpl_id, NULL, &dcpl_size) < 0)
             HGOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of dcpl")
-        if(NULL == (dcpl_buf = H5MM_malloc(dcpl_size)))
+        if(NULL == (dcpl_buf = DV_malloc(dcpl_size)))
             HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized dcpl")
         if(H5Pencode(dcpl_id, dcpl_buf, &dcpl_size) < 0)
             HGOTO_ERROR(H5E_DATASET, H5E_CANTENCODE, NULL, "can't serialize dcpl")
@@ -3724,9 +3727,9 @@ done:
             HDONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, NULL, "can't close dataset")
 
     /* Free memory */
-    type_buf = H5MM_xfree(type_buf);
-    space_buf = H5MM_xfree(space_buf);
-    dcpl_buf = H5MM_xfree(dcpl_buf);
+    type_buf = DV_free(type_buf);
+    space_buf = DV_free(space_buf);
+    dcpl_buf = DV_free(dcpl_buf);
 
     FUNC_LEAVE_NOAPI(ret_value)
 } /* end H5VL_daosm_dataset_create() */
@@ -3863,7 +3866,7 @@ H5VL_daosm_dataset_open(void *_item,
 
         /* Allocate dataset info buffer if necessary */
         if((tot_len + (5 * sizeof(uint64_t))) > sizeof(dinfo_buf_static)) {
-            if(NULL == (dinfo_buf_dyn = (uint8_t *)H5MM_malloc(tot_len + (5 * sizeof(uint64_t)))))
+            if(NULL == (dinfo_buf_dyn = (uint8_t *)DV_malloc(tot_len + (5 * sizeof(uint64_t)))))
                 HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate dataset info buffer")
             dinfo_buf = dinfo_buf_dyn;
         } /* end if */
@@ -3941,7 +3944,7 @@ H5VL_daosm_dataset_open(void *_item,
         if(tot_len + (5 * sizeof(uint64_t)) > sizeof(dinfo_buf_static)) {
             /* Allocate a dynamic buffer if necessary */
             if(tot_len > sizeof(dinfo_buf_static)) {
-                if(NULL == (dinfo_buf_dyn = (uint8_t *)H5MM_malloc(tot_len)))
+                if(NULL == (dinfo_buf_dyn = (uint8_t *)DV_malloc(tot_len)))
                     HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate space for dataset info")
                 dinfo_buf = dinfo_buf_dyn;
             } /* end if */
@@ -3998,7 +4001,7 @@ done:
         HDONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, NULL, "can't close group")
 
     /* Free memory */
-    dinfo_buf_dyn = (uint8_t *)H5MM_xfree(dinfo_buf_dyn);
+    dinfo_buf_dyn = (uint8_t *)DV_free(dinfo_buf_dyn);
 
     FUNC_LEAVE_NOAPI(ret_value)
 } /* end H5VL_daosm_dataset_open() */
@@ -4061,21 +4064,21 @@ H5VL_daosm_sel_to_recx_iov(H5S_t *space, size_t type_size, void *buf,
         /* Make room for sequences in recxs */
         if((buf_len == 1) && (nseq > 1)) {
             if(recxs)
-                if(NULL == (*recxs = (daos_recx_t *)H5MM_malloc(H5VL_DAOSM_SEQ_LIST_LEN * sizeof(daos_recx_t))))
+                if(NULL == (*recxs = (daos_recx_t *)DV_malloc(H5VL_DAOSM_SEQ_LIST_LEN * sizeof(daos_recx_t))))
                     HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate memory for records")
             if(sg_iovs)
-                if(NULL == (*sg_iovs = (daos_iov_t *)H5MM_malloc(H5VL_DAOSM_SEQ_LIST_LEN * sizeof(daos_iov_t))))
+                if(NULL == (*sg_iovs = (daos_iov_t *)DV_malloc(H5VL_DAOSM_SEQ_LIST_LEN * sizeof(daos_iov_t))))
                     HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate memory for sgl iovs")
             buf_len = H5VL_DAOSM_SEQ_LIST_LEN;
         } /* end if */
         else if(*list_nused + nseq > buf_len) {
             if(recxs) {
-                if(NULL == (vp_ret = H5MM_realloc(*recxs, 2 * buf_len * sizeof(daos_recx_t))))
+                if(NULL == (vp_ret = DV_realloc(*recxs, 2 * buf_len * sizeof(daos_recx_t))))
                     HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't reallocate memory for records")
                 *recxs = (daos_recx_t *)vp_ret;
             } /* end if */
             if(sg_iovs) {
-                if(NULL == (vp_ret = H5MM_realloc(*sg_iovs, 2 * buf_len * sizeof(daos_iov_t))))
+                if(NULL == (vp_ret = DV_realloc(*sg_iovs, 2 * buf_len * sizeof(daos_iov_t))))
                     HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't reallocate memory for sgls")
                 *sg_iovs = (daos_iov_t *)vp_ret;
             } /* end if */
@@ -4253,7 +4256,7 @@ H5VL_daosm_dataset_file_vl_cb(void H5_ATTR_UNUSED *_elem,
     FUNC_ENTER_NOAPI_NOINIT
 
     /* Create akey for this element */
-    if(NULL == (udata->akeys[udata->idx] = (uint8_t *)H5MM_malloc(akey_len)))
+    if(NULL == (udata->akeys[udata->idx] = (uint8_t *)DV_malloc(akey_len)))
         HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akey")
     p = udata->akeys[udata->idx];
     for(i = 0; i < ndim; i++) {
@@ -4384,11 +4387,11 @@ H5VL_daosm_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
             HGOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get number of points in selection")
 
         /* Allocate array of akey pointers */
-        if(NULL == (akeys = (uint8_t **)H5MM_calloc((size_t)num_elem * sizeof(uint8_t *))))
+        if(NULL == (akeys = (uint8_t **)DV_calloc((size_t)num_elem * sizeof(uint8_t *))))
             HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akey array")
 
         /* Allocate array of iods */
-        if(NULL == (iods = (daos_iod_t *)H5MM_calloc((size_t)num_elem * sizeof(daos_iod_t))))
+        if(NULL == (iods = (daos_iod_t *)DV_calloc((size_t)num_elem * sizeof(daos_iod_t))))
             HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for I/O descriptor array")
 
         /* Fill in size fields of iod as DAOS_REC_ANY so we can read the vl
@@ -4413,11 +4416,11 @@ H5VL_daosm_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
             HGOTO_ERROR(H5E_ATTR, H5E_READERROR, FAIL, "can't read vl data sizes from dataset: %d", ret)
 
         /* Allocate array of sg_iovs */
-        if(NULL == (sg_iovs = (daos_iov_t *)H5MM_malloc((size_t)num_elem * sizeof(daos_iov_t))))
+        if(NULL == (sg_iovs = (daos_iov_t *)DV_malloc((size_t)num_elem * sizeof(daos_iov_t))))
             HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for scatter gather list")
 
         /* Allocate array of sgls */
-        if(NULL == (sgls = (daos_sg_list_t *)H5MM_malloc((size_t)num_elem * sizeof(daos_sg_list_t))))
+        if(NULL == (sgls = (daos_sg_list_t *)DV_malloc((size_t)num_elem * sizeof(daos_sg_list_t))))
             HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for scatter gather list array")
 
         /* Iterate over memory selection */
@@ -4586,21 +4589,21 @@ H5VL_daosm_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
 
 done:
     /* Free memory */
-    iods = (daos_iod_t *)H5MM_xfree(iods);
+    iods = (daos_iod_t *)DV_free(iods);
     if(recxs != &recx)
-        H5MM_free(recxs);
-    sgls = (daos_sg_list_t *)H5MM_xfree(sgls);
+        DV_free(recxs);
+    sgls = (daos_sg_list_t *)DV_free(sgls);
     if(sg_iovs != &sg_iov)
-        H5MM_free(sg_iovs);
+        DV_free(sg_iovs);
     if(tconv_buf && (reuse != H5VL_DAOSM_TCONV_REUSE_TCONV))
-        H5MM_free(tconv_buf);
+        DV_free(tconv_buf);
     if(bkg_buf && (reuse != H5VL_DAOSM_TCONV_REUSE_BKG))
-        H5MM_free(bkg_buf);
+        DV_free(bkg_buf);
 
     if(akeys) {
         for(i = 0; i < (uint64_t)num_elem; i++)
-            H5MM_xfree(akeys[i]);
-        H5MM_free(akeys);
+            DV_free(akeys[i]);
+        DV_free(akeys);
     } /* end if */
 
     if(base_type_id != FAIL)
@@ -4800,19 +4803,19 @@ H5VL_daosm_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
         H5VL_daosm_vl_file_ud_t file_ud;
 
         /* Allocate array of akey pointers */
-        if(NULL == (akeys = (uint8_t **)H5MM_calloc((size_t)num_elem * sizeof(uint8_t *))))
+        if(NULL == (akeys = (uint8_t **)DV_calloc((size_t)num_elem * sizeof(uint8_t *))))
             HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akey array")
 
         /* Allocate array of iods */
-        if(NULL == (iods = (daos_iod_t *)H5MM_calloc((size_t)num_elem * sizeof(daos_iod_t))))
+        if(NULL == (iods = (daos_iod_t *)DV_calloc((size_t)num_elem * sizeof(daos_iod_t))))
             HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for I/O descriptor array")
 
         /* Allocate array of sg_iovs */
-        if(NULL == (sg_iovs = (daos_iov_t *)H5MM_malloc((size_t)num_elem * sizeof(daos_iov_t))))
+        if(NULL == (sg_iovs = (daos_iov_t *)DV_malloc((size_t)num_elem * sizeof(daos_iov_t))))
             HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for scatter gather list")
 
         /* Allocate array of sgls */
-        if(NULL == (sgls = (daos_sg_list_t *)H5MM_malloc((size_t)num_elem * sizeof(daos_sg_list_t))))
+        if(NULL == (sgls = (daos_sg_list_t *)DV_malloc((size_t)num_elem * sizeof(daos_sg_list_t))))
             HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for scatter gather list array")
 
         /* Iterate over memory selection */
@@ -4946,19 +4949,19 @@ H5VL_daosm_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
 
 done:
     /* Free memory */
-    iods = (daos_iod_t *)H5MM_xfree(iods);
+    iods = (daos_iod_t *)DV_free(iods);
     if(recxs != &recx)
-        H5MM_free(recxs);
-    sgls = (daos_sg_list_t *)H5MM_xfree(sgls);
+        DV_free(recxs);
+    sgls = (daos_sg_list_t *)DV_free(sgls);
     if(sg_iovs && (sg_iovs != &sg_iov))
-        H5MM_free(sg_iovs);
-    tconv_buf = H5MM_xfree(tconv_buf);
-    bkg_buf = H5MM_xfree(bkg_buf);
+        DV_free(sg_iovs);
+    tconv_buf = DV_free(tconv_buf);
+    bkg_buf = DV_free(bkg_buf);
 
     if(akeys) {
         for(i = 0; i < (uint64_t)num_elem; i++)
-            H5MM_xfree(akeys[i]);
-        H5MM_free(akeys);
+            DV_free(akeys[i]);
+        DV_free(akeys);
     } /* end if */
 
     if(base_type_id != FAIL)
@@ -5180,7 +5183,7 @@ H5VL_daosm_datatype_commit(void *_item,
         /* Encode datatype */
         if(H5Tencode(type_id, NULL, &type_size) < 0)
             HGOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of datatype")
-        if(NULL == (type_buf = H5MM_malloc(type_size)))
+        if(NULL == (type_buf = DV_malloc(type_size)))
             HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized datatype")
         if(H5Tencode(type_id, type_buf, &type_size) < 0)
             HGOTO_ERROR(H5E_DATATYPE, H5E_CANTENCODE, NULL, "can't serialize datatype")
@@ -5188,7 +5191,7 @@ H5VL_daosm_datatype_commit(void *_item,
         /* Encode TCPL */
         if(H5Pencode(tcpl_id, NULL, &tcpl_size) < 0)
             HGOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of tcpl")
-        if(NULL == (tcpl_buf = H5MM_malloc(tcpl_size)))
+        if(NULL == (tcpl_buf = DV_malloc(tcpl_size)))
             HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized tcpl")
         if(H5Pencode(tcpl_id, tcpl_buf, &tcpl_size) < 0)
             HGOTO_ERROR(H5E_DATATYPE, H5E_CANTENCODE, NULL, "can't serialize tcpl")
@@ -5271,8 +5274,8 @@ done:
             HDONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, NULL, "can't close datatype")
 
     /* Free memory */
-    type_buf = H5MM_xfree(type_buf);
-    tcpl_buf = H5MM_xfree(tcpl_buf);
+    type_buf = DV_free(type_buf);
+    tcpl_buf = DV_free(tcpl_buf);
 
     FUNC_LEAVE_NOAPI(ret_value)
 } /* end H5VL_daosm_datatype_commit() */
@@ -5397,7 +5400,7 @@ H5VL_daosm_datatype_open(void *_item,
 
         /* Allocate datatype info buffer if necessary */
         if((tot_len + (4 * sizeof(uint64_t))) > sizeof(tinfo_buf_static)) {
-            if(NULL == (tinfo_buf_dyn = (uint8_t *)H5MM_malloc(tot_len + (4 * sizeof(uint64_t)))))
+            if(NULL == (tinfo_buf_dyn = (uint8_t *)DV_malloc(tot_len + (4 * sizeof(uint64_t)))))
                 HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate datatype info buffer")
             tinfo_buf = tinfo_buf_dyn;
         } /* end if */
@@ -5468,7 +5471,7 @@ H5VL_daosm_datatype_open(void *_item,
         if(tot_len + (4 * sizeof(uint64_t)) > sizeof(tinfo_buf_static)) {
             /* Allocate a dynamic buffer if necessary */
             if(tot_len > sizeof(tinfo_buf_static)) {
-                if(NULL == (tinfo_buf_dyn = (uint8_t *)H5MM_malloc(tot_len)))
+                if(NULL == (tinfo_buf_dyn = (uint8_t *)DV_malloc(tot_len)))
                     HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate space for datatype info")
                 tinfo_buf = tinfo_buf_dyn;
             } /* end if */
@@ -5520,7 +5523,7 @@ done:
         HDONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, NULL, "can't close group")
 
     /* Free memory */
-    tinfo_buf_dyn = (uint8_t *)H5MM_xfree(tinfo_buf_dyn);
+    tinfo_buf_dyn = (uint8_t *)DV_free(tinfo_buf_dyn);
 
     FUNC_LEAVE_NOAPI(ret_value)
 } /* end H5VL_daosm_datatype_open() */
@@ -6026,7 +6029,7 @@ H5VL_daosm_attribute_create(void *_item, H5VL_loc_params_t loc_params,
     /* Encode datatype */
     if(H5Tencode(type_id, NULL, &type_size) < 0)
         HGOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of datatype")
-    if(NULL == (type_buf = H5MM_malloc(type_size)))
+    if(NULL == (type_buf = DV_malloc(type_size)))
         HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized datatype")
     if(H5Tencode(type_id, type_buf, &type_size) < 0)
         HGOTO_ERROR(H5E_DATASET, H5E_CANTENCODE, NULL, "can't serialize datatype")
@@ -6034,7 +6037,7 @@ H5VL_daosm_attribute_create(void *_item, H5VL_loc_params_t loc_params,
     /* Encode dataspace */
     if(H5Sencode(space_id, NULL, &space_size) < 0)
         HGOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of dataaspace")
-    if(NULL == (space_buf = H5MM_malloc(space_size)))
+    if(NULL == (space_buf = DV_malloc(space_size)))
         HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized dataaspace")
     if(H5Sencode(space_id, space_buf, &space_size) < 0)
         HGOTO_ERROR(H5E_DATASET, H5E_CANTENCODE, NULL, "can't serialize dataaspace")
@@ -6045,9 +6048,9 @@ H5VL_daosm_attribute_create(void *_item, H5VL_loc_params_t loc_params,
 
     /* Create akey strings (prefix "S-", "T-") */
     akey_len = HDstrlen(name) + 2;
-    if(NULL == (type_key = (char *)H5MM_malloc(akey_len + 1)))
+    if(NULL == (type_key = (char *)DV_malloc(akey_len + 1)))
         HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for akey")
-    if(NULL == (space_key = (char *)H5MM_malloc(akey_len + 1)))
+    if(NULL == (space_key = (char *)DV_malloc(akey_len + 1)))
         HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for akey")
     type_key[0] = 'T';
     type_key[1] = '-';
@@ -6098,10 +6101,10 @@ H5VL_daosm_attribute_create(void *_item, H5VL_loc_params_t loc_params,
 
 done:
     /* Free memory */
-    type_buf = H5MM_xfree(type_buf);
-    space_buf = H5MM_xfree(space_buf);
-    type_key = (char *)H5MM_xfree(type_key);
-    space_key = (char *)H5MM_xfree(space_key);
+    type_buf = DV_free(type_buf);
+    space_buf = DV_free(space_buf);
+    type_key = (char *)DV_free(type_key);
+    space_key = (char *)DV_free(space_key);
 
     /* Cleanup on failure */
     /* Destroy DAOS object if created before failure DSMINC */
@@ -6181,9 +6184,9 @@ H5VL_daosm_attribute_open(void *_item, H5VL_loc_params_t loc_params,
 
     /* Create akey strings (prefix "S-", "T-") */
     akey_len = HDstrlen(name) + 2;
-    if(NULL == (type_key = (char *)H5MM_malloc(akey_len + 1)))
+    if(NULL == (type_key = (char *)DV_malloc(akey_len + 1)))
         HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for akey")
-    if(NULL == (space_key = (char *)H5MM_malloc(akey_len + 1)))
+    if(NULL == (space_key = (char *)DV_malloc(akey_len + 1)))
         HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for akey")
     type_key[0] = 'T';
     type_key[1] = '-';
@@ -6214,9 +6217,9 @@ H5VL_daosm_attribute_open(void *_item, H5VL_loc_params_t loc_params,
         HGOTO_ERROR(H5E_ATTR, H5E_NOTFOUND, NULL, "attribute not found")
 
     /* Allocate buffers for datatype and dataspace */
-    if(NULL == (type_buf = H5MM_malloc(iod[0].iod_size)))
+    if(NULL == (type_buf = DV_malloc(iod[0].iod_size)))
         HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized datatype")
-    if(NULL == (space_buf = H5MM_malloc(iod[1].iod_size)))
+    if(NULL == (space_buf = DV_malloc(iod[1].iod_size)))
         HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized dataaspace")
 
     /* Set up sgl */
@@ -6249,10 +6252,10 @@ H5VL_daosm_attribute_open(void *_item, H5VL_loc_params_t loc_params,
 
 done:
     /* Free memory */
-    type_buf = H5MM_xfree(type_buf);
-    space_buf = H5MM_xfree(space_buf);
-    type_key = (char *)H5MM_xfree(type_key);
-    space_key = (char *)H5MM_xfree(space_key);
+    type_buf = DV_free(type_buf);
+    space_buf = DV_free(space_buf);
+    type_key = (char *)DV_free(type_key);
+    space_key = (char *)DV_free(space_key);
 
     /* Cleanup on failure */
     /* Destroy DAOS object if created before failure DSMINC */
@@ -6352,17 +6355,17 @@ H5VL_daosm_attribute_read(void *_attr, hid_t mem_type_id, void *buf,
         akey_len = akey_str_len + sizeof(uint64_t);
 
         /* Allocate array of akey pointers */
-        if(NULL == (akeys = (uint8_t **)H5MM_calloc(attr_size * sizeof(uint8_t *))))
+        if(NULL == (akeys = (uint8_t **)DV_calloc(attr_size * sizeof(uint8_t *))))
             HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akey array")
 
         /* Allocate array of iods */
-        if(NULL == (iods = (daos_iod_t *)H5MM_calloc(attr_size * sizeof(daos_iod_t))))
+        if(NULL == (iods = (daos_iod_t *)DV_calloc(attr_size * sizeof(daos_iod_t))))
             HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for I/O descriptor array")
 
         /* First loop over elements, set up operation to read vl sizes */
         for(i = 0; i < attr_size; i++) {
             /* Create akey for this element */
-            if(NULL == (akeys[i] = (uint8_t *)H5MM_malloc(akey_len)))
+            if(NULL == (akeys[i] = (uint8_t *)DV_malloc(akey_len)))
                 HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akey")
             akeys[i][0] = 'V';
             akeys[i][1] = '-';
@@ -6385,11 +6388,11 @@ H5VL_daosm_attribute_read(void *_attr, hid_t mem_type_id, void *buf,
             HGOTO_ERROR(H5E_ATTR, H5E_READERROR, FAIL, "can't read vl data sizes from attribute: %d", ret)
 
         /* Allocate array of sg_iovs */
-        if(NULL == (sg_iovs = (daos_iov_t *)H5MM_malloc(attr_size * sizeof(daos_iov_t))))
+        if(NULL == (sg_iovs = (daos_iov_t *)DV_malloc(attr_size * sizeof(daos_iov_t))))
             HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for scatter gather list")
 
         /* Allocate array of sgls */
-        if(NULL == (sgls = (daos_sg_list_t *)H5MM_malloc(attr_size * sizeof(daos_sg_list_t))))
+        if(NULL == (sgls = (daos_sg_list_t *)DV_malloc(attr_size * sizeof(daos_sg_list_t))))
             HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for scatter gather list array")
 
         /* Second loop over elements, set up operation to read vl data */
@@ -6482,7 +6485,7 @@ H5VL_daosm_attribute_read(void *_attr, hid_t mem_type_id, void *buf,
         /* Set up operation to read data */
         /* Create akey string (prefix "V-") */
         akey_len = HDstrlen(attr->name) + 2;
-        if(NULL == (akey = (char *)H5MM_malloc(akey_len + 1)))
+        if(NULL == (akey = (char *)DV_malloc(akey_len + 1)))
             HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akey")
         akey[0] = 'V';
         akey[1] = '-';
@@ -6525,19 +6528,19 @@ H5VL_daosm_attribute_read(void *_attr, hid_t mem_type_id, void *buf,
 
 done:
     /* Free memory */
-    akey = (char *)H5MM_xfree(akey);
-    iods = (daos_iod_t *)H5MM_xfree(iods);
-    sgls = (daos_sg_list_t *)H5MM_xfree(sgls);
-    sg_iovs = (daos_iov_t *)H5MM_xfree(sg_iovs);
+    akey = (char *)DV_free(akey);
+    iods = (daos_iod_t *)DV_free(iods);
+    sgls = (daos_sg_list_t *)DV_free(sgls);
+    sg_iovs = (daos_iov_t *)DV_free(sg_iovs);
     if(tconv_buf && (tconv_buf != buf))
-        H5MM_free(tconv_buf);
+        DV_free(tconv_buf);
     if(bkg_buf && (bkg_buf != buf))
-        H5MM_free(bkg_buf);
+        DV_free(bkg_buf);
 
     if(akeys) {
         for(i = 0; i < attr_size; i++)
-            H5MM_xfree(akeys[i]);
-        H5MM_free(akeys);
+            DV_free(akeys[i]);
+        DV_free(akeys);
     } /* end if */
 
     if(base_type_id != FAIL)
@@ -6638,25 +6641,25 @@ H5VL_daosm_attribute_write(void *_attr, hid_t mem_type_id, const void *buf,
         akey_len = akey_str_len + sizeof(uint64_t);
 
         /* Allocate array of akey pointers */
-        if(NULL == (akeys = (uint8_t **)H5MM_calloc(attr_size * sizeof(uint8_t *))))
+        if(NULL == (akeys = (uint8_t **)DV_calloc(attr_size * sizeof(uint8_t *))))
             HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akey array")
 
         /* Allocate array of iods */
-        if(NULL == (iods = (daos_iod_t *)H5MM_calloc(attr_size * sizeof(daos_iod_t))))
+        if(NULL == (iods = (daos_iod_t *)DV_calloc(attr_size * sizeof(daos_iod_t))))
             HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for I/O descriptor array")
 
         /* Allocate array of sg_iovs */
-        if(NULL == (sg_iovs = (daos_iov_t *)H5MM_malloc(attr_size * sizeof(daos_iov_t))))
+        if(NULL == (sg_iovs = (daos_iov_t *)DV_malloc(attr_size * sizeof(daos_iov_t))))
             HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for scatter gather list")
 
         /* Allocate array of sgls */
-        if(NULL == (sgls = (daos_sg_list_t *)H5MM_malloc(attr_size * sizeof(daos_sg_list_t))))
+        if(NULL == (sgls = (daos_sg_list_t *)DV_malloc(attr_size * sizeof(daos_sg_list_t))))
             HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for scatter gather list array")
 
         /* Loop over elements */
         for(i = 0; i < attr_size; i++) {
             /* Create akey for this element */
-            if(NULL == (akeys[i] = (uint8_t *)H5MM_malloc(akey_len)))
+            if(NULL == (akeys[i] = (uint8_t *)DV_malloc(akey_len)))
                 HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akey")
             akeys[i][0] = 'V';
             akeys[i][1] = '-';
@@ -6737,7 +6740,7 @@ H5VL_daosm_attribute_write(void *_attr, hid_t mem_type_id, const void *buf,
         /* Set up operation to write data */
         /* Create akey string (prefix "V-") */
         akey_len = HDstrlen(attr->name) + 2;
-        if(NULL == (akey = (char *)H5MM_malloc(akey_len + 1)))
+        if(NULL == (akey = (char *)DV_malloc(akey_len + 1)))
             HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akey")
         akey[0] = 'V';
         akey[1] = '-';
@@ -6795,17 +6798,17 @@ H5VL_daosm_attribute_write(void *_attr, hid_t mem_type_id, const void *buf,
 
 done:
     /* Free memory */
-    akey = (char *)H5MM_xfree(akey);
-    iods = (daos_iod_t *)H5MM_xfree(iods);
-    sgls = (daos_sg_list_t *)H5MM_xfree(sgls);
-    sg_iovs = (daos_iov_t *)H5MM_xfree(sg_iovs);
-    tconv_buf = H5MM_xfree(tconv_buf);
-    bkg_buf = H5MM_xfree(bkg_buf);
+    akey = (char *)DV_free(akey);
+    iods = (daos_iod_t *)DV_free(iods);
+    sgls = (daos_sg_list_t *)DV_free(sgls);
+    sg_iovs = (daos_iov_t *)DV_free(sg_iovs);
+    tconv_buf = DV_free(tconv_buf);
+    bkg_buf = DV_free(bkg_buf);
 
     if(akeys) {
         for(i = 0; i < attr_size; i++)
-            H5MM_xfree(akeys[i]);
-        H5MM_free(akeys);
+            DV_free(akeys[i]);
+        DV_free(akeys);
     } /* end if */
 
     if(base_type_id != FAIL)
@@ -7017,7 +7020,7 @@ H5VL_daosm_attribute_specific(void *_item, H5VL_loc_params_t loc_params,
                 daos_iov_set(&dkey, attr_key, (daos_size_t)(sizeof(attr_key) - 1));
 
                 /* Allocate akey_buf */
-                if(NULL == (akey_buf = (char *)H5MM_malloc(H5VL_DAOSM_ITER_SIZE_INIT)))
+                if(NULL == (akey_buf = (char *)DV_malloc(H5VL_DAOSM_ITER_SIZE_INIT)))
                     HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akeys")
                 akey_buf_len = H5VL_DAOSM_ITER_SIZE_INIT;
 
@@ -7045,9 +7048,9 @@ H5VL_daosm_attribute_specific(void *_item, H5VL_loc_params_t loc_params,
                          * try again, otherwise fail */
                         if(ret == -DER_KEY2BIG) {
                             /* Allocate larger buffer */
-                            H5MM_free(akey_buf);
+                            DV_free(akey_buf);
                             akey_buf_len *= 2;
-                            if(NULL == (akey_buf = (char *)H5MM_malloc(akey_buf_len)))
+                            if(NULL == (akey_buf = (char *)DV_malloc(akey_buf_len)))
                                 HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akeys")
 
                             /* Update sgl */
@@ -7142,7 +7145,7 @@ done:
             HDONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close attribute")
         attr = NULL;
     } /* end if */
-    akey_buf = (char *)H5MM_xfree(akey_buf);
+    akey_buf = (char *)DV_free(akey_buf);
 
     FUNC_LEAVE_NOAPI(ret_value)
 } /* end H5VL_daosm_attribute_specific() */
@@ -7175,7 +7178,7 @@ H5VL_daosm_attribute_close(void *_attr, hid_t dxpl_id, void **req)
         /* Free attribute data structures */
         if(attr->parent && H5VL_daosm_object_close(attr->parent, dxpl_id, req))
             HDONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close parent object")
-        H5MM_xfree(attr->name);
+        DV_free(attr->name);
         if(attr->type_id != FAIL && H5I_dec_app_ref(attr->type_id) < 0)
             HDONE_ERROR(H5E_ATTR, H5E_CANTDEC, FAIL, "failed to close datatype")
         if(attr->space_id != FAIL && H5I_dec_app_ref(attr->space_id) < 0)
@@ -7269,14 +7272,14 @@ H5VL_daosm_map_create(void *_item, H5VL_loc_params_t H5_ATTR_UNUSED loc_params,
         /* Encode datatypes */
         if(H5Tencode(ktype_id, NULL, &ktype_size) < 0)
             HGOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of datatype")
-        if(NULL == (ktype_buf = H5MM_malloc(ktype_size)))
+        if(NULL == (ktype_buf = DV_malloc(ktype_size)))
             HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized datatype")
         if(H5Tencode(ktype_id, ktype_buf, &ktype_size) < 0)
             HGOTO_ERROR(H5E_MAP, H5E_CANTENCODE, NULL, "can't serialize datatype")
 
         if(H5Tencode(vtype_id, NULL, &vtype_size) < 0)
             HGOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of datatype")
-        if(NULL == (vtype_buf = H5MM_malloc(vtype_size)))
+        if(NULL == (vtype_buf = DV_malloc(vtype_size)))
             HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized datatype")
         if(H5Tencode(vtype_id, vtype_buf, &vtype_size) < 0)
             HGOTO_ERROR(H5E_MAP, H5E_CANTENCODE, NULL, "can't serialize datatype")
@@ -7354,8 +7357,8 @@ done:
             HDONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't close map");
 
     /* Free memory */
-    ktype_buf = H5MM_xfree(ktype_buf);
-    vtype_buf = H5MM_xfree(vtype_buf);
+    ktype_buf = DV_free(ktype_buf);
+    vtype_buf = DV_free(vtype_buf);
 
     FUNC_LEAVE_NOAPI(ret_value)
 } /* end H5VL_daosm_map_create() */
@@ -7475,7 +7478,7 @@ H5VL_daosm_map_open(void *_item, H5VL_loc_params_t loc_params, const char *name,
 
         /* Allocate map info buffer if necessary */
         if((tot_len + (4 * sizeof(uint64_t))) > sizeof(minfo_buf_static)) {
-            if(NULL == (minfo_buf_dyn = (uint8_t *)H5MM_malloc(tot_len + (4 * sizeof(uint64_t)))))
+            if(NULL == (minfo_buf_dyn = (uint8_t *)DV_malloc(tot_len + (4 * sizeof(uint64_t)))))
                 HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate map info buffer")
             minfo_buf = minfo_buf_dyn;
         } /* end if */
@@ -7546,7 +7549,7 @@ H5VL_daosm_map_open(void *_item, H5VL_loc_params_t loc_params, const char *name,
         if(tot_len + (4 * sizeof(uint64_t)) > sizeof(minfo_buf_static)) {
             /* Allocate a dynamic buffer if necessary */
             if(tot_len > sizeof(minfo_buf_static)) {
-                if(NULL == (minfo_buf_dyn = (uint8_t *)H5MM_malloc(tot_len)))
+                if(NULL == (minfo_buf_dyn = (uint8_t *)DV_malloc(tot_len)))
                     HGOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate space for map info")
                 minfo_buf = minfo_buf_dyn;
             } /* end if */
@@ -7594,7 +7597,7 @@ done:
         HDONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't close group")
 
     /* Free memory */
-    minfo_buf_dyn = (uint8_t *)H5MM_xfree(minfo_buf_dyn);
+    minfo_buf_dyn = (uint8_t *)DV_free(minfo_buf_dyn);
 
     FUNC_LEAVE_NOAPI(ret_value)
 } /* end H5VL_daosm_map_open() */

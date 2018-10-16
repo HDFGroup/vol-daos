@@ -247,7 +247,7 @@ if [ -z "${DAOS_LINK}" ]; then
 fi
 
 export LD_LIBRARY_PATH="${DAOS_LIB_DIRS}"
-COMP_OPTS="${COMP_OPTS} ${DAOS_INCLUDES} ${DAOS_LINK} -ldaos -lmpi"
+COMP_OPTS="${COMP_OPTS} ${DAOS_INCLUDES} ${DAOS_LINK} -ldaos -ldaos_common -lmpi"
 
 # If the user hasn't already, first build HDF5
 if [ "$build_hdf5" = true ]; then
@@ -288,10 +288,6 @@ mkdir -p "${INSTALL_DIR}"
 cd "${SCRIPT_DIR}"
 
 ./autogen.sh || exit 1
-
-# Set up paths for finding the relevant DAOS includes needed
-CC=
-LD_LIBRARY_PATH=${DAOS_LIB_DIR}
 
 ./configure --prefix="${INSTALL_DIR}" ${DV_OPTS} CFLAGS="${COMP_OPTS}" || exit 1
 

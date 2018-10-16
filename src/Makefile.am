@@ -37,7 +37,7 @@ AM_CFLAGS += -luuid
 lib_LTLIBRARIES=libdaosvol.la
 
 # DAOS VOL's source file and private headers
-libdaosvol_la_SOURCES=daos_vol.c daos_vol.h
+libdaosvol_la_SOURCES=daos_vol.c daos_vol.h daos_vol_err.h util/daos_vol_mem.h util/daos_vol_mem.c
 
 # Public headers
 include_HEADERS=daos_vol_public.h daos_vol_config.h

@@ -41,6 +41,7 @@ extern "C" {
 
 typedef uint64_t H5VL_daosm_snap_id_t;
 
+/* DSMINC - need to redefine H5_DLL since this will not work correctly for an external plugin */
 H5_DLL herr_t H5VLdaosm_init(MPI_Comm pool_comm, uuid_t pool_uuid,
     char *pool_grp);
 H5_DLL herr_t H5VLdaosm_term(void);
@@ -49,8 +50,8 @@ H5_DLL herr_t H5VLdaosm_snap_create(hid_t loc_id,
     H5VL_daosm_snap_id_t *snap_id);
 H5_DLL herr_t H5Pset_daosm_snap_open(hid_t fapl_id,
     H5VL_daosm_snap_id_t snap_id);
-//H5_DLL herr_t EFF_init(void); DSMINC
-//H5_DLL herr_t EFF_finalize(void); DSMINC
+/* H5_DLL herr_t EFF_init(void); DSMINC */
+/* H5_DLL herr_t EFF_finalize(void); DSMINC */
 
 #endif /* H5_HAVE_EFF */
 

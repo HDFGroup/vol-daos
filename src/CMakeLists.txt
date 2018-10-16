@@ -28,6 +28,7 @@ set (DAOS_VOL_SRCS
 set (DAOS_VOL_HDRS
     ${DAOS_VOL_SRC_DIR}/daos_vol.h
     ${DAOS_VOL_SRC_DIR}/daos_vol_public.h
+    ${DAOS_VOL_SRC_DIR}/daos_vol_err.h
 )
 
 #-----------------------------------------------------------------------------

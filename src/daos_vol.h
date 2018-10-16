@@ -134,6 +134,45 @@ typedef struct H5VL_daosm_link_val_t {
     } target;
 } H5VL_daosm_link_val_t;
 
+/* XXX: The following two definitions are only here until they are
+ * moved out of their respective H5Xpkg.h header files and into a
+ * more public scope. They are still needed for the DAOS VOL to handle
+ * these API calls being made.
+ */
+/* types for file optional VOL operations */
+typedef enum H5VL_file_optional_t {
+    H5VL_FILE_CLEAR_ELINK_CACHE,        /* Clear external link cache            */
+    H5VL_FILE_GET_FILE_IMAGE,           /* file image                           */
+    H5VL_FILE_GET_FREE_SECTIONS,        /* file free selections                 */
+    H5VL_FILE_GET_FREE_SPACE,           /* file freespace                       */
+    H5VL_FILE_GET_INFO,                 /* file info                            */
+    H5VL_FILE_GET_MDC_CONF,             /* file metadata cache configuration    */
+    H5VL_FILE_GET_MDC_HR,               /* file metadata cache hit rate         */
+    H5VL_FILE_GET_MDC_SIZE,             /* file metadata cache size             */
+    H5VL_FILE_GET_SIZE,                 /* file size                            */
+    H5VL_FILE_GET_VFD_HANDLE,           /* file VFD handle                      */
+    H5VL_FILE_REOPEN,                   /* reopen the file                      */
+    H5VL_FILE_RESET_MDC_HIT_RATE,       /* get metadata cache hit rate          */
+    H5VL_FILE_SET_MDC_CONFIG,           /* set metadata cache configuration     */
+    H5VL_FILE_GET_METADATA_READ_RETRY_INFO,
+    H5VL_FILE_START_SWMR_WRITE,
+    H5VL_FILE_START_MDC_LOGGING,
+    H5VL_FILE_STOP_MDC_LOGGING,
+    H5VL_FILE_GET_MDC_LOGGING_STATUS,
+    H5VL_FILE_SET_LATEST_FORMAT,
+    H5VL_FILE_FORMAT_CONVERT,
+    H5VL_FILE_RESET_PAGE_BUFFERING_STATS,
+    H5VL_FILE_GET_PAGE_BUFFERING_STATS,
+    H5VL_FILE_GET_MDC_IMAGE_INFO
+} H5VL_file_optional_t;
+
+/* types for object optional VOL operations */
+typedef enum H5VL_object_optional_t {
+    H5VL_OBJECT_GET_COMMENT,            /* get object comment                   */
+    H5VL_OBJECT_GET_INFO,               /* get object info                      */
+    H5VL_OBJECT_SET_COMMENT             /* set object comment                   */
+} H5VL_object_optional_t;
+
 extern hid_t H5VL_DAOSM_g;
 
 H5_DLL herr_t H5VL_daosm_init(void);

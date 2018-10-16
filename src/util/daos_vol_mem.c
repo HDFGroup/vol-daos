@@ -17,10 +17,7 @@
 #include "daos_vol_mem.h"
 
 #ifdef DV_TRACK_MEM_USAGE
-/*
- * Counter to keep track of the currently allocated amount of bytes
- */
-static size_t daos_vol_curr_alloc_bytes;
+extern size_t daos_vol_curr_alloc_bytes;
 #endif
 
 

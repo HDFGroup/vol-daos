@@ -1175,7 +1175,6 @@ H5VL_daosm_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     hid_t fapl_id, hid_t dxpl_id, void **req)
 {
     H5VL_daosm_fapl_t *fa = NULL;
-    H5P_genplist_t *plist = NULL;      /* Property list pointer */
     H5VL_daosm_file_t *file = NULL;
     daos_iov_t glob;
     uint64_t epoch64;
@@ -2208,15 +2207,10 @@ H5VL_daosm_link_create(H5VL_link_create_type_t create_type, void *_item,
     hid_t dxpl_id, void **req)
 {
     H5VL_daosm_item_t *item = (H5VL_daosm_item_t *)_item;
-    H5P_genplist_t *plist = NULL;                      /* Property list pointer */
     H5VL_daosm_group_t *link_grp = NULL;
     const char *link_name = NULL;
     H5VL_daosm_link_val_t link_val;
     herr_t ret_value = SUCCEED;
-
-    /* Get the plist structure */
-    if(NULL == (plist = (H5P_genplist_t *)H5I_object(lcpl_id)))
-        D_GOTO_ERROR(H5E_ATOM, H5E_BADATOM, FAIL, "can't find object for ID");
 
     /* Find target group */
     assert(loc_params.type == H5VL_OBJECT_BY_NAME);
@@ -2232,7 +2226,7 @@ H5VL_daosm_link_create(H5VL_link_create_type_t create_type, void *_item,
         case H5VL_LINK_CREATE_SOFT:
             /* Retrieve target name */
             link_val.type = H5L_TYPE_SOFT;
-            if(H5P_get(plist, H5VL_PROP_LINK_TARGET_NAME, &link_val.target.soft) < 0)
+            if(H5Pget(lcpl_id, H5VL_PROP_LINK_TARGET_NAME, &link_val.target.soft) < 0)
                 D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, FAIL, "can't get property value for target name")
 
             /* Create soft link */
@@ -2379,7 +2373,7 @@ H5VL_daosm_link_specific(void *_item, H5VL_loc_params_t loc_params,
                 linfo.cset = H5T_CSET_ASCII;
 
                 /* Register id for target_grp */
-                if((target_grp_id = H5VL_object_register(target_grp, H5I_GROUP, H5VL_DAOSM_g, TRUE)) < 0)
+                if((target_grp_id = H5VLobject_register(target_grp, H5I_GROUP, H5VL_DAOSM_g)) < 0)
                     D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, FAIL, "unable to atomize object handle")
 
                 /* Initialize anchor */
@@ -3563,7 +3557,6 @@ H5VL_daosm_dataset_create(void *_item,
 {
     H5VL_daosm_item_t *item = (H5VL_daosm_item_t *)_item;
     H5VL_daosm_dset_t *dset = NULL;
-    H5P_genplist_t *plist = NULL;      /* Property list pointer */
     hid_t type_id, space_id;
     H5VL_daosm_group_t *target_grp = NULL;
     void *type_buf = NULL;
@@ -3582,14 +3575,10 @@ H5VL_daosm_dataset_create(void *_item,
         if(H5Pget_all_coll_metadata_ops(dapl_id, &collective) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, NULL, "can't get collective access property")
 
-    /* Get the dcpl plist structure */
-    if(NULL == (plist = (H5P_genplist_t *)H5I_object(dcpl_id)))
-        D_GOTO_ERROR(H5E_ATOM, H5E_BADATOM, NULL, "can't find object for ID")
-
     /* get creation properties */
-    if(H5P_get(plist, H5VL_PROP_DSET_TYPE_ID, &type_id) < 0)
+    if(H5Pget(dcpl_id, H5VL_PROP_DSET_TYPE_ID, &type_id) < 0)
         D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, NULL, "can't get property value for datatype id")
-    if(H5P_get(plist, H5VL_PROP_DSET_SPACE_ID, &space_id) < 0)
+    if(H5Pget(dcpl_id, H5VL_PROP_DSET_SPACE_ID, &space_id) < 0)
         D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, NULL, "can't get property value for space id")
 
     /* Allocate the dataset object that is returned to the user */
@@ -5987,7 +5976,6 @@ H5VL_daosm_attribute_create(void *_item, H5VL_loc_params_t loc_params,
 {
     H5VL_daosm_item_t *item = (H5VL_daosm_item_t *)_item;
     H5VL_daosm_attr_t *attr = NULL;
-    H5P_genplist_t *plist = NULL;      /* Property list pointer */
     size_t akey_len;
     hid_t type_id, space_id;
     daos_key_t dkey;
@@ -6008,14 +5996,10 @@ H5VL_daosm_attribute_create(void *_item, H5VL_loc_params_t loc_params,
     if(!(item->file->flags & H5F_ACC_RDWR))
         D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, NULL, "no write intent on file")
 
-    /* Get the acpl plist structure */
-    if(NULL == (plist = (H5P_genplist_t *)H5I_object(acpl_id)))
-        D_GOTO_ERROR(H5E_ATOM, H5E_BADATOM, NULL, "can't find object for ID")
-
     /* get creation properties */
-    if(H5P_get(plist, H5VL_PROP_ATTR_TYPE_ID, &type_id) < 0)
+    if(H5Pget(acpl_id, H5VL_PROP_ATTR_TYPE_ID, &type_id) < 0)
         D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, NULL, "can't get property value for datatype id")
-    if(H5P_get(plist, H5VL_PROP_ATTR_SPACE_ID, &space_id) < 0)
+    if(H5Pget(acpl_id, H5VL_PROP_ATTR_SPACE_ID, &space_id) < 0)
         D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, NULL, "can't get property value for space id")
 
     /* Allocate the attribute object that is returned to the user */
@@ -7019,7 +7003,7 @@ H5VL_daosm_attribute_specific(void *_item, H5VL_loc_params_t loc_params,
                 ainfo.cset = H5T_CSET_ASCII;
 
                 /* Register id for target_obj */
-                if((target_obj_id = H5VL_object_register(target_obj, target_obj->item.type, H5VL_DAOSM_g, TRUE)) < 0)
+                if((target_obj_id = H5VLobject_register(target_obj, target_obj->item.type, H5VL_DAOSM_g)) < 0)
                     D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, FAIL, "unable to atomize object handle")
 
                 /* Initialize anchor */

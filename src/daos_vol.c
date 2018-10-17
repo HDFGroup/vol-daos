@@ -296,7 +296,7 @@ static htri_t H5VL_daosm_need_bkg(hid_t src_type_id, hid_t dst_type_id,
 static herr_t H5VL_daosm_tconv_init(hid_t src_type_id, size_t *src_type_size,
     hid_t dst_type_id, size_t *dst_type_size, size_t num_elem, void **tconv_buf,
     void **bkg_buf, H5VL_daosm_tconv_reuse_t *reuse, hbool_t *fill_bkg);
-static herr_t H5VL_daosm_sel_to_recx_iov(H5S_t *space, size_t type_size,
+static herr_t H5VL_daosm_sel_to_recx_iov(hid_t space_id, size_t type_size,
     void *buf, daos_recx_t **recxs, daos_iov_t **sg_iovs, size_t *list_nused);
 static herr_t H5VL_daosm_scatter_cb(const void **src_buf,
     size_t *src_buf_bytes_used, void *_udata);
@@ -813,10 +813,14 @@ done:
 herr_t
 H5VLdaosm_snap_create(hid_t loc_id, H5VL_daosm_snap_id_t *snap_id)
 {
-    H5VL_object_t   *obj = NULL;    /* object token of loc_id */
+    H5VL_daosm_item_t *item;
     H5VL_daosm_file_t *file;
-    herr_t          ret_value = SUCCEED;
+#ifdef DSMINC
+    H5VL_object_t     *obj = NULL;    /* object token of loc_id */
+#endif
+    herr_t             ret_value = SUCCEED;
 
+#ifdef DSMINC
     /* get the location object */
     if(NULL == (obj = (H5VL_object_t *)H5I_object(loc_id)))
         D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "invalid location identifier")
@@ -824,9 +828,13 @@ H5VLdaosm_snap_create(hid_t loc_id, H5VL_daosm_snap_id_t *snap_id)
     /* Make sure object's VOL is this one */
     if(obj->driver->id != H5VL_DAOSM_g)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "location does not use DAOS-M VOL plugin")
+#endif
 
     /* Get file object */
-    file = ((H5VL_daosm_item_t *)obj->data)->file;
+    if (NULL == (item = H5VLobject(loc_id)))
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "not a VOL object")
+
+    file = item->file;
 
     /* Check for write access */
     if(!(file->flags & H5F_ACC_RDWR))
@@ -910,7 +918,7 @@ H5VL_daosm_fapl_copy(const void *_old_fa)
     new_fa->comm = MPI_COMM_NULL;
 
     /* Duplicate communicator and Info object. */
-    if(FAIL == H5FD_mpi_comm_info_dup(old_fa->comm, old_fa->info, &new_fa->comm, &new_fa->info))
+    if(FAIL == H5FDmpi_comm_info_dup(old_fa->comm, old_fa->info, &new_fa->comm, &new_fa->info))
         D_GOTO_ERROR(H5E_INTERNAL, H5E_CANTCOPY, NULL, "Communicator/Info duplicate failed")
 
     ret_value = new_fa;
@@ -949,7 +957,7 @@ H5VL_daosm_fapl_free(void *_fa)
 
     /* Free the internal communicator and INFO object */
     if(fa->comm != MPI_COMM_NULL)
-        if(H5FD_mpi_comm_info_free(&fa->comm, &fa->info) < 0)
+        if(H5FDmpi_comm_info_free(&fa->comm, &fa->info) < 0)
             D_GOTO_ERROR(H5E_INTERNAL, H5E_CANTFREE, FAIL, "Communicator/Info free failed")
 
     /* free the struct */
@@ -1225,7 +1233,7 @@ H5VL_daosm_file_create(const char *name, unsigned flags, hid_t fcpl_id,
         D_GOTO_ERROR(H5E_FILE, H5E_CANTCOPY, NULL, "failed to copy fapl")
 
     /* Duplicate communicator and Info object. */
-    if(FAIL == H5FD_mpi_comm_info_dup(fa->comm, fa->info, &file->comm, &file->info))
+    if(FAIL == H5FDmpi_comm_info_dup(fa->comm, fa->info, &file->comm, &file->info))
         D_GOTO_ERROR(H5E_INTERNAL, H5E_CANTCOPY, NULL, "Communicator/Info duplicate failed")
 
     /* Obtain the process rank and size from the communicator attached to the
@@ -1470,7 +1478,7 @@ H5VL_daosm_file_open(const char *name, unsigned flags, hid_t fapl_id,
         D_GOTO_ERROR(H5E_FILE, H5E_CANTCOPY, NULL, "failed to copy fapl")
 
     /* Duplicate communicator and Info object. */
-    if(FAIL == H5FD_mpi_comm_info_dup(fa->comm, fa->info, &file->comm, &file->info))
+    if(FAIL == H5FDmpi_comm_info_dup(fa->comm, fa->info, &file->comm, &file->info))
         D_GOTO_ERROR(H5E_INTERNAL, H5E_CANTCOPY, NULL, "Communicator/Info duplicate failed")
 
     /* Obtain the process rank and size from the communicator attached to the
@@ -1843,8 +1851,9 @@ H5VL_daosm_file_close_helper(H5VL_daosm_file_t *file, hid_t dxpl_id, void **req)
     if(file->file_name)
         free(file->file_name);
     if(file->comm || file->info)
-        if(H5FD_mpi_comm_info_free(&file->comm, &file->info) < 0)
+        if(H5FDmpi_comm_info_free(&file->comm, &file->info) < 0)
             D_DONE_ERROR(H5E_INTERNAL, H5E_CANTFREE, FAIL, "Communicator/Info free failed")
+#ifdef DSMINC
     /* Note: Use of H5I_dec_app_ref is a hack, using H5I_dec_ref doesn't reduce
      * app reference count incremented by use of public API to create the ID,
      * while use of H5Idec_ref clears the error stack.  In general we can't use
@@ -1853,6 +1862,11 @@ H5VL_daosm_file_close_helper(H5VL_daosm_file_t *file, hid_t dxpl_id, void **req)
     if(file->fapl_id != FAIL && H5I_dec_app_ref(file->fapl_id) < 0)
         D_DONE_ERROR(H5E_SYM, H5E_CANTDEC, FAIL, "failed to close plist")
     if(file->fcpl_id != FAIL && H5I_dec_app_ref(file->fcpl_id) < 0)
+        D_DONE_ERROR(H5E_SYM, H5E_CANTDEC, FAIL, "failed to close plist")
+#endif
+    if(file->fapl_id != FAIL && H5Idec_ref(file->fapl_id) < 0)
+        D_DONE_ERROR(H5E_SYM, H5E_CANTDEC, FAIL, "failed to close plist")
+    if(file->fcpl_id != FAIL && H5Idec_ref(file->fcpl_id) < 0)
         D_DONE_ERROR(H5E_SYM, H5E_CANTDEC, FAIL, "failed to close plist")
     if(!daos_handle_is_inval(file->glob_md_oh))
         if(0 != (ret = daos_obj_close(file->glob_md_oh, NULL /*event*/)))
@@ -2476,7 +2490,11 @@ H5VL_daosm_link_specific(void *_item, H5VL_loc_params_t loc_params,
 
 done:
     if(target_grp_id >= 0) {
+#ifdef DSMINC
         if(H5I_dec_app_ref(target_grp_id) < 0)
+            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group id")
+#endif
+        if(H5Idec_ref(target_grp_id) < 0)
             D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group id")
         target_grp_id = -1;
         target_grp = NULL;
@@ -3257,9 +3275,15 @@ H5VL_daosm_group_close(void *_grp, hid_t DV_ATTR_UNUSED dxpl_id,
         if(!daos_handle_is_inval(grp->obj.obj_oh))
             if(0 != (ret = daos_obj_close(grp->obj.obj_oh, NULL /*event*/)))
                 D_DONE_ERROR(H5E_SYM, H5E_CANTCLOSEOBJ, FAIL, "can't close group DAOS object: %d", ret)
+#ifdef DSMINC
         if(grp->gcpl_id != FAIL && H5I_dec_app_ref(grp->gcpl_id) < 0)
             D_DONE_ERROR(H5E_SYM, H5E_CANTDEC, FAIL, "failed to close plist")
         if(grp->gapl_id != FAIL && H5I_dec_app_ref(grp->gapl_id) < 0)
+            D_DONE_ERROR(H5E_SYM, H5E_CANTDEC, FAIL, "failed to close plist")
+#endif
+        if(grp->gcpl_id != FAIL && H5Idec_ref(grp->gcpl_id) < 0)
+            D_DONE_ERROR(H5E_SYM, H5E_CANTDEC, FAIL, "failed to close plist")
+        if(grp->gapl_id != FAIL && H5Idec_ref(grp->gapl_id) < 0)
             D_DONE_ERROR(H5E_SYM, H5E_CANTDEC, FAIL, "failed to close plist")
         grp = H5FL_FREE(H5VL_daosm_group_t, grp);
     } /* end if */
@@ -3441,10 +3465,18 @@ done:
     /* Cleanup on failure */
     if(ret_value < 0) {
         if(memb_type_id >= 0)
+#ifdef DSMINC
             if(H5I_dec_app_ref(memb_type_id) < 0)
                 D_DONE_ERROR(H5E_DATATYPE, H5E_CANTDEC, FAIL, "failed to close member type")
+#endif
+            if(H5Idec_ref(memb_type_id) < 0)
+                D_DONE_ERROR(H5E_DATATYPE, H5E_CANTDEC, FAIL, "failed to close member type")
         if(src_memb_type_id >= 0)
+#ifdef DSMINC
             if(H5I_dec_app_ref(src_memb_type_id) < 0)
+                D_DONE_ERROR(H5E_DATATYPE, H5E_CANTDEC, FAIL, "failed to close source member type")
+#endif
+            if(H5Idec_ref(src_memb_type_id) < 0)
                 D_DONE_ERROR(H5E_DATATYPE, H5E_CANTDEC, FAIL, "failed to close source member type")
         memb_name = (char *)DV_free(memb_name);
     } /* end if */
@@ -4041,10 +4073,9 @@ done:
  *-------------------------------------------------------------------------
  */
 static herr_t
-H5VL_daosm_sel_to_recx_iov(H5S_t *space, size_t type_size, void *buf,
+H5VL_daosm_sel_to_recx_iov(hid_t space_id, size_t type_size, void *buf,
     daos_recx_t **recxs, daos_iov_t **sg_iovs, size_t *list_nused)
 {
-    H5S_sel_iter_t sel_iter;    /* Selection iteration info */
     hbool_t sel_iter_init = FALSE;      /* Selection iteration info has been initialized */
     size_t nseq;
     size_t nelem;
@@ -4052,6 +4083,7 @@ H5VL_daosm_sel_to_recx_iov(H5S_t *space, size_t type_size, void *buf,
     size_t len[H5VL_DAOSM_SEQ_LIST_LEN];
     size_t buf_len = 1;
     void *vp_ret;
+    void *sel_iter = NULL;
     size_t szi;
     herr_t ret_value = SUCCEED;
 
@@ -4064,14 +4096,14 @@ H5VL_daosm_sel_to_recx_iov(H5S_t *space, size_t type_size, void *buf,
     *list_nused = 0;
 
     /* Initialize selection iterator  */
-    if(H5S_select_iter_init(&sel_iter, space, (size_t)1) < 0)
+    if(H5Sselect_iter_init(space_id, (size_t)1, &sel_iter) < 0)
         D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTINIT, FAIL, "unable to initialize selection iterator")
     sel_iter_init = TRUE;       /* Selection iteration info has been initialized */
 
     /* Generate sequences from the file space until finished */
     do {
         /* Get the sequences of bytes */
-        if(H5S_SELECT_GET_SEQ_LIST(space, 0, &sel_iter, (size_t)H5VL_DAOSM_SEQ_LIST_LEN, (size_t)-1, &nseq, &nelem, off, len) < 0)
+        if(H5Sselect_get_seq_list(space_id, 0, &sel_iter, (size_t)H5VL_DAOSM_SEQ_LIST_LEN, (size_t)-1, &nseq, &nelem, off, len) < 0)
             D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, FAIL, "sequence length generation failed")
 
         /* Make room for sequences in recxs */
@@ -4115,7 +4147,7 @@ H5VL_daosm_sel_to_recx_iov(H5S_t *space, size_t type_size, void *buf,
 
 done:
     /* Release selection iterator */
-    if(sel_iter_init && H5S_SELECT_ITER_RELEASE(&sel_iter) < 0)
+    if(sel_iter_init && H5Sselect_iter_release(&sel_iter) < 0)
         D_DONE_ERROR(H5E_DATASPACE, H5E_CANTRELEASE, FAIL, "unable to release selection iterator")
 
     D_FUNC_LEAVE
@@ -4309,7 +4341,6 @@ H5VL_daosm_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
     hid_t file_space_id, hid_t dxpl_id, void *buf, void DV_ATTR_UNUSED **req)
 {
     H5VL_daosm_dset_t *dset = (H5VL_daosm_dset_t *)_dset;
-    H5S_sel_iter_t sel_iter;    /* Selection iteration info */
     hbool_t sel_iter_init = FALSE;      /* Selection iteration info has been initialized */
     int ndims;
     hsize_t dim[H5S_MAX_RANK];
@@ -4335,6 +4366,7 @@ H5VL_daosm_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
     htri_t is_vl_str = FALSE;
     H5VL_daosm_tconv_reuse_t reuse = H5VL_DAOSM_TCONV_REUSE_NONE;
     uint8_t *p;
+    void *sel_iter = NULL;
     int ret;
     uint64_t i;
     herr_t ret_value = SUCCEED;
@@ -4452,7 +4484,6 @@ H5VL_daosm_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
             D_GOTO_ERROR(H5E_DATASET, H5E_READERROR, FAIL, "can't read data from dataset: %d", ret)
     } /* end if */
     else {
-        H5S_t *space = NULL;
         daos_iod_t iod;
         daos_sg_list_t sgl;
         uint8_t akey = H5VL_DAOSM_CHUNK_KEY;
@@ -4471,10 +4502,6 @@ H5VL_daosm_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
         iod.iod_size = file_type_size;
         iod.iod_type = DAOS_IOD_ARRAY;
 
-        /* Get file dataspace object */
-        if(NULL == (space = (H5S_t *)H5I_object(real_file_space_id)))
-            D_GOTO_ERROR(H5E_ATOM, H5E_BADATOM, FAIL, "can't find object for ID");
-
         /* Check if the types are equal */
         if((types_equal = H5Tequal(dset->type_id, mem_type_id)) < 0)
             D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTCOMPARE, FAIL, "can't check if types are equal")
@@ -4483,7 +4510,7 @@ H5VL_daosm_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
             /* Check for memory space is H5S_ALL, use file space in this case */
             if(mem_space_id == H5S_ALL) {
                 /* Calculate both recxs and sg_iovs at the same time from file space */
-                if(H5VL_daosm_sel_to_recx_iov(space, file_type_size, buf, &recxs, &sg_iovs, &tot_nseq) < 0)
+                if(H5VL_daosm_sel_to_recx_iov(real_file_space_id, file_type_size, buf, &recxs, &sg_iovs, &tot_nseq) < 0)
                     D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't generate sequence lists for DAOS I/O")
                 iod.iod_nr = (unsigned)tot_nseq;
                 sgl.sg_nr = (uint32_t)tot_nseq;
@@ -4491,16 +4518,12 @@ H5VL_daosm_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
             } /* end if */
             else {
                 /* Calculate recxs from file space */
-                if(H5VL_daosm_sel_to_recx_iov(space, file_type_size, buf, &recxs, NULL, &tot_nseq) < 0)
+                if(H5VL_daosm_sel_to_recx_iov(real_file_space_id, file_type_size, buf, &recxs, NULL, &tot_nseq) < 0)
                     D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't generate sequence lists for DAOS I/O")
                 iod.iod_nr = (unsigned)tot_nseq;
 
-                /* Get memory dataspace object */
-                if(NULL == (space = (H5S_t *)H5I_object(real_mem_space_id)))
-                    D_GOTO_ERROR(H5E_ATOM, H5E_BADATOM, FAIL, "can't find object for ID");
-
                 /* Calculate sg_iovs from mem space */
-                if(H5VL_daosm_sel_to_recx_iov(space, file_type_size, buf, NULL, &sg_iovs, &tot_nseq) < 0)
+                if(H5VL_daosm_sel_to_recx_iov(real_mem_space_id, file_type_size, buf, NULL, &sg_iovs, &tot_nseq) < 0)
                     D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't generate sequence lists for DAOS I/O")
                 sgl.sg_nr = (uint32_t)tot_nseq;
                 sgl.sg_nr_out = 0;
@@ -4529,7 +4552,7 @@ H5VL_daosm_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
                 D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get number of points in selection")
 
             /* Calculate recxs from file space */
-            if(H5VL_daosm_sel_to_recx_iov(space, file_type_size, buf, &recxs, NULL, &tot_nseq) < 0)
+            if(H5VL_daosm_sel_to_recx_iov(real_file_space_id, file_type_size, buf, &recxs, NULL, &tot_nseq) < 0)
                 D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't generate sequence lists for DAOS I/O")
             iod.iod_nr = (unsigned)tot_nseq;
             iod.iod_recxs = recxs;
@@ -4540,19 +4563,16 @@ H5VL_daosm_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
             sgl.sg_iovs = &sg_iov;
 
             /* Check for contiguous memory buffer */
-            /* Get memory dataspace object */
-            if(NULL == (space = (H5S_t *)H5I_object(real_mem_space_id)))
-                D_GOTO_ERROR(H5E_ATOM, H5E_BADATOM, FAIL, "can't find object for ID");
 
             /* Initialize selection iterator  */
-            if(H5S_select_iter_init(&sel_iter, space, (size_t)1) < 0)
+            if(H5Sselect_iter_init(real_mem_space_id, (size_t)1, &sel_iter) < 0)
                 D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTINIT, FAIL, "unable to initialize selection iterator")
             sel_iter_init = TRUE;       /* Selection iteration info has been initialized */
 
             /* Get the sequence list - only check the first sequence because we only
              * care if it is contiguous and if so where the contiguous selection
              * begins */
-            if(H5S_SELECT_GET_SEQ_LIST(space, 0, &sel_iter, (size_t)1, (size_t)-1, &nseq_tmp, &nelem_tmp, &sel_off, &sel_len) < 0)
+            if(H5Sselect_get_seq_list(real_mem_space_id, 0, &sel_iter, (size_t)1, (size_t)-1, &nseq_tmp, &nelem_tmp, &sel_off, &sel_len) < 0)
                 D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, FAIL, "sequence length generation failed")
             contig = (sel_len == (size_t)num_elem);
 
@@ -4617,11 +4637,15 @@ done:
     } /* end if */
 
     if(base_type_id != FAIL)
+#ifdef DSMINC
         if(H5I_dec_app_ref(base_type_id) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close base type id")
+#endif
+        if(H5Idec_ref(base_type_id) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close base type id")
 
     /* Release selection iterator */
-    if(sel_iter_init && H5S_SELECT_ITER_RELEASE(&sel_iter) < 0)
+    if(sel_iter_init && H5Sselect_iter_release(&sel_iter) < 0)
         D_DONE_ERROR(H5E_DATASPACE, H5E_CANTRELEASE, FAIL, "unable to release selection iterator")
 
     D_FUNC_LEAVE
@@ -4728,7 +4752,6 @@ H5VL_daosm_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
     hsize_t dim[H5S_MAX_RANK];
     hid_t real_file_space_id;
     hid_t real_mem_space_id;
-    H5S_t *space = NULL;
     hssize_t num_elem;
     uint64_t chunk_coords[H5S_MAX_RANK];
     daos_key_t dkey;
@@ -4877,14 +4900,11 @@ H5VL_daosm_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
         iod.iod_type = DAOS_IOD_ARRAY;
 
         /* Build recxs and sg_iovs */
-        /* Get file dataspace object */
-        if(NULL == (space = (H5S_t *)H5I_object(real_file_space_id)))
-            D_GOTO_ERROR(H5E_ATOM, H5E_BADATOM, FAIL, "can't find object for ID");
 
         /* Check for type conversion */
         if(tconv_buf) {
             /* Calculate recxs from file space */
-            if(H5VL_daosm_sel_to_recx_iov(space, file_type_size, (void *)buf, &recxs, NULL, &tot_nseq) < 0)
+            if(H5VL_daosm_sel_to_recx_iov(real_file_space_id, file_type_size, (void *)buf, &recxs, NULL, &tot_nseq) < 0)
                 D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't generate sequence lists for DAOS I/O")
             iod.iod_nr = (unsigned)tot_nseq;
             iod.iod_recxs = recxs;
@@ -4925,7 +4945,7 @@ H5VL_daosm_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
             /* Check for memory space is H5S_ALL, use file space in this case */
             if(mem_space_id == H5S_ALL) {
                 /* Calculate both recxs and sg_iovs at the same time from file space */
-                if(H5VL_daosm_sel_to_recx_iov(space, file_type_size, (void *)buf, &recxs, &sg_iovs, &tot_nseq) < 0)
+                if(H5VL_daosm_sel_to_recx_iov(real_file_space_id, file_type_size, (void *)buf, &recxs, &sg_iovs, &tot_nseq) < 0)
                     D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't generate sequence lists for DAOS I/O")
                 iod.iod_nr = (unsigned)tot_nseq;
                 sgl.sg_nr = (uint32_t)tot_nseq;
@@ -4933,16 +4953,12 @@ H5VL_daosm_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
             } /* end if */
             else {
                 /* Calculate recxs from file space */
-                if(H5VL_daosm_sel_to_recx_iov(space, file_type_size, (void *)buf, &recxs, NULL, &tot_nseq) < 0)
+                if(H5VL_daosm_sel_to_recx_iov(real_file_space_id, file_type_size, (void *)buf, &recxs, NULL, &tot_nseq) < 0)
                     D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't generate sequence lists for DAOS I/O")
                 iod.iod_nr = (unsigned)tot_nseq;
 
-                /* Get memory dataspace object */
-                if(NULL == (space = (H5S_t *)H5I_object(real_mem_space_id)))
-                    D_GOTO_ERROR(H5E_ATOM, H5E_BADATOM, FAIL, "can't find object for ID");
-
                 /* Calculate sg_iovs from mem space */
-                if(H5VL_daosm_sel_to_recx_iov(space, file_type_size, (void *)buf, NULL, &sg_iovs, &tot_nseq) < 0)
+                if(H5VL_daosm_sel_to_recx_iov(real_mem_space_id, file_type_size, (void *)buf, NULL, &sg_iovs, &tot_nseq) < 0)
                     D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't generate sequence lists for DAOS I/O")
                 sgl.sg_nr = (uint32_t)tot_nseq;
                 sgl.sg_nr_out = 0;
@@ -4976,7 +4992,11 @@ done:
     } /* end if */
 
     if(base_type_id != FAIL)
+#ifdef DSMINC
         if(H5I_dec_app_ref(base_type_id) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close base type id")
+#endif
+        if(H5Idec_ref(base_type_id) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close base type id")
 
     D_FUNC_LEAVE
@@ -5089,6 +5109,7 @@ H5VL_daosm_dataset_close(void *_dset, hid_t DV_ATTR_UNUSED dxpl_id,
         if(!daos_handle_is_inval(dset->obj.obj_oh))
             if(0 != (ret = daos_obj_close(dset->obj.obj_oh, NULL /*event*/)))
                 D_DONE_ERROR(H5E_DATASET, H5E_CANTCLOSEOBJ, FAIL, "can't close dataset DAOS object: %d", ret)
+#ifdef DSMINC
         if(dset->type_id != FAIL && H5I_dec_app_ref(dset->type_id) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close datatype")
         if(dset->space_id != FAIL && H5I_dec_app_ref(dset->space_id) < 0)
@@ -5096,6 +5117,15 @@ H5VL_daosm_dataset_close(void *_dset, hid_t DV_ATTR_UNUSED dxpl_id,
         if(dset->dcpl_id != FAIL && H5I_dec_app_ref(dset->dcpl_id) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close plist")
         if(dset->dapl_id != FAIL && H5I_dec_app_ref(dset->dapl_id) < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close plist")
+#endif
+        if(dset->type_id != FAIL && H5Idec_ref(dset->type_id) < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close datatype")
+        if(dset->space_id != FAIL && H5Idec_ref(dset->space_id) < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close dataspace")
+        if(dset->dcpl_id != FAIL && H5Idec_ref(dset->dcpl_id) < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close plist")
+        if(dset->dapl_id != FAIL && H5Idec_ref(dset->dapl_id) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close plist")
         dset = H5FL_FREE(H5VL_daosm_dset_t, dset);
     } /* end if */
@@ -5612,11 +5642,19 @@ H5VL_daosm_datatype_close(void *_dtype, hid_t DV_ATTR_UNUSED dxpl_id,
         if(!daos_handle_is_inval(dtype->obj.obj_oh))
             if(0 != (ret = daos_obj_close(dtype->obj.obj_oh, NULL /*event*/)))
                 D_DONE_ERROR(H5E_DATATYPE, H5E_CANTCLOSEOBJ, FAIL, "can't close datatype DAOS object: %d", ret)
+#ifdef DSMINC
         if(dtype->type_id != FAIL && H5I_dec_app_ref(dtype->type_id) < 0)
             D_DONE_ERROR(H5E_DATATYPE, H5E_CANTDEC, FAIL, "failed to close datatype")
         if(dtype->tcpl_id != FAIL && H5I_dec_app_ref(dtype->tcpl_id) < 0)
             D_DONE_ERROR(H5E_DATATYPE, H5E_CANTDEC, FAIL, "failed to close plist")
         if(dtype->tapl_id != FAIL && H5I_dec_app_ref(dtype->tapl_id) < 0)
+            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTDEC, FAIL, "failed to close plist")
+#endif
+        if(dtype->type_id != FAIL && H5Idec_ref(dtype->type_id) < 0)
+            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTDEC, FAIL, "failed to close datatype")
+        if(dtype->tcpl_id != FAIL && H5Idec_ref(dtype->tcpl_id) < 0)
+            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTDEC, FAIL, "failed to close plist")
+        if(dtype->tapl_id != FAIL && H5Idec_ref(dtype->tapl_id) < 0)
             D_DONE_ERROR(H5E_DATATYPE, H5E_CANTDEC, FAIL, "failed to close plist")
         dtype = H5FL_FREE(H5VL_daosm_dtype_t, dtype);
     } /* end if */
@@ -6543,7 +6581,11 @@ done:
     } /* end if */
 
     if(base_type_id != FAIL)
+#ifdef DSMINC
         if(H5I_dec_app_ref(base_type_id) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close base type id")
+#endif
+        if(H5Idec_ref(base_type_id) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close base type id")
 
     D_FUNC_LEAVE
@@ -6809,7 +6851,11 @@ done:
     } /* end if */
 
     if(base_type_id != FAIL)
+#ifdef DSMINC
         if(H5I_dec_app_ref(base_type_id) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close base type id")
+#endif
+        if(H5Idec_ref(base_type_id) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close base type id")
 
     D_FUNC_LEAVE
@@ -7123,7 +7169,11 @@ H5VL_daosm_attribute_specific(void *_item, H5VL_loc_params_t loc_params,
 
 done:
     if(target_obj_id != FAIL) {
+#ifdef DSMINC
         if(H5I_dec_app_ref(target_obj_id) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close object id")
+#endif
+        if(H5Idec_ref(target_obj_id) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close object id")
         target_obj_id = FAIL;
         target_obj = NULL;
@@ -7170,9 +7220,15 @@ H5VL_daosm_attribute_close(void *_attr, hid_t dxpl_id, void **req)
         if(attr->parent && H5VL_daosm_object_close(attr->parent, dxpl_id, req))
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close parent object")
         DV_free(attr->name);
+#ifdef DSMINC
         if(attr->type_id != FAIL && H5I_dec_app_ref(attr->type_id) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CANTDEC, FAIL, "failed to close datatype")
         if(attr->space_id != FAIL && H5I_dec_app_ref(attr->space_id) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTDEC, FAIL, "failed to close dataspace")
+#endif
+        if(attr->type_id != FAIL && H5Idec_ref(attr->type_id) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTDEC, FAIL, "failed to close datatype")
+        if(attr->space_id != FAIL && H5Idec_ref(attr->space_id) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CANTDEC, FAIL, "failed to close dataspace")
         attr = H5FL_FREE(H5VL_daosm_attr_t, attr);
     } /* end if */

@@ -27,6 +27,7 @@
 #include <hdf5.h>
 #include <daos.h>
 
+#include "daos_vol_public.h"
 #include "test_daos_vol.h"
 
 #define TEST_FILE_NAME "test_file.h5"

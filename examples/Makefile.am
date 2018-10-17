@@ -25,7 +25,7 @@ LIBHDF5=$(top_builddir)/src/libhdf5.la
 # Scripts used to build examples
 # If only shared libraries have been installed, have h5cc build examples with
 # shared libraries instead of static libraries
-H5CC=${DESTDIR}$(bindir)/h5cc
+H5CC=${DESTDIR}$(bindir)/h5pcc
 
 
 # H5_CFLAGS holds flags that should be used when building hdf5,
@@ -54,7 +54,7 @@ INSTALL_TOP_FILES = README
 # Don't tell automake about them, because if it knew they were programs,
 # it would try to compile them instead of using the h5cc script.
 # Use the boilerplate in config/examples.am instead.
-EXAMPLE_PROG = h5dsm_dset_rpartial h5dsm_obj_info.c h5dsm_dset_w1m.c \
+EXAMPLE_PROG = h5dsm_dset_rpartial h5dsm_obj_info h5dsm_dset_w1m \
                h5dsm_obj_open h5dsm_dset_wpartial h5dsm_obj_open_addr \
                h5dsm_attr_create h5dsm_dset_write h5dsm_slink_create \
                h5dsm_attr_iter h5dsm_tcommit h5dsm_attr_open \

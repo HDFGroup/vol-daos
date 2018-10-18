@@ -1890,17 +1890,6 @@ H5VL_daosm_file_close_helper(H5VL_daosm_file_t *file, hid_t dxpl_id, void **req)
     if(file->comm || file->info)
         if(H5FDmpi_comm_info_free(&file->comm, &file->info) < 0)
             D_DONE_ERROR(H5E_INTERNAL, H5E_CANTFREE, FAIL, "Communicator/Info free failed")
-#ifdef DSMINC
-    /* Note: Use of H5I_dec_app_ref is a hack, using H5I_dec_ref doesn't reduce
-     * app reference count incremented by use of public API to create the ID,
-     * while use of H5Idec_ref clears the error stack.  In general we can't use
-     * public APIs in the "done" section or in close routines for this reason,
-     * until we implement a separate error stack for the VOL plugin */
-    if(file->fapl_id != FAIL && H5I_dec_app_ref(file->fapl_id) < 0)
-        D_DONE_ERROR(H5E_SYM, H5E_CANTDEC, FAIL, "failed to close plist")
-    if(file->fcpl_id != FAIL && H5I_dec_app_ref(file->fcpl_id) < 0)
-        D_DONE_ERROR(H5E_SYM, H5E_CANTDEC, FAIL, "failed to close plist")
-#endif
     if(file->fapl_id != FAIL && H5Idec_ref(file->fapl_id) < 0)
         D_DONE_ERROR(H5E_SYM, H5E_CANTDEC, FAIL, "failed to close plist")
     if(file->fcpl_id != FAIL && H5Idec_ref(file->fcpl_id) < 0)
@@ -2527,10 +2516,6 @@ H5VL_daosm_link_specific(void *_item, H5VL_loc_params_t loc_params,
 
 done:
     if(target_grp_id >= 0) {
-#ifdef DSMINC
-        if(H5I_dec_app_ref(target_grp_id) < 0)
-            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group id")
-#endif
         if(H5Idec_ref(target_grp_id) < 0)
             D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group id")
         target_grp_id = -1;
@@ -3312,12 +3297,6 @@ H5VL_daosm_group_close(void *_grp, hid_t DV_ATTR_UNUSED dxpl_id,
         if(!daos_handle_is_inval(grp->obj.obj_oh))
             if(0 != (ret = daos_obj_close(grp->obj.obj_oh, NULL /*event*/)))
                 D_DONE_ERROR(H5E_SYM, H5E_CANTCLOSEOBJ, FAIL, "can't close group DAOS object: %d", ret)
-#ifdef DSMINC
-        if(grp->gcpl_id != FAIL && H5I_dec_app_ref(grp->gcpl_id) < 0)
-            D_DONE_ERROR(H5E_SYM, H5E_CANTDEC, FAIL, "failed to close plist")
-        if(grp->gapl_id != FAIL && H5I_dec_app_ref(grp->gapl_id) < 0)
-            D_DONE_ERROR(H5E_SYM, H5E_CANTDEC, FAIL, "failed to close plist")
-#endif
         if(grp->gcpl_id != FAIL && H5Idec_ref(grp->gcpl_id) < 0)
             D_DONE_ERROR(H5E_SYM, H5E_CANTDEC, FAIL, "failed to close plist")
         if(grp->gapl_id != FAIL && H5Idec_ref(grp->gapl_id) < 0)
@@ -3502,17 +3481,9 @@ done:
     /* Cleanup on failure */
     if(ret_value < 0) {
         if(memb_type_id >= 0)
-#ifdef DSMINC
-            if(H5I_dec_app_ref(memb_type_id) < 0)
-                D_DONE_ERROR(H5E_DATATYPE, H5E_CANTDEC, FAIL, "failed to close member type")
-#endif
             if(H5Idec_ref(memb_type_id) < 0)
                 D_DONE_ERROR(H5E_DATATYPE, H5E_CANTDEC, FAIL, "failed to close member type")
         if(src_memb_type_id >= 0)
-#ifdef DSMINC
-            if(H5I_dec_app_ref(src_memb_type_id) < 0)
-                D_DONE_ERROR(H5E_DATATYPE, H5E_CANTDEC, FAIL, "failed to close source member type")
-#endif
             if(H5Idec_ref(src_memb_type_id) < 0)
                 D_DONE_ERROR(H5E_DATATYPE, H5E_CANTDEC, FAIL, "failed to close source member type")
         memb_name = (char *)DV_free(memb_name);
@@ -4674,10 +4645,6 @@ done:
     } /* end if */
 
     if(base_type_id != FAIL)
-#ifdef DSMINC
-        if(H5I_dec_app_ref(base_type_id) < 0)
-            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close base type id")
-#endif
         if(H5Idec_ref(base_type_id) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close base type id")
 
@@ -5029,10 +4996,6 @@ done:
     } /* end if */
 
     if(base_type_id != FAIL)
-#ifdef DSMINC
-        if(H5I_dec_app_ref(base_type_id) < 0)
-            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close base type id")
-#endif
         if(H5Idec_ref(base_type_id) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close base type id")
 
@@ -5146,16 +5109,6 @@ H5VL_daosm_dataset_close(void *_dset, hid_t DV_ATTR_UNUSED dxpl_id,
         if(!daos_handle_is_inval(dset->obj.obj_oh))
             if(0 != (ret = daos_obj_close(dset->obj.obj_oh, NULL /*event*/)))
                 D_DONE_ERROR(H5E_DATASET, H5E_CANTCLOSEOBJ, FAIL, "can't close dataset DAOS object: %d", ret)
-#ifdef DSMINC
-        if(dset->type_id != FAIL && H5I_dec_app_ref(dset->type_id) < 0)
-            D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close datatype")
-        if(dset->space_id != FAIL && H5I_dec_app_ref(dset->space_id) < 0)
-            D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close dataspace")
-        if(dset->dcpl_id != FAIL && H5I_dec_app_ref(dset->dcpl_id) < 0)
-            D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close plist")
-        if(dset->dapl_id != FAIL && H5I_dec_app_ref(dset->dapl_id) < 0)
-            D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close plist")
-#endif
         if(dset->type_id != FAIL && H5Idec_ref(dset->type_id) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close datatype")
         if(dset->space_id != FAIL && H5Idec_ref(dset->space_id) < 0)
@@ -5679,14 +5632,6 @@ H5VL_daosm_datatype_close(void *_dtype, hid_t DV_ATTR_UNUSED dxpl_id,
         if(!daos_handle_is_inval(dtype->obj.obj_oh))
             if(0 != (ret = daos_obj_close(dtype->obj.obj_oh, NULL /*event*/)))
                 D_DONE_ERROR(H5E_DATATYPE, H5E_CANTCLOSEOBJ, FAIL, "can't close datatype DAOS object: %d", ret)
-#ifdef DSMINC
-        if(dtype->type_id != FAIL && H5I_dec_app_ref(dtype->type_id) < 0)
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTDEC, FAIL, "failed to close datatype")
-        if(dtype->tcpl_id != FAIL && H5I_dec_app_ref(dtype->tcpl_id) < 0)
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTDEC, FAIL, "failed to close plist")
-        if(dtype->tapl_id != FAIL && H5I_dec_app_ref(dtype->tapl_id) < 0)
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTDEC, FAIL, "failed to close plist")
-#endif
         if(dtype->type_id != FAIL && H5Idec_ref(dtype->type_id) < 0)
             D_DONE_ERROR(H5E_DATATYPE, H5E_CANTDEC, FAIL, "failed to close datatype")
         if(dtype->tcpl_id != FAIL && H5Idec_ref(dtype->tcpl_id) < 0)
@@ -6618,10 +6563,6 @@ done:
     } /* end if */
 
     if(base_type_id != FAIL)
-#ifdef DSMINC
-        if(H5I_dec_app_ref(base_type_id) < 0)
-            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close base type id")
-#endif
         if(H5Idec_ref(base_type_id) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close base type id")
 
@@ -6888,10 +6829,6 @@ done:
     } /* end if */
 
     if(base_type_id != FAIL)
-#ifdef DSMINC
-        if(H5I_dec_app_ref(base_type_id) < 0)
-            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close base type id")
-#endif
         if(H5Idec_ref(base_type_id) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close base type id")
 
@@ -7206,10 +7143,6 @@ H5VL_daosm_attribute_specific(void *_item, H5VL_loc_params_t loc_params,
 
 done:
     if(target_obj_id != FAIL) {
-#ifdef DSMINC
-        if(H5I_dec_app_ref(target_obj_id) < 0)
-            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close object id")
-#endif
         if(H5Idec_ref(target_obj_id) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close object id")
         target_obj_id = FAIL;
@@ -7257,12 +7190,6 @@ H5VL_daosm_attribute_close(void *_attr, hid_t dxpl_id, void **req)
         if(attr->parent && H5VL_daosm_object_close(attr->parent, dxpl_id, req))
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close parent object")
         DV_free(attr->name);
-#ifdef DSMINC
-        if(attr->type_id != FAIL && H5I_dec_app_ref(attr->type_id) < 0)
-            D_DONE_ERROR(H5E_ATTR, H5E_CANTDEC, FAIL, "failed to close datatype")
-        if(attr->space_id != FAIL && H5I_dec_app_ref(attr->space_id) < 0)
-            D_DONE_ERROR(H5E_ATTR, H5E_CANTDEC, FAIL, "failed to close dataspace")
-#endif
         if(attr->type_id != FAIL && H5Idec_ref(attr->type_id) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CANTDEC, FAIL, "failed to close datatype")
         if(attr->space_id != FAIL && H5Idec_ref(attr->space_id) < 0)

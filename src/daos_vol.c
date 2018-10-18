@@ -665,7 +665,7 @@ H5VL_daosm_init(void)
         D_GOTO_ERROR(H5E_FUNC, H5E_CANTINIT, FAIL, "unable to initialize datatype interface") */
 
     /* Register the DAOS-M VOL, if it isn't already */
-    if(NULL == H5Iobject_verify(H5VL_DAOSM_g, H5I_VOL)) {
+    if(H5I_VOL != H5Iget_type(H5VL_DAOSM_g)) {
         if((H5VL_DAOSM_g = H5VLregister((const H5VL_class_t *)&H5VL_daosm_g)) < 0)
             D_GOTO_ERROR(H5E_ATOM, H5E_CANTINSERT, FAIL, "can't create ID for DAOS-M plugin")
     } /* end if */

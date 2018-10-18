@@ -457,6 +457,7 @@ done:
 herr_t
 H5VLdaosm_init(MPI_Comm pool_comm, uuid_t _pool_uuid, char *pool_grp)
 {
+    H5VL_daosm_snap_id_t snap_id_default;
     int pool_rank;
     int pool_num_procs;
     daos_iov_t glob;
@@ -613,6 +614,20 @@ H5VLdaosm_init(MPI_Comm pool_comm, uuid_t _pool_uuid, char *pool_grp)
             D_GOTO_ERROR(H5E_VOL, H5E_CANTOPENOBJ, FAIL, "can't get local pool handle: %d", ret)
     } /* end else */
 
+    /* Register the plugin with HDF5's error reporting API */
+    if ((dv_err_class_g = H5Eregister_class(DAOS_VOL_ERR_CLS_NAME, DAOS_VOL_ERR_LIB_NAME, DAOS_VOL_ERR_VER)) < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't register with HDF5 error API")
+
+    /* Create a separate error stack for the DAOS VOL to report errors with */
+    if ((dv_err_stack_g = H5Ecreate_stack()) < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create error stack")
+
+    /* Register the DAOSM SNAP_OPEN_ID property with HDF5 */
+    snap_id_default = H5VL_DAOSM_SNAP_ID_INVAL;
+    if (H5Pregister2(H5P_FILE_ACCESS, H5VL_DAOSM_SNAP_OPEN_ID, sizeof(H5VL_daosm_snap_id_t), (H5VL_daosm_snap_id_t *) &snap_id_default,
+            NULL, NULL, NULL, NULL, NULL, NULL, NULL) < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "unable to register DAOSM SNAP_OPEN_ID property")
+
     /* Register the DAOS-M VOL, if it isn't already */
     if(H5VL_daosm_init() < 0)
         D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "unable to initialize FF DAOS-M VOL plugin")
@@ -707,6 +722,24 @@ done:
     daos_vol_curr_alloc_bytes = 0;
 #endif
 
+    /* Unregister from the HDF5 error API */
+    if (dv_err_class_g >= 0) {
+        if (H5Eunregister_class(dv_err_class_g) < 0)
+            D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, FAIL, "can't unregister from HDF5 error API")
+
+        /* Print the current error stack before destroying it */
+        PRINT_ERROR_STACK
+
+        /* Destroy the error stack */
+        if (H5Eclose_stack(dv_err_stack_g) < 0) {
+            D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, FAIL, "can't close error stack")
+            PRINT_ERROR_STACK
+        } /* end if */
+
+        dv_err_stack_g = -1;
+        dv_err_class_g = -1;
+    } /* end if */
+
     D_FUNC_LEAVE_API
 } /* end H5VLdaosm_term() */
 
@@ -737,6 +770,10 @@ H5VL_daosm_term(hid_t vtpl_id)
         /* Terminate DAOS */
         if (daos_fini() < 0)
             D_GOTO_ERROR(H5E_VOL, H5E_CLOSEERROR, FAIL, "DAOS failed to terminate")
+
+        /* Unregister the DAOS SNAP_OPEN_ID property from HDF5 */
+        if (H5Punregister(H5P_FILE_ACCESS, H5VL_DAOSM_SNAP_OPEN_ID) < 0)
+            D_GOTO_ERROR(H5E_VOL, H5E_CLOSEERROR, FAIL, "can't unregister DAOSM SNAP_OPEN_ID property")
     } /* end if */
 
 done:

@@ -29,6 +29,10 @@ extern "C" {
 extern hid_t dv_err_stack_g;
 extern hid_t dv_err_class_g;
 
+#define DAOS_VOL_ERR_CLS_NAME "DAOS VOL"
+#define DAOS_VOL_ERR_LIB_NAME "DAOS VOL"
+#define DAOS_VOL_ERR_VER      "1.0.0"
+
 #define SUCCEED 0
 #define FAIL    (-1)
 

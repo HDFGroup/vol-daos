@@ -680,7 +680,7 @@ H5_daos_init(void)
 
     /* Register the DAOS VOL, if it isn't already */
     if(H5I_VOL != H5Iget_type(H5_DAOS_g)) {
-        if((H5_DAOS_g = H5VLregister((const H5VL_class_t *)&H5_daos_g)) < 0)
+        if((H5_DAOS_g = H5VLregister_driver((const H5VL_class_t *)&H5_daos_g)) < 0)
             D_GOTO_ERROR(H5E_ATOM, H5E_CANTINSERT, FAIL, "can't create ID for DAOS VOL plugin")
     } /* end if */
 
@@ -2411,7 +2411,7 @@ H5_daos_link_specific(void *_item, H5VL_loc_params_t loc_params,
                 linfo.cset = H5T_CSET_ASCII;
 
                 /* Register id for target_grp */
-                if((target_grp_id = H5VLobject_register(target_grp, H5I_GROUP, H5_DAOS_g)) < 0)
+                if((target_grp_id = H5VLregister(H5I_GROUP, target_grp, H5_DAOS_g)) < 0)
                     D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, FAIL, "unable to atomize object handle")
 
                 /* Initialize anchor */
@@ -7021,7 +7021,7 @@ H5_daos_attribute_specific(void *_item, H5VL_loc_params_t loc_params,
                 ainfo.cset = H5T_CSET_ASCII;
 
                 /* Register id for target_obj */
-                if((target_obj_id = H5VLobject_register(target_obj, target_obj->item.type, H5_DAOS_g)) < 0)
+                if((target_obj_id = H5VLregister(target_obj->item.type, target_obj, H5_DAOS_g)) < 0)
                     D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, FAIL, "unable to atomize object handle")
 
                 /* Initialize anchor */

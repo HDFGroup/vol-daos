@@ -17,12 +17,12 @@
  * Programmer:  Neil Fortner <nfortne2@hdfgroup.org>
  *              September, 2016
  *
- * Purpose:	The private header file for the DAOS-M VOL plugin.
+ * Purpose:	The private header file for the DAOS VOL plugin.
  */
 #ifndef daos_vol_H
 #define daos_vol_H
 
-#define H5_HAVE_EFF 1 /* DSMINC */
+#define H5_HAVE_EFF 1 /* DSINC */
 
 /* Include package's public header */
 #include "daos_vol_public.h"
@@ -31,9 +31,9 @@
 
 #include "daos.h"
 
-#define HDF5_VOL_DAOSM_VERSION_1	1	/* Version number of IOD VOL plugin */
+#define HDF5_VOL_DAOS_VERSION_1	1	/* Version number of DAOS VOL plugin */
 
-#define H5_VOL_DAOS_CLS_VAL (H5VL_class_value_t) H5_VOL_MAX_LIB_VALUE + 2 /* Class value of the DAOS VOL plugin as defined in H5VLpublic.h DSMINC */
+#define H5_VOL_DAOS_CLS_VAL (H5VL_class_value_t) H5_VOL_MAX_LIB_VALUE + 2 /* Class value of the DAOS VOL plugin as defined in H5VLpublic.h DSINC */
 
 #endif
 
@@ -45,25 +45,25 @@ extern "C" {
 
 /* FAPL property to tell the VOL plugin to open a saved snapshot when opening a
  * file */
-#define H5VL_DAOSM_SNAP_OPEN_ID "daosm_snap_open"
+#define H5_DAOS_SNAP_OPEN_ID "daos_snap_open"
 
 /* Common object and attribute information */
-typedef struct H5VL_daosm_item_t {
+typedef struct H5_daos_item_t {
     H5I_type_t type;
-    struct H5VL_daosm_file_t *file;
+    struct H5_daos_file_t *file;
     int rc;
-} H5VL_daosm_item_t;
+} H5_daos_item_t;
 
 /* Common object information */
-typedef struct H5VL_daosm_obj_t {
-    H5VL_daosm_item_t item; /* Must be first */
+typedef struct H5_daos_obj_t {
+    H5_daos_item_t item; /* Must be first */
     daos_obj_id_t oid;
     daos_handle_t obj_oh;
-} H5VL_daosm_obj_t;
+} H5_daos_obj_t;
 
 /* The file struct */
-typedef struct H5VL_daosm_file_t {
-    H5VL_daosm_item_t item; /* Must be first */
+typedef struct H5_daos_file_t {
+    H5_daos_item_t item; /* Must be first */
     daos_handle_t coh;
     daos_epoch_t epoch;
     int snap_epoch;
@@ -71,7 +71,7 @@ typedef struct H5VL_daosm_file_t {
     uuid_t uuid;
     unsigned flags;
     daos_handle_t glob_md_oh;
-    struct H5VL_daosm_group_t *root_grp;
+    struct H5_daos_group_t *root_grp;
     uint64_t max_oid;
     hbool_t max_oid_dirty;
     hid_t fcpl_id;
@@ -81,58 +81,58 @@ typedef struct H5VL_daosm_file_t {
     int my_rank;
     int num_procs;
     hbool_t collective;
-} H5VL_daosm_file_t;
+} H5_daos_file_t;
 
 /* The group struct */
-typedef struct H5VL_daosm_group_t {
-    H5VL_daosm_obj_t obj; /* Must be first */
+typedef struct H5_daos_group_t {
+    H5_daos_obj_t obj; /* Must be first */
     hid_t gcpl_id;
     hid_t gapl_id;
-} H5VL_daosm_group_t;
+} H5_daos_group_t;
 
 /* The dataset struct */
-typedef struct H5VL_daosm_dset_t {
-    H5VL_daosm_obj_t obj; /* Must be first */
+typedef struct H5_daos_dset_t {
+    H5_daos_obj_t obj; /* Must be first */
     hid_t type_id;
     hid_t space_id;
     hid_t dcpl_id;
     hid_t dapl_id;
-} H5VL_daosm_dset_t;
+} H5_daos_dset_t;
 
 /* The datatype struct */
 /* Note we could speed things up a bit by caching the serialized datatype.  We
  * may also not need to keep the type_id around.  -NAF */
-typedef struct H5VL_daosm_dtype_t {
-    H5VL_daosm_obj_t obj; /* Must be first */
+typedef struct H5_daos_dtype_t {
+    H5_daos_obj_t obj; /* Must be first */
     hid_t type_id;
     hid_t tcpl_id;
     hid_t tapl_id;
-} H5VL_daosm_dtype_t;
+} H5_daos_dtype_t;
 
 /* The map struct */
-typedef struct H5VL_daosm_map_t {
-    H5VL_daosm_obj_t obj; /* Must be first */
+typedef struct H5_daos_map_t {
+    H5_daos_obj_t obj; /* Must be first */
     hid_t ktype_id;
     hid_t vtype_id;
-} H5VL_daosm_map_t;
+} H5_daos_map_t;
 
 /* The attribute struct */
-typedef struct H5VL_daosm_attr_t {
-    H5VL_daosm_item_t item; /* Must be first */
-    H5VL_daosm_obj_t *parent;
+typedef struct H5_daos_attr_t {
+    H5_daos_item_t item; /* Must be first */
+    H5_daos_obj_t *parent;
     char *name;
     hid_t type_id;
     hid_t space_id;
-} H5VL_daosm_attr_t;
+} H5_daos_attr_t;
 
 /* The link value struct */
-typedef struct H5VL_daosm_link_val_t {
+typedef struct H5_daos_link_val_t {
     H5L_type_t type;
     union {
         daos_obj_id_t hard;
         char *soft;
     } target;
-} H5VL_daosm_link_val_t;
+} H5_daos_link_val_t;
 
 /* XXX: The following two definitions are only here until they are
  * moved out of their respective H5Xpkg.h header files and into a
@@ -173,24 +173,24 @@ typedef enum H5VL_object_optional_t {
     H5VL_OBJECT_SET_COMMENT             /* set object comment                   */
 } H5VL_object_optional_t;
 
-extern hid_t H5VL_DAOSM_g;
+extern hid_t H5_DAOS_g;
 
-H5_DLL herr_t H5VL_daosm_init(void);
+H5_DLL herr_t H5_daos_init(void);
 
-H5_DLL void * H5VL_daosm_map_create(void *_item, H5VL_loc_params_t loc_params, const char *name,
+H5_DLL void * H5_daos_map_create(void *_item, H5VL_loc_params_t loc_params, const char *name,
 				    hid_t ktype_id, hid_t vtype_id, hid_t mcpl_id, hid_t mapl_id,
 				    hid_t dxpl_id, void **req);
-H5_DLL void * H5VL_daosm_map_open(void *_item, H5VL_loc_params_t loc_params, const char *name,
+H5_DLL void * H5_daos_map_open(void *_item, H5VL_loc_params_t loc_params, const char *name,
 				  hid_t mapl_id, hid_t dxpl_id, void **req);
-H5_DLL herr_t H5VL_daosm_map_set(void *_map, hid_t key_mem_type_id, const void *key, 
+H5_DLL herr_t H5_daos_map_set(void *_map, hid_t key_mem_type_id, const void *key, 
 				 hid_t val_mem_type_id, const void *value, hid_t dxpl_id, void **req);
-H5_DLL herr_t H5VL_daosm_map_get(void *_map, hid_t key_mem_type_id, const void *key, 
+H5_DLL herr_t H5_daos_map_get(void *_map, hid_t key_mem_type_id, const void *key, 
 				 hid_t val_mem_type_id, void *value, hid_t dxpl_id, void **req);
-H5_DLL herr_t H5VL_daosm_map_get_types(void *_map, hid_t *key_type_id, hid_t *val_type_id, void **req);
-H5_DLL herr_t H5VL_daosm_map_get_count(void *_map, hsize_t *count, void **req);
-H5_DLL herr_t H5VL_daosm_map_exists(void *_map, hid_t key_mem_type_id, const void *key, 
+H5_DLL herr_t H5_daos_map_get_types(void *_map, hid_t *key_type_id, hid_t *val_type_id, void **req);
+H5_DLL herr_t H5_daos_map_get_count(void *_map, hsize_t *count, void **req);
+H5_DLL herr_t H5_daos_map_exists(void *_map, hid_t key_mem_type_id, const void *key, 
 				    hbool_t *exists, void **req);
-H5_DLL herr_t H5VL_daosm_map_close(void *_map, hid_t dxpl_id, void **req);
+H5_DLL herr_t H5_daos_map_close(void *_map, hid_t dxpl_id, void **req);
 
 #endif /* H5_HAVE_EFF */
 

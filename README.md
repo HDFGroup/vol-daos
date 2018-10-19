@@ -333,19 +333,19 @@ Any HDF5 application using the DAOS VOL plugin must:
 An HDF5 DAOS VOL plugin application requires three new function calls in addition
 to those for an equivalent HDF5 application:
 
-+ H5VLdaosm_init() - Initializes the DAOS VOL plugin
++ H5daos_init() - Initializes the DAOS VOL plugin
 
     Called upon application startup, before any file is accessed.
 
 
-+ H5Pset_fapl_daosm() - Set DAOS VOL plugin access on File Access Property List.
++ H5Pset_fapl_daos() - Set DAOS VOL plugin access on File Access Property List.
   
     Called to prepare a FAPL to open a file through the DAOS VOL plugin. See
     `https://support.hdfgroup.org/HDF5/Tutor/property.html#fa` for more information
     about File Access Property Lists.
 
 
-+ H5VLdaosm_term() - Cleanly shutdown the DAOS VOL plugin
++ H5daos_term() - Cleanly shutdown the DAOS VOL plugin
 
     Called on application shutdown, after all files have been closed.
 
@@ -363,10 +363,10 @@ For clarity, no error-checking is performed.
         hid_t fapl_id;
         hid_t file_id;
 
-        H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL);
+        H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL);
 
         fapl_id = H5Pcreate(H5P_FILE_ACCESS);
-        H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL);
+        H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL);
         file_id = H5Fopen("my/file.h5");
 
         /* operate on file */
@@ -374,7 +374,7 @@ For clarity, no error-checking is performed.
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 
-        H5VLdaosm_term();
+        H5daos_term();
 
         return 0;
     }

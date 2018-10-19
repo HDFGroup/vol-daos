@@ -466,12 +466,12 @@ test_setup_plugin(void)
 
     TESTING("plugin setup");
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -479,7 +479,7 @@ test_setup_plugin(void)
     if (H5Pclose(fapl_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -491,7 +491,7 @@ error:
     H5E_BEGIN_TRY {
         H5Pclose(fapl_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -514,12 +514,12 @@ test_create_file(void)
 
     TESTING("create file")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -602,7 +602,7 @@ test_create_file(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -616,7 +616,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -631,12 +631,12 @@ test_get_file_info(void)
 
     TESTING("retrieve file info")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -662,7 +662,7 @@ test_get_file_info(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -675,7 +675,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -692,12 +692,12 @@ test_nonexistent_file(void)
 
     snprintf(test_filename, FILENAME_MAX_LENGTH, "%s", NONEXISTENT_FILENAME);
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -723,7 +723,7 @@ test_nonexistent_file(void)
     if (H5Pclose(fapl_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -735,7 +735,7 @@ error:
     H5E_BEGIN_TRY {
         H5Pclose(fapl_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -758,12 +758,12 @@ test_get_file_intent(void)
 
     snprintf(test_filename, FILENAME_MAX_LENGTH, "%s", FILE_INTENT_TEST_FILENAME);
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -867,7 +867,7 @@ test_get_file_intent(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -883,7 +883,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -899,12 +899,12 @@ test_get_file_name(void)
 
     TESTING("get file name with H5Fget_name")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -945,7 +945,7 @@ test_get_file_name(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -959,7 +959,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -973,12 +973,12 @@ test_file_reopen(void)
 
     TESTING("re-open file w/ H5Freopen")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -1006,7 +1006,7 @@ test_file_reopen(void)
     if (H5Fclose(file_id2) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -1020,7 +1020,7 @@ error:
         H5Fclose(file_id);
         H5Fclose(file_id2);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -1042,12 +1042,12 @@ test_unused_file_API_calls(void)
 
     TESTING("unused File API calls")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -1241,7 +1241,7 @@ test_unused_file_API_calls(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -1254,7 +1254,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -1274,12 +1274,12 @@ test_file_property_lists(void)
     snprintf(test_filename1, FILENAME_MAX_LENGTH, "%s", FILE_PROPERTY_LIST_TEST_FNAME1);
     snprintf(test_filename2, FILENAME_MAX_LENGTH, "%s", FILE_PROPERTY_LIST_TEST_FNAME2);
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -1411,7 +1411,7 @@ test_file_property_lists(void)
     if (H5Fclose(file_id2) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -1429,7 +1429,7 @@ error:
         H5Fclose(file_id1);
         H5Fclose(file_id2);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -1451,12 +1451,12 @@ test_create_group_invalid_loc_id(void)
 
     TESTING("create group with invalid loc_id")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -1482,7 +1482,7 @@ test_create_group_invalid_loc_id(void)
     if (H5Pclose(fapl_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -1494,7 +1494,7 @@ error:
     H5E_BEGIN_TRY {
         H5Pclose(fapl_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -1508,12 +1508,12 @@ test_create_group_under_root(void)
 
     TESTING("create group under root group")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -1542,7 +1542,7 @@ test_create_group_under_root(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -1556,7 +1556,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -1572,12 +1572,12 @@ test_create_group_under_existing_group(void)
 
     TESTING("create group under existing group using relative path")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -1615,7 +1615,7 @@ test_create_group_under_existing_group(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -1630,7 +1630,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -1647,12 +1647,12 @@ test_create_anonymous_group(void)
 
     TESTING("create anonymous group")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -1698,7 +1698,7 @@ test_create_anonymous_group(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -1713,7 +1713,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -1730,12 +1730,12 @@ test_get_group_info(void)
 
     TESTING("retrieve group info")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -1785,7 +1785,7 @@ test_get_group_info(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -1798,7 +1798,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -1812,12 +1812,12 @@ test_nonexistent_group(void)
 
     TESTING("failure for opening nonexistent group")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -1851,7 +1851,7 @@ test_nonexistent_group(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -1864,7 +1864,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -1897,12 +1897,12 @@ test_group_property_lists(void)
 
     TESTING("group property list operations")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -2049,7 +2049,7 @@ test_group_property_lists(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -2067,7 +2067,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -2094,12 +2094,12 @@ test_create_attribute_on_root(void)
 
     TESTING("create, open and close attribute on root group")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -2282,7 +2282,7 @@ test_create_attribute_on_root(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -2300,7 +2300,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -2325,12 +2325,12 @@ test_create_attribute_on_dataset(void)
 
     TESTING("create attribute on dataset")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -2522,7 +2522,7 @@ test_create_attribute_on_dataset(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -2544,7 +2544,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -2566,12 +2566,12 @@ test_create_attribute_on_datatype(void)
 
     TESTING("create attribute on committed datatype")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -2771,7 +2771,7 @@ test_create_attribute_on_datatype(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -2791,7 +2791,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -2810,12 +2810,12 @@ test_create_attribute_with_null_space(void)
 
     TESTING("create attribute with NULL dataspace")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -2893,7 +2893,7 @@ test_create_attribute_with_null_space(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -2911,7 +2911,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -2930,12 +2930,12 @@ test_create_attribute_with_scalar_space(void)
 
     TESTING("create attribute with SCALAR dataspace")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -3013,7 +3013,7 @@ test_create_attribute_with_scalar_space(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -3031,7 +3031,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -3054,12 +3054,12 @@ test_get_attribute_info(void)
 
     TESTING("retrieve attribute info")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -3154,7 +3154,7 @@ test_get_attribute_info(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -3171,7 +3171,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -3194,12 +3194,12 @@ test_get_attribute_space_and_type(void)
 
     TESTING("retrieve attribute dataspace and datatype")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -3382,7 +3382,7 @@ test_get_attribute_space_and_type(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -3401,7 +3401,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -3425,12 +3425,12 @@ test_get_attribute_name(void)
 
     TESTING("retrieve attribute name")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -3564,7 +3564,7 @@ test_get_attribute_name(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -3582,7 +3582,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -3603,12 +3603,12 @@ test_create_attribute_with_space_in_name(void)
 
     TESTING("create attribute with a space in its name")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -3673,7 +3673,7 @@ test_create_attribute_with_space_in_name(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -3690,7 +3690,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -3712,12 +3712,12 @@ test_delete_attribute(void)
 
     TESTING("delete an attribute")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -3871,7 +3871,7 @@ test_delete_attribute(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -3888,7 +3888,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -3909,12 +3909,12 @@ test_write_attribute(void)
 
     TESTING("write data to an attribute")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -3995,7 +3995,7 @@ test_write_attribute(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -4011,7 +4011,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -4033,12 +4033,12 @@ test_read_attribute(void)
 
     TESTING("read data from an attribute")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -4152,7 +4152,7 @@ test_read_attribute(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -4170,7 +4170,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -4192,12 +4192,12 @@ test_rename_attribute(void)
 
     TESTING("rename an attribute")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -4286,7 +4286,7 @@ test_rename_attribute(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -4303,7 +4303,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -4326,12 +4326,12 @@ test_get_number_attributes(void)
 
     TESTING("retrieve the number of attributes on an object")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -4445,7 +4445,7 @@ test_get_number_attributes(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -4462,7 +4462,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -4487,12 +4487,12 @@ test_attribute_iterate(void)
 
     TESTING("attribute iteration")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -4740,7 +4740,7 @@ test_attribute_iterate(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -4764,7 +4764,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -4784,12 +4784,12 @@ test_attribute_iterate_0_attributes(void)
 
     TESTING("attribute iteration on object with 0 attributes")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -4849,7 +4849,7 @@ test_attribute_iterate_0_attributes(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -4867,7 +4867,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -4888,12 +4888,12 @@ test_unused_attribute_API_calls(void)
 
     TESTING("unused attribute API calls")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -4953,7 +4953,7 @@ test_unused_attribute_API_calls(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -4970,7 +4970,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -4993,12 +4993,12 @@ test_attribute_property_lists(void)
 
     TESTING("attribute property list operations")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -5197,7 +5197,7 @@ test_attribute_property_lists(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -5219,7 +5219,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -5245,12 +5245,12 @@ test_create_dataset_under_root(void)
 
     TESTING("create dataset under root group")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -5293,7 +5293,7 @@ test_create_dataset_under_root(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -5309,7 +5309,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -5330,12 +5330,12 @@ test_create_anonymous_dataset(void)
 
     TESTING("create anonymous dataset")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -5394,7 +5394,7 @@ test_create_anonymous_dataset(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -5411,7 +5411,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -5432,12 +5432,12 @@ test_create_dataset_under_existing_group(void)
 
     TESTING("create dataset under existing group")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -5487,7 +5487,7 @@ test_create_dataset_under_existing_group(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -5504,7 +5504,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -5521,12 +5521,12 @@ static int test_create_dataset_null_space(void)
 
     TESTING("create dataset with a NULL dataspace")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -5590,7 +5590,7 @@ static int test_create_dataset_null_space(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -5608,7 +5608,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -5625,12 +5625,12 @@ static int test_create_dataset_scalar_space(void)
 
     TESTING("create dataset with a SCALAR dataspace")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -5694,7 +5694,7 @@ static int test_create_dataset_scalar_space(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -5712,7 +5712,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -5737,12 +5737,12 @@ test_create_dataset_predefined_types(void)
 
     TESTING("dataset creation w/ predefined datatypes")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -5812,7 +5812,7 @@ test_create_dataset_predefined_types(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -5829,7 +5829,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -5849,12 +5849,12 @@ test_create_dataset_string_types(void)
 
     TESTING("dataset creation w/ string types")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -5955,7 +5955,7 @@ test_create_dataset_string_types(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -5975,7 +5975,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -5997,12 +5997,12 @@ test_create_dataset_compound_types(void)
 
     TESTING("dataset creation w/ compound datatypes")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -6124,7 +6124,7 @@ test_create_dataset_compound_types(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -6144,7 +6144,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -6169,12 +6169,12 @@ test_create_dataset_enum_types(void)
 
     TESTING("dataset creation w/ enum types")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -6288,7 +6288,7 @@ test_create_dataset_enum_types(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -6308,7 +6308,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -6337,12 +6337,12 @@ test_create_dataset_array_types(void)
 
     TESTING("dataset creation w/ array types")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -6494,7 +6494,7 @@ test_create_dataset_array_types(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -6518,7 +6518,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -6537,12 +6537,12 @@ test_create_dataset_shapes(void)
 
     TESTING("dataset creation w/ random dimension sizes")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -6622,7 +6622,7 @@ test_create_dataset_shapes(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -6641,7 +6641,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -6661,12 +6661,12 @@ test_create_dataset_creation_properties(void)
 
     TESTING("dataset creation properties")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -7042,7 +7042,7 @@ test_create_dataset_creation_properties(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -7061,7 +7061,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -7082,12 +7082,12 @@ test_write_dataset_small_all(void)
 
     TESTING("small write to dataset w/ H5S_ALL")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -7170,7 +7170,7 @@ test_write_dataset_small_all(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -7187,7 +7187,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -7211,12 +7211,12 @@ test_write_dataset_small_hyperslab(void)
 
     TESTING("small write to dataset w/ hyperslab")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -7295,7 +7295,7 @@ test_write_dataset_small_hyperslab(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -7313,7 +7313,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -7334,12 +7334,12 @@ test_write_dataset_small_point_selection(void)
 
     TESTING("small write to dataset w/ point selection")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -7413,7 +7413,7 @@ test_write_dataset_small_point_selection(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -7430,7 +7430,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -7452,12 +7452,12 @@ test_write_dataset_large_all(void)
 
     TESTING("write to large dataset w/ H5S_ALL")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -7540,7 +7540,7 @@ test_write_dataset_large_all(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -7556,7 +7556,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -7580,12 +7580,12 @@ test_write_dataset_large_hyperslab(void)
 
     TESTING("write to large dataset w/ hyperslab selection")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -7662,7 +7662,7 @@ test_write_dataset_large_hyperslab(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -7680,7 +7680,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -7714,12 +7714,12 @@ test_read_dataset_small_all(void)
 
     TESTING("small read from dataset w/ H5S_ALL")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -7779,7 +7779,7 @@ test_read_dataset_small_all(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -7796,7 +7796,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -7820,12 +7820,12 @@ test_read_dataset_small_hyperslab(void)
 
     TESTING("small read from dataset w/ hyperslab")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -7901,7 +7901,7 @@ test_read_dataset_small_hyperslab(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -7919,7 +7919,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -7942,12 +7942,12 @@ test_read_dataset_small_point_selection(void)
 
     TESTING("small read from dataset w/ point selection")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -8022,7 +8022,7 @@ test_read_dataset_small_point_selection(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -8040,7 +8040,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -8061,12 +8061,12 @@ test_read_dataset_large_all(void)
 
     TESTING("read from large dataset w/ H5S_ALL")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -8126,7 +8126,7 @@ test_read_dataset_large_all(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -8143,7 +8143,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -8167,12 +8167,12 @@ test_read_dataset_large_hyperslab(void)
 
     TESTING("read from large dataset w/ hyperslab selection")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -8246,7 +8246,7 @@ test_read_dataset_large_hyperslab(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -8263,7 +8263,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -8284,12 +8284,12 @@ test_read_dataset_large_point_selection(void)
 
     TESTING("read from large dataset w/ point selection")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -8369,7 +8369,7 @@ test_read_dataset_large_point_selection(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -8387,7 +8387,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -8416,12 +8416,12 @@ test_write_dataset_data_verification(void)
 
     TESTING("verification of dataset data after write then read")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -8749,7 +8749,7 @@ test_write_dataset_data_verification(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -8768,7 +8768,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -8790,12 +8790,12 @@ test_dataset_set_extent(void)
 
     TESTING("set dataset extent")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -8857,7 +8857,7 @@ test_dataset_set_extent(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -8874,7 +8874,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -8897,12 +8897,12 @@ test_unused_dataset_API_calls(void)
 
     TESTING("unused dataset API calls")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -8981,7 +8981,7 @@ test_unused_dataset_API_calls(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -8998,7 +8998,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -9024,12 +9024,12 @@ test_dataset_property_lists(void)
 
     TESTING("dataset property list operations")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -9347,7 +9347,7 @@ test_dataset_property_lists(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -9376,7 +9376,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -9399,12 +9399,12 @@ test_create_committed_datatype(void)
 
     TESTING("creation of committed datatype")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -9446,7 +9446,7 @@ test_create_committed_datatype(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -9461,7 +9461,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -9478,12 +9478,12 @@ test_create_anonymous_committed_datatype(void)
 
     TESTING("creation of anonymous committed datatype")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -9535,7 +9535,7 @@ test_create_anonymous_committed_datatype(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -9550,7 +9550,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -9571,12 +9571,12 @@ test_create_dataset_with_committed_type(void)
 
     TESTING("dataset creation w/ committed datatype")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -9668,7 +9668,7 @@ test_create_dataset_with_committed_type(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -9685,7 +9685,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -9706,12 +9706,12 @@ test_create_attribute_with_committed_type(void)
 
     TESTING("attribute creation w/ committed datatype")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -9794,7 +9794,7 @@ test_create_attribute_with_committed_type(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -9811,7 +9811,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -9828,12 +9828,12 @@ test_delete_committed_type(void)
 
     TESTING("delete committed datatype")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -9905,7 +9905,7 @@ test_delete_committed_type(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -9920,7 +9920,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -9952,12 +9952,12 @@ test_datatype_property_lists(void)
 
     TESTING("datatype property list operations")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -10081,7 +10081,7 @@ test_datatype_property_lists(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -10100,7 +10100,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -10124,12 +10124,12 @@ test_create_hard_link(void)
 
     TESTING("create hard link")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -10181,7 +10181,7 @@ test_create_hard_link(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -10195,7 +10195,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -10222,12 +10222,12 @@ test_create_hard_link_same_loc(void)
 
     TESTING("create hard link with H5L_SAME_LOC")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -10330,7 +10330,7 @@ test_create_hard_link_same_loc(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -10348,7 +10348,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -10370,12 +10370,12 @@ test_create_soft_link_existing_relative(void)
 
     TESTING("create soft link to existing object by relative path")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -10466,7 +10466,7 @@ test_create_soft_link_existing_relative(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -10484,7 +10484,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -10500,12 +10500,12 @@ test_create_soft_link_existing_absolute(void)
 
     TESTING("create soft link to existing object by absolute path")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -10574,7 +10574,7 @@ test_create_soft_link_existing_absolute(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -10590,7 +10590,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -10612,12 +10612,12 @@ test_create_soft_link_dangling_relative(void)
 
     TESTING("create dangling soft link to object by relative path")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -10718,7 +10718,7 @@ test_create_soft_link_dangling_relative(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -10736,7 +10736,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -10758,12 +10758,12 @@ test_create_soft_link_dangling_absolute(void)
 
     TESTING("create dangling soft link to object by absolute path")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -10864,7 +10864,7 @@ test_create_soft_link_dangling_absolute(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -10882,7 +10882,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -10903,12 +10903,12 @@ test_create_external_link(void)
 
     snprintf(ext_link_filename, FILENAME_MAX_LENGTH, "%s", EXTERNAL_LINK_TEST_FILE_NAME);
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -10985,7 +10985,7 @@ test_create_external_link(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -11001,7 +11001,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -11026,12 +11026,12 @@ test_create_dangling_external_link(void)
 
     snprintf(ext_link_filename, FILENAME_MAX_LENGTH, "%s", EXTERNAL_LINK_TEST_FILE_NAME);
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -11153,7 +11153,7 @@ test_create_dangling_external_link(void)
     if (H5Fclose(ext_file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -11172,7 +11172,7 @@ error:
         H5Fclose(file_id);
         H5Fclose(ext_file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -11192,12 +11192,12 @@ test_create_user_defined_link(void)
 
     TESTING("create user-defined link")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -11256,7 +11256,7 @@ test_create_user_defined_link(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -11270,7 +11270,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -11295,12 +11295,12 @@ test_delete_link(void)
     
     snprintf(ext_link_filename, FILENAME_MAX_LENGTH, "%s", EXTERNAL_LINK_TEST_FILE_NAME);
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -11605,7 +11605,7 @@ test_delete_link(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -11624,7 +11624,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -11646,12 +11646,12 @@ test_copy_link(void)
 
     TESTING("copy a link")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -11803,7 +11803,7 @@ test_copy_link(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -11821,7 +11821,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -11843,12 +11843,12 @@ test_move_link(void)
 
     TESTING("move a link")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -12026,7 +12026,7 @@ test_move_link(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -12044,7 +12044,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -12070,12 +12070,12 @@ test_get_link_info(void)
 
     snprintf(ext_link_filename, FILENAME_MAX_LENGTH, "%s", EXTERNAL_LINK_TEST_FILE_NAME);
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -12307,7 +12307,7 @@ test_get_link_info(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -12325,7 +12325,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -12349,12 +12349,12 @@ test_get_link_name(void)
 
     TESTING("get link name")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -12464,7 +12464,7 @@ test_get_link_name(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -12483,7 +12483,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -12509,12 +12509,12 @@ test_get_link_val(void)
 
     snprintf(ext_link_filename, FILENAME_MAX_LENGTH, "%s", EXTERNAL_LINK_TEST_FILE_NAME);
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -12788,7 +12788,7 @@ test_get_link_val(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -12804,7 +12804,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -12830,12 +12830,12 @@ test_link_iterate(void)
 
     snprintf(ext_link_filename, FILENAME_MAX_LENGTH, "%s", EXTERNAL_LINK_TEST_FILE_NAME);
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -13076,7 +13076,7 @@ test_link_iterate(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -13094,7 +13094,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -13109,12 +13109,12 @@ test_link_iterate_0_links(void)
 
     TESTING("link iteration on group with 0 links")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -13231,7 +13231,7 @@ test_link_iterate_0_links(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -13246,7 +13246,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -13271,12 +13271,12 @@ test_link_visit(void)
 
     snprintf(ext_link_filename, FILENAME_MAX_LENGTH, "%s", EXTERNAL_LINK_TEST_FILE_NAME);
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -13527,7 +13527,7 @@ test_link_visit(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -13547,7 +13547,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -13567,12 +13567,12 @@ test_link_visit_cycles(void)
 
     snprintf(ext_link_filename, FILENAME_MAX_LENGTH, "%s", EXTERNAL_LINK_TEST_FILE_NAME);
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -13792,7 +13792,7 @@ test_link_visit_cycles(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -13809,7 +13809,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -13825,12 +13825,12 @@ test_link_visit_0_links(void)
 
     TESTING("link visit on group with subgroups containing 0 links")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -13962,7 +13962,7 @@ test_link_visit_0_links(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -13979,7 +13979,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -14021,12 +14021,12 @@ test_open_dataset_generically(void)
 
     TESTING("open dataset generically w/ H5Oopen()")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -14123,7 +14123,7 @@ test_open_dataset_generically(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -14140,7 +14140,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -14156,12 +14156,12 @@ test_open_group_generically(void)
 
     TESTING("open group generically w/ H5Oopen()")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -14244,7 +14244,7 @@ test_open_group_generically(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -14259,7 +14259,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -14275,12 +14275,12 @@ test_open_datatype_generically(void)
 
     TESTING("open datatype generically w/ H5Oopen()")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -14369,7 +14369,7 @@ test_open_datatype_generically(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -14384,7 +14384,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -14406,12 +14406,12 @@ test_object_exists(void)
 
     TESTING("object exists by name")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -14518,7 +14518,7 @@ test_object_exists(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -14537,7 +14537,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -14552,12 +14552,12 @@ test_incr_decr_refcount(void)
 
     TESTING("H5Oincr/decr_refcount")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -14597,7 +14597,7 @@ test_incr_decr_refcount(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -14610,7 +14610,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -14630,12 +14630,12 @@ test_h5o_copy(void)
 
     TESTING("object copy")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -14698,7 +14698,7 @@ test_h5o_copy(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -14715,7 +14715,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -14736,12 +14736,12 @@ test_h5o_close(void)
 
     TESTING("H5Oclose")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -14831,7 +14831,7 @@ test_h5o_close(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -14850,7 +14850,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -14866,12 +14866,12 @@ test_object_visit(void)
 
     TESTING("H5Ovisit")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -14923,7 +14923,7 @@ test_object_visit(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -14937,7 +14937,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -14953,12 +14953,12 @@ test_create_obj_ref(void)
 
     TESTING("create an object reference")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -14988,7 +14988,7 @@ test_create_obj_ref(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -15001,7 +15001,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -15036,12 +15036,12 @@ test_get_ref_type(void)
 
     TESTING("retrieve type of object reference by an object/region reference")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -15195,7 +15195,7 @@ test_get_ref_type(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -15214,7 +15214,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -15260,12 +15260,12 @@ test_write_dataset_w_obj_refs(void)
 
     TESTING("write to a dataset w/ object reference type")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -15429,7 +15429,7 @@ test_write_dataset_w_obj_refs(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -15450,7 +15450,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -15472,12 +15472,12 @@ test_read_dataset_w_obj_refs(void)
 
     TESTING("read from a dataset w/ object reference type")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -15693,7 +15693,7 @@ test_read_dataset_w_obj_refs(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -15714,7 +15714,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -15734,12 +15734,12 @@ test_write_dataset_w_obj_refs_empty_data(void)
 
     TESTING("write to a dataset w/ object reference type and some empty data")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -15839,7 +15839,7 @@ test_write_dataset_w_obj_refs_empty_data(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -15856,7 +15856,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -15873,12 +15873,12 @@ test_unused_object_API_calls(void)
 
     TESTING("unused object API calls")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -15918,7 +15918,7 @@ test_unused_object_API_calls(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -15931,7 +15931,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -15959,12 +15959,12 @@ test_open_link_without_leading_slash(void)
 
     TESTING("opening a link without a leading slash")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -16043,7 +16043,7 @@ test_open_link_without_leading_slash(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -16061,7 +16061,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -16083,12 +16083,12 @@ test_object_creation_by_absolute_path(void)
 
     TESTING("object creation by absolute path")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -16227,7 +16227,7 @@ test_object_creation_by_absolute_path(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -16247,7 +16247,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -16268,12 +16268,12 @@ test_absolute_vs_relative_path(void)
 
     TESTING("absolute vs. relative pathnames")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -16480,7 +16480,7 @@ test_absolute_vs_relative_path(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -16508,7 +16508,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -16516,8 +16516,8 @@ error:
 }
 
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-/* Simple test to ensure that calling H5VLdaosm_init() and
- * H5VLdaosm_term() twice doesn't do anything bad
+/* Simple test to ensure that calling H5daos_init() and
+ * H5daos_term() twice doesn't do anything bad
  */
 static int
 test_double_init_free(void)
@@ -16526,23 +16526,23 @@ test_double_init_free(void)
 
     TESTING("double init/free correctness")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
 
     if (H5Pclose(fapl_id) < 0)
         TEST_ERROR
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 
     PASSED();
@@ -16552,8 +16552,8 @@ test_double_init_free(void)
 error:
     H5E_BEGIN_TRY {
         H5Pclose(fapl_id);
-        H5VLdaosm_term();
-        H5VLdaosm_term();
+        H5daos_term();
+        H5daos_term();
     } H5E_END_TRY;
 
     return 1;
@@ -16578,12 +16578,12 @@ test_url_encoding(void)
 
     TESTING("correct URL-encoding behavior")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -16693,7 +16693,7 @@ test_url_encoding(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -16713,7 +16713,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -16737,7 +16737,7 @@ test_symbols_in_compound_field_name(void)
 
     TESTING("usage of '{', '}' and '\\\"' symbols in compound type\'s field name")
 
-    if (H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
+    if (H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL) < 0)
         TEST_ERROR
 
     for (i = 0; i < COMPOUND_WITH_SYMBOLS_IN_MEMBER_NAMES_TEST_NUM_SUBTYPES; i++)
@@ -16745,7 +16745,7 @@ test_symbols_in_compound_field_name(void)
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         TEST_ERROR
-    if (H5Pset_fapl_daosm(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if (H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         TEST_ERROR
     if (H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
         TEST_ERROR
@@ -16844,7 +16844,7 @@ test_symbols_in_compound_field_name(void)
     if (H5Fclose(file_id) < 0)
         TEST_ERROR
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if (H5VLdaosm_term() < 0)
+    if (H5daos_term() < 0)
         TEST_ERROR
 #endif
 
@@ -16864,7 +16864,7 @@ error:
         H5Pclose(fapl_id);
         H5Fclose(file_id);
 #ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5VLdaosm_term();
+        H5daos_term();
 #endif
     } H5E_END_TRY;
 
@@ -17922,7 +17922,7 @@ main( int argc, char** argv )
     }
 
 #ifdef DAOS_INIT_FINI_BUG_WORKAROUND
-    H5VLdaosm_term();
+    H5daos_term();
 #endif
 
     if (nerrors) goto error;

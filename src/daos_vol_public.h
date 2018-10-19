@@ -17,12 +17,12 @@
  * Programmer:  Neil Fortner <nfortne2@hdfgroup.gov>
  *              December, 2016
  *
- * Purpose:	The public header file for the DAOS-M VOL plugin.
+ * Purpose:	The public header file for the DAOS VOL plugin.
  */
 #ifndef daos_vol_public_H
 #define daos_vol_public_H
 
-#define H5_HAVE_EFF 1 /* DSMINC */
+#define H5_HAVE_EFF 1 /* DSINC */
 
 /* System headers needed by this file */
 #include <uuid/uuid.h>
@@ -37,21 +37,21 @@ extern "C" {
 
 #ifdef H5_HAVE_EFF
 
-#define H5VL_DAOSM_SNAP_ID_INVAL (uint64_t)(int64_t)-1
+#define H5_DAOS_SNAP_ID_INVAL (uint64_t)(int64_t)-1
 
-typedef uint64_t H5VL_daosm_snap_id_t;
+typedef uint64_t H5_daos_snap_id_t;
 
-/* DSMINC - need to redefine H5_DLL since this will not work correctly for an external plugin */
-H5_DLL herr_t H5VLdaosm_init(MPI_Comm pool_comm, uuid_t pool_uuid,
+/* DSINC - need to redefine H5_DLL since this will not work correctly for an external plugin */
+H5_DLL herr_t H5daos_init(MPI_Comm pool_comm, uuid_t pool_uuid,
     char *pool_grp);
-H5_DLL herr_t H5VLdaosm_term(void);
-H5_DLL herr_t H5Pset_fapl_daosm(hid_t fapl_id, MPI_Comm comm, MPI_Info info);
-H5_DLL herr_t H5VLdaosm_snap_create(hid_t loc_id,
-    H5VL_daosm_snap_id_t *snap_id);
-H5_DLL herr_t H5Pset_daosm_snap_open(hid_t fapl_id,
-    H5VL_daosm_snap_id_t snap_id);
-/* H5_DLL herr_t EFF_init(void); DSMINC */
-/* H5_DLL herr_t EFF_finalize(void); DSMINC */
+H5_DLL herr_t H5daos_term(void);
+H5_DLL herr_t H5Pset_fapl_daos(hid_t fapl_id, MPI_Comm comm, MPI_Info info);
+H5_DLL herr_t H5daos_snap_create(hid_t loc_id,
+    H5_daos_snap_id_t *snap_id);
+H5_DLL herr_t H5Pset_daos_snap_open(hid_t fapl_id,
+    H5_daos_snap_id_t snap_id);
+/* H5_DLL herr_t EFF_init(void); DSINC */
+/* H5_DLL herr_t EFF_finalize(void); DSINC */
 
 #endif /* H5_HAVE_EFF */
 

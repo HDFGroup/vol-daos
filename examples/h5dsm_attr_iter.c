@@ -23,7 +23,7 @@ int main(int argc, char *argv[]) {
     hid_t file = -1, fapl = -1;
     hsize_t num_attr = 0;
     herr_t ret;
-    H5VL_daosm_snap_id_t snap_id;
+    H5_daos_snap_id_t snap_id;
 
     (void)MPI_Init(&argc, &argv);
 
@@ -35,22 +35,22 @@ int main(int argc, char *argv[]) {
         ERROR;
 
     /* Initialize VOL */
-    if(H5VLdaosm_init(MPI_COMM_WORLD, pool_uuid, pool_grp) < 0)
+    if(H5daos_init(MPI_COMM_WORLD, pool_uuid, pool_grp) < 0)
         ERROR;
 
     /* Set up FAPL */
     if((fapl = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         ERROR;
-    if(H5Pset_fapl_daosm(fapl, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if(H5Pset_fapl_daos(fapl, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         ERROR;
     if(H5Pset_all_coll_metadata_ops(fapl, true) < 0)
         ERROR;
 
     /* Open snapshot if specified */
     if(argc == 5) {
-        snap_id = (H5VL_daosm_snap_id_t)atoi(argv[4]);
+        snap_id = (H5_daos_snap_id_t)atoi(argv[4]);
         printf("Opening snapshot %llu\n", (long long unsigned)snap_id);
-        if(H5Pset_daosm_snap_open(fapl, snap_id) < 0)
+        if(H5Pset_daos_snap_open(fapl, snap_id) < 0)
             ERROR;
     } /* end if */
 

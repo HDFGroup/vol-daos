@@ -265,7 +265,7 @@ if [ "$build_hdf5" = true ]; then
     if [ "${build_tools}" = true ]; then
         ./configure --prefix="${HDF5_INSTALL_DIR}" --enable-parallel CFLAGS="${COMP_OPTS} -L${INSTALL_DIR}/lib ${DAOS_VOL_LINK} ${UUID_LINK}" || exit 1
     else
-        ./configure --prefix="${HDF5_INSTALL_DIR}" --enable-parallel CFLAGS="${COMP_OPTS}" || exit 1
+        ./configure --prefix="${HDF5_INSTALL_DIR}" --enable-parallel --disable-static CFLAGS="${COMP_OPTS}" || exit 1
     fi
 
     make -j${NPROCS} && make install || exit 1

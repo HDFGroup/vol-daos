@@ -28,6 +28,7 @@
 #include "H5Ipublic.h"          /* IDs                                  */
 #include "H5Opublic.h"          /* Objects                              */
 #include "H5Ppublic.h"          /* Property lists                       */
+#include "H5PLpublic.h"         /* Plugins                              */
 #include "H5Spublic.h"          /* Dataspaces                           */
 #include "H5VLpublic.h"         /* VOL plugins                          */
 
@@ -37,7 +38,6 @@
 
 #include "util/daos_vol_mem.h"  /* DAOS plugin memory management        */
 
-int tmp_g = 0;
 hid_t H5_DAOS_g = -1;
 
 /* Identifiers for HDF5's error API */
@@ -8049,3 +8049,13 @@ H5_daos_map_close(void *_map, hid_t DV_ATTR_UNUSED dxpl_id,
     D_FUNC_LEAVE
 } /* end H5_daos_map_close() */
 #endif /* DV_HAVE_MAP */
+
+H5PL_type_t
+H5PLget_plugin_type(void) {
+    return H5PL_TYPE_FILTER;
+}
+
+const void*
+H5PLget_plugin_info(void) {
+    return &H5_daos_g;
+}

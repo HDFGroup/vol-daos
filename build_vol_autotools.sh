@@ -249,6 +249,11 @@ fi
 export LD_LIBRARY_PATH="${DAOS_LIB_DIRS}"
 COMP_OPTS="${COMP_OPTS} ${DAOS_INCLUDES} ${DAOS_LINK} -ldaos -ldaos_common -lmpi"
 
+if [ -z "$(ls -A ${SCRIPT_DIR}/${HDF5_DIR})" ]; then
+    git submodule init
+    git submodule update
+fi
+
 # If the user hasn't already, first build HDF5
 if [ "$build_hdf5" = true ]; then
     echo "*****************"

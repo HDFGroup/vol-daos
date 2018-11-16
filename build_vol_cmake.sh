@@ -174,6 +174,12 @@ echo "* Building DAOS VOL plugin and test suite *"
 echo "*******************************************"
 echo
 
+# Make sure to checkout HDF5 submodule
+if [ -z "$(ls -A ${SCRIPT_DIR}/${HDF5_DIR})" ]; then
+    git submodule init
+    git submodule update
+fi
+
 mkdir -p "${BUILD_DIR}"
 mkdir -p "${INSTALL_DIR}"
 

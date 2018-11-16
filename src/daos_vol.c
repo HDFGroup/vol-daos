@@ -183,6 +183,7 @@ typedef struct {
 
 /* Prototypes */
 static void *H5_daos_fapl_copy(const void *_old_fa);
+static herr_t H5daos_dynamic_init(hid_t vipl_id);
 static herr_t H5_daos_fapl_free(void *_fa);
 static herr_t H5_daos_term(hid_t vtpl_id);
 
@@ -329,10 +330,10 @@ H5FL_DEFINE(H5_daos_attr_t);*/
 
 /* The DAOS VOL plugin struct */
 static H5VL_class_t H5_daos_g = {
-    HDF5_VOL_DAOS_VERSION_1,                /* Plugin Version number */
+    HDF5_VOL_DAOS_VERSION_1,                 /* Plugin Version number */
     H5_VOL_DAOS_CLS_VAL,                     /* Plugin Value */
     "daos",                                  /* Plugin Name */
-    NULL,                                    /* Plugin initialize */
+    H5daos_dynamic_init,                     /* Plugin initialize */
     H5_daos_term,                            /* Plugin terminate */
     sizeof(H5_daos_fapl_t),                  /* Plugin FAPL size */
     H5_daos_fapl_copy,                       /* Plugin FAPL copy */
@@ -434,6 +435,37 @@ done:
     D_FUNC_LEAVE
 } /* H5VL__init_package() */
 #endif
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5daos_dynamic_init
+ *
+ * Purpose:     This function is used to have HDF5 automatically initialize
+ *              the DAOS VOL connector when it is used as a dynamically
+ *              loaded library. Since the VOL initialization callback
+ *              doesn't currently have any provisions for passing
+ *              information, we use defaults here.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ * Programmer:  Jordan Henderson
+ *              November, 2018
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5daos_dynamic_init(hid_t vipl_id)
+{
+    uuid_t fake_uuid;
+    herr_t ret_value = SUCCEED;
+
+    memset(fake_uuid, 0, sizeof(uuid_t));
+    if (H5daos_init(MPI_COMM_WORLD, fake_uuid, NULL) < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "DAOS VOL connector failed to initialize")
+
+done:
+    D_FUNC_LEAVE_API
+} /* end H5daos_dynamic_init() */
 
 
 /*-------------------------------------------------------------------------

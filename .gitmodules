@@ -1,4 +1,4 @@
 [submodule "hdf5"]
 	path = hdf5
-	url = ssh://git@bitbucket.hdfgroup.org:7999/~jhenderson/hdf5.git
-	branch = feature/daos_vol_support
+	url = https://bitbucket.hdfgroup.org/scm/hdffv/hdf5.git
+	branch = daos_vol_support

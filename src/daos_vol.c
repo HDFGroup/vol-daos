@@ -712,8 +712,19 @@ H5_daos_init(void)
 
     /* Register the DAOS VOL, if it isn't already */
     if(H5I_VOL != H5Iget_type(H5_DAOS_g)) {
-        if((H5_DAOS_g = H5VLregister_driver((const H5VL_class_t *)&H5_daos_g)) < 0)
-            D_GOTO_ERROR(H5E_ATOM, H5E_CANTINSERT, FAIL, "can't create ID for DAOS VOL plugin")
+        htri_t is_registered;
+
+        if ((is_registered = H5VLis_driver_registered(H5_daos_g.name)) < 0)
+            D_GOTO_ERROR(H5E_ATOM, H5E_CANTINIT, FAIL, "can't determine if DAOS VOL plugin is registered")
+
+        if (!is_registered) {
+            if((H5_DAOS_g = H5VLregister_driver((const H5VL_class_t *)&H5_daos_g)) < 0)
+                D_GOTO_ERROR(H5E_ATOM, H5E_CANTINSERT, FAIL, "can't create ID for DAOS VOL plugin")
+        }
+        else {
+            if((H5_DAOS_g = H5VLget_driver_id(H5_daos_g.name)) < 0)
+                D_GOTO_ERROR(H5E_ATOM, H5E_CANTGET, FAIL, "unable to get registered ID for DAOS VOL plugin")
+        }
     } /* end if */
 
 done:
@@ -6089,11 +6100,11 @@ H5_daos_attribute_create(void *_item, H5VL_loc_params_t loc_params,
 
     /* Encode dataspace */
     if(H5Sencode(space_id, NULL, &space_size) < 0)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of dataaspace")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of dataspace")
     if(NULL == (space_buf = DV_malloc(space_size)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized dataaspace")
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized dataspace")
     if(H5Sencode(space_id, space_buf, &space_size) < 0)
-        D_GOTO_ERROR(H5E_DATASET, H5E_CANTENCODE, NULL, "can't serialize dataaspace")
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTENCODE, NULL, "can't serialize dataspace")
 
     /* Set up operation to write datatype and dataspace to attribute */
     /* Set up dkey */

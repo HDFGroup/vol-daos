@@ -45,7 +45,9 @@ extern "C" {
 
 /* FAPL property to tell the VOL plugin to open a saved snapshot when opening a
  * file */
+#ifdef DV_HAVE_SNAP_OPEN_ID
 #define H5_DAOS_SNAP_OPEN_ID "daos_snap_open"
+#endif
 
 /* Common object and attribute information */
 typedef struct H5_daos_item_t {

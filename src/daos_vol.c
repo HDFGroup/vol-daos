@@ -47,6 +47,11 @@ hid_t dv_err_class_g = -1;
 /* DSINC - Exclude map functionality for now */
 #undef DV_HAVE_MAP
 
+/* DSINC - There are serious problems in HDF5 when trying to call
+ * H5Pregister2/H5Punregister on the H5P_FILE_ACCESS class.
+ */
+#undef DV_HAVE_SNAP_OPEN_ID
+
 #ifdef DV_TRACK_MEM_USAGE
 /*
  * Counter to keep track of the currently allocated amount of bytes
@@ -488,7 +493,9 @@ done:
 herr_t
 H5daos_init(MPI_Comm pool_comm, uuid_t _pool_uuid, char *pool_grp)
 {
+#ifdef DV_HAVE_SNAP_OPEN_ID
     H5_daos_snap_id_t snap_id_default;
+#endif
     int pool_rank;
     int pool_num_procs;
     daos_iov_t glob;
@@ -653,11 +660,13 @@ H5daos_init(MPI_Comm pool_comm, uuid_t _pool_uuid, char *pool_grp)
     if ((dv_err_stack_g = H5Ecreate_stack()) < 0)
         D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create error stack")
 
+#ifdef DV_HAVE_SNAP_OPEN_ID
     /* Register the DAOS SNAP_OPEN_ID property with HDF5 */
     snap_id_default = H5_DAOS_SNAP_ID_INVAL;
     if (H5Pregister2(H5P_FILE_ACCESS, H5_DAOS_SNAP_OPEN_ID, sizeof(H5_daos_snap_id_t), (H5_daos_snap_id_t *) &snap_id_default,
             NULL, NULL, NULL, NULL, NULL, NULL, NULL) < 0)
         D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "unable to register DAOS SNAP_OPEN_ID property")
+#endif
 
     /* Register the DAOS VOL, if it isn't already */
     if(H5_daos_init() < 0)
@@ -813,9 +822,11 @@ H5_daos_term(hid_t vtpl_id)
         if (daos_fini() < 0)
             D_GOTO_ERROR(H5E_VOL, H5E_CLOSEERROR, FAIL, "DAOS failed to terminate")
 
+#ifdef DV_HAVE_SNAP_OPEN_ID
         /* Unregister the DAOS SNAP_OPEN_ID property from HDF5 */
         if (H5Punregister(H5P_FILE_ACCESS, H5_DAOS_SNAP_OPEN_ID) < 0)
             D_GOTO_ERROR(H5E_VOL, H5E_CLOSEERROR, FAIL, "can't unregister DAOS SNAP_OPEN_ID property")
+#endif
     } /* end if */
 
 done:
@@ -933,6 +944,7 @@ done:
 /*-------------------------------------------------------------------------
  * Function:    H5Pset_daos_snap_open
  *
+ * XXX: text to be changed
  * Purpose:     Modify the file access property list to use the DAOS VOL
  *              plugin defined in this source file.
  *
@@ -943,6 +955,7 @@ done:
  *
  *-------------------------------------------------------------------------
  */
+#ifdef DV_HAVE_SNAP_OPEN_ID
 herr_t
 H5Pset_daos_snap_open(hid_t fapl_id, H5_daos_snap_id_t snap_id)
 {
@@ -964,6 +977,7 @@ H5Pset_daos_snap_open(hid_t fapl_id, H5_daos_snap_id_t snap_id)
 done:
     D_FUNC_LEAVE_API
 } /* end H5Pset_daos_snap_open() */
+#endif
 
 
 /*-------------------------------------------------------------------------
@@ -1009,6 +1023,8 @@ done:
             D_DONE_ERROR(H5E_PLIST, H5E_CANTFREE, NULL, "can't free fapl")
     } /* end if */
 
+    PRINT_ERROR_STACK
+
     D_FUNC_LEAVE
 } /* end H5_daos_fapl_copy() */
 
@@ -1043,6 +1059,8 @@ H5_daos_fapl_free(void *_fa)
     DV_free(fa);
 
 done:
+    PRINT_ERROR_STACK
+
     D_FUNC_LEAVE
 } /* end H5_daos_fapl_free() */
 
@@ -1487,6 +1505,8 @@ done:
     /* Clean up */
     DV_free(gh_buf_dyn);
 
+    PRINT_ERROR_STACK
+
     D_FUNC_LEAVE
 } /* end H5_daos_file_create() */
 
@@ -1510,7 +1530,9 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
 {
     H5_daos_fapl_t *fa = NULL;
     H5_daos_file_t *file = NULL;
+#ifdef DV_HAVE_SNAP_OPEN_ID
     H5_daos_snap_id_t snap_id;
+#endif
     daos_iov_t glob;
     uint64_t epoch64;
     uint64_t gh_len;
@@ -1529,12 +1551,14 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     /* Get information from the FAPL */
     if(NULL == (fa = (H5_daos_fapl_t *)H5Pget_vol_info(fapl_id)))
         D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, NULL, "can't get DAOS info struct")
+#ifdef DV_HAVE_SNAP_OPEN_ID
     if(H5Pget(fapl_id, H5_DAOS_SNAP_OPEN_ID, &snap_id) < 0)
         D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, NULL, "can't get property value for snap id")
 
     /* Check for opening a snapshot with write access (disallowed) */
     if((snap_id != H5_DAOS_SNAP_ID_INVAL) && (flags & H5F_ACC_RDWR))
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "write access requested to snapshot - disallowed")
+#endif
 
     /* allocate the file object that is returned to the user */
     if(NULL == (file = H5FL_CALLOC(H5_daos_file_t)))
@@ -1599,12 +1623,14 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
 
         /* If a snapshot was requested, use it as the epoch, otherwise query it
          */
+#ifdef DV_HAVE_SNAP_OPEN_ID
         if(snap_id != H5_DAOS_SNAP_ID_INVAL) {
             epoch = (daos_epoch_t)snap_id;
 
             assert(!(flags & H5F_ACC_RDWR));
         } /* end if */
         else {
+#endif
             /* Query the epoch */
             if(0 != (ret = daos_epoch_query(file->coh, &epoch_state, NULL /*event*/)))
                 D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't query epoch: %d", ret)
@@ -1617,7 +1643,9 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
                 if(0 != (ret = daos_epoch_hold(file->coh, &held_epoch, NULL /*state*/, NULL /*event*/)))
                     D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't hold epoch: %d", ret)
             } /* end if */
+#ifdef DV_HAVE_SNAP_OPEN_ID
         } /* end else */
+#endif
 
         /* Open global metadata object */
         if(0 != (ret = daos_obj_open(file->coh, gmd_oid, epoch, flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &file->glob_md_oh, NULL /*event*/)))
@@ -1797,6 +1825,8 @@ done:
     foi_buf_dyn = (char *)DV_free(foi_buf_dyn);
     gcpl_buf = DV_free(gcpl_buf);
 
+    PRINT_ERROR_STACK
+
     D_FUNC_LEAVE
 } /* end H5_daos_file_open() */
 
@@ -1900,6 +1930,8 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
     }
 
 done:
+    PRINT_ERROR_STACK
+
     D_FUNC_LEAVE
 } /* end H5_daos_file_specific() */
 
@@ -1990,6 +2022,8 @@ H5_daos_file_close(void *_file, hid_t dxpl_id, void **req)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTCLOSEFILE, FAIL, "can't close file")
 
 done:
+    PRINT_ERROR_STACK
+
     D_FUNC_LEAVE
 } /* end H5_daos_file_close() */
 
@@ -2327,6 +2361,8 @@ done:
     if(link_grp && H5_daos_group_close(link_grp, dxpl_id, req) < 0)
         D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group")
 
+    PRINT_ERROR_STACK
+
     D_FUNC_LEAVE
 } /* end H5_daos_link_create() */
 
@@ -2568,6 +2604,8 @@ done:
         target_grp = NULL;
     } /* end else */
     dkey_buf = (char *)DV_free(dkey_buf);
+
+    PRINT_ERROR_STACK
 
     D_FUNC_LEAVE
 } /* end H5_daos_link_specific() */
@@ -2946,6 +2984,8 @@ done:
         if(grp && H5_daos_group_close(grp, dxpl_id, req) < 0)
             D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, NULL, "can't close group")
 
+    PRINT_ERROR_STACK
+
     D_FUNC_LEAVE
 } /* end H5_daos_group_create() */
 
@@ -3306,6 +3346,8 @@ done:
     /* Free memory */
     gcpl_buf = (uint8_t *)DV_free(gcpl_buf);
 
+    PRINT_ERROR_STACK
+
     D_FUNC_LEAVE
 } /* end H5_daos_group_open() */
 
@@ -3344,6 +3386,8 @@ H5_daos_group_close(void *_grp, hid_t DV_ATTR_UNUSED dxpl_id,
             D_DONE_ERROR(H5E_SYM, H5E_CANTDEC, FAIL, "failed to close plist")
         grp = H5FL_FREE(H5_daos_group_t, grp);
     } /* end if */
+
+    PRINT_ERROR_STACK
 
     D_FUNC_LEAVE
 } /* end H5_daos_group_close() */
@@ -3829,6 +3873,8 @@ done:
     space_buf = DV_free(space_buf);
     dcpl_buf = DV_free(dcpl_buf);
 
+    PRINT_ERROR_STACK
+
     D_FUNC_LEAVE
 } /* end H5_daos_dataset_create() */
 
@@ -4098,6 +4144,8 @@ done:
 
     /* Free memory */
     dinfo_buf_dyn = (uint8_t *)DV_free(dinfo_buf_dyn);
+
+    PRINT_ERROR_STACK
 
     D_FUNC_LEAVE
 } /* end H5_daos_dataset_open() */
@@ -4693,6 +4741,8 @@ done:
     if(sel_iter_init && H5Sselect_iter_release(sel_iter) < 0)
         D_DONE_ERROR(H5E_DATASPACE, H5E_CANTRELEASE, FAIL, "unable to release selection iterator")
 
+    PRINT_ERROR_STACK
+
     D_FUNC_LEAVE
 } /* end H5_daos_dataset_read() */
 
@@ -5040,6 +5090,8 @@ done:
         if(H5Idec_ref(base_type_id) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close base type id")
 
+    PRINT_ERROR_STACK
+
     D_FUNC_LEAVE
 } /* end H5_daos_dataset_write() */
 
@@ -5118,6 +5170,8 @@ H5_daos_dataset_get(void *_dset, H5VL_dataset_get_t get_type,
     } /* end switch */
 
 done:
+    PRINT_ERROR_STACK
+
     D_FUNC_LEAVE
 } /* end H5_daos_dataset_get() */
 
@@ -5160,6 +5214,8 @@ H5_daos_dataset_close(void *_dset, hid_t DV_ATTR_UNUSED dxpl_id,
             D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close plist")
         dset = H5FL_FREE(H5_daos_dset_t, dset);
     } /* end if */
+
+    PRINT_ERROR_STACK
 
     D_FUNC_LEAVE
 } /* end H5_daos_dataset_close() */
@@ -5342,6 +5398,8 @@ done:
     /* Free memory */
     type_buf = DV_free(type_buf);
     tcpl_buf = DV_free(tcpl_buf);
+
+    PRINT_ERROR_STACK
 
     D_FUNC_LEAVE
 } /* end H5_daos_datatype_commit() */
@@ -5589,6 +5647,8 @@ done:
     /* Free memory */
     tinfo_buf_dyn = (uint8_t *)DV_free(tinfo_buf_dyn);
 
+    PRINT_ERROR_STACK
+
     D_FUNC_LEAVE
 } /* end H5_daos_datatype_open() */
 
@@ -5641,6 +5701,8 @@ H5_daos_datatype_get(void *_dtype, H5VL_datatype_get_t get_type,
     } /* end switch */
 
 done:
+    PRINT_ERROR_STACK
+
     D_FUNC_LEAVE
 } /* end H5_daos_datatype_get() */
 
@@ -5681,6 +5743,8 @@ H5_daos_datatype_close(void *_dtype, hid_t DV_ATTR_UNUSED dxpl_id,
             D_DONE_ERROR(H5E_DATATYPE, H5E_CANTDEC, FAIL, "failed to close plist")
         dtype = H5FL_FREE(H5_daos_dtype_t, dtype);
     } /* end if */
+
+    PRINT_ERROR_STACK
 
     D_FUNC_LEAVE
 } /* end H5_daos_datatype_close() */
@@ -5847,6 +5911,8 @@ done:
     if(target_grp && H5_daos_group_close(target_grp, dxpl_id, req) < 0)
         D_DONE_ERROR(H5E_OHDR, H5E_CLOSEERROR, NULL, "can't close group")
 
+    PRINT_ERROR_STACK
+
     D_FUNC_LEAVE
 } /* end H5_daos_object_open() */
 
@@ -5953,6 +6019,8 @@ done:
             D_DONE_ERROR(H5E_OHDR, H5E_CLOSEERROR, FAIL, "can't close object")
         target_obj = NULL;
     } /* end else */
+
+    PRINT_ERROR_STACK
 
     D_FUNC_LEAVE
 } /* end H5_daos_object_optional() */
@@ -6177,6 +6245,8 @@ done:
         if(attr && H5_daos_attribute_close(attr, dxpl_id, req) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, NULL, "can't close attribute")
 
+    PRINT_ERROR_STACK
+
     D_FUNC_LEAVE
 } /* end H5_daos_attribute_create() */
 
@@ -6325,6 +6395,8 @@ done:
         /* Close attribute */
         if(attr && H5_daos_attribute_close(attr, dxpl_id, req) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, NULL, "can't close attribute")
+
+    PRINT_ERROR_STACK
 
     D_FUNC_LEAVE
 } /* end H5_daos_attribute_open() */
@@ -6607,6 +6679,8 @@ done:
         if(H5Idec_ref(base_type_id) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close base type id")
 
+    PRINT_ERROR_STACK
+
     D_FUNC_LEAVE
 } /* end H5_daos_attribute_read() */
 
@@ -6873,6 +6947,8 @@ done:
         if(H5Idec_ref(base_type_id) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close base type id")
 
+    PRINT_ERROR_STACK
+
     D_FUNC_LEAVE
 } /* end H5_daos_attribute_write() */
 
@@ -6971,6 +7047,8 @@ H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
     } /* end switch */
 
 done:
+    PRINT_ERROR_STACK
+
     D_FUNC_LEAVE
 } /* end H5_daos_attribute_get() */
 
@@ -7201,6 +7279,8 @@ done:
     } /* end if */
     akey_buf = (char *)DV_free(akey_buf);
 
+    PRINT_ERROR_STACK
+
     D_FUNC_LEAVE
 } /* end H5_daos_attribute_specific() */
 
@@ -7237,6 +7317,8 @@ H5_daos_attribute_close(void *_attr, hid_t dxpl_id, void **req)
             D_DONE_ERROR(H5E_ATTR, H5E_CANTDEC, FAIL, "failed to close dataspace")
         attr = H5FL_FREE(H5_daos_attr_t, attr);
     } /* end if */
+
+    PRINT_ERROR_STACK
 
     D_FUNC_LEAVE
 } /* end H5_daos_attribute_close() */

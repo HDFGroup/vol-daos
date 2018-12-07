@@ -48,8 +48,10 @@ H5PLUGIN_DLL herr_t H5daos_init(MPI_Comm pool_comm, uuid_t pool_uuid,
     char *pool_grp);
 H5PLUGIN_DLL herr_t H5daos_term(void);
 H5PLUGIN_DLL herr_t H5Pset_fapl_daos(hid_t fapl_id, MPI_Comm comm, MPI_Info info);
+#ifdef DSINC
 H5PLUGIN_DLL herr_t H5daos_snap_create(hid_t loc_id,
     H5_daos_snap_id_t *snap_id);
+#endif
 #ifdef DV_HAVE_SNAP_OPEN_ID
 H5PLUGIN_DLL herr_t H5Pset_daos_snap_open(hid_t fapl_id,
     H5_daos_snap_id_t snap_id);

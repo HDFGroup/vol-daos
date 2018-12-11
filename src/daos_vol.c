@@ -534,6 +534,27 @@ H5daos_init(MPI_Comm pool_comm, uuid_t _pool_uuid, char *pool_grp)
     if (H5open() < 0)
         D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "HDF5 failed to initialize")
 
+    /* Create a separate error stack for the DAOS VOL to report errors with */
+    if ((dv_err_stack_g = H5Ecreate_stack()) < 0) {
+        /*
+         * Since the error stack isn't registed, don't push errors to it.
+         */
+        fprintf(stderr, "can't create HDF5 error stack\n");
+        D_GOTO_DONE(FAIL);
+    }
+
+    /* Register the plugin with HDF5's error reporting API */
+    if ((dv_err_class_g = H5Eregister_class(DAOS_VOL_ERR_CLS_NAME, DAOS_VOL_ERR_LIB_NAME, DAOS_VOL_ERR_VER)) < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't register with HDF5 error API")
+
+#ifdef DV_HAVE_SNAP_OPEN_ID
+    /* Register the DAOS SNAP_OPEN_ID property with HDF5 */
+    snap_id_default = H5_DAOS_SNAP_ID_INVAL;
+    if (H5Pregister2(H5P_FILE_ACCESS, H5_DAOS_SNAP_OPEN_ID, sizeof(H5_daos_snap_id_t), (H5_daos_snap_id_t *) &snap_id_default,
+            NULL, NULL, NULL, NULL, NULL, NULL, NULL) < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "unable to register DAOS SNAP_OPEN_ID property")
+#endif
+
     /* Initialize daos */
     if (daos_init() < 0)
         D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "DAOS failed to initialize")
@@ -669,22 +690,6 @@ H5daos_init(MPI_Comm pool_comm, uuid_t _pool_uuid, char *pool_grp)
         if(0 != (ret = daos_pool_global2local(glob, &H5_daos_poh_g)))
             D_GOTO_ERROR(H5E_VOL, H5E_CANTOPENOBJ, FAIL, "can't get local pool handle: %d", ret)
     } /* end else */
-
-    /* Register the plugin with HDF5's error reporting API */
-    if ((dv_err_class_g = H5Eregister_class(DAOS_VOL_ERR_CLS_NAME, DAOS_VOL_ERR_LIB_NAME, DAOS_VOL_ERR_VER)) < 0)
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't register with HDF5 error API")
-
-    /* Create a separate error stack for the DAOS VOL to report errors with */
-    if ((dv_err_stack_g = H5Ecreate_stack()) < 0)
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create error stack")
-
-#ifdef DV_HAVE_SNAP_OPEN_ID
-    /* Register the DAOS SNAP_OPEN_ID property with HDF5 */
-    snap_id_default = H5_DAOS_SNAP_ID_INVAL;
-    if (H5Pregister2(H5P_FILE_ACCESS, H5_DAOS_SNAP_OPEN_ID, sizeof(H5_daos_snap_id_t), (H5_daos_snap_id_t *) &snap_id_default,
-            NULL, NULL, NULL, NULL, NULL, NULL, NULL) < 0)
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "unable to register DAOS SNAP_OPEN_ID property")
-#endif
 
     /* Register the DAOS VOL, if it isn't already */
     if(H5_daos_init() < 0)

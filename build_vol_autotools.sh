@@ -104,6 +104,7 @@ while getopts "$optspec" optchar; do
         ;;
     d)
         DV_OPTS="${DV_OPTS} --enable-build-mode=debug"
+        COMP_OPTS="${COMP_OPTS} -g"
         echo "Enabled DAOS VOL plugin debugging"
         echo
         ;;

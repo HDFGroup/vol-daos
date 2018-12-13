@@ -7066,6 +7066,7 @@ H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
                     *ret_val = (ssize_t)nbytes;
                 } /* end if */
                 else if(H5VL_OBJECT_BY_IDX == loc_params->type) {
+                    *ret_val = -1;
                     D_GOTO_ERROR(H5E_ATTR, H5E_UNSUPPORTED, FAIL, "get attribute name by index unsupported");
                 } /* end else */
                 break;

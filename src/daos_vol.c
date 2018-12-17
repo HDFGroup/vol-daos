@@ -2562,7 +2562,7 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
                         /* Reset nr */
                         nr = H5_DAOS_ITER_LEN;
 
-                        /* Ask daos for a list of akeys, break out if we succeed
+                        /* Ask daos for a list of dkeys, break out if we succeed
                          */
                         if(0 == (ret = daos_obj_list_dkey(target_grp->obj.obj_oh, target_grp->obj.item.file->epoch, &nr, kds, &sgl, &anchor, NULL /*event*/)))
                             break;
@@ -5986,6 +5986,9 @@ H5_daos_object_optional(void *_item, hid_t dxpl_id, void **req,
     H5_daos_obj_t *target_obj = NULL;
     H5VL_object_optional_t optional_type = (H5VL_object_optional_t)va_arg(arguments, int);
     H5VL_loc_params_t *loc_params = va_arg(arguments, H5VL_loc_params_t *);
+    char *akey_buf = NULL;
+    size_t akey_buf_len = 0;
+    int ret;
     herr_t ret_value = SUCCEED;    /* Return value */
 
     /* Determine target object */
@@ -6011,6 +6014,7 @@ H5_daos_object_optional(void *_item, hid_t dxpl_id, void **req,
         case H5VL_OBJECT_GET_INFO:
             {
                 H5O_info_t  *obj_info = va_arg(arguments, H5O_info_t *);
+                unsigned fields = va_arg(arguments, unsigned);
                 uint64_t fileno64;
                 uint8_t *uuid_p = (uint8_t *)&target_obj->item.file->uuid;
 
@@ -6019,38 +6023,117 @@ H5_daos_object_optional(void *_item, hid_t dxpl_id, void **req,
                 memset(obj_info, 0, sizeof(*obj_info));
 
                 /* Fill in valid fields of obj_info */
-                /* Use the lower <sizeof(unsigned long)> bytes of the file uuid
-                 * as the fileno.  Ideally we would write separate 32 and 64 bit
-                 * hash functions but this should work almost as well. */
-                UINT64DECODE(uuid_p, fileno64)
-                obj_info->fileno = (unsigned long)fileno64;
+                /* Basic fields */
+                if(fields & H5O_INFO_BASIC) {
+                    /* Use the lower <sizeof(unsigned long)> bytes of the file uuid
+                     * as the fileno.  Ideally we would write separate 32 and 64 bit
+                     * hash functions but this should work almost as well. */
+                    UINT64DECODE(uuid_p, fileno64)
+                    obj_info->fileno = (unsigned long)fileno64;
 
-                /* Use lower 64 bits of oid as address - contains encode object
-                 * type */
-                obj_info->addr = (haddr_t)target_obj->oid.lo;
+                    /* Use lower 64 bits of oid as address - contains encode object
+                     * type */
+                    obj_info->addr = (haddr_t)target_obj->oid.lo;
 
-                /* Set object type */
-                if(target_obj->item.type == H5I_GROUP)
-                    obj_info->type = H5O_TYPE_GROUP;
-                else if(target_obj->item.type == H5I_DATASET)
-                    obj_info->type = H5O_TYPE_DATASET;
-                else if(target_obj->item.type == H5I_DATATYPE)
-                    obj_info->type = H5O_TYPE_NAMED_DATATYPE;
-                else {
+                    /* Set object type */
+                    if(target_obj->item.type == H5I_GROUP)
+                        obj_info->type = H5O_TYPE_GROUP;
+                    else if(target_obj->item.type == H5I_DATASET)
+                        obj_info->type = H5O_TYPE_DATASET;
+                    else if(target_obj->item.type == H5I_DATATYPE)
+                        obj_info->type = H5O_TYPE_NAMED_DATATYPE;
+                    else {
 #ifdef DV_HAVE_MAP
-                    assert(target_obj->item.type == H5I_MAP);
-                    obj_info->type = H5O_TYPE_MAP;
+                        assert(target_obj->item.type == H5I_MAP);
+                        obj_info->type = H5O_TYPE_MAP;
 #else
-                    obj_info->type = H5O_TYPE_UNKNOWN;
+                        obj_info->type = H5O_TYPE_UNKNOWN;
 #endif
-                } /* end else */
+                    } /* end else */
 
-                /* Reference count is always 1 - change this when
-                 * H5Lcreate_hard() is implemented */
-                obj_info->rc = 1;
+                    /* Reference count is always 1 - change this when
+                     * H5Lcreate_hard() is implemented */
+                    obj_info->rc = 1;
+                } /* end if */
 
-                /* Skip num_attrs for now to avoid server calls.  This function
-                 * should be replaced with something more flexible anyways. */
+                /* Number of attributes. */
+                if(fields & H5O_INFO_NUM_ATTRS) {
+                    daos_anchor_t anchor;
+                    uint32_t nr;
+                    daos_key_t dkey;
+                    daos_key_desc_t kds[H5_DAOS_ITER_LEN];
+                    daos_sg_list_t sgl;
+                    daos_iov_t sg_iov;
+                    char attr_key[] = H5_DAOS_ATTR_KEY;
+                    char *p;
+                    uint32_t i;
+
+                    /* Initialize anchor */
+                    memset(&anchor, 0, sizeof(anchor));
+
+                    /* Set up dkey */
+                    daos_iov_set(&dkey, attr_key, (daos_size_t)(sizeof(attr_key) - 1));
+
+                    /* Allocate akey_buf */
+                    if(NULL == (akey_buf = (char *)DV_malloc(H5_DAOS_ITER_SIZE_INIT)))
+                        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for dkeys")
+                    akey_buf_len = H5_DAOS_ITER_SIZE_INIT;
+
+                    /* Set up sgl */
+                    daos_iov_set(&sg_iov, akey_buf, (daos_size_t)akey_buf_len );
+                    sgl.sg_nr = 1;
+                    sgl.sg_nr_out = 0;
+                    sgl.sg_iovs = &sg_iov;
+
+                    /* Loop to retrieve keys and make callbacks */
+                    do {
+                        /* Loop to retrieve keys (exit as soon as we get at least 1
+                         * key) */
+                        do {
+                            /* Reset nr */
+                            nr = H5_DAOS_ITER_LEN;
+
+                            /* Ask daos for a list of akeys, break out if we succeed
+                             */
+                            if(0 == (ret = daos_obj_list_akey(target_obj->obj_oh, target_obj->item.file->epoch, &dkey, &nr, kds, &sgl, &anchor, NULL /*event*/)))
+                                break;
+
+                            /* Call failed, if the buffer is too small double it and
+                             * try again, otherwise fail */
+                            if(ret == -DER_KEY2BIG) {
+                                /* Allocate larger buffer */
+                                DV_free(akey_buf);
+                                akey_buf_len *= 2;
+                                if(NULL == (akey_buf = (char *)DV_malloc(akey_buf_len)))
+                                    D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akeys")
+
+                                /* Update sgl */
+                                daos_iov_set(&sg_iov, akey_buf, (daos_size_t)akey_buf_len);
+                            } /* end if */
+                            else
+                                D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, FAIL, "can't list attributes: %d", ret)
+                        } while(1);
+
+                        /* Count number of returned attributes */
+                        p = akey_buf;
+                        for(i = 0; i < nr; i++) {
+                            /* Check for invalid key */
+                            if(kds[i].kd_key_len < 3)
+                                D_GOTO_ERROR(H5E_ATTR, H5E_CANTDECODE, FAIL, "attribute akey too short")
+                            if(p[1] != '-')
+                                D_GOTO_ERROR(H5E_ATTR, H5E_CANTDECODE, FAIL, "invalid attribute akey format")
+
+                            /* Only count for "S-" (dataspace) keys, to avoid
+                             * duplication */
+                            if(p[0] == 'S')
+                                obj_info->num_attrs ++;
+
+                            /* Advance to next akey */
+                            p += kds[i].kd_key_len + kds[i].kd_csum_len;
+                        } /* end for */
+                    } while(!daos_anchor_is_eof(&anchor));
+                } /* end if */
+                /* Investigate collisions with links, etc DAOSINC */
                 break;
             } /* end block */
 
@@ -6067,6 +6150,7 @@ done:
             D_DONE_ERROR(H5E_OHDR, H5E_CLOSEERROR, FAIL, "can't close object")
         target_obj = NULL;
     } /* end else */
+    akey_buf = (char *)DV_free(akey_buf);
 
     PRINT_ERROR_STACK
 

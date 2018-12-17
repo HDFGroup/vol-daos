@@ -563,14 +563,8 @@ H5_daos_init(hid_t vipl_id)
     if(H5T_init() < 0)
         D_GOTO_ERROR(H5E_FUNC, H5E_CANTINIT, FAIL, "unable to initialize datatype interface") */
 
-    /* Create a separate error stack for the DAOS VOL to report errors with */
-    if((dv_err_stack_g = H5Ecreate_stack()) < 0) {
-        /*
-         * Since the error stack isn't registed, don't push errors to it.
-         */
-        fprintf(stderr, "can't create HDF5 error stack\n");
-        D_GOTO_DONE(FAIL);
-    } /* end if */
+    if((dv_err_stack_g = H5Ecreate_stack()) < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create HDF5 error stack\n")
 
     /* Register the plugin with HDF5's error reporting API */
     if((dv_err_class_g = H5Eregister_class(DAOS_VOL_ERR_CLS_NAME, DAOS_VOL_ERR_LIB_NAME, DAOS_VOL_ERR_VER)) < 0)
@@ -743,6 +737,8 @@ done:
             if(MPI_SUCCESS != MPI_Bcast(gh_buf_static, sizeof(gh_buf_static), MPI_BYTE, 0, pool_comm_g))
                 D_DONE_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't Bcast empty global handle")
         } /* end if */
+
+        H5daos_term();
     } /* end if */
 
     DV_free(gh_buf_dyn);

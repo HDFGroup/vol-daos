@@ -180,7 +180,7 @@ typedef enum H5VL_object_optional_t {
 
 extern hid_t H5_DAOS_g;
 
-H5_DLL herr_t H5_daos_init(void);
+H5_DLL herr_t H5_daos_init(hid_t vipl_id);
 
 H5_DLL void * H5_daos_map_create(void *_item, H5VL_loc_params_t *loc_params, const char *name,
 				    hid_t ktype_id, hid_t vtype_id, hid_t mcpl_id, hid_t mapl_id,

@@ -1316,6 +1316,7 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     file->root_grp = NULL;
     file->fcpl_id = FAIL;
     file->fapl_id = FAIL;
+    file->vol_id = FAIL;
 
     /* Fill in fields of file we know */
     file->item.type = H5I_FILE;
@@ -1575,6 +1576,7 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     file->root_grp = NULL;
     file->fcpl_id = FAIL;
     file->fapl_id = FAIL;
+    file->vol_id = FAIL;
 
     /* Fill in fields of file we know */
     file->item.type = H5I_FILE;
@@ -1930,6 +1932,28 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
                 D_GOTO_ERROR(H5E_FILE, H5E_WRITEERROR, FAIL, "can't flush file")
 
             break;
+        /* H5Fcreate / H5Fopen */
+        case H5VL_FILE_CACHE_VOL_CONN:
+            {
+                hid_t      vol_id   = va_arg(arguments, hid_t);
+                void      *vol_info = va_arg(arguments, void *);
+
+                /* Check for info already cached */
+                if(file->vol_id < 0) {
+                    assert(!file->vol_info);
+
+                    /* Increment ref count on vol id and copy to file struct */
+                    if(H5Iinc_ref(vol_id) < 0)
+                        D_GOTO_ERROR(H5E_FILE, H5E_CANTINC, FAIL, "failed to increment ref count on vol id")
+                    file->vol_id = vol_id;
+
+                    /* Copy vol info */
+                    if(H5VLcopy_connector_info(vol_id, &file->vol_info, vol_info) < 0)
+                        D_GOTO_ERROR(H5E_FILE, H5E_CANTCOPY, FAIL, "failed to copy vol connector info");
+                } /* end if */
+
+                break;
+            } /* end block */
         /* H5Fmount */
         case H5VL_FILE_MOUNT:
         /* H5Fmount */
@@ -1938,7 +1962,7 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
         case H5VL_FILE_IS_ACCESSIBLE:
         default:
             D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported specific operation")
-    }
+    } /* end switch */
 
 done:
     PRINT_ERROR_STACK
@@ -1987,6 +2011,12 @@ H5_daos_file_close_helper(H5_daos_file_t *file, hid_t dxpl_id, void **req)
     if(!daos_handle_is_inval(file->coh))
         if(0 != (ret = daos_cont_close(file->coh, NULL /*event*/)))
             D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, FAIL, "can't close container: %d", ret)
+    if(file->vol_id >= 0) {
+        if(H5VLfree_connector_info(file->vol_id, file->vol_info) < 0)
+            D_DONE_ERROR(H5E_FILE, H5E_CANTFREE, FAIL, "can't free vol connector info")
+        if(H5Idec_ref(file->vol_id) < 0)
+            D_DONE_ERROR(H5E_FILE, H5E_CANTDEC, FAIL, "can't decrement vol connector id")
+    } /* end if */
     file = H5FL_FREE(H5_daos_file_t, file);
 
     D_FUNC_LEAVE

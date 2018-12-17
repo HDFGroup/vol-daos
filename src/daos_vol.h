@@ -85,6 +85,8 @@ typedef struct H5_daos_file_t {
     int my_rank;
     int num_procs;
     hbool_t collective;
+    hid_t vol_id;
+    void *vol_info;
 } H5_daos_file_t;
 
 /* The group struct */

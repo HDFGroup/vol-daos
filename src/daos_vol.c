@@ -1934,8 +1934,11 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
     hid_t DV_ATTR_UNUSED dxpl_id, void DV_ATTR_UNUSED **req,
     va_list DV_ATTR_UNUSED arguments)
 {
-    H5_daos_file_t *file = ((H5_daos_item_t *)item)->file;
-    herr_t       ret_value = SUCCEED;    /* Return value */
+    H5_daos_file_t *file = NULL;
+    herr_t          ret_value = SUCCEED;    /* Return value */
+
+    if (item)
+        file = ((H5_daos_item_t *)item)->file;
 
     switch (specific_type) {
         /* H5Fflush */
@@ -1944,28 +1947,6 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
                 D_GOTO_ERROR(H5E_FILE, H5E_WRITEERROR, FAIL, "can't flush file")
 
             break;
-        /* H5Fcreate / H5Fopen */
-        case H5VL_FILE_CACHE_VOL_CONN:
-            {
-                hid_t      vol_id   = va_arg(arguments, hid_t);
-                void      *vol_info = va_arg(arguments, void *);
-
-                /* Check for info already cached */
-                if(file->vol_id < 0) {
-                    assert(!file->vol_info);
-
-                    /* Increment ref count on vol id and copy to file struct */
-                    if(H5Iinc_ref(vol_id) < 0)
-                        D_GOTO_ERROR(H5E_FILE, H5E_CANTINC, FAIL, "failed to increment ref count on vol id")
-                    file->vol_id = vol_id;
-
-                    /* Copy vol info */
-                    if(H5VLcopy_connector_info(vol_id, &file->vol_info, vol_info) < 0)
-                        D_GOTO_ERROR(H5E_FILE, H5E_CANTCOPY, FAIL, "failed to copy vol connector info");
-                } /* end if */
-
-                break;
-            } /* end block */
         /* H5Fmount */
         case H5VL_FILE_MOUNT:
         /* H5Fmount */
@@ -2380,10 +2361,12 @@ H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
     H5_daos_link_val_t link_val;
     herr_t ret_value = SUCCEED;
 
-    /* Find target group */
     assert(loc_params->type == H5VL_OBJECT_BY_NAME);
-    if(NULL == (link_grp = H5_daos_group_traverse(item, loc_params->loc_data.loc_by_name.name, dxpl_id, req, &link_name, NULL, NULL)))
-        D_GOTO_ERROR(H5E_SYM, H5E_BADITER, FAIL, "can't traverse path")
+
+    /* Find target group */
+    if(item)
+        if(NULL == (link_grp = H5_daos_group_traverse(item, loc_params->loc_data.loc_by_name.name, dxpl_id, req, &link_name, NULL, NULL)))
+            D_GOTO_ERROR(H5E_SYM, H5E_BADITER, FAIL, "can't traverse path")
 
     switch(create_type) {
         case H5VL_LINK_CREATE_HARD:
@@ -3017,7 +3000,7 @@ H5_daos_group_create(void *_item,
             D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, NULL, "can't get collective access property")
 
     /* Traverse the path */
-    if(!collective || (item->file->my_rank == 0))
+    if(name && (!collective || (item->file->my_rank == 0)))
         if(NULL == (target_grp = H5_daos_group_traverse(item, name, dxpl_id, req, &target_name, NULL, NULL)))
             D_GOTO_ERROR(H5E_SYM, H5E_BADITER, NULL, "can't traverse path")
 
@@ -3794,8 +3777,9 @@ H5_daos_dataset_create(void *_item,
         char dcpl_key[] = H5_DAOS_CPL_KEY;
 
         /* Traverse the path */
-        if(NULL == (target_grp = H5_daos_group_traverse(item, name, dxpl_id, req, &target_name, NULL, NULL)))
-            D_GOTO_ERROR(H5E_DATASET, H5E_BADITER, NULL, "can't traverse path")
+        if(name)
+            if(NULL == (target_grp = H5_daos_group_traverse(item, name, dxpl_id, req, &target_name, NULL, NULL)))
+                D_GOTO_ERROR(H5E_DATASET, H5E_BADITER, NULL, "can't traverse path")
 
         /* Create dataset */
         /* Update max_oid */
@@ -3876,10 +3860,12 @@ H5_daos_dataset_create(void *_item,
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't write metadata to dataset: %d", ret)
 
         /* Create link to dataset */
-        link_val.type = H5L_TYPE_HARD;
-        link_val.target.hard = dset->obj.oid;
-        if(H5_daos_link_write(target_grp, target_name, strlen(target_name), &link_val) < 0)
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't create link to dataset")
+        if(name) {
+            link_val.type = H5L_TYPE_HARD;
+            link_val.target.hard = dset->obj.oid;
+            if(H5_daos_link_write(target_grp, target_name, strlen(target_name), &link_val) < 0)
+                D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't create link to dataset")
+        } /* end if */
     } /* end if */
     else {
         /* Update max_oid */
@@ -5343,8 +5329,9 @@ H5_daos_datatype_commit(void *_item,
         char tcpl_key[] = H5_DAOS_CPL_KEY;
 
         /* Traverse the path */
-        if(NULL == (target_grp = H5_daos_group_traverse(item, name, dxpl_id, req, &target_name, NULL, NULL)))
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_BADITER, NULL, "can't traverse path")
+        if(name)
+            if(NULL == (target_grp = H5_daos_group_traverse(item, name, dxpl_id, req, &target_name, NULL, NULL)))
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_BADITER, NULL, "can't traverse path")
 
         /* Create datatype */
         /* Update max_oid */
@@ -5407,10 +5394,12 @@ H5_daos_datatype_commit(void *_item,
             D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't write metadata to datatype: %d", ret)
 
         /* Create link to datatype */
-        link_val.type = H5L_TYPE_HARD;
-        link_val.target.hard = dtype->obj.oid;
-        if(H5_daos_link_write(target_grp, target_name, strlen(target_name), &link_val) < 0)
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't create link to datatype")
+        if(name) {
+            link_val.type = H5L_TYPE_HARD;
+            link_val.target.hard = dtype->obj.oid;
+            if(H5_daos_link_write(target_grp, target_name, strlen(target_name), &link_val) < 0)
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't create link to datatype")
+        } /* end if */
     } /* end if */
     else {
         /* Update max_oid */
@@ -5835,6 +5824,13 @@ H5_daos_object_open(void *_item, const H5VL_loc_params_t *loc_params,
     H5I_type_t obj_type;
     H5VL_loc_params_t sub_loc_params;
     void *ret_value = NULL;
+
+    /*
+     * DSINC - should probably use a major error code other than
+     * object headers for H5O calls.
+     */
+    if(H5VL_OBJECT_BY_IDX == loc_params->type)
+        D_GOTO_ERROR(H5E_OHDR, H5E_UNSUPPORTED, NULL, "H5Oopen_by_idx is unsupported")
 
     /* Check loc_params type */
     if(H5VL_OBJECT_BY_ADDR == loc_params->type) {

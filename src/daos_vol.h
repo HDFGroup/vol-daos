@@ -33,7 +33,9 @@
 
 #define HDF5_VOL_DAOS_VERSION_1	1	/* Version number of DAOS VOL plugin */
 
-#define H5_VOL_DAOS_CLS_VAL (H5VL_class_value_t) H5_VOL_MAX_LIB_VALUE + 2 /* Class value of the DAOS VOL plugin as defined in H5VLpublic.h DSINC */
+#define H5_VOL_DAOS_CLS_VAL (H5VL_class_value_t) H5_VOL_RESERVED + 2 /* Class value of the DAOS VOL plugin as defined in H5VLpublic.h DSINC */
+
+#define H5_DAOS_VOL_NAME "daos"
 
 #endif
 
@@ -45,7 +47,9 @@ extern "C" {
 
 /* FAPL property to tell the VOL plugin to open a saved snapshot when opening a
  * file */
+#ifdef DV_HAVE_SNAP_OPEN_ID
 #define H5_DAOS_SNAP_OPEN_ID "daos_snap_open"
+#endif
 
 /* Common object and attribute information */
 typedef struct H5_daos_item_t {
@@ -81,6 +85,8 @@ typedef struct H5_daos_file_t {
     int my_rank;
     int num_procs;
     hbool_t collective;
+    hid_t vol_id;
+    void *vol_info;
 } H5_daos_file_t;
 
 /* The group struct */
@@ -139,31 +145,32 @@ typedef struct H5_daos_link_val_t {
  * more public scope. They are still needed for the DAOS VOL to handle
  * these API calls being made.
  */
-/* types for file optional VOL operations */
 typedef enum H5VL_file_optional_t {
-    H5VL_FILE_CLEAR_ELINK_CACHE,        /* Clear external link cache            */
-    H5VL_FILE_GET_FILE_IMAGE,           /* file image                           */
-    H5VL_FILE_GET_FREE_SECTIONS,        /* file free selections                 */
-    H5VL_FILE_GET_FREE_SPACE,           /* file freespace                       */
-    H5VL_FILE_GET_INFO,                 /* file info                            */
-    H5VL_FILE_GET_MDC_CONF,             /* file metadata cache configuration    */
-    H5VL_FILE_GET_MDC_HR,               /* file metadata cache hit rate         */
-    H5VL_FILE_GET_MDC_SIZE,             /* file metadata cache size             */
-    H5VL_FILE_GET_SIZE,                 /* file size                            */
-    H5VL_FILE_GET_VFD_HANDLE,           /* file VFD handle                      */
-    H5VL_FILE_REOPEN,                   /* reopen the file                      */
-    H5VL_FILE_RESET_MDC_HIT_RATE,       /* get metadata cache hit rate          */
-    H5VL_FILE_SET_MDC_CONFIG,           /* set metadata cache configuration     */
+    H5VL_FILE_CLEAR_ELINK_CACHE,        /* Clear external link cache               */
+    H5VL_FILE_GET_FILE_IMAGE,           /* file image                              */
+    H5VL_FILE_GET_FREE_SECTIONS,        /* file free selections                    */
+    H5VL_FILE_GET_FREE_SPACE,           /* file freespace                          */
+    H5VL_FILE_GET_INFO,                 /* file info                               */
+    H5VL_FILE_GET_MDC_CONF,             /* file metadata cache configuration       */
+    H5VL_FILE_GET_MDC_HR,               /* file metadata cache hit rate            */
+    H5VL_FILE_GET_MDC_SIZE,             /* file metadata cache size                */
+    H5VL_FILE_GET_SIZE,                 /* file size                               */
+    H5VL_FILE_GET_VFD_HANDLE,           /* file VFD handle                         */
+    H5VL_FILE_GET_FILE_ID,              /* retrieve or resurrect file ID of object */
+    H5VL_FILE_RESET_MDC_HIT_RATE,       /* get metadata cache hit rate             */
+    H5VL_FILE_SET_MDC_CONFIG,           /* set metadata cache configuration        */
     H5VL_FILE_GET_METADATA_READ_RETRY_INFO,
     H5VL_FILE_START_SWMR_WRITE,
     H5VL_FILE_START_MDC_LOGGING,
     H5VL_FILE_STOP_MDC_LOGGING,
     H5VL_FILE_GET_MDC_LOGGING_STATUS,
-    H5VL_FILE_SET_LATEST_FORMAT,
     H5VL_FILE_FORMAT_CONVERT,
     H5VL_FILE_RESET_PAGE_BUFFERING_STATS,
     H5VL_FILE_GET_PAGE_BUFFERING_STATS,
-    H5VL_FILE_GET_MDC_IMAGE_INFO
+    H5VL_FILE_GET_MDC_IMAGE_INFO,
+    H5VL_FILE_GET_EOA,
+    H5VL_FILE_INCR_FILESIZE,
+    H5VL_FILE_SET_LIBVER_BOUNDS
 } H5VL_file_optional_t;
 
 /* types for object optional VOL operations */
@@ -175,12 +182,12 @@ typedef enum H5VL_object_optional_t {
 
 extern hid_t H5_DAOS_g;
 
-H5_DLL herr_t H5_daos_init(void);
+H5_DLL herr_t H5_daos_init(hid_t vipl_id);
 
-H5_DLL void * H5_daos_map_create(void *_item, H5VL_loc_params_t loc_params, const char *name,
+H5_DLL void * H5_daos_map_create(void *_item, H5VL_loc_params_t *loc_params, const char *name,
 				    hid_t ktype_id, hid_t vtype_id, hid_t mcpl_id, hid_t mapl_id,
 				    hid_t dxpl_id, void **req);
-H5_DLL void * H5_daos_map_open(void *_item, H5VL_loc_params_t loc_params, const char *name,
+H5_DLL void * H5_daos_map_open(void *_item, H5VL_loc_params_t *loc_params, const char *name,
 				  hid_t mapl_id, hid_t dxpl_id, void **req);
 H5_DLL herr_t H5_daos_map_set(void *_map, hid_t key_mem_type_id, const void *key, 
 				 hid_t val_mem_type_id, const void *value, hid_t dxpl_id, void **req);

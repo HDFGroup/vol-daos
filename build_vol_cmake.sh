@@ -175,7 +175,7 @@ echo "*******************************************"
 echo
 
 # Make sure to checkout HDF5 submodule
-if [ -z "$(ls -A ${SCRIPT_DIR}/${HDF5_DIR})" ]; then
+if [ -n "${PREBUILT_HDF5_OPT}" ] && [ -z "$(ls -A ${SCRIPT_DIR}/${HDF5_DIR})" ]; then
     git submodule init
     git submodule update
 fi

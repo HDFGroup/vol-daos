@@ -104,6 +104,7 @@ while getopts "$optspec" optchar; do
         ;;
     d)
         DV_OPTS="${DV_OPTS} --enable-build-mode=debug"
+        COMP_OPTS="${COMP_OPTS} -g"
         echo "Enabled DAOS VOL plugin debugging"
         echo
         ;;
@@ -260,6 +261,11 @@ if [ "$build_hdf5" = true ]; then
     echo "* Building HDF5 *"
     echo "*****************"
     echo
+    
+    if [ -z "$(ls -A ${SCRIPT_DIR}/${HDF5_DIR})" ]; then
+        git submodule init
+        git submodule update
+    fi
 
     cd "${SCRIPT_DIR}/${HDF5_DIR}"
 
@@ -270,7 +276,7 @@ if [ "$build_hdf5" = true ]; then
     if [ "${build_tools}" = true ]; then
         ./configure --prefix="${HDF5_INSTALL_DIR}" --enable-parallel CFLAGS="${COMP_OPTS} -L${INSTALL_DIR}/lib ${DAOS_VOL_LINK} ${UUID_LINK}" || exit 1
     else
-        ./configure --prefix="${HDF5_INSTALL_DIR}" --enable-parallel CFLAGS="${COMP_OPTS}" || exit 1
+        ./configure --prefix="${HDF5_INSTALL_DIR}" --enable-parallel --disable-static CFLAGS="${COMP_OPTS}" || exit 1
     fi
 
     make -j${NPROCS} && make install || exit 1

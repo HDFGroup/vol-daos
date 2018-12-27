@@ -8232,7 +8232,7 @@ H5_daos_map_close(void *_map, hid_t DV_ATTR_UNUSED dxpl_id,
 
 H5PL_type_t
 H5PLget_plugin_type(void) {
-    return H5PL_TYPE_FILTER;
+    return H5PL_TYPE_VOL;
 }
 
 const void*

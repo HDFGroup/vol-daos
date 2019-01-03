@@ -563,14 +563,8 @@ H5_daos_init(hid_t vipl_id)
     if(H5T_init() < 0)
         D_GOTO_ERROR(H5E_FUNC, H5E_CANTINIT, FAIL, "unable to initialize datatype interface") */
 
-    /* Create a separate error stack for the DAOS VOL to report errors with */
-    if((dv_err_stack_g = H5Ecreate_stack()) < 0) {
-        /*
-         * Since the error stack isn't registed, don't push errors to it.
-         */
-        fprintf(stderr, "can't create HDF5 error stack\n");
-        D_GOTO_DONE(FAIL);
-    } /* end if */
+    if((dv_err_stack_g = H5Ecreate_stack()) < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create HDF5 error stack\n")
 
     /* Register the plugin with HDF5's error reporting API */
     if((dv_err_class_g = H5Eregister_class(DAOS_VOL_ERR_CLS_NAME, DAOS_VOL_ERR_LIB_NAME, DAOS_VOL_ERR_VER)) < 0)
@@ -743,6 +737,8 @@ done:
             if(MPI_SUCCESS != MPI_Bcast(gh_buf_static, sizeof(gh_buf_static), MPI_BYTE, 0, pool_comm_g))
                 D_DONE_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't Bcast empty global handle")
         } /* end if */
+
+        H5daos_term();
     } /* end if */
 
     DV_free(gh_buf_dyn);
@@ -1310,6 +1306,9 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     flags |= H5F_ACC_RDWR | H5F_ACC_CREAT;
 
     /* Get information from the FAPL */
+    /*
+     * XXX: DSINC - may no longer need to use this VOL info.
+     */
     if(H5Pget_vol_info(fapl_id, (void **) &fa) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTGET, NULL, "can't get DAOS info struct")
 
@@ -1338,13 +1337,16 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
         D_GOTO_ERROR(H5E_FILE, H5E_CANTCOPY, NULL, "failed to copy fapl")
 
     /* Duplicate communicator and Info object. */
-    if(FAIL == H5FDmpi_comm_info_dup(fa->comm, fa->info, &file->comm, &file->info))
+    /*
+     * XXX: DSINC - Need to pass in MPI Info to VOL connector as well.
+     */
+    if(FAIL == H5FDmpi_comm_info_dup(fa ? fa->comm : pool_comm_g, fa ? fa->info : MPI_INFO_NULL, &file->comm, &file->info))
         D_GOTO_ERROR(H5E_INTERNAL, H5E_CANTCOPY, NULL, "Communicator/Info duplicate failed")
 
     /* Obtain the process rank and size from the communicator attached to the
      * fapl ID */
-    MPI_Comm_rank(fa->comm, &file->my_rank);
-    MPI_Comm_size(fa->comm, &file->num_procs);
+    MPI_Comm_rank(fa ? fa->comm : pool_comm_g, &file->my_rank);
+    MPI_Comm_size(fa ? fa->comm : pool_comm_g, &file->num_procs);
 
     /* Hash file name to create uuid */
     H5_daos_hash128(name, &file->uuid);
@@ -1433,18 +1435,18 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
             must_bcast = FALSE;
 
             /* MPI_Bcast gh_buf */
-            if(MPI_SUCCESS != MPI_Bcast(gh_buf, (int)sizeof(gh_buf_static), MPI_BYTE, 0, fa->comm))
+            if(MPI_SUCCESS != MPI_Bcast(gh_buf, (int)sizeof(gh_buf_static), MPI_BYTE, 0, fa ? fa->comm : pool_comm_g))
                 D_GOTO_ERROR(H5E_FILE, H5E_MPI, NULL, "can't bcast global container handle")
 
             /* Need a second bcast if we had to allocate a dynamic buffer */
             if(gh_buf == gh_buf_dyn)
-                if(MPI_SUCCESS != MPI_Bcast((char *)p, (int)gh_buf_size, MPI_BYTE, 0, fa->comm))
+                if(MPI_SUCCESS != MPI_Bcast((char *)p, (int)gh_buf_size, MPI_BYTE, 0, fa ? fa->comm : pool_comm_g))
                     D_GOTO_ERROR(H5E_FILE, H5E_MPI, NULL, "can't bcast global container handle (second bcast)")
         } /* end if */
     } /* end if */
     else {
         /* Receive global handle */
-        if(MPI_SUCCESS != MPI_Bcast(gh_buf, (int)sizeof(gh_buf_static), MPI_BYTE, 0, fa->comm))
+        if(MPI_SUCCESS != MPI_Bcast(gh_buf, (int)sizeof(gh_buf_static), MPI_BYTE, 0, fa ? fa->comm : pool_comm_g))
             D_GOTO_ERROR(H5E_FILE, H5E_MPI, NULL, "can't bcast global container handle")
 
         /* Decode handle length */
@@ -1470,7 +1472,7 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
             } /* end if */
 
             /* Receive global handle */
-            if(MPI_SUCCESS != MPI_Bcast(gh_buf_dyn, (int)gh_buf_size, MPI_BYTE, 0, fa->comm))
+            if(MPI_SUCCESS != MPI_Bcast(gh_buf_dyn, (int)gh_buf_size, MPI_BYTE, 0, fa ? fa->comm : pool_comm_g))
                 D_GOTO_ERROR(H5E_FILE, H5E_MPI, NULL, "can't bcast global container handle (second bcast)")
 
             p = (uint8_t *)gh_buf;
@@ -1502,7 +1504,7 @@ done:
          * in the other processes so we do not need to do the second bcast. */
         if(must_bcast) {
             memset(gh_buf_static, 0, sizeof(gh_buf_static));
-            if(MPI_SUCCESS != MPI_Bcast(gh_buf_static, sizeof(gh_buf_static), MPI_BYTE, 0, fa->comm))
+            if(MPI_SUCCESS != MPI_Bcast(gh_buf_static, sizeof(gh_buf_static), MPI_BYTE, 0, fa ? fa->comm : pool_comm_g))
                 D_DONE_ERROR(H5E_FILE, H5E_MPI, NULL, "can't bcast global handle sizes")
         } /* end if */
 
@@ -1561,6 +1563,9 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     void *ret_value = NULL;
 
     /* Get information from the FAPL */
+    /*
+     * XXX: DSINC - may no longer need to use this VOL info.
+     */
     if(H5Pget_vol_info(fapl_id, (void **) &fa) < 0)
         D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, NULL, "can't get DAOS info struct")
 
@@ -1594,13 +1599,16 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
         D_GOTO_ERROR(H5E_FILE, H5E_CANTCOPY, NULL, "failed to copy fapl")
 
     /* Duplicate communicator and Info object. */
-    if(FAIL == H5FDmpi_comm_info_dup(fa->comm, fa->info, &file->comm, &file->info))
+    /*
+     * XXX: DSINC - Need to pass in MPI Info to VOL connector as well.
+     */
+    if(FAIL == H5FDmpi_comm_info_dup(fa ? fa->comm : pool_comm_g, fa ? fa->info : MPI_INFO_NULL, &file->comm, &file->info))
         D_GOTO_ERROR(H5E_INTERNAL, H5E_CANTCOPY, NULL, "Communicator/Info duplicate failed")
 
     /* Obtain the process rank and size from the communicator attached to the
      * fapl ID */
-    MPI_Comm_rank(fa->comm, &file->my_rank);
-    MPI_Comm_size(fa->comm, &file->num_procs);
+    MPI_Comm_rank(fa ? fa->comm : pool_comm_g, &file->my_rank);
+    MPI_Comm_size(fa ? fa->comm : pool_comm_g, &file->num_procs);
 
     /* Hash file name to create uuid */
     H5_daos_hash128(name, &file->uuid);
@@ -1746,18 +1754,18 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
             must_bcast = FALSE;
 
             /* MPI_Bcast foi_buf */
-            if(MPI_SUCCESS != MPI_Bcast(foi_buf, (int)sizeof(foi_buf_static), MPI_BYTE, 0, fa->comm))
+            if(MPI_SUCCESS != MPI_Bcast(foi_buf, (int)sizeof(foi_buf_static), MPI_BYTE, 0, fa ? fa->comm : pool_comm_g))
                 D_GOTO_ERROR(H5E_FILE, H5E_MPI, NULL, "can't bcast global container handle")
 
             /* Need a second bcast if we had to allocate a dynamic buffer */
             if(foi_buf == foi_buf_dyn)
-                if(MPI_SUCCESS != MPI_Bcast((char *)p, (int)(gh_len + gcpl_len), MPI_BYTE, 0, fa->comm))
+                if(MPI_SUCCESS != MPI_Bcast((char *)p, (int)(gh_len + gcpl_len), MPI_BYTE, 0, fa ? fa->comm : pool_comm_g))
                     D_GOTO_ERROR(H5E_FILE, H5E_MPI, NULL, "can't bcast file open info (second bcast)")
         } /* end if */
     } /* end if */
     else {
         /* Receive file open info */
-        if(MPI_SUCCESS != MPI_Bcast(foi_buf, (int)sizeof(foi_buf_static), MPI_BYTE, 0, fa->comm))
+        if(MPI_SUCCESS != MPI_Bcast(foi_buf, (int)sizeof(foi_buf_static), MPI_BYTE, 0, fa ? fa->comm : pool_comm_g))
             D_GOTO_ERROR(H5E_FILE, H5E_MPI, NULL, "can't bcast global container handle")
 
         /* Decode handle length */
@@ -1789,7 +1797,7 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
             } /* end if */
 
             /* Receive global handle */
-            if(MPI_SUCCESS != MPI_Bcast(foi_buf_dyn, (int)(gh_len + gcpl_len), MPI_BYTE, 0, fa->comm))
+            if(MPI_SUCCESS != MPI_Bcast(foi_buf_dyn, (int)(gh_len + gcpl_len), MPI_BYTE, 0, fa ? fa->comm : pool_comm_g))
                 D_GOTO_ERROR(H5E_FILE, H5E_MPI, NULL, "can't bcast global container handle (second bcast)")
 
             p = (uint8_t *)foi_buf;
@@ -1826,7 +1834,7 @@ done:
          * in the other processes so we do not need to do the second bcast. */
         if(must_bcast) {
             memset(foi_buf_static, 0, sizeof(foi_buf_static));
-            if(MPI_SUCCESS != MPI_Bcast(foi_buf_static, sizeof(foi_buf_static), MPI_BYTE, 0, fa->comm))
+            if(MPI_SUCCESS != MPI_Bcast(foi_buf_static, sizeof(foi_buf_static), MPI_BYTE, 0, fa ? fa->comm : pool_comm_g))
                 D_DONE_ERROR(H5E_FILE, H5E_MPI, NULL, "can't bcast global handle sizes")
         } /* end if */
 
@@ -1926,8 +1934,11 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
     hid_t DV_ATTR_UNUSED dxpl_id, void DV_ATTR_UNUSED **req,
     va_list DV_ATTR_UNUSED arguments)
 {
-    H5_daos_file_t *file = ((H5_daos_item_t *)item)->file;
-    herr_t       ret_value = SUCCEED;    /* Return value */
+    H5_daos_file_t *file = NULL;
+    herr_t          ret_value = SUCCEED;    /* Return value */
+
+    if (item)
+        file = ((H5_daos_item_t *)item)->file;
 
     switch (specific_type) {
         /* H5Fflush */
@@ -1936,28 +1947,6 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
                 D_GOTO_ERROR(H5E_FILE, H5E_WRITEERROR, FAIL, "can't flush file")
 
             break;
-        /* H5Fcreate / H5Fopen */
-        case H5VL_FILE_CACHE_VOL_CONN:
-            {
-                hid_t      vol_id   = va_arg(arguments, hid_t);
-                void      *vol_info = va_arg(arguments, void *);
-
-                /* Check for info already cached */
-                if(file->vol_id < 0) {
-                    assert(!file->vol_info);
-
-                    /* Increment ref count on vol id and copy to file struct */
-                    if(H5Iinc_ref(vol_id) < 0)
-                        D_GOTO_ERROR(H5E_FILE, H5E_CANTINC, FAIL, "failed to increment ref count on vol id")
-                    file->vol_id = vol_id;
-
-                    /* Copy vol info */
-                    if(H5VLcopy_connector_info(vol_id, &file->vol_info, vol_info) < 0)
-                        D_GOTO_ERROR(H5E_FILE, H5E_CANTCOPY, FAIL, "failed to copy vol connector info");
-                } /* end if */
-
-                break;
-            } /* end block */
         /* H5Fmount */
         case H5VL_FILE_MOUNT:
         /* H5Fmount */
@@ -2372,10 +2361,12 @@ H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
     H5_daos_link_val_t link_val;
     herr_t ret_value = SUCCEED;
 
-    /* Find target group */
     assert(loc_params->type == H5VL_OBJECT_BY_NAME);
-    if(NULL == (link_grp = H5_daos_group_traverse(item, loc_params->loc_data.loc_by_name.name, dxpl_id, req, &link_name, NULL, NULL)))
-        D_GOTO_ERROR(H5E_SYM, H5E_BADITER, FAIL, "can't traverse path")
+
+    /* Find target group */
+    if(item)
+        if(NULL == (link_grp = H5_daos_group_traverse(item, loc_params->loc_data.loc_by_name.name, dxpl_id, req, &link_name, NULL, NULL)))
+            D_GOTO_ERROR(H5E_SYM, H5E_BADITER, FAIL, "can't traverse path")
 
     switch(create_type) {
         case H5VL_LINK_CREATE_HARD:
@@ -3009,7 +3000,7 @@ H5_daos_group_create(void *_item,
             D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, NULL, "can't get collective access property")
 
     /* Traverse the path */
-    if(!collective || (item->file->my_rank == 0))
+    if(name && (!collective || (item->file->my_rank == 0)))
         if(NULL == (target_grp = H5_daos_group_traverse(item, name, dxpl_id, req, &target_name, NULL, NULL)))
             D_GOTO_ERROR(H5E_SYM, H5E_BADITER, NULL, "can't traverse path")
 
@@ -3786,8 +3777,9 @@ H5_daos_dataset_create(void *_item,
         char dcpl_key[] = H5_DAOS_CPL_KEY;
 
         /* Traverse the path */
-        if(NULL == (target_grp = H5_daos_group_traverse(item, name, dxpl_id, req, &target_name, NULL, NULL)))
-            D_GOTO_ERROR(H5E_DATASET, H5E_BADITER, NULL, "can't traverse path")
+        if(name)
+            if(NULL == (target_grp = H5_daos_group_traverse(item, name, dxpl_id, req, &target_name, NULL, NULL)))
+                D_GOTO_ERROR(H5E_DATASET, H5E_BADITER, NULL, "can't traverse path")
 
         /* Create dataset */
         /* Update max_oid */
@@ -3868,10 +3860,12 @@ H5_daos_dataset_create(void *_item,
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't write metadata to dataset: %d", ret)
 
         /* Create link to dataset */
-        link_val.type = H5L_TYPE_HARD;
-        link_val.target.hard = dset->obj.oid;
-        if(H5_daos_link_write(target_grp, target_name, strlen(target_name), &link_val) < 0)
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't create link to dataset")
+        if(name) {
+            link_val.type = H5L_TYPE_HARD;
+            link_val.target.hard = dset->obj.oid;
+            if(H5_daos_link_write(target_grp, target_name, strlen(target_name), &link_val) < 0)
+                D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't create link to dataset")
+        } /* end if */
     } /* end if */
     else {
         /* Update max_oid */
@@ -5335,8 +5329,9 @@ H5_daos_datatype_commit(void *_item,
         char tcpl_key[] = H5_DAOS_CPL_KEY;
 
         /* Traverse the path */
-        if(NULL == (target_grp = H5_daos_group_traverse(item, name, dxpl_id, req, &target_name, NULL, NULL)))
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_BADITER, NULL, "can't traverse path")
+        if(name)
+            if(NULL == (target_grp = H5_daos_group_traverse(item, name, dxpl_id, req, &target_name, NULL, NULL)))
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_BADITER, NULL, "can't traverse path")
 
         /* Create datatype */
         /* Update max_oid */
@@ -5399,10 +5394,12 @@ H5_daos_datatype_commit(void *_item,
             D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't write metadata to datatype: %d", ret)
 
         /* Create link to datatype */
-        link_val.type = H5L_TYPE_HARD;
-        link_val.target.hard = dtype->obj.oid;
-        if(H5_daos_link_write(target_grp, target_name, strlen(target_name), &link_val) < 0)
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't create link to datatype")
+        if(name) {
+            link_val.type = H5L_TYPE_HARD;
+            link_val.target.hard = dtype->obj.oid;
+            if(H5_daos_link_write(target_grp, target_name, strlen(target_name), &link_val) < 0)
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't create link to datatype")
+        } /* end if */
     } /* end if */
     else {
         /* Update max_oid */
@@ -5827,6 +5824,13 @@ H5_daos_object_open(void *_item, const H5VL_loc_params_t *loc_params,
     H5I_type_t obj_type;
     H5VL_loc_params_t sub_loc_params;
     void *ret_value = NULL;
+
+    /*
+     * DSINC - should probably use a major error code other than
+     * object headers for H5O calls.
+     */
+    if(H5VL_OBJECT_BY_IDX == loc_params->type)
+        D_GOTO_ERROR(H5E_OHDR, H5E_UNSUPPORTED, NULL, "H5Oopen_by_idx is unsupported")
 
     /* Check loc_params type */
     if(H5VL_OBJECT_BY_ADDR == loc_params->type) {
@@ -8312,7 +8316,7 @@ H5_daos_map_close(void *_map, hid_t DV_ATTR_UNUSED dxpl_id,
 
 H5PL_type_t
 H5PLget_plugin_type(void) {
-    return H5PL_TYPE_FILTER;
+    return H5PL_TYPE_VOL;
 }
 
 const void*

@@ -56,17 +56,23 @@ extern hid_t dv_err_class_g;
  * and then goto the "done" label, which should appear inside
  * the function
  */
-#define D_GOTO_ERROR(err_major, err_minor, ret_val, ...)                                                         \
-{                                                                                                                \
-    H5E_auto2_t func;                                                                                            \
-                                                                                                                 \
-    /* Check whether automatic error reporting has been disabled */                                              \
-    H5Eget_auto2(H5E_DEFAULT, &func, NULL);                                                                      \
-    if (func)                                                                                                    \
-        H5Epush2(dv_err_stack_g, __FILE__, FUNC, __LINE__, dv_err_class_g, err_major, err_minor, __VA_ARGS__);   \
-                                                                                                                 \
-    ret_value = ret_val;                                                                                         \
-    goto done;                                                                                                   \
+#define D_GOTO_ERROR(err_major, err_minor, ret_val, ...)                                                           \
+{                                                                                                                  \
+    H5E_auto2_t func;                                                                                              \
+                                                                                                                   \
+    /* Check whether automatic error reporting has been disabled */                                                \
+    H5Eget_auto2(H5E_DEFAULT, &func, NULL);                                                                        \
+    if (func) {                                                                                                    \
+        if (dv_err_stack_g >= 0 && dv_err_class_g >= 0)                                                            \
+            H5Epush2(dv_err_stack_g, __FILE__, FUNC, __LINE__, dv_err_class_g, err_major, err_minor, __VA_ARGS__); \
+        else {                                                                                                     \
+            fprintf(stderr, __VA_ARGS__);                                                                          \
+            fprintf(stderr, "\n");                                                                                 \
+        }                                                                                                          \
+    }                                                                                                              \
+                                                                                                                   \
+    ret_value = ret_val;                                                                                           \
+    goto done;                                                                                                     \
 }
 
 /* Macro to push the current function to the current error stack
@@ -75,54 +81,60 @@ extern hid_t dv_err_class_g;
  * function so that an infinite loop does not occur where goto
  * continually branches back to the label.
  */
-#define D_DONE_ERROR(err_major, err_minor, ret_val, ...)                                                         \
-{                                                                                                                \
-    H5E_auto2_t func;                                                                                            \
-                                                                                                                 \
-    /* Check whether automatic error reporting has been disabled */                                              \
-    H5Eget_auto2(H5E_DEFAULT, &func, NULL);                                                                      \
-    if (func)                                                                                                    \
-        H5Epush2(dv_err_stack_g, __FILE__, FUNC, __LINE__, dv_err_class_g, err_major, err_minor, __VA_ARGS__);   \
-                                                                                                                 \
-    ret_value = ret_val;                                                                                         \
+#define D_DONE_ERROR(err_major, err_minor, ret_val, ...)                                                           \
+{                                                                                                                  \
+    H5E_auto2_t func;                                                                                              \
+                                                                                                                   \
+    /* Check whether automatic error reporting has been disabled */                                                \
+    H5Eget_auto2(H5E_DEFAULT, &func, NULL);                                                                        \
+    if (func) {                                                                                                    \
+        if (dv_err_stack_g >= 0 && dv_err_class_g >= 0)                                                            \
+            H5Epush2(dv_err_stack_g, __FILE__, FUNC, __LINE__, dv_err_class_g, err_major, err_minor, __VA_ARGS__); \
+        else {                                                                                                     \
+            fprintf(stderr, __VA_ARGS__);                                                                          \
+            fprintf(stderr, "\n");                                                                                 \
+        }                                                                                                          \
+    }                                                                                                              \
+                                                                                                                   \
+    ret_value = ret_val;                                                                                           \
 }
 
 /* Macro to simply jump to the "done" label inside the function,
  * setting ret_value to the given value. This is often used for
  * short circuiting in functions when certain conditions arise.
  */
-#define D_GOTO_DONE(ret_val)                                                                                     \
-{                                                                                                                \
-    ret_value = ret_val;                                                                                         \
-    goto done;                                                                                                   \
+#define D_GOTO_DONE(ret_val)                                                                                       \
+{                                                                                                                  \
+    ret_value = ret_val;                                                                                           \
+    goto done;                                                                                                     \
 }
 
 /* Macro to print out the VOL plugin's current error stack
  * and then clear it for future use
  */
-#define PRINT_ERROR_STACK                                                                                        \
-{                                                                                                                \
-    H5E_auto2_t func;                                                                                            \
-                                                                                                                 \
-    /* Check whether automatic error reporting has been disabled */                                              \
-    H5Eget_auto2(H5E_DEFAULT, &func, NULL);                                                                      \
-    if (func) {                                                                                                  \
-        if ((dv_err_stack_g >= 0) && (H5Eget_num(dv_err_stack_g) > 0)) {                                         \
-            H5Eprint2(dv_err_stack_g, NULL);                                                                     \
-            H5Eclear2(dv_err_stack_g);                                                                           \
-        }                                                                                                        \
-    }                                                                                                            \
+#define PRINT_ERROR_STACK                                                                                          \
+{                                                                                                                  \
+    H5E_auto2_t func;                                                                                              \
+                                                                                                                   \
+    /* Check whether automatic error reporting has been disabled */                                                \
+    H5Eget_auto2(H5E_DEFAULT, &func, NULL);                                                                        \
+    if (func) {                                                                                                    \
+        if ((dv_err_stack_g >= 0) && (H5Eget_num(dv_err_stack_g) > 0)) {                                           \
+            H5Eprint2(dv_err_stack_g, NULL);                                                                       \
+            H5Eclear2(dv_err_stack_g);                                                                             \
+        }                                                                                                          \
+    }                                                                                                              \
 }
 
-#define D_FUNC_LEAVE_API                                                                                         \
-{                                                                                                                \
-    PRINT_ERROR_STACK                                                                                            \
-    return ret_value;                                                                                            \
+#define D_FUNC_LEAVE_API                                                                                           \
+{                                                                                                                  \
+    PRINT_ERROR_STACK                                                                                              \
+    return ret_value;                                                                                              \
 }
 
-#define D_FUNC_LEAVE                                                                                             \
-{                                                                                                                \
-    return ret_value;                                                                                            \
+#define D_FUNC_LEAVE                                                                                               \
+{                                                                                                                  \
+    return ret_value;                                                                                              \
 }
 
 /* Error handling macros for the VOL test suite */

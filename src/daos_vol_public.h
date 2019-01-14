@@ -30,8 +30,7 @@
 #include "H5PLextern.h"
 
 /* Public headers needed by this file */
-#include "H5public.h"
-#include "H5Ipublic.h"
+#include "hdf5.h"
 
 #ifdef __cplusplus
 extern "C" {

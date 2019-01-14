@@ -1078,7 +1078,8 @@ H5_daos_oid_generate(daos_obj_id_t *oid, uint64_t addr, H5I_type_t obj_type)
     oid->lo = addr;
 
     /* Generate oid */
-    daos_obj_id_generate(oid, 0, obj_type == H5I_DATASET ? DAOS_OC_LARGE_RW : DAOS_OC_TINY_RW);
+    daos_obj_generate_id(oid, DAOS_OF_DKEY_HASHED | DAOS_OF_AKEY_HASHED,
+            obj_type == H5I_DATASET ? DAOS_OC_LARGE_RW : DAOS_OC_TINY_RW);
 
     return;
 } /* end H5_daos_oid_generate() */
@@ -1285,7 +1286,6 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     H5_daos_fapl_t *fa = NULL;
     H5_daos_file_t *file = NULL;
     daos_iov_t glob;
-    uint64_t epoch64;
     uint64_t gh_buf_size;
     char gh_buf_static[H5_DAOS_GH_BUF_SIZE];
     char *gh_buf_dyn = NULL;
@@ -1325,7 +1325,6 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     file->item.type = H5I_FILE;
     file->item.file = file;
     file->item.rc = 1;
-    file->snap_epoch = (int)FALSE;
     if(NULL == (file->file_name = strdup(name)))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't copy file name")
     file->flags = flags;
@@ -1356,11 +1355,9 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
         D_GOTO_ERROR(H5E_FILE, H5E_CANTGET, NULL, "can't get collective access property")
 
     /* Generate oid for global metadata object */
-    daos_obj_id_generate(&gmd_oid, 0, DAOS_OC_TINY_RW);
+    daos_obj_generate_id(&gmd_oid, DAOS_OF_DKEY_HASHED | DAOS_OF_AKEY_HASHED, DAOS_OC_TINY_RW);
 
     if(file->my_rank == 0) {
-        daos_epoch_state_t epoch_state;
-
         /* If there are other processes and we fail we must bcast anyways so they
          * don't hang */
         if(file->num_procs > 1)
@@ -1381,17 +1378,8 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
         if(0 != (ret = daos_cont_open(H5_daos_poh_g, file->uuid, DAOS_COO_RW, &file->coh, NULL /*&file->co_info*/, NULL /*event*/)))
             D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENFILE, NULL, "can't open container: %d", ret)
 
-        /* Query the epoch */
-        if(0 != (ret = daos_epoch_query(file->coh, &epoch_state, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't query epoch: %d", ret)
-
-        /* Hold the epoch */
-        file->epoch = epoch_state.es_hce + (daos_epoch_t)1;
-        if(0 != (ret = daos_epoch_hold(file->coh, &file->epoch, NULL /*state*/, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't hold epoch: %d", ret)
-
         /* Open global metadata object */
-        if(0 != (ret = daos_obj_open(file->coh, gmd_oid, file->epoch, DAOS_OO_RW, &file->glob_md_oh, NULL /*event*/)))
+        if(0 != (ret = daos_obj_open(file->coh, gmd_oid, DAOS_OO_RW, &file->glob_md_oh, NULL /*event*/)))
             D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENFILE, NULL, "can't open global metadata object: %d", ret)
 
         /* Bcast global container handle if there are other processes */
@@ -1405,10 +1393,10 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
             gh_buf_size = (uint64_t)glob.iov_buf_len;
 
             /* Check if the global handle won't fit into the static buffer */
-            assert(sizeof(gh_buf_static) >= 2 * sizeof(uint64_t));
-            if(gh_buf_size + 2 * sizeof(uint64_t) > sizeof(gh_buf_static)) {
+            assert(sizeof(gh_buf_static) >= sizeof(uint64_t));
+            if(gh_buf_size + sizeof(uint64_t) > sizeof(gh_buf_static)) {
                 /* Allocate dynamic buffer */
-                if(NULL == (gh_buf_dyn = (char *)DV_malloc(gh_buf_size + 2 * sizeof(uint64_t))))
+                if(NULL == (gh_buf_dyn = (char *)DV_malloc(gh_buf_size + sizeof(uint64_t))))
                     D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, NULL, "can't allocate space for global container handle")
 
                 /* Use dynamic buffer */
@@ -1418,10 +1406,6 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
             /* Encode handle length */
             p = (uint8_t *)gh_buf;
             UINT64ENCODE(p, gh_buf_size)
-
-            /* Encode epoch */
-            epoch64 = (uint64_t)file->epoch;
-            UINT64ENCODE(p, epoch64)
 
             /* Retrieve global container handle */
             glob.iov_buf = (char *)p;
@@ -1457,12 +1441,8 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
         if(gh_buf_size == 0)
             D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "lead process failed to open file")
 
-        /* Decode epoch */
-        UINT64DECODE(p, epoch64)
-        file->epoch = (daos_epoch_t)epoch64;
-
         /* Check if we need to perform another bcast */
-        if(gh_buf_size + 2 * sizeof(uint64_t) > sizeof(gh_buf_static)) {
+        if(gh_buf_size + sizeof(uint64_t) > sizeof(gh_buf_static)) {
             /* Check if we need to allocate a dynamic buffer */
             if(gh_buf_size > sizeof(gh_buf_static)) {
                 /* Allocate dynamic buffer */
@@ -1486,7 +1466,7 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
             D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENOBJ, NULL, "can't get local container handle: %d", ret)
 
         /* Open global metadata object */
-        if(0 != (ret = daos_obj_open(file->coh, gmd_oid, file->epoch, DAOS_OO_RW, &file->glob_md_oh, NULL /*event*/)))
+        if(0 != (ret = daos_obj_open(file->coh, gmd_oid, DAOS_OO_RW, &file->glob_md_oh, NULL /*event*/)))
             D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENFILE, NULL, "can't open global metadata object: %d", ret)
     } /* end else */
  
@@ -1548,7 +1528,6 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     H5_daos_snap_id_t snap_id;
 #endif
     daos_iov_t glob;
-    uint64_t epoch64;
     uint64_t gh_len;
     char foi_buf_static[H5_DAOS_FOI_BUF_SIZE];
     char *foi_buf_dyn = NULL;
@@ -1591,7 +1570,6 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     file->item.type = H5I_FILE;
     file->item.file = file;
     file->item.rc = 1;
-    file->snap_epoch = (int)FALSE;
     if(NULL == (file->file_name = strdup(name)))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't copy file name")
     file->flags = flags;
@@ -1614,7 +1592,7 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     H5_daos_hash128(name, &file->uuid);
 
     /* Generate oid for global metadata object */
-    daos_obj_id_generate(&gmd_oid, 0, DAOS_OC_TINY_RW);
+    daos_obj_generate_id(&gmd_oid, DAOS_OF_DKEY_HASHED | DAOS_OF_AKEY_HASHED, DAOS_OC_TINY_RW);
 
     /* Generate root group oid */
     H5_daos_oid_encode(&root_grp_oid, (uint64_t)1, H5I_GROUP);
@@ -1624,9 +1602,6 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
         D_GOTO_ERROR(H5E_FILE, H5E_CANTGET, NULL, "can't get collective access property")
 
     if(file->my_rank == 0) {
-        daos_epoch_t epoch;
-        daos_epoch_t held_epoch;
-        daos_epoch_state_t epoch_state;
         daos_key_t dkey;
         daos_iod_t iod;
         daos_sg_list_t sgl;
@@ -1653,24 +1628,12 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
         } /* end if */
         else {
 #endif
-            /* Query the epoch */
-            if(0 != (ret = daos_epoch_query(file->coh, &epoch_state, NULL /*event*/)))
-                D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't query epoch: %d", ret)
-            epoch = epoch_state.es_hce;
-
-            /* Hold the epoch if write access is requested */
-            if(flags & H5F_ACC_RDWR) {
-                /* Hold the next epoch */
-                held_epoch = epoch + (daos_epoch_t)1;
-                if(0 != (ret = daos_epoch_hold(file->coh, &held_epoch, NULL /*state*/, NULL /*event*/)))
-                    D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't hold epoch: %d", ret)
-            } /* end if */
 #ifdef DV_HAVE_SNAP_OPEN_ID
         } /* end else */
 #endif
 
         /* Open global metadata object */
-        if(0 != (ret = daos_obj_open(file->coh, gmd_oid, epoch, flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &file->glob_md_oh, NULL /*event*/)))
+        if(0 != (ret = daos_obj_open(file->coh, gmd_oid, flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &file->glob_md_oh, NULL /*event*/)))
             D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENFILE, NULL, "can't open global metadata object: %d", ret)
 
         /* Read max OID from gmd obj */
@@ -1692,14 +1655,8 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
         sgl.sg_iovs = &sg_iov;
 
         /* Read max OID from gmd obj */
-        if(0 != (ret = daos_obj_fetch(file->glob_md_oh, epoch, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
+        if(0 != (ret = daos_obj_fetch(file->glob_md_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
             D_GOTO_ERROR(H5E_FILE, H5E_CANTDECODE, NULL, "can't read max OID from global metadata object: %d", ret)
-
-        /* Set file's epoch */
-        if(flags & H5F_ACC_RDWR)
-            file->epoch = held_epoch;
-        else
-            file->epoch = epoch;
 
         /* Open root group */
         if(NULL == (file->root_grp = (H5_daos_group_t *)H5_daos_group_open_helper(file, root_grp_oid, H5P_GROUP_ACCESS_DEFAULT, dxpl_id, req, (file->num_procs > 1) ? &gcpl_buf : NULL, &gcpl_len)))
@@ -1716,9 +1673,9 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
             gh_len = (uint64_t)glob.iov_buf_len;
 
             /* Check if the file open info won't fit into the static buffer */
-            if(gh_len + gcpl_len + 4 * sizeof(uint64_t) > sizeof(foi_buf_static)) {
+            if(gh_len + gcpl_len + 3 * sizeof(uint64_t) > sizeof(foi_buf_static)) {
                 /* Allocate dynamic buffer */
-                if(NULL == (foi_buf_dyn = (char *)DV_malloc(gh_len + gcpl_len + 4 * sizeof(uint64_t))))
+                if(NULL == (foi_buf_dyn = (char *)DV_malloc(gh_len + gcpl_len + 3 * sizeof(uint64_t))))
                     D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, NULL, "can't allocate space for global container handle")
 
                 /* Use dynamic buffer */
@@ -1731,10 +1688,6 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
 
             /* Encode GCPL length */
             UINT64ENCODE(p, gcpl_len)
-
-            /* Encode epoch */
-            epoch64 = (uint64_t)file->epoch;
-            UINT64ENCODE(p, epoch64)
 
             /* Encode max OID */
             UINT64ENCODE(p, file->max_oid)
@@ -1779,15 +1732,11 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
         /* Decode GCPL length */
         UINT64DECODE(p, gcpl_len)
 
-        /* Decode epoch */
-        UINT64DECODE(p, epoch64)
-        file->epoch = (daos_epoch_t)epoch64;
-
         /* Decode max OID */
         UINT64DECODE(p, file->max_oid)
 
         /* Check if we need to perform another bcast */
-        if(gh_len + gcpl_len + 4 * sizeof(uint64_t) > sizeof(foi_buf_static)) {
+        if(gh_len + gcpl_len + 3 * sizeof(uint64_t) > sizeof(foi_buf_static)) {
             /* Check if we need to allocate a dynamic buffer */
             if(gh_len + gcpl_len > sizeof(foi_buf_static)) {
                 /* Allocate dynamic buffer */
@@ -1811,7 +1760,7 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
             D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENOBJ, NULL, "can't get local container handle: %d", ret)
 
         /* Open global metadata object */
-        if(0 != (ret = daos_obj_open(file->coh, gmd_oid, file->epoch, flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &file->glob_md_oh, NULL /*event*/)))
+        if(0 != (ret = daos_obj_open(file->coh, gmd_oid, flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &file->glob_md_oh, NULL /*event*/)))
             D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENFILE, NULL, "can't open global metadata object: %d", ret)
 
         /* Reconstitute root group from revieved GCPL */
@@ -1859,9 +1808,8 @@ done:
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_file_flush
  *
- * Purpose:     Flushes a DAOS file.  Performs an MPI_Barrier, then
- *              commits the epoch, dereferences previous epochs, saves a
- *              snapshot if requested, and incrementes the epoch.
+ * Purpose:     Flushes a DAOS file.  Currently a no-op, may create a
+ *              snapshot in the future.
  *
  * Return:      Success:        0
  *              Failure:        -1
@@ -1881,6 +1829,7 @@ H5_daos_file_flush(H5_daos_file_t *file)
     if(!(file->flags & H5F_ACC_RDWR))
         D_GOTO_DONE(SUCCEED)
 
+#if 0
     /* Collectively determine if anyone requested a snapshot of the epoch */
     if(MPI_SUCCESS != MPI_Reduce(file->my_rank == 0 ? MPI_IN_PLACE : &file->snap_epoch, &file->snap_epoch, 1, MPI_INT, MPI_LOR, 0, file->comm))
         D_GOTO_ERROR(H5E_FILE, H5E_MPI, FAIL, "failed to determine whether to take snapshot (MPI_Reduce)")
@@ -1894,22 +1843,16 @@ H5_daos_file_flush(H5_daos_file_t *file)
     if(file->my_rank == 0) {
         /* Save a snapshot of this epoch if requested */
         /* Disabled until snapshots are supported in DAOS DSINC */
-#if 0
+
         if(file->snap_epoch)
             if(0 != (ret = daos_snap_create(file->coh, file->epoch, NULL /*event*/)))
                 D_GOTO_ERROR(H5E_FILE, H5E_WRITEERROR, FAIL, "can't create snapshot: %d", ret)
-#endif
 
         /* Commit the epoch.  This should slip previous epochs automatically. */
         if(0 != (ret = daos_epoch_commit(file->coh, file->epoch, NULL /*state*/, NULL /*event*/)))
             D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "failed to commit epoch: %d", ret)
     } /* end if */
-
-    /* Advance the epoch */
-    file->epoch++;
-
-    /* Reset snap_epoch */
-    file->snap_epoch = (int)FALSE;
+#endif
 
 done:
     D_FUNC_LEAVE
@@ -2041,7 +1984,7 @@ H5_daos_file_close(void *_file, hid_t dxpl_id, void **req)
 
     assert(file);
 
-    /* Flush the file (barrier, commit epoch, slip epoch) */
+    /* Flush the file (barrier, commit epoch, slip epoch) *Update comment DSINC */
     if(H5_daos_file_flush(file) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_WRITEERROR, FAIL, "can't flush file")
 
@@ -2106,9 +2049,8 @@ H5_daos_write_max_oid(H5_daos_file_t *file)
     sgl.sg_iovs = &sg_iov;
 
     /* Write max OID to gmd obj */
-    if(0 != (ret = daos_obj_update(file->glob_md_oh, file->epoch, &dkey, 1, &iod, &sgl, NULL /*event*/)))
+    if(0 != (ret = daos_obj_update(file->glob_md_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*event*/)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTENCODE, FAIL, "can't write max OID to global metadata object: %d", ret)
-
 done:
     D_FUNC_LEAVE
 } /* end H5_daos_write_max_oid() */
@@ -2166,7 +2108,7 @@ H5_daos_link_read(H5_daos_group_t *grp, const char *name, size_t name_len,
     sgl.sg_iovs = &sg_iov;
 
     /* Read link */
-    if(0 != (ret = daos_obj_fetch(grp->obj.obj_oh, grp->obj.item.file->epoch, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
+    if(0 != (ret = daos_obj_fetch(grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
         D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't read link: %d", ret)
 
     /* Check for no link found */
@@ -2184,7 +2126,7 @@ H5_daos_link_read(H5_daos_group_t *grp, const char *name, size_t name_len,
         daos_iov_set(&sg_iov, val_buf, (daos_size_t)iod.iod_size);
 
         /* Reissue read */
-        if(0 != (ret = daos_obj_fetch(grp->obj.obj_oh, grp->obj.item.file->epoch, &dkey, 1, &iod, &sgl, NULL /*maps */, NULL /*event*/)))
+        if(0 != (ret = daos_obj_fetch(grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps */, NULL /*event*/)))
             D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't read link: %d", ret)
     } /* end if */
 
@@ -2329,7 +2271,7 @@ H5_daos_link_write(H5_daos_group_t *grp, const char *name,
     sgl.sg_iovs = sg_iov;
 
     /* Write link */
-    if(0 != (ret = daos_obj_update(grp->obj.obj_oh, grp->obj.item.file->epoch, &dkey, 1, &iod, &sgl, NULL /*event*/)))
+    if(0 != (ret = daos_obj_update(grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*event*/)))
         D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't write link: %d", ret)
 
 done:
@@ -2457,7 +2399,7 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
                 iod.iod_type = DAOS_IOD_SINGLE;
 
                 /* Read link */
-                if(0 != (ret = daos_obj_fetch(target_grp->obj.obj_oh, target_grp->obj.item.file->epoch, &dkey, 1, &iod, NULL /*sgl*/, NULL /*maps*/, NULL /*event*/)))
+                if(0 != (ret = daos_obj_fetch(target_grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, NULL /*sgl*/, NULL /*maps*/, NULL /*event*/)))
                     D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't read link: %d", ret)
 
                 /* Set return value */
@@ -2555,7 +2497,7 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
 
                         /* Ask daos for a list of dkeys, break out if we succeed
                          */
-                        if(0 == (ret = daos_obj_list_dkey(target_grp->obj.obj_oh, target_grp->obj.item.file->epoch, &nr, kds, &sgl, &anchor, NULL /*event*/)))
+                        if(0 == (ret = daos_obj_list_dkey(target_grp->obj.obj_oh, DAOS_TX_NONE, &nr, kds, &sgl, &anchor, NULL /*event*/)))
                             break;
 
                         /* Call failed, if the buffer is too small double it and
@@ -2882,7 +2824,7 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
             D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't write max OID")
 
         /* Open group */
-        if(0 != (ret = daos_obj_open(file->coh, grp->obj.oid, file->epoch, DAOS_OO_RW, &grp->obj.obj_oh, NULL /*event*/)))
+        if(0 != (ret = daos_obj_open(file->coh, grp->obj.oid, DAOS_OO_RW, &grp->obj.obj_oh, NULL /*event*/)))
             D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENOBJ, NULL, "can't open group: %d", ret)
 
         /* Encode GCPL */
@@ -2912,7 +2854,7 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
         sgl.sg_iovs = &sg_iov;
 
         /* Write internal metadata to group */
-        if(0 != (ret = daos_obj_update(grp->obj.obj_oh, file->epoch, &dkey, 1, &iod, &sgl, NULL /*event*/)))
+        if(0 != (ret = daos_obj_update(grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*event*/)))
             D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't write metadata to group: %d", ret)
 
         /* Write link to group if requested */
@@ -2938,7 +2880,7 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
          * process 0, same as the group create above. */
 
         /* Open group */
-        if(0 != (ret = daos_obj_open(file->coh, grp->obj.oid, file->epoch, DAOS_OO_RW, &grp->obj.obj_oh, NULL /*event*/)))
+        if(0 != (ret = daos_obj_open(file->coh, grp->obj.oid, DAOS_OO_RW, &grp->obj.obj_oh, NULL /*event*/)))
             D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENOBJ, NULL, "can't open group: %d", ret)
     } /* end else */
 
@@ -3071,7 +3013,7 @@ H5_daos_group_open_helper(H5_daos_file_t *file, daos_obj_id_t oid,
     grp->gapl_id = FAIL;
 
     /* Open group */
-    if(0 != (ret = daos_obj_open(file->coh, oid, file->epoch, file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &grp->obj.obj_oh, NULL /*event*/)))
+    if(0 != (ret = daos_obj_open(file->coh, oid, file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &grp->obj.obj_oh, NULL /*event*/)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENOBJ, NULL, "can't open group: %d", ret)
 
     /* Set up operation to read GCPL size from group */
@@ -3087,7 +3029,7 @@ H5_daos_group_open_helper(H5_daos_file_t *file, daos_obj_id_t oid,
     iod.iod_type = DAOS_IOD_SINGLE;
 
     /* Read internal metadata size from group */
-    if(0 != (ret = daos_obj_fetch(grp->obj.obj_oh, file->epoch, &dkey, 1, &iod, NULL, NULL /*maps*/, NULL /*event*/)))
+    if(0 != (ret = daos_obj_fetch(grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, NULL, NULL /*maps*/, NULL /*event*/)))
         D_GOTO_ERROR(H5E_SYM, H5E_CANTDECODE, NULL, "can't read metadata size from group: %d", ret)
 
     /* Check for metadata not found */
@@ -3106,7 +3048,7 @@ H5_daos_group_open_helper(H5_daos_file_t *file, daos_obj_id_t oid,
     sgl.sg_iovs = &sg_iov;
 
     /* Read internal metadata from group */
-    if(0 != (ret = daos_obj_fetch(grp->obj.obj_oh, file->epoch, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
+    if(0 != (ret = daos_obj_fetch(grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
         D_GOTO_ERROR(H5E_SYM, H5E_CANTDECODE, NULL, "can't read metadata from group: %d", ret)
 
     /* Decode GCPL */
@@ -3177,7 +3119,7 @@ H5_daos_group_reconstitute(H5_daos_file_t *file, daos_obj_id_t oid,
     grp->gapl_id = FAIL;
 
     /* Open group */
-    if(0 != (ret = daos_obj_open(file->coh, oid, file->epoch, file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &grp->obj.obj_oh, NULL /*event*/)))
+    if(0 != (ret = daos_obj_open(file->coh, oid, file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &grp->obj.obj_oh, NULL /*event*/)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENOBJ, NULL, "can't open group: %d", ret)
 
     /* Decode GCPL */
@@ -3790,7 +3732,7 @@ H5_daos_dataset_create(void *_item,
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't write max OID")
 
         /* Open dataset */
-        if(0 != (ret = daos_obj_open(item->file->coh, dset->obj.oid, item->file->epoch, DAOS_OO_RW, &dset->obj.obj_oh, NULL /*event*/)))
+        if(0 != (ret = daos_obj_open(item->file->coh, dset->obj.oid, DAOS_OO_RW, &dset->obj.obj_oh, NULL /*event*/)))
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTOPENOBJ, NULL, "can't open dataset: %d", ret)
 
         /* Encode datatype */
@@ -3856,7 +3798,7 @@ H5_daos_dataset_create(void *_item,
         sgl[2].sg_iovs = &sg_iov[2];
 
         /* Write internal metadata to dataset */
-        if(0 != (ret = daos_obj_update(dset->obj.obj_oh, item->file->epoch, &dkey, 3, iod, sgl, NULL /*event*/)))
+        if(0 != (ret = daos_obj_update(dset->obj.obj_oh, DAOS_TX_NONE, &dkey, 3, iod, sgl, NULL /*event*/)))
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't write metadata to dataset: %d", ret)
 
         /* Create link to dataset */
@@ -3879,7 +3821,7 @@ H5_daos_dataset_create(void *_item,
          * are from process 0, same as the dataset create above. */
 
         /* Open dataset */
-        if(0 != (ret = daos_obj_open(item->file->coh, dset->obj.oid, item->file->epoch, DAOS_OO_RW, &dset->obj.obj_oh, NULL /*event*/)))
+        if(0 != (ret = daos_obj_open(item->file->coh, dset->obj.oid, DAOS_OO_RW, &dset->obj.obj_oh, NULL /*event*/)))
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTOPENOBJ, NULL, "can't open dataset: %d", ret)
     } /* end else */
 
@@ -4004,7 +3946,7 @@ H5_daos_dataset_open(void *_item,
         } /* end else */
 
         /* Open dataset */
-        if(0 != (ret = daos_obj_open(item->file->coh, dset->obj.oid, item->file->epoch, item->file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &dset->obj.obj_oh, NULL /*event*/)))
+        if(0 != (ret = daos_obj_open(item->file->coh, dset->obj.oid, item->file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &dset->obj.obj_oh, NULL /*event*/)))
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTOPENOBJ, NULL, "can't open dataset: %d", ret)
 
         /* Set up operation to read datatype, dataspace, and DCPL sizes from
@@ -4033,7 +3975,7 @@ H5_daos_dataset_open(void *_item,
         iod[2].iod_type = DAOS_IOD_SINGLE;
 
         /* Read internal metadata sizes from dataset */
-        if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, item->file->epoch, &dkey, 3, iod, NULL,
+        if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, DAOS_TX_NONE, &dkey, 3, iod, NULL,
                       NULL /*maps*/, NULL /*event*/)))
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTDECODE, NULL, "can't read metadata sizes from dataset: %d", ret)
 
@@ -4073,7 +4015,7 @@ H5_daos_dataset_open(void *_item,
         sgl[2].sg_iovs = &sg_iov[2];
 
         /* Read internal metadata from dataset */
-        if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, item->file->epoch, &dkey, 3, iod, sgl, NULL /*maps*/, NULL /*event*/)))
+        if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, DAOS_TX_NONE, &dkey, 3, iod, sgl, NULL /*maps*/, NULL /*event*/)))
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTDECODE, NULL, "can't read metadata from dataset: %d", ret)
 
         /* Broadcast dataset info if there are other processes that need it */
@@ -4141,7 +4083,7 @@ H5_daos_dataset_open(void *_item,
         } /* end if */
 
         /* Open dataset */
-        if(0 != (ret = daos_obj_open(item->file->coh, dset->obj.oid, item->file->epoch, item->file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &dset->obj.obj_oh, NULL /*event*/)))
+        if(0 != (ret = daos_obj_open(item->file->coh, dset->obj.oid, item->file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &dset->obj.obj_oh, NULL /*event*/)))
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTOPENOBJ, NULL, "can't open dataset: %d", ret)
     } /* end else */
 
@@ -4596,7 +4538,7 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
         /* Read vl sizes from dataset */
         /* Note cast to unsigned reduces width to 32 bits.  Should eventually
          * check for overflow and iterate over 2^32 size blocks */
-        if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, dset->obj.item.file->epoch, &dkey, (unsigned)num_elem, iods, NULL, NULL /*maps*/, NULL /*event*/)))
+        if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, DAOS_TX_NONE, &dkey, (unsigned)num_elem, iods, NULL, NULL /*maps*/, NULL /*event*/)))
             D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, FAIL, "can't read vl data sizes from dataset: %d", ret)
 
         /* Allocate array of sg_iovs */
@@ -4622,7 +4564,7 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
         /* Read data from dataset */
         /* Note cast to unsigned reduces width to 32 bits.  Should eventually
          * check for overflow and iterate over 2^32 size blocks */
-        if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, dset->obj.item.file->epoch, &dkey, (unsigned)((uint64_t)num_elem - mem_ud.offset), iods, sgls, NULL /*maps*/, NULL /*event*/)))
+        if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, DAOS_TX_NONE, &dkey, (unsigned)((uint64_t)num_elem - mem_ud.offset), iods, sgls, NULL /*maps*/, NULL /*event*/)))
             D_GOTO_ERROR(H5E_DATASET, H5E_READERROR, FAIL, "can't read data from dataset: %d", ret)
     } /* end if */
     else {
@@ -4676,7 +4618,7 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
             sgl.sg_iovs = sg_iovs;
 
             /* Read data from dataset */
-            if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, dset->obj.item.file->epoch, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
+            if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
                 D_GOTO_ERROR(H5E_DATASET, H5E_READERROR, FAIL, "can't read data from dataset: %d", ret)
         } /* end if */
         else {
@@ -4735,7 +4677,7 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
             daos_iov_set(&sg_iov, tconv_buf, (daos_size_t)num_elem * (daos_size_t)file_type_size);
 
             /* Read data to tconv_buf */
-            if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, dset->obj.item.file->epoch, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
+            if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
                 D_GOTO_ERROR(H5E_DATASET, H5E_READERROR, FAIL, "can't read data from attribute: %d", ret)
 
             /* Gather data to background buffer if necessary */
@@ -5019,7 +4961,7 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
         /* Write data to dataset */
         /* Note cast to unsigned reduces width to 32 bits.  Should eventually
          * check for overflow and iterate over 2^32 size blocks */
-        if(0 != (ret = daos_obj_update(dset->obj.obj_oh, dset->obj.item.file->epoch, &dkey, (unsigned)num_elem, iods, sgls, NULL /*event*/)))
+        if(0 != (ret = daos_obj_update(dset->obj.obj_oh, DAOS_TX_NONE, &dkey, (unsigned)num_elem, iods, sgls, NULL /*event*/)))
             D_GOTO_ERROR(H5E_DATASET, H5E_WRITEERROR, FAIL, "can't write data to dataset: %d", ret)
     } /* end if */
     else {
@@ -5065,7 +5007,7 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
                 daos_iov_set(&sg_iov, bkg_buf, (daos_size_t)num_elem * (daos_size_t)file_type_size);
 
                 /* Read data from dataset to background buffer */
-                if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, dset->obj.item.file->epoch, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
+                if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
                     D_GOTO_ERROR(H5E_DATASET, H5E_READERROR, FAIL, "can't read data from dataset: %d", ret)
 
                 /* Reset iod_size, if the dataset was not allocated then it could
@@ -5113,7 +5055,7 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
         } /* end else */
 
         /* Write data to dataset */
-        if(0 != (ret = daos_obj_update(dset->obj.obj_oh, dset->obj.item.file->epoch, &dkey, 1, &iod, &sgl, NULL /*event*/)))
+        if(0 != (ret = daos_obj_update(dset->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*event*/)))
             D_GOTO_ERROR(H5E_DATASET, H5E_WRITEERROR, FAIL, "can't write data to dataset: %d", ret)
     } /* end else */
 
@@ -5348,7 +5290,7 @@ H5_daos_datatype_commit(void *_item,
             D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't write max OID")
 
         /* Open datatype */
-        if(0 != (ret = daos_obj_open(item->file->coh, dtype->obj.oid, item->file->epoch, DAOS_OO_RW, &dtype->obj.obj_oh, NULL /*event*/)))
+        if(0 != (ret = daos_obj_open(item->file->coh, dtype->obj.oid, DAOS_OO_RW, &dtype->obj.obj_oh, NULL /*event*/)))
             D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTOPENOBJ, NULL, "can't open datatype: %d", ret)
 
         /* Encode datatype */
@@ -5396,7 +5338,7 @@ H5_daos_datatype_commit(void *_item,
         sgl[1].sg_iovs = &sg_iov[1];
 
         /* Write internal metadata to datatype */
-        if(0 != (ret = daos_obj_update(dtype->obj.obj_oh, item->file->epoch, &dkey, 2, iod, sgl, NULL /*event*/)))
+        if(0 != (ret = daos_obj_update(dtype->obj.obj_oh, DAOS_TX_NONE, &dkey, 2, iod, sgl, NULL /*event*/)))
             D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't write metadata to datatype: %d", ret)
 
         /* Create link to datatype */
@@ -5419,7 +5361,7 @@ H5_daos_datatype_commit(void *_item,
          * are from process 0, same as the datatype create above. */
 
         /* Open datatype */
-        if(0 != (ret = daos_obj_open(item->file->coh, dtype->obj.oid, item->file->epoch, DAOS_OO_RW, &dtype->obj.obj_oh, NULL /*event*/)))
+        if(0 != (ret = daos_obj_open(item->file->coh, dtype->obj.oid, DAOS_OO_RW, &dtype->obj.obj_oh, NULL /*event*/)))
             D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTOPENOBJ, NULL, "can't open datatype: %d", ret)
     } /* end else */
 
@@ -5536,7 +5478,7 @@ H5_daos_datatype_open(void *_item,
         } /* end else */
 
         /* Open datatype */
-        if(0 != (ret = daos_obj_open(item->file->coh, dtype->obj.oid, item->file->epoch, item->file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &dtype->obj.obj_oh, NULL /*event*/)))
+        if(0 != (ret = daos_obj_open(item->file->coh, dtype->obj.oid, item->file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &dtype->obj.obj_oh, NULL /*event*/)))
             D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTOPENOBJ, NULL, "can't open datatype: %d", ret)
 
         /* Set up operation to read datatype and TCPL sizes from datatype */
@@ -5558,7 +5500,7 @@ H5_daos_datatype_open(void *_item,
         iod[1].iod_type = DAOS_IOD_SINGLE;
 
         /* Read internal metadata sizes from datatype */
-        if(0 != (ret = daos_obj_fetch(dtype->obj.obj_oh, item->file->epoch, &dkey, 2, iod, NULL,
+        if(0 != (ret = daos_obj_fetch(dtype->obj.obj_oh, DAOS_TX_NONE, &dkey, 2, iod, NULL,
                       NULL /*maps*/, NULL /*event*/)))
             D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTDECODE, NULL, "can't read metadata sizes from datatype: %d", ret)
 
@@ -5591,7 +5533,7 @@ H5_daos_datatype_open(void *_item,
         sgl[1].sg_iovs = &sg_iov[1];
 
         /* Read internal metadata from datatype */
-        if(0 != (ret = daos_obj_fetch(dtype->obj.obj_oh, item->file->epoch, &dkey, 2, iod, sgl, NULL /*maps*/, NULL /*event*/)))
+        if(0 != (ret = daos_obj_fetch(dtype->obj.obj_oh, DAOS_TX_NONE, &dkey, 2, iod, sgl, NULL /*maps*/, NULL /*event*/)))
             D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTDECODE, NULL, "can't read metadata from datatype: %d", ret)
 
         /* Broadcast datatype info if there are other processes that need it */
@@ -5657,7 +5599,7 @@ H5_daos_datatype_open(void *_item,
         } /* end if */
 
         /* Open datatype */
-        if(0 != (ret = daos_obj_open(item->file->coh, dtype->obj.oid, item->file->epoch, item->file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &dtype->obj.obj_oh, NULL /*event*/)))
+        if(0 != (ret = daos_obj_open(item->file->coh, dtype->obj.oid, item->file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &dtype->obj.obj_oh, NULL /*event*/)))
             D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTOPENOBJ, NULL, "can't open datatype: %d", ret)
     } /* end else */
 
@@ -6105,7 +6047,7 @@ H5_daos_object_optional(void *_item, hid_t dxpl_id, void **req,
 
                             /* Ask daos for a list of akeys, break out if we succeed
                              */
-                            if(0 == (ret = daos_obj_list_akey(target_obj->obj_oh, target_obj->item.file->epoch, &dkey, &nr, kds, &sgl, &anchor, NULL /*event*/)))
+                            if(0 == (ret = daos_obj_list_akey(target_obj->obj_oh, DAOS_TX_NONE, &dkey, &nr, kds, &sgl, &anchor, NULL /*event*/)))
                                 break;
 
                             /* Call failed, if the buffer is too small double it and
@@ -6358,7 +6300,7 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
     sgl[1].sg_iovs = &sg_iov[1];
 
     /* Write attribute metadata to parent object */
-    if(0 != (ret = daos_obj_update(attr->parent->obj_oh, attr->parent->item.file->epoch, &dkey, 2, iod, sgl, NULL /*event*/)))
+    if(0 != (ret = daos_obj_update(attr->parent->obj_oh, DAOS_TX_NONE, &dkey, 2, iod, sgl, NULL /*event*/)))
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't write attribute metadata: %d", ret)
 
     /* Finish setting up attribute struct */
@@ -6484,7 +6426,7 @@ H5_daos_attribute_open(void *_item, const H5VL_loc_params_t *loc_params,
     iod[1].iod_type = DAOS_IOD_SINGLE;
 
     /* Read attribute metadata sizes from parent object */
-    if(0 != (ret = daos_obj_fetch(attr->parent->obj_oh, attr->parent->item.file->epoch, &dkey, 2, iod, NULL, NULL /*maps*/, NULL /*event*/)))
+    if(0 != (ret = daos_obj_fetch(attr->parent->obj_oh, DAOS_TX_NONE, &dkey, 2, iod, NULL, NULL /*maps*/, NULL /*event*/)))
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTDECODE, NULL, "can't read attribute metadata sizes: %d", ret)
 
     if(iod[0].iod_size == (uint64_t)0 || iod[1].iod_size == (uint64_t)0)
@@ -6507,7 +6449,7 @@ H5_daos_attribute_open(void *_item, const H5VL_loc_params_t *loc_params,
     sgl[1].sg_iovs = &sg_iov[1];
 
     /* Read attribute metadata from parent object */
-    if(0 != (ret = daos_obj_fetch(attr->parent->obj_oh, attr->parent->item.file->epoch, &dkey, 2, iod, sgl, NULL /*maps*/, NULL /*event*/)))
+    if(0 != (ret = daos_obj_fetch(attr->parent->obj_oh, DAOS_TX_NONE, &dkey, 2, iod, sgl, NULL /*maps*/, NULL /*event*/)))
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTDECODE, NULL, "can't read attribute metadata: %d", ret)
 
     /* Decode datatype and dataspace */
@@ -6661,7 +6603,7 @@ H5_daos_attribute_read(void *_attr, hid_t mem_type_id, void *buf,
         /* Read vl sizes from attribute */
         /* Note cast to unsigned reduces width to 32 bits.  Should eventually
          * check for overflow and iterate over 2^32 size blocks */
-        if(0 != (ret = daos_obj_fetch(attr->parent->obj_oh, attr->item.file->epoch, &dkey, (unsigned)attr_size, iods, NULL, NULL /*maps*/, NULL /*event*/)))
+        if(0 != (ret = daos_obj_fetch(attr->parent->obj_oh, DAOS_TX_NONE, &dkey, (unsigned)attr_size, iods, NULL, NULL /*maps*/, NULL /*event*/)))
             D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, FAIL, "can't read vl data sizes from attribute: %d", ret)
 
         /* Allocate array of sg_iovs */
@@ -6732,7 +6674,7 @@ H5_daos_attribute_read(void *_attr, hid_t mem_type_id, void *buf,
         /* Read data from attribute */
         /* Note cast to unsigned reduces width to 32 bits.  Should eventually
          * check for overflow and iterate over 2^32 size blocks */
-        if(0 != (ret = daos_obj_fetch(attr->parent->obj_oh, attr->item.file->epoch, &dkey, (unsigned)(attr_size - offset), iods, sgls, NULL /*maps*/, NULL /*event*/)))
+        if(0 != (ret = daos_obj_fetch(attr->parent->obj_oh, DAOS_TX_NONE, &dkey, (unsigned)(attr_size - offset), iods, sgls, NULL /*maps*/, NULL /*event*/)))
             D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, FAIL, "can't read data from attribute: %d", ret)
     } /* end if */
     else {
@@ -6788,7 +6730,7 @@ H5_daos_attribute_read(void *_attr, hid_t mem_type_id, void *buf,
         sgl.sg_iovs = &sg_iov;
 
         /* Read data from attribute */
-        if(0 != (ret = daos_obj_fetch(attr->parent->obj_oh, attr->item.file->epoch, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
+        if(0 != (ret = daos_obj_fetch(attr->parent->obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
             D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, FAIL, "can't read data from attribute: %d", ret)
 
         /* Perform type conversion if necessary */
@@ -7001,7 +6943,7 @@ H5_daos_attribute_write(void *_attr, hid_t mem_type_id, const void *buf,
         /* Write data to attribute */
         /* Note cast to unsigned reduces width to 32 bits.  Should eventually
          * check for overflow and iterate over 2^32 size blocks */
-        if(0 != (ret = daos_obj_update(attr->parent->obj_oh, attr->item.file->epoch, &dkey, (unsigned)attr_size, iods, sgls, NULL /*event*/)))
+        if(0 != (ret = daos_obj_update(attr->parent->obj_oh, DAOS_TX_NONE, &dkey, (unsigned)attr_size, iods, sgls, NULL /*event*/)))
             D_GOTO_ERROR(H5E_ATTR, H5E_WRITEERROR, FAIL, "can't write data to attribute: %d", ret)
     } /* end if */
     else {
@@ -7053,7 +6995,7 @@ H5_daos_attribute_write(void *_attr, hid_t mem_type_id, const void *buf,
                 /* Read data from attribute to background buffer */
                 daos_iov_set(&sg_iov, bkg_buf, (daos_size_t)(attr_size * (uint64_t)file_type_size));
 
-                if(0 != (ret = daos_obj_fetch(attr->parent->obj_oh, attr->item.file->epoch, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
+                if(0 != (ret = daos_obj_fetch(attr->parent->obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
                     D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, FAIL, "can't read data from attribute: %d", ret)
             } /* end if */
 
@@ -7072,7 +7014,7 @@ H5_daos_attribute_write(void *_attr, hid_t mem_type_id, const void *buf,
             daos_iov_set(&sg_iov, (void *)buf, (daos_size_t)(attr_size * (uint64_t)file_type_size));
 
         /* Write data to attribute */
-        if(0 != (ret = daos_obj_update(attr->parent->obj_oh, attr->item.file->epoch, &dkey, 1, &iod, &sgl, NULL /*event*/)))
+        if(0 != (ret = daos_obj_update(attr->parent->obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*event*/)))
             D_GOTO_ERROR(H5E_ATTR, H5E_WRITEERROR, FAIL, "can't write data to attribute: %d", ret)
     } /* end else */
 
@@ -7323,7 +7265,7 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
 
                         /* Ask daos for a list of akeys, break out if we succeed
                          */
-                        if(0 == (ret = daos_obj_list_akey(target_obj->obj_oh, target_obj->item.file->epoch, &dkey, &nr, kds, &sgl, &anchor, NULL /*event*/)))
+                        if(0 == (ret = daos_obj_list_akey(target_obj->obj_oh, DAOS_TX_NONE, &dkey, &nr, kds, &sgl, &anchor, NULL /*event*/)))
                             break;
 
                         /* Call failed, if the buffer is too small double it and
@@ -7550,7 +7492,7 @@ H5_daos_map_create(void *_item, H5VL_loc_params_t DV_ATTR_UNUSED *loc_params,
             D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't write max OID")
 
         /* Open map */
-        if(0 != (ret = daos_obj_open(item->file->coh, map->obj.oid, item->file->epoch, DAOS_OO_RW, &map->obj.obj_oh, NULL /*event*/)))
+        if(0 != (ret = daos_obj_open(item->file->coh, map->obj.oid, DAOS_OO_RW, &map->obj.obj_oh, NULL /*event*/)))
             D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, NULL, "can't open map: %d", ret)
 
         /* Encode datatypes */
@@ -7601,7 +7543,7 @@ H5_daos_map_create(void *_item, H5VL_loc_params_t DV_ATTR_UNUSED *loc_params,
         sgl[1].sg_iovs = &sg_iov[1];
 
         /* Write internal metadata to map */
-        if(0 != (ret = daos_obj_update(map->obj.obj_oh, item->file->epoch, &dkey, 2, iod, sgl, NULL /*event*/)))
+        if(0 != (ret = daos_obj_update(map->obj.obj_oh, DAOS_TX_NONE, &dkey, 2, iod, sgl, NULL /*event*/)))
             D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't write metadata to map: %d", ret)
 
         /* Create link to map */
@@ -7615,7 +7557,7 @@ H5_daos_map_create(void *_item, H5VL_loc_params_t DV_ATTR_UNUSED *loc_params,
         item->file->max_oid = map->obj.oid.lo;
 
         /* Open map */
-        if(0 != (ret = daos_obj_open(item->file->coh, map->obj.oid, item->file->epoch, DAOS_OO_RW, &map->obj.obj_oh, NULL /*event*/)))
+        if(0 != (ret = daos_obj_open(item->file->coh, map->obj.oid, DAOS_OO_RW, &map->obj.obj_oh, NULL /*event*/)))
             D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, NULL, "can't open map: %d", ret)
     } /* end else */
 
@@ -7723,7 +7665,7 @@ H5_daos_map_open(void *_item, H5VL_loc_params_t *loc_params, const char *name,
         } /* end else */
 
         /* Open map */
-        if(0 != (ret = daos_obj_open(item->file->coh, map->obj.oid, item->file->epoch, item->file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &map->obj.obj_oh, NULL /*event*/)))
+        if(0 != (ret = daos_obj_open(item->file->coh, map->obj.oid, item->file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &map->obj.obj_oh, NULL /*event*/)))
             D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, NULL, "can't open map: %d", ret)
 
         /* Set up operation to read datatype sizes from map */
@@ -7745,7 +7687,7 @@ H5_daos_map_open(void *_item, H5VL_loc_params_t *loc_params, const char *name,
         iod[1].iod_type = DAOS_IOD_SINGLE;
 
         /* Read internal metadata sizes from map */
-        if(0 != (ret = daos_obj_fetch(map->obj.obj_oh, item->file->epoch, &dkey, 2, iod, NULL,
+        if(0 != (ret = daos_obj_fetch(map->obj.obj_oh, DAOS_TX_NONE, &dkey, 2, iod, NULL,
                       NULL /*maps*/, NULL /*event*/)))
             D_GOTO_ERROR(H5E_MAP, H5E_CANTDECODE, NULL, "can't read metadata sizes from map: %d", ret)
 
@@ -7778,7 +7720,7 @@ H5_daos_map_open(void *_item, H5VL_loc_params_t *loc_params, const char *name,
         sgl[1].sg_iovs = &sg_iov[1];
 
         /* Read internal metadata from map */
-        if(0 != (ret = daos_obj_fetch(map->obj.obj_oh, item->file->epoch, &dkey, 2, iod, sgl, NULL /*maps*/, NULL /*event*/)))
+        if(0 != (ret = daos_obj_fetch(map->obj.obj_oh, DAOS_TX_NONE, &dkey, 2, iod, sgl, NULL /*maps*/, NULL /*event*/)))
             D_GOTO_ERROR(H5E_MAP, H5E_CANTDECODE, NULL, "can't read metadata from map: %d", ret)
 
         /* Broadcast map info if there are other processes that need it */
@@ -7844,7 +7786,7 @@ H5_daos_map_open(void *_item, H5VL_loc_params_t *loc_params, const char *name,
         } /* end if */
 
         /* Open map */
-        if(0 != (ret = daos_obj_open(item->file->coh, map->obj.oid, item->file->epoch, item->file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &map->obj.obj_oh, NULL /*event*/)))
+        if(0 != (ret = daos_obj_open(item->file->coh, map->obj.oid, item->file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &map->obj.obj_oh, NULL /*event*/)))
             D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, NULL, "can't open map: %d", ret)
     } /* end else */
 
@@ -8084,7 +8026,7 @@ H5_daos_map_set(void *_map, hid_t key_mem_type_id, const void *key,
     sgl.sg_iovs = &sg_iov;
 
         if(0 != (ret_value = daos_obj_update(map->obj.obj_oh,
-                         map->obj.item.file->epoch, &dkey,
+                         DAOS_TX_NONE, &dkey,
                          1, &iod, &sgl, NULL)))
         D_GOTO_ERROR(H5E_MAP, H5E_CANTSET, FAIL, "Map set failed: %d", ret_value);
 
@@ -8137,14 +8079,14 @@ H5_daos_map_get(void *_map, hid_t key_mem_type_id, const void *key,
         sgl.sg_iovs = &sg_iov;
 
         if(0 != (ret_value = daos_obj_fetch(map->obj.obj_oh, 
-                            map->obj.item.file->epoch, &dkey,
+                            DAOS_TX_NONE, &dkey,
                             1, &iod, &sgl, NULL , NULL)))
             D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "MAP get failed: %d", ret_value);
     }
     else {
         iod.iod_size = DAOS_REC_ANY;
         if(0 != (ret_value = daos_obj_fetch(map->obj.obj_oh, 
-                            map->obj.item.file->epoch, &dkey,
+                            DAOS_TX_NONE, &dkey,
                             1, &iod, NULL, NULL , NULL)))
             D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "MAP get failed: %d", ret_value);
 
@@ -8172,7 +8114,7 @@ H5_daos_map_get(void *_map, hid_t key_mem_type_id, const void *key,
         sgl.sg_iovs = &sg_iov;
 
         if(0 != (ret_value = daos_obj_fetch(map->obj.obj_oh, 
-                            map->obj.item.file->epoch, &dkey,
+                            DAOS_TX_NONE, &dkey,
                             1, &iod, &sgl, NULL , NULL)))
             D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "MAP get failed: %d", ret_value);
     }
@@ -8229,7 +8171,7 @@ H5_daos_map_get_count(void *_map, hsize_t *count, void DV_ATTR_UNUSED **req)
         memset(buf, 0, ENUM_DESC_BUF);
 
         ret_value = daos_obj_list_dkey(map->obj.obj_oh, 
-                           map->obj.item.file->epoch,
+                           DAOS_TX_NONE,
                            &number, kds, &sgl, &anchor, NULL);
         if(ret_value != 0)
             D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "Map List failed: %d", ret_value);
@@ -8273,7 +8215,7 @@ H5_daos_map_exists(void *_map, hid_t key_mem_type_id, const void *key,
     iod.iod_size = DAOS_REC_ANY;
 
     if(0 != (ret_value = daos_obj_fetch(map->obj.obj_oh, 
-                        map->obj.item.file->epoch, &dkey,
+                        DAOS_TX_NONE, &dkey,
                         1, &iod, NULL, NULL , NULL)))
         D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "MAP get failed: %d", ret_value);
 

@@ -4510,6 +4510,9 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
     uint64_t i;
     herr_t ret_value = SUCCEED;
 
+    if(!buf)
+        D_GOTO_ERROR(H5E_DATASET, H5E_BADVALUE, FAIL, "read buffer is NULL")
+
     /* Get dataspace extent */
     if((ndims = H5Sget_simple_extent_ndims(dset->space_id)) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get number of dimensions")
@@ -4911,6 +4914,9 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
     int ret;
     uint64_t i;
     herr_t ret_value = SUCCEED;
+
+    if(!buf)
+        D_GOTO_ERROR(H5E_DATASET, H5E_BADVALUE, FAIL, "write buffer is NULL")
 
     /* Check for write access */
     if(!(dset->obj.item.file->flags & H5F_ACC_RDWR))
@@ -6578,6 +6584,9 @@ H5_daos_attribute_read(void *_attr, hid_t mem_type_id, void *buf,
     uint64_t i;
     herr_t ret_value = SUCCEED;
 
+    if(!buf)
+        D_GOTO_ERROR(H5E_ATTR, H5E_BADVALUE, FAIL, "read buffer is NULL")
+
     /* Get dataspace extent */
     if((ndims = H5Sget_simple_extent_ndims(attr->space_id)) < 0)
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get number of dimensions")
@@ -6860,6 +6869,9 @@ H5_daos_attribute_write(void *_attr, hid_t mem_type_id, const void *buf,
     int ret;
     uint64_t i;
     herr_t ret_value = SUCCEED;
+
+    if(!buf)
+        D_GOTO_ERROR(H5E_ATTR, H5E_BADVALUE, FAIL, "write buffer is NULL")
 
     /* Check for write access */
     if(!(attr->item.file->flags & H5F_ACC_RDWR))

@@ -21,11 +21,11 @@
  * library.  Generic object routines.
  */
 
-#include "daos_vol.h"           /* DAOS plugin                          */
-#include "daos_vol_err.h"       /* DAOS plugin error handling           */
-#include "daos_vol_config.h"    /* DAOS plugin configuration header     */
+#include "daos_vol.h"           /* DAOS connector                          */
+#include "daos_vol_config.h"    /* DAOS connector configuration header     */
 
-#include "util/daos_vol_mem.h"  /* DAOS plugin memory management        */
+#include "util/daos_vol_err.h"  /* DAOS connector error handling           */
+#include "util/daos_vol_mem.h"  /* DAOS connector memory management        */
 
 
 /*-------------------------------------------------------------------------
@@ -114,13 +114,13 @@ H5_daos_object_open(void *_item, const H5VL_loc_params_t *loc_params,
 
                 /* MPI_Bcast oid_buf */
                 if(MPI_SUCCESS != MPI_Bcast((char *)oid_buf, sizeof(oid_buf), MPI_BYTE, 0, item->file->comm))
-                    D_GOTO_ERROR(H5E_OHDR, H5E_MPI, NULL, "can't bcast object id")
+                    D_GOTO_ERROR(H5E_OHDR, H5E_MPI, NULL, "can't broadcast object ID")
             } /* end if */
         } /* end if */
         else {
             /* Receive oid_buf */
             if(MPI_SUCCESS != MPI_Bcast((char *)oid_buf, sizeof(oid_buf), MPI_BYTE, 0, item->file->comm))
-                D_GOTO_ERROR(H5E_OHDR, H5E_MPI, NULL, "can't bcast object id")
+                D_GOTO_ERROR(H5E_OHDR, H5E_MPI, NULL, "can't receive broadcasted object ID")
 
             /* Decode oid */
             p = oid_buf;
@@ -184,7 +184,7 @@ done:
         if(must_bcast) {
             memset(oid_buf, 0, sizeof(oid_buf));
             if(MPI_SUCCESS != MPI_Bcast(oid_buf, sizeof(oid_buf), MPI_BYTE, 0, item->file->comm))
-                D_DONE_ERROR(H5E_OHDR, H5E_MPI, NULL, "can't bcast empty object id")
+                D_DONE_ERROR(H5E_OHDR, H5E_MPI, NULL, "can't broadcast empty object ID")
         } /* end if */
 
         /* Close object */
@@ -348,7 +348,7 @@ H5_daos_object_optional(void *_item, hid_t dxpl_id, void **req,
                                 daos_iov_set(&sg_iov, akey_buf, (daos_size_t)akey_buf_len);
                             } /* end if */
                             else
-                                D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, FAIL, "can't list attributes: %d", ret)
+                                D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, FAIL, "can't list attributes: %s", H5_daos_err_to_string(ret))
                         } while(1);
 
                         /* Count number of returned attributes */
@@ -387,6 +387,7 @@ done:
             D_DONE_ERROR(H5E_OHDR, H5E_CLOSEERROR, FAIL, "can't close object")
         target_obj = NULL;
     } /* end else */
+
     akey_buf = (char *)DV_free(akey_buf);
 
     PRINT_ERROR_STACK

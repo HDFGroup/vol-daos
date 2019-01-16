@@ -21,11 +21,11 @@
  * library.  Link routines.
  */
 
-#include "daos_vol.h"           /* DAOS plugin                          */
-#include "daos_vol_err.h"       /* DAOS plugin error handling           */
-#include "daos_vol_config.h"    /* DAOS plugin configuration header     */
+#include "daos_vol.h"           /* DAOS connector                          */
+#include "daos_vol_config.h"    /* DAOS connector configuration header     */
 
-#include "util/daos_vol_mem.h"  /* DAOS plugin memory management        */
+#include "util/daos_vol_err.h"  /* DAOS connector error handling           */
+#include "util/daos_vol_mem.h"  /* DAOS connector memory management        */
 
 /* Prototypes */
 static herr_t H5_daos_link_read(H5_daos_group_t *grp, const char *name,
@@ -85,7 +85,7 @@ H5_daos_link_read(H5_daos_group_t *grp, const char *name, size_t name_len,
 
     /* Read link */
     if(0 != (ret = daos_obj_fetch(grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't read link: %d", ret)
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't read link: %s", H5_daos_err_to_string(ret))
 
     /* Check for no link found */
     if(iod.iod_size == (uint64_t)0)
@@ -103,7 +103,7 @@ H5_daos_link_read(H5_daos_group_t *grp, const char *name, size_t name_len,
 
         /* Reissue read */
         if(0 != (ret = daos_obj_fetch(grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps */, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't read link: %d", ret)
+            D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't read link: %s", H5_daos_err_to_string(ret))
     } /* end if */
 
     /* Decode link type */
@@ -248,7 +248,7 @@ H5_daos_link_write(H5_daos_group_t *grp, const char *name,
 
     /* Write link */
     if(0 != (ret = daos_obj_update(grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't write link: %d", ret)
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't write link: %s", H5_daos_err_to_string(ret))
 
 done:
     D_FUNC_LEAVE
@@ -296,7 +296,7 @@ H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
             /* Retrieve target name */
             link_val.type = H5L_TYPE_SOFT;
             if(H5Pget(lcpl_id, H5VL_PROP_LINK_TARGET_NAME, &link_val.target.soft) < 0)
-                D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, FAIL, "can't get property value for target name")
+                D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, FAIL, "can't get property value for soft link target name")
 
             /* Create soft link */
             if(H5_daos_link_write(link_grp, link_name, strlen(link_name), &link_val) < 0)
@@ -376,7 +376,7 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
 
                 /* Read link */
                 if(0 != (ret = daos_obj_fetch(target_grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, NULL /*sgl*/, NULL /*maps*/, NULL /*event*/)))
-                    D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't read link: %d", ret)
+                    D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't read link: %s", H5_daos_err_to_string(ret))
 
                 /* Set return value */
                 *lexists_ret = iod.iod_size != (uint64_t)0;
@@ -437,7 +437,7 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
 
                 /* Recursive iteration not supported */
                 if(recursive)
-                    D_GOTO_ERROR(H5E_SYM, H5E_UNSUPPORTED, FAIL, "recusive iteration not supported")
+                    D_GOTO_ERROR(H5E_SYM, H5E_UNSUPPORTED, FAIL, "recursive iteration not supported")
 
                 /* Initialize const linfo info */
                 linfo.corder_valid = FALSE;
@@ -489,7 +489,7 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
                             daos_iov_set(&sg_iov, dkey_buf, (daos_size_t)(dkey_buf_len - 1));
                         } /* end if */
                         else
-                            D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, FAIL, "can't retrieve attributes: %d", ret)
+                            D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, FAIL, "can't retrieve attributes: %s", H5_daos_err_to_string(ret))
                     } while(1);
 
                     /* Loop over returned dkeys */
@@ -551,7 +551,7 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
 done:
     if(target_grp_id >= 0) {
         if(H5Idec_ref(target_grp_id) < 0)
-            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group id")
+            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group ID")
         target_grp_id = -1;
         target_grp = NULL;
     } /* end if */

@@ -623,8 +623,8 @@ AC_ARG_ENABLE([mem-tracking],
               [AS_HELP_STRING([--enable-mem-tracking],
                               [Enable DAOS VOL memory tracking. This helps to
                                find memory leaks and other memory errors within
-                               the plugin itself. If this option is enabled,
-                               the plugin will throw an error upon termination
+                               the connector itself. If this option is enabled,
+                               the connector will throw an error upon termination
                                if memory is still allocated.
                                [default=no]
                                ])],

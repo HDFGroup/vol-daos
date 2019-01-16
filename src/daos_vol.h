@@ -17,7 +17,7 @@
  * Programmer:  Neil Fortner <nfortne2@hdfgroup.org>
  *              September, 2016
  *
- * Purpose:	The private header file for the DAOS VOL plugin.
+ * Purpose:	The private header file for the DAOS VOL connector.
  */
 #ifndef daos_vol_H
 #define daos_vol_H
@@ -31,9 +31,9 @@
 
 #include "daos.h"
 
-#define HDF5_VOL_DAOS_VERSION_1	1	/* Version number of DAOS VOL plugin */
+#define HDF5_VOL_DAOS_VERSION_1	1	/* Version number of DAOS VOL connector */
 
-#define H5_VOL_DAOS_CLS_VAL (H5VL_class_value_t) H5_VOL_RESERVED + 2 /* Class value of the DAOS VOL plugin as defined in H5VLpublic.h DSINC */
+#define H5_VOL_DAOS_CLS_VAL (H5VL_class_value_t) H5_VOL_RESERVED + 2 /* Class value of the DAOS VOL connector as defined in H5VLpublic.h DSINC */
 
 #define H5_DAOS_VOL_NAME "daos"
 
@@ -134,7 +134,7 @@ extern "C" {
 #endif
 #endif /* __cplusplus */
 
-/* FAPL property to tell the VOL plugin to open a saved snapshot when opening a
+/* FAPL property to tell the VOL connector to open a saved snapshot when opening a
  * file */
 #ifdef DV_HAVE_SNAP_OPEN_ID
 #define H5_DAOS_SNAP_OPEN_ID "daos_snap_open"

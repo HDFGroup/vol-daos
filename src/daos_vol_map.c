@@ -21,11 +21,11 @@
  * library.  Map routines
  */
 
-#include "daos_vol.h"           /* DAOS plugin                          */
-#include "daos_vol_err.h"       /* DAOS plugin error handling           */
-#include "daos_vol_config.h"    /* DAOS plugin configuration header     */
+#include "daos_vol.h"           /* DAOS connector                          */
+#include "daos_vol_config.h"    /* DAOS connector configuration header     */
 
-#include "util/daos_vol_mem.h"  /* DAOS plugin memory management        */
+#include "util/daos_vol_err.h"  /* DAOS connector error handling           */
+#include "util/daos_vol_mem.h"  /* DAOS connector memory management        */
 
 #ifdef DV_HAVE_MAP
 
@@ -104,7 +104,7 @@ H5_daos_map_create(void *_item, H5VL_loc_params_t DV_ATTR_UNUSED *loc_params,
 
         /* Open map */
         if(0 != (ret = daos_obj_open(item->file->coh, map->obj.oid, DAOS_OO_RW, &map->obj.obj_oh, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, NULL, "can't open map: %d", ret)
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, NULL, "can't open map: %s", H5_daos_err_to_string(ret))
 
         /* Encode datatypes */
         if(H5Tencode(ktype_id, NULL, &ktype_size) < 0)
@@ -155,7 +155,7 @@ H5_daos_map_create(void *_item, H5VL_loc_params_t DV_ATTR_UNUSED *loc_params,
 
         /* Write internal metadata to map */
         if(0 != (ret = daos_obj_update(map->obj.obj_oh, DAOS_TX_NONE, &dkey, 2, iod, sgl, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't write metadata to map: %d", ret)
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't write metadata to map: %s", H5_daos_err_to_string(ret))
 
         /* Create link to map */
         link_val.type = H5L_TYPE_HARD;
@@ -169,7 +169,7 @@ H5_daos_map_create(void *_item, H5VL_loc_params_t DV_ATTR_UNUSED *loc_params,
 
         /* Open map */
         if(0 != (ret = daos_obj_open(item->file->coh, map->obj.oid, DAOS_OO_RW, &map->obj.obj_oh, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, NULL, "can't open map: %d", ret)
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, NULL, "can't open map: %s", H5_daos_err_to_string(ret))
     } /* end else */
 
     /* Finish setting up map struct */
@@ -277,7 +277,7 @@ H5_daos_map_open(void *_item, H5VL_loc_params_t *loc_params, const char *name,
 
         /* Open map */
         if(0 != (ret = daos_obj_open(item->file->coh, map->obj.oid, item->file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &map->obj.obj_oh, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, NULL, "can't open map: %d", ret)
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, NULL, "can't open map: %s", H5_daos_err_to_string(ret))
 
         /* Set up operation to read datatype sizes from map */
         /* Set up dkey */
@@ -300,7 +300,7 @@ H5_daos_map_open(void *_item, H5VL_loc_params_t *loc_params, const char *name,
         /* Read internal metadata sizes from map */
         if(0 != (ret = daos_obj_fetch(map->obj.obj_oh, DAOS_TX_NONE, &dkey, 2, iod, NULL,
                       NULL /*maps*/, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTDECODE, NULL, "can't read metadata sizes from map: %d", ret)
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTDECODE, NULL, "can't read metadata sizes from map: %s", H5_daos_err_to_string(ret))
 
         /* Check for metadata not found */
         if((iod[0].iod_size == (uint64_t)0) || (iod[1].iod_size == (uint64_t)0))
@@ -332,7 +332,7 @@ H5_daos_map_open(void *_item, H5VL_loc_params_t *loc_params, const char *name,
 
         /* Read internal metadata from map */
         if(0 != (ret = daos_obj_fetch(map->obj.obj_oh, DAOS_TX_NONE, &dkey, 2, iod, sgl, NULL /*maps*/, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTDECODE, NULL, "can't read metadata from map: %d", ret)
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTDECODE, NULL, "can't read metadata from map: %s", H5_daos_err_to_string(ret))
 
         /* Broadcast map info if there are other processes that need it */
         if(collective && (item->file->num_procs > 1)) {
@@ -350,13 +350,13 @@ H5_daos_map_open(void *_item, H5VL_loc_params_t *loc_params, const char *name,
 
             /* MPI_Bcast minfo_buf */
             if(MPI_SUCCESS != MPI_Bcast((char *)minfo_buf, sizeof(minfo_buf_static), MPI_BYTE, 0, item->file->comm))
-                D_GOTO_ERROR(H5E_MAP, H5E_MPI, NULL, "can't bcast map info");
+                D_GOTO_ERROR(H5E_MAP, H5E_MPI, NULL, "can't broadcast map info");
 
             /* Need a second bcast if it did not fit in the receivers' static
              * buffer */
             if(tot_len + (4 * sizeof(uint64_t)) > sizeof(minfo_buf_static))
                 if(MPI_SUCCESS != MPI_Bcast((char *)p, (int)tot_len, MPI_BYTE, 0, item->file->comm))
-                    D_GOTO_ERROR(H5E_MAP, H5E_MPI, NULL, "can't bcast map info (second bcast)")
+                    D_GOTO_ERROR(H5E_MAP, H5E_MPI, NULL, "can't broadcast map info (second broadcast)")
         } /* end if */
         else
             p = minfo_buf + (4 * sizeof(uint64_t));
@@ -364,7 +364,7 @@ H5_daos_map_open(void *_item, H5VL_loc_params_t *loc_params, const char *name,
     else {
         /* Receive map info */
         if(MPI_SUCCESS != MPI_Bcast((char *)minfo_buf, sizeof(minfo_buf_static), MPI_BYTE, 0, item->file->comm))
-            D_GOTO_ERROR(H5E_MAP, H5E_MPI, NULL, "can't bcast map info")
+            D_GOTO_ERROR(H5E_MAP, H5E_MPI, NULL, "can't receive broadcasted map info")
 
         /* Decode oid */
         p = minfo_buf_static;
@@ -391,14 +391,14 @@ H5_daos_map_open(void *_item, H5VL_loc_params_t *loc_params, const char *name,
 
             /* Receive map info */
             if(MPI_SUCCESS != MPI_Bcast((char *)minfo_buf, (int)tot_len, MPI_BYTE, 0, item->file->comm))
-                D_GOTO_ERROR(H5E_MAP, H5E_MPI, NULL, "can't bcast map info (second bcast)")
+                D_GOTO_ERROR(H5E_MAP, H5E_MPI, NULL, "can't receive broadcasted map info (second broadcast)")
 
             p = minfo_buf;
         } /* end if */
 
         /* Open map */
         if(0 != (ret = daos_obj_open(item->file->coh, map->obj.oid, item->file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &map->obj.obj_oh, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, NULL, "can't open map: %d", ret)
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, NULL, "can't open map: %s", H5_daos_err_to_string(ret))
     } /* end else */
 
     /* Decode datatype, dataspace, and DCPL */
@@ -419,7 +419,7 @@ done:
         if(must_bcast) {
             memset(minfo_buf_static, 0, sizeof(minfo_buf_static));
             if(MPI_SUCCESS != MPI_Bcast(minfo_buf_static, sizeof(minfo_buf_static), MPI_BYTE, 0, item->file->comm))
-                D_DONE_ERROR(H5E_MAP, H5E_MPI, NULL, "can't bcast empty map info")
+                D_DONE_ERROR(H5E_MAP, H5E_MPI, NULL, "can't broadcast empty map info")
         } /* end if */
 
         /* Close map */
@@ -601,6 +601,7 @@ H5_daos_map_set(void *_map, hid_t key_mem_type_id, const void *key,
     daos_sg_list_t sgl;
     daos_iov_t sg_iov;
     H5T_class_t cls;
+    int ret;
     herr_t ret_value = SUCCEED;
 
     /* get the key size and checksum from the provdied key datatype & buffer */
@@ -611,16 +612,16 @@ H5_daos_map_set(void *_map, hid_t key_mem_type_id, const void *key,
     if(H5_daos_map_get_size(val_mem_type_id, value, NULL, &val_size, &cls) < 0)
         D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get val size");
 
-        /* Set up dkey */
-        daos_iov_set(&dkey, (void *)key, (daos_size_t)key_size);
+    /* Set up dkey */
+    daos_iov_set(&dkey, (void *)key, (daos_size_t)key_size);
 
-        /* Set up iod */
-        memset(&iod, 0, sizeof(iod));
-        daos_iov_set(&iod.iod_name, (void *)const_akey, (daos_size_t)(sizeof(const_akey) - 1));
-        daos_csum_set(&iod.iod_kcsum, NULL, 0);
-        iod.iod_nr = 1u;
-        iod.iod_size = (daos_size_t)val_size;
-        iod.iod_type = DAOS_IOD_SINGLE;
+    /* Set up iod */
+    memset(&iod, 0, sizeof(iod));
+    daos_iov_set(&iod.iod_name, (void *)const_akey, (daos_size_t)(sizeof(const_akey) - 1));
+    daos_csum_set(&iod.iod_kcsum, NULL, 0);
+    iod.iod_nr = 1u;
+    iod.iod_size = (daos_size_t)val_size;
+    iod.iod_type = DAOS_IOD_SINGLE;
 
     /* Set up sgl */
     if (H5T_VLEN == cls) {
@@ -636,10 +637,10 @@ H5_daos_map_set(void *_map, hid_t key_mem_type_id, const void *key,
     sgl.sg_nr_out = 0;
     sgl.sg_iovs = &sg_iov;
 
-        if(0 != (ret_value = daos_obj_update(map->obj.obj_oh,
-                         DAOS_TX_NONE, &dkey,
-                         1, &iod, &sgl, NULL)))
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTSET, FAIL, "Map set failed: %d", ret_value);
+    if(0 != (ret = daos_obj_update(map->obj.obj_oh,
+                   DAOS_TX_NONE, &dkey,
+                   1, &iod, &sgl, NULL)))
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTSET, FAIL, "Map set failed: %s", H5_daos_err_to_string(ret));
 
 done:
     D_FUNC_LEAVE
@@ -660,6 +661,7 @@ H5_daos_map_get(void *_map, hid_t key_mem_type_id, const void *key,
     daos_sg_list_t sgl;
     daos_iov_t sg_iov;
     H5T_class_t cls;
+    int ret;
     herr_t ret_value = SUCCEED;
 
     /* get the key size and checksum from the provdied key datatype & buffer */
@@ -671,14 +673,15 @@ H5_daos_map_get(void *_map, hid_t key_mem_type_id, const void *key,
     if(H5_daos_map_dtype_info(val_mem_type_id, &val_is_vl, &val_size, &cls) < 0)
         D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get key size");
 
-        /* Set up dkey */
-        daos_iov_set(&dkey, (void *)key, (daos_size_t)key_size);
-        /* Set up iod */
-        memset(&iod, 0, sizeof(iod));
-        daos_iov_set(&iod.iod_name, const_akey, (daos_size_t)(sizeof(const_akey) - 1));
-        daos_csum_set(&iod.iod_kcsum, NULL, 0);
-        iod.iod_nr = 1u;
-        iod.iod_type = DAOS_IOD_SINGLE;
+    /* Set up dkey */
+    daos_iov_set(&dkey, (void *)key, (daos_size_t)key_size);
+
+    /* Set up iod */
+    memset(&iod, 0, sizeof(iod));
+    daos_iov_set(&iod.iod_name, const_akey, (daos_size_t)(sizeof(const_akey) - 1));
+    daos_csum_set(&iod.iod_kcsum, NULL, 0);
+    iod.iod_nr = 1u;
+    iod.iod_type = DAOS_IOD_SINGLE;
 
     if (!val_is_vl) {
         iod.iod_size = (daos_size_t)val_size;
@@ -689,17 +692,17 @@ H5_daos_map_get(void *_map, hid_t key_mem_type_id, const void *key,
         sgl.sg_nr_out = 0;
         sgl.sg_iovs = &sg_iov;
 
-        if(0 != (ret_value = daos_obj_fetch(map->obj.obj_oh, 
-                            DAOS_TX_NONE, &dkey,
-                            1, &iod, &sgl, NULL , NULL)))
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "MAP get failed: %d", ret_value);
+        if(0 != (ret = daos_obj_fetch(map->obj.obj_oh,
+                       DAOS_TX_NONE, &dkey,
+                       1, &iod, &sgl, NULL , NULL)))
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "MAP get failed: %s", H5_daos_err_to_string(ret));
     }
     else {
         iod.iod_size = DAOS_REC_ANY;
-        if(0 != (ret_value = daos_obj_fetch(map->obj.obj_oh, 
-                            DAOS_TX_NONE, &dkey,
-                            1, &iod, NULL, NULL , NULL)))
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "MAP get failed: %d", ret_value);
+        if(0 != (ret = daos_obj_fetch(map->obj.obj_oh,
+                       DAOS_TX_NONE, &dkey,
+                       1, &iod, NULL, NULL , NULL)))
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "MAP get failed: %s", H5_daos_err_to_string(ret));
 
         val_size = iod.iod_size;
 
@@ -724,10 +727,10 @@ H5_daos_map_get(void *_map, hid_t key_mem_type_id, const void *key,
         sgl.sg_nr_out = 0;
         sgl.sg_iovs = &sg_iov;
 
-        if(0 != (ret_value = daos_obj_fetch(map->obj.obj_oh, 
-                            DAOS_TX_NONE, &dkey,
-                            1, &iod, &sgl, NULL , NULL)))
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "MAP get failed: %d", ret_value);
+        if(0 != (ret = daos_obj_fetch(map->obj.obj_oh,
+                       DAOS_TX_NONE, &dkey,
+                       1, &iod, &sgl, NULL , NULL)))
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "MAP get failed: %s", H5_daos_err_to_string(ret));
     }
 
 done:
@@ -767,6 +770,7 @@ H5_daos_map_get_count(void *_map, hsize_t *count, void DV_ATTR_UNUSED **req)
     hsize_t      key_nr;
     daos_sg_list_t   sgl;
     daos_iov_t   sg_iov;
+    int ret;
     herr_t       ret_value = SUCCEED;
 
     memset(&anchor, 0, sizeof(anchor));
@@ -781,11 +785,11 @@ H5_daos_map_get_count(void *_map, hsize_t *count, void DV_ATTR_UNUSED **req)
             number = ENUM_DESC_NR) {
         memset(buf, 0, ENUM_DESC_BUF);
 
-        ret_value = daos_obj_list_dkey(map->obj.obj_oh, 
-                           DAOS_TX_NONE,
-                           &number, kds, &sgl, &anchor, NULL);
-        if(ret_value != 0)
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "Map List failed: %d", ret_value);
+        ret = daos_obj_list_dkey(map->obj.obj_oh,
+                     DAOS_TX_NONE,
+                     &number, kds, &sgl, &anchor, NULL);
+        if(ret != 0)
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "Map List failed: %s", H5_daos_err_to_string(ret));
         if (number == 0)
             continue; /* loop should break for EOF */
 
@@ -809,6 +813,7 @@ H5_daos_map_exists(void *_map, hid_t key_mem_type_id, const void *key,
     char const_akey[] = H5_DAOS_MAP_KEY;
     daos_key_t dkey;
     daos_iod_t iod;
+    int ret;
     herr_t ret_value = SUCCEED;
 
     /* get the key size and checksum from the provdied key datatype & buffer */
@@ -817,6 +822,7 @@ H5_daos_map_exists(void *_map, hid_t key_mem_type_id, const void *key,
 
     /* Set up dkey */
     daos_iov_set(&dkey, (void *)key, (daos_size_t)key_size);
+
     /* Set up iod */
     memset(&iod, 0, sizeof(iod));
     daos_iov_set(&iod.iod_name, (void *)const_akey, (daos_size_t)(sizeof(const_akey) - 1));
@@ -825,10 +831,10 @@ H5_daos_map_exists(void *_map, hid_t key_mem_type_id, const void *key,
     iod.iod_type = DAOS_IOD_SINGLE;
     iod.iod_size = DAOS_REC_ANY;
 
-    if(0 != (ret_value = daos_obj_fetch(map->obj.obj_oh, 
-                        DAOS_TX_NONE, &dkey,
-                        1, &iod, NULL, NULL , NULL)))
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "MAP get failed: %d", ret_value);
+    if(0 != (ret = daos_obj_fetch(map->obj.obj_oh,
+                   DAOS_TX_NONE, &dkey,
+                   1, &iod, NULL, NULL , NULL)))
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "MAP get failed: %s", H5_daos_err_to_string(ret));
 
     if(iod.iod_size != 0)
         *exists = TRUE;
@@ -867,7 +873,7 @@ H5_daos_map_close(void *_map, hid_t DV_ATTR_UNUSED dxpl_id,
         /* Free map data structures */
         if(!daos_handle_is_inval(map->obj.obj_oh))
             if(0 != (ret = daos_obj_close(map->obj.obj_oh, NULL /*event*/)))
-                D_DONE_ERROR(H5E_MAP, H5E_CANTCLOSEOBJ, FAIL, "can't close map DAOS object: %d", ret)
+                D_DONE_ERROR(H5E_MAP, H5E_CANTCLOSEOBJ, FAIL, "can't close map DAOS object: %s", H5_daos_err_to_string(ret))
         if(map->ktype_id != FAIL && H5I_dec_app_ref(map->ktype_id) < 0)
             D_DONE_ERROR(H5E_MAP, H5E_CANTDEC, FAIL, "failed to close datatype")
         if(map->vtype_id != FAIL && H5I_dec_app_ref(map->vtype_id) < 0)

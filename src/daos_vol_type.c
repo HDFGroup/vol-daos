@@ -21,11 +21,11 @@
  * library.  Datatype routines.
  */
 
-#include "daos_vol.h"           /* DAOS plugin                          */
-#include "daos_vol_err.h"       /* DAOS plugin error handling           */
-#include "daos_vol_config.h"    /* DAOS plugin configuration header     */
+#include "daos_vol.h"           /* DAOS connector                          */
+#include "daos_vol_config.h"    /* DAOS connector configuration header     */
 
-#include "util/daos_vol_mem.h"  /* DAOS plugin memory management        */
+#include "util/daos_vol_err.h"  /* DAOS connector error handling           */
+#include "util/daos_vol_mem.h"  /* DAOS connector memory management        */
 
 /* Prototypes */
 static htri_t H5_daos_need_bkg(hid_t src_type_id, hid_t dst_type_id,
@@ -381,7 +381,7 @@ H5_daos_datatype_commit(void *_item,
 
         /* Open datatype */
         if(0 != (ret = daos_obj_open(item->file->coh, dtype->obj.oid, DAOS_OO_RW, &dtype->obj.obj_oh, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTOPENOBJ, NULL, "can't open datatype: %d", ret)
+            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTOPENOBJ, NULL, "can't open datatype: %s", H5_daos_err_to_string(ret))
 
         /* Encode datatype */
         if(H5Tencode(type_id, NULL, &type_size) < 0)
@@ -429,7 +429,7 @@ H5_daos_datatype_commit(void *_item,
 
         /* Write internal metadata to datatype */
         if(0 != (ret = daos_obj_update(dtype->obj.obj_oh, DAOS_TX_NONE, &dkey, 2, iod, sgl, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't write metadata to datatype: %d", ret)
+            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't write metadata to datatype: %s", H5_daos_err_to_string(ret))
 
         /* Create link to datatype */
         if(name) {
@@ -452,7 +452,7 @@ H5_daos_datatype_commit(void *_item,
 
         /* Open datatype */
         if(0 != (ret = daos_obj_open(item->file->coh, dtype->obj.oid, DAOS_OO_RW, &dtype->obj.obj_oh, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTOPENOBJ, NULL, "can't open datatype: %d", ret)
+            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTOPENOBJ, NULL, "can't open datatype: %s", H5_daos_err_to_string(ret))
     } /* end else */
 
     /* Finish setting up datatype struct */
@@ -569,7 +569,7 @@ H5_daos_datatype_open(void *_item,
 
         /* Open datatype */
         if(0 != (ret = daos_obj_open(item->file->coh, dtype->obj.oid, item->file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &dtype->obj.obj_oh, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTOPENOBJ, NULL, "can't open datatype: %d", ret)
+            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTOPENOBJ, NULL, "can't open datatype: %s", H5_daos_err_to_string(ret))
 
         /* Set up operation to read datatype and TCPL sizes from datatype */
         /* Set up dkey */
@@ -592,7 +592,7 @@ H5_daos_datatype_open(void *_item,
         /* Read internal metadata sizes from datatype */
         if(0 != (ret = daos_obj_fetch(dtype->obj.obj_oh, DAOS_TX_NONE, &dkey, 2, iod, NULL,
                       NULL /*maps*/, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTDECODE, NULL, "can't read metadata sizes from datatype: %d", ret)
+            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTDECODE, NULL, "can't read metadata sizes from datatype: %s", H5_daos_err_to_string(ret))
 
         /* Check for metadata not found */
         if((iod[0].iod_size == (uint64_t)0) || (iod[1].iod_size == (uint64_t)0))
@@ -624,7 +624,7 @@ H5_daos_datatype_open(void *_item,
 
         /* Read internal metadata from datatype */
         if(0 != (ret = daos_obj_fetch(dtype->obj.obj_oh, DAOS_TX_NONE, &dkey, 2, iod, sgl, NULL /*maps*/, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTDECODE, NULL, "can't read metadata from datatype: %d", ret)
+            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTDECODE, NULL, "can't read metadata from datatype: %s", H5_daos_err_to_string(ret))
 
         /* Broadcast datatype info if there are other processes that need it */
         if(collective && (item->file->num_procs > 1)) {
@@ -642,13 +642,13 @@ H5_daos_datatype_open(void *_item,
 
             /* MPI_Bcast dinfo_buf */
             if(MPI_SUCCESS != MPI_Bcast((char *)tinfo_buf, sizeof(tinfo_buf_static), MPI_BYTE, 0, item->file->comm))
-                D_GOTO_ERROR(H5E_DATATYPE, H5E_MPI, NULL, "can't bcast datatype info")
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_MPI, NULL, "can't broadcast datatype info")
 
             /* Need a second bcast if it did not fit in the receivers' static
              * buffer */
             if(tot_len + (4 * sizeof(uint64_t)) > sizeof(tinfo_buf_static))
                 if(MPI_SUCCESS != MPI_Bcast((char *)p, (int)tot_len, MPI_BYTE, 0, item->file->comm))
-                    D_GOTO_ERROR(H5E_DATATYPE, H5E_MPI, NULL, "can't bcast datatype info (second bcast)")
+                    D_GOTO_ERROR(H5E_DATATYPE, H5E_MPI, NULL, "can't broadcast datatype info (second broadcast)")
         } /* end if */
         else
             p = tinfo_buf + (4 * sizeof(uint64_t));
@@ -656,7 +656,7 @@ H5_daos_datatype_open(void *_item,
     else {
         /* Receive datatype info */
         if(MPI_SUCCESS != MPI_Bcast((char *)tinfo_buf, sizeof(tinfo_buf_static), MPI_BYTE, 0, item->file->comm))
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_MPI, NULL, "can't bcast datatype info")
+            D_GOTO_ERROR(H5E_DATATYPE, H5E_MPI, NULL, "can't receive broadcasted datatype info")
 
         /* Decode oid */
         p = tinfo_buf_static;
@@ -683,14 +683,14 @@ H5_daos_datatype_open(void *_item,
 
             /* Receive datatype info */
             if(MPI_SUCCESS != MPI_Bcast((char *)tinfo_buf, (int)tot_len, MPI_BYTE, 0, item->file->comm))
-                D_GOTO_ERROR(H5E_DATATYPE, H5E_MPI, NULL, "can't bcast datatype info (second bcast)")
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_MPI, NULL, "can't receive broadcasted datatype info (second broadcast)")
 
             p = tinfo_buf;
         } /* end if */
 
         /* Open datatype */
         if(0 != (ret = daos_obj_open(item->file->coh, dtype->obj.oid, item->file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &dtype->obj.obj_oh, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTOPENOBJ, NULL, "can't open datatype: %d", ret)
+            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTOPENOBJ, NULL, "can't open datatype: %s", H5_daos_err_to_string(ret))
     } /* end else */
 
     /* Decode datatype and TCPL */
@@ -715,7 +715,7 @@ done:
         if(must_bcast) {
             memset(tinfo_buf_static, 0, sizeof(tinfo_buf_static));
             if(MPI_SUCCESS != MPI_Bcast(tinfo_buf_static, sizeof(tinfo_buf_static), MPI_BYTE, 0, item->file->comm))
-                D_DONE_ERROR(H5E_DATATYPE, H5E_MPI, NULL, "can't bcast empty datatype info")
+                D_DONE_ERROR(H5E_DATATYPE, H5E_MPI, NULL, "can't broadcast empty datatype info")
         } /* end if */
 
         /* Close datatype */
@@ -817,13 +817,13 @@ H5_daos_datatype_close(void *_dtype, hid_t DV_ATTR_UNUSED dxpl_id,
         /* Free datatype data structures */
         if(!daos_handle_is_inval(dtype->obj.obj_oh))
             if(0 != (ret = daos_obj_close(dtype->obj.obj_oh, NULL /*event*/)))
-                D_DONE_ERROR(H5E_DATATYPE, H5E_CANTCLOSEOBJ, FAIL, "can't close datatype DAOS object: %d", ret)
+                D_DONE_ERROR(H5E_DATATYPE, H5E_CANTCLOSEOBJ, FAIL, "can't close datatype DAOS object: %s", H5_daos_err_to_string(ret))
         if(dtype->type_id != FAIL && H5Idec_ref(dtype->type_id) < 0)
             D_DONE_ERROR(H5E_DATATYPE, H5E_CANTDEC, FAIL, "failed to close datatype")
         if(dtype->tcpl_id != FAIL && H5Idec_ref(dtype->tcpl_id) < 0)
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTDEC, FAIL, "failed to close plist")
+            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTDEC, FAIL, "failed to close tcpl")
         if(dtype->tapl_id != FAIL && H5Idec_ref(dtype->tapl_id) < 0)
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTDEC, FAIL, "failed to close plist")
+            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTDEC, FAIL, "failed to close tapl")
         dtype = H5FL_FREE(H5_daos_dtype_t, dtype);
     } /* end if */
 

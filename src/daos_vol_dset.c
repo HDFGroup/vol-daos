@@ -21,11 +21,11 @@
  * library.  Dataset routines.
  */
 
-#include "daos_vol.h"           /* DAOS plugin                          */
-#include "daos_vol_err.h"       /* DAOS plugin error handling           */
-#include "daos_vol_config.h"    /* DAOS plugin configuration header     */
+#include "daos_vol.h"           /* DAOS connector                          */
+#include "daos_vol_config.h"    /* DAOS connector configuration header     */
 
-#include "util/daos_vol_mem.h"  /* DAOS plugin memory management        */
+#include "util/daos_vol_err.h"  /* DAOS connector error handling           */
+#include "util/daos_vol_mem.h"  /* DAOS connector memory management        */
 
 /* Typedefs */
 /* Udata type for H5Dscatter callback */
@@ -105,9 +105,9 @@ H5_daos_dataset_create(void *_item,
 
     /* get creation properties */
     if(H5Pget(dcpl_id, H5VL_PROP_DSET_TYPE_ID, &type_id) < 0)
-        D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, NULL, "can't get property value for datatype id")
+        D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, NULL, "can't get property value for datatype ID")
     if(H5Pget(dcpl_id, H5VL_PROP_DSET_SPACE_ID, &space_id) < 0)
-        D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, NULL, "can't get property value for space id")
+        D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, NULL, "can't get property value for dataspace ID")
 
     /* Allocate the dataset object that is returned to the user */
     if(NULL == (dset = H5FL_CALLOC(H5_daos_dset_t)))
@@ -155,7 +155,7 @@ H5_daos_dataset_create(void *_item,
 
         /* Open dataset */
         if(0 != (ret = daos_obj_open(item->file->coh, dset->obj.oid, DAOS_OO_RW, &dset->obj.obj_oh, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTOPENOBJ, NULL, "can't open dataset: %d", ret)
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTOPENOBJ, NULL, "can't open dataset: %s", H5_daos_err_to_string(ret))
 
         /* Encode datatype */
         if(H5Tencode(type_id, NULL, &type_size) < 0)
@@ -167,11 +167,11 @@ H5_daos_dataset_create(void *_item,
 
         /* Encode dataspace */
         if(H5Sencode(space_id, NULL, &space_size) < 0)
-            D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of dataaspace")
+            D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of dataspace")
         if(NULL == (space_buf = DV_malloc(space_size)))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized dataaspace")
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized dataspace")
         if(H5Sencode(space_id, space_buf, &space_size) < 0)
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTENCODE, NULL, "can't serialize dataaspace")
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTENCODE, NULL, "can't serialize dataspace")
 
         /* Encode DCPL */
         if(H5Pencode(dcpl_id, NULL, &dcpl_size) < 0)
@@ -221,7 +221,7 @@ H5_daos_dataset_create(void *_item,
 
         /* Write internal metadata to dataset */
         if(0 != (ret = daos_obj_update(dset->obj.obj_oh, DAOS_TX_NONE, &dkey, 3, iod, sgl, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't write metadata to dataset: %d", ret)
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't write metadata to dataset: %s", H5_daos_err_to_string(ret))
 
         /* Create link to dataset */
         if(name) {
@@ -244,7 +244,7 @@ H5_daos_dataset_create(void *_item,
 
         /* Open dataset */
         if(0 != (ret = daos_obj_open(item->file->coh, dset->obj.oid, DAOS_OO_RW, &dset->obj.obj_oh, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTOPENOBJ, NULL, "can't open dataset: %d", ret)
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTOPENOBJ, NULL, "can't open dataset: %s", H5_daos_err_to_string(ret))
     } /* end else */
 
     /* Finish setting up dataset struct */
@@ -369,7 +369,7 @@ H5_daos_dataset_open(void *_item,
 
         /* Open dataset */
         if(0 != (ret = daos_obj_open(item->file->coh, dset->obj.oid, item->file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &dset->obj.obj_oh, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTOPENOBJ, NULL, "can't open dataset: %d", ret)
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTOPENOBJ, NULL, "can't open dataset: %s", H5_daos_err_to_string(ret))
 
         /* Set up operation to read datatype, dataspace, and DCPL sizes from
          * dataset */
@@ -399,7 +399,7 @@ H5_daos_dataset_open(void *_item,
         /* Read internal metadata sizes from dataset */
         if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, DAOS_TX_NONE, &dkey, 3, iod, NULL,
                       NULL /*maps*/, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTDECODE, NULL, "can't read metadata sizes from dataset: %d", ret)
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTDECODE, NULL, "can't read metadata sizes from dataset: %s", H5_daos_err_to_string(ret))
 
         /* Check for metadata not found */
         if((iod[0].iod_size == (uint64_t)0) || (iod[1].iod_size == (uint64_t)0)
@@ -438,7 +438,7 @@ H5_daos_dataset_open(void *_item,
 
         /* Read internal metadata from dataset */
         if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, DAOS_TX_NONE, &dkey, 3, iod, sgl, NULL /*maps*/, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTDECODE, NULL, "can't read metadata from dataset: %d", ret)
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTDECODE, NULL, "can't read metadata from dataset: %s", H5_daos_err_to_string(ret))
 
         /* Broadcast dataset info if there are other processes that need it */
         if(collective && (item->file->num_procs > 1)) {
@@ -457,13 +457,13 @@ H5_daos_dataset_open(void *_item,
 
             /* MPI_Bcast dinfo_buf */
             if(MPI_SUCCESS != MPI_Bcast((char *)dinfo_buf, sizeof(dinfo_buf_static), MPI_BYTE, 0, item->file->comm))
-                D_GOTO_ERROR(H5E_DATASET, H5E_MPI, NULL, "can't bcast dataset info")
+                D_GOTO_ERROR(H5E_DATASET, H5E_MPI, NULL, "can't broadcast dataset info")
 
             /* Need a second bcast if it did not fit in the receivers' static
              * buffer */
             if(tot_len + (5 * sizeof(uint64_t)) > sizeof(dinfo_buf_static))
                 if(MPI_SUCCESS != MPI_Bcast((char *)p, (int)tot_len, MPI_BYTE, 0, item->file->comm))
-                    D_GOTO_ERROR(H5E_DATASET, H5E_MPI, NULL, "can't bcast dataset info (second bcast)")
+                    D_GOTO_ERROR(H5E_DATASET, H5E_MPI, NULL, "can't broadcast dataset info (second broadcast)")
         } /* end if */
         else
             p = dinfo_buf + (5 * sizeof(uint64_t));
@@ -471,7 +471,7 @@ H5_daos_dataset_open(void *_item,
     else {
         /* Receive dataset info */
         if(MPI_SUCCESS != MPI_Bcast((char *)dinfo_buf, sizeof(dinfo_buf_static), MPI_BYTE, 0, item->file->comm))
-            D_GOTO_ERROR(H5E_DATASET, H5E_MPI, NULL, "can't bcast dataset info")
+            D_GOTO_ERROR(H5E_DATASET, H5E_MPI, NULL, "can't receive broadcasted dataset info")
 
         /* Decode oid */
         p = dinfo_buf_static;
@@ -499,14 +499,14 @@ H5_daos_dataset_open(void *_item,
 
             /* Receive dataset info */
             if(MPI_SUCCESS != MPI_Bcast((char *)dinfo_buf, (int)tot_len, MPI_BYTE, 0, item->file->comm))
-                D_GOTO_ERROR(H5E_DATASET, H5E_MPI, NULL, "can't bcast dataset info (second bcast)")
+                D_GOTO_ERROR(H5E_DATASET, H5E_MPI, NULL, "can't receive broadcasted dataset info (second broadcast)")
 
             p = dinfo_buf;
         } /* end if */
 
         /* Open dataset */
         if(0 != (ret = daos_obj_open(item->file->coh, dset->obj.oid, item->file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &dset->obj.obj_oh, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTOPENOBJ, NULL, "can't open dataset: %d", ret)
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTOPENOBJ, NULL, "can't open dataset: %s", H5_daos_err_to_string(ret))
     } /* end else */
 
     /* Decode datatype, dataspace, and DCPL */
@@ -514,7 +514,7 @@ H5_daos_dataset_open(void *_item,
         D_GOTO_ERROR(H5E_ARGS, H5E_CANTDECODE, NULL, "can't deserialize datatype")
     p += type_len;
     if((dset->space_id = H5Sdecode(p)) < 0)
-        D_GOTO_ERROR(H5E_ARGS, H5E_CANTDECODE, NULL, "can't deserialize datatype")
+        D_GOTO_ERROR(H5E_ARGS, H5E_CANTDECODE, NULL, "can't deserialize dataspace")
     if(H5Sselect_all(dset->space_id) < 0)
         D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTDELETE, NULL, "can't change selection")
     p += space_len;
@@ -536,7 +536,7 @@ done:
         if(must_bcast) {
             memset(dinfo_buf_static, 0, sizeof(dinfo_buf_static));
             if(MPI_SUCCESS != MPI_Bcast(dinfo_buf_static, sizeof(dinfo_buf_static), MPI_BYTE, 0, item->file->comm))
-                D_DONE_ERROR(H5E_DATASET, H5E_MPI, NULL, "can't bcast empty dataset info")
+                D_DONE_ERROR(H5E_DATASET, H5E_MPI, NULL, "can't broadcast empty dataset info")
         } /* end if */
 
         /* Close dataset */
@@ -961,7 +961,7 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
         /* Note cast to unsigned reduces width to 32 bits.  Should eventually
          * check for overflow and iterate over 2^32 size blocks */
         if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, DAOS_TX_NONE, &dkey, (unsigned)num_elem, iods, NULL, NULL /*maps*/, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, FAIL, "can't read vl data sizes from dataset: %d", ret)
+            D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, FAIL, "can't read vl data sizes from dataset: %s", H5_daos_err_to_string(ret))
 
         /* Allocate array of sg_iovs */
         if(NULL == (sg_iovs = (daos_iov_t *)DV_malloc((size_t)num_elem * sizeof(daos_iov_t))))
@@ -987,7 +987,7 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
         /* Note cast to unsigned reduces width to 32 bits.  Should eventually
          * check for overflow and iterate over 2^32 size blocks */
         if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, DAOS_TX_NONE, &dkey, (unsigned)((uint64_t)num_elem - mem_ud.offset), iods, sgls, NULL /*maps*/, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_DATASET, H5E_READERROR, FAIL, "can't read data from dataset: %d", ret)
+            D_GOTO_ERROR(H5E_DATASET, H5E_READERROR, FAIL, "can't read data from dataset: %s", H5_daos_err_to_string(ret))
     } /* end if */
     else {
         daos_iod_t iod;
@@ -1041,7 +1041,7 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
 
             /* Read data from dataset */
             if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
-                D_GOTO_ERROR(H5E_DATASET, H5E_READERROR, FAIL, "can't read data from dataset: %d", ret)
+                D_GOTO_ERROR(H5E_DATASET, H5E_READERROR, FAIL, "can't read data from dataset: %s", H5_daos_err_to_string(ret))
         } /* end if */
         else {
             size_t nseq_tmp;
@@ -1100,7 +1100,7 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
 
             /* Read data to tconv_buf */
             if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
-                D_GOTO_ERROR(H5E_DATASET, H5E_READERROR, FAIL, "can't read data from attribute: %d", ret)
+                D_GOTO_ERROR(H5E_DATASET, H5E_READERROR, FAIL, "can't read data from attribute: %s", H5_daos_err_to_string(ret))
 
             /* Gather data to background buffer if necessary */
             if(fill_bkg && (reuse != H5_DAOS_TCONV_REUSE_BKG))
@@ -1144,7 +1144,7 @@ done:
 
     if(base_type_id != FAIL)
         if(H5Idec_ref(base_type_id) < 0)
-            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close base type id")
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close base type ID")
 
     /* Release selection iterator */
     if(sel_iter_init && H5Sselect_iter_release(sel_iter) < 0)
@@ -1384,7 +1384,7 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
         /* Note cast to unsigned reduces width to 32 bits.  Should eventually
          * check for overflow and iterate over 2^32 size blocks */
         if(0 != (ret = daos_obj_update(dset->obj.obj_oh, DAOS_TX_NONE, &dkey, (unsigned)num_elem, iods, sgls, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_DATASET, H5E_WRITEERROR, FAIL, "can't write data to dataset: %d", ret)
+            D_GOTO_ERROR(H5E_DATASET, H5E_WRITEERROR, FAIL, "can't write data to dataset: %s", H5_daos_err_to_string(ret))
     } /* end if */
     else {
         daos_iod_t iod;
@@ -1430,7 +1430,7 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
 
                 /* Read data from dataset to background buffer */
                 if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
-                    D_GOTO_ERROR(H5E_DATASET, H5E_READERROR, FAIL, "can't read data from dataset: %d", ret)
+                    D_GOTO_ERROR(H5E_DATASET, H5E_READERROR, FAIL, "can't read data from dataset: %s", H5_daos_err_to_string(ret))
 
                 /* Reset iod_size, if the dataset was not allocated then it could
                  * have been overwritten by daos_obj_fetch */
@@ -1478,7 +1478,7 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
 
         /* Write data to dataset */
         if(0 != (ret = daos_obj_update(dset->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_DATASET, H5E_WRITEERROR, FAIL, "can't write data to dataset: %d", ret)
+            D_GOTO_ERROR(H5E_DATASET, H5E_WRITEERROR, FAIL, "can't write data to dataset: %s", H5_daos_err_to_string(ret))
     } /* end else */
 
 done:
@@ -1500,7 +1500,7 @@ done:
 
     if(base_type_id != FAIL)
         if(H5Idec_ref(base_type_id) < 0)
-            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close base type id")
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close base type ID")
 
     PRINT_ERROR_STACK
 
@@ -1535,7 +1535,7 @@ H5_daos_dataset_get(void *_dset, H5VL_dataset_get_t get_type,
 
                 /* Retrieve the dataset's creation property list */
                 if((*plist_id = H5Pcopy(dset->dcpl_id)) < 0)
-                    D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get dset creation property list")
+                    D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get dataset creation property list")
 
                 break;
             } /* end block */
@@ -1545,7 +1545,7 @@ H5_daos_dataset_get(void *_dset, H5VL_dataset_get_t get_type,
 
                 /* Retrieve the dataset's access property list */
                 if((*plist_id = H5Pcopy(dset->dapl_id)) < 0)
-                    D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get dset access property list")
+                    D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get dataset access property list")
 
                 break;
             } /* end block */
@@ -1615,15 +1615,15 @@ H5_daos_dataset_close(void *_dset, hid_t DV_ATTR_UNUSED dxpl_id,
         /* Free dataset data structures */
         if(!daos_handle_is_inval(dset->obj.obj_oh))
             if(0 != (ret = daos_obj_close(dset->obj.obj_oh, NULL /*event*/)))
-                D_DONE_ERROR(H5E_DATASET, H5E_CANTCLOSEOBJ, FAIL, "can't close dataset DAOS object: %d", ret)
+                D_DONE_ERROR(H5E_DATASET, H5E_CANTCLOSEOBJ, FAIL, "can't close dataset DAOS object: %s", H5_daos_err_to_string(ret))
         if(dset->type_id != FAIL && H5Idec_ref(dset->type_id) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close datatype")
         if(dset->space_id != FAIL && H5Idec_ref(dset->space_id) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close dataspace")
         if(dset->dcpl_id != FAIL && H5Idec_ref(dset->dcpl_id) < 0)
-            D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close plist")
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close dcpl")
         if(dset->dapl_id != FAIL && H5Idec_ref(dset->dapl_id) < 0)
-            D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close plist")
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close dapl")
         dset = H5FL_FREE(H5_daos_dset_t, dset);
     } /* end if */
 

@@ -21,11 +21,11 @@
  * library.  Group routines.
  */
 
-#include "daos_vol.h"           /* DAOS plugin                          */
-#include "daos_vol_err.h"       /* DAOS plugin error handling           */
-#include "daos_vol_config.h"    /* DAOS plugin configuration header     */
+#include "daos_vol.h"           /* DAOS connector                          */
+#include "daos_vol_config.h"    /* DAOS connector configuration header     */
 
-#include "util/daos_vol_mem.h"  /* DAOS plugin memory management        */
+#include "util/daos_vol_err.h"  /* DAOS connector error handling           */
+#include "util/daos_vol_mem.h"  /* DAOS connector memory management        */
 
 
 /*-------------------------------------------------------------------------
@@ -178,7 +178,7 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
 
         /* Open group */
         if(0 != (ret = daos_obj_open(file->coh, grp->obj.oid, DAOS_OO_RW, &grp->obj.obj_oh, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENOBJ, NULL, "can't open group: %d", ret)
+            D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENOBJ, NULL, "can't open group: %s", H5_daos_err_to_string(ret))
 
         /* Encode GCPL */
         if(H5Pencode(gcpl_id, NULL, &gcpl_size) < 0)
@@ -208,7 +208,7 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
 
         /* Write internal metadata to group */
         if(0 != (ret = daos_obj_update(grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't write metadata to group: %d", ret)
+            D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't write metadata to group: %s", H5_daos_err_to_string(ret))
 
         /* Write link to group if requested */
         if(parent_grp) {
@@ -234,7 +234,7 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
 
         /* Open group */
         if(0 != (ret = daos_obj_open(file->coh, grp->obj.oid, DAOS_OO_RW, &grp->obj.obj_oh, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENOBJ, NULL, "can't open group: %d", ret)
+            D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENOBJ, NULL, "can't open group: %s", H5_daos_err_to_string(ret))
     } /* end else */
 
     /* Finish setting up group struct */
@@ -367,7 +367,7 @@ H5_daos_group_open_helper(H5_daos_file_t *file, daos_obj_id_t oid,
 
     /* Open group */
     if(0 != (ret = daos_obj_open(file->coh, oid, file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &grp->obj.obj_oh, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENOBJ, NULL, "can't open group: %d", ret)
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENOBJ, NULL, "can't open group: %s", H5_daos_err_to_string(ret))
 
     /* Set up operation to read GCPL size from group */
     /* Set up dkey */
@@ -383,7 +383,7 @@ H5_daos_group_open_helper(H5_daos_file_t *file, daos_obj_id_t oid,
 
     /* Read internal metadata size from group */
     if(0 != (ret = daos_obj_fetch(grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, NULL, NULL /*maps*/, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_SYM, H5E_CANTDECODE, NULL, "can't read metadata size from group: %d", ret)
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTDECODE, NULL, "can't read metadata size from group: %s", H5_daos_err_to_string(ret))
 
     /* Check for metadata not found */
     if(iod.iod_size == (uint64_t)0)
@@ -402,7 +402,7 @@ H5_daos_group_open_helper(H5_daos_file_t *file, daos_obj_id_t oid,
 
     /* Read internal metadata from group */
     if(0 != (ret = daos_obj_fetch(grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_SYM, H5E_CANTDECODE, NULL, "can't read metadata from group: %d", ret)
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTDECODE, NULL, "can't read metadata from group: %s", H5_daos_err_to_string(ret))
 
     /* Decode GCPL */
     if((grp->gcpl_id = H5Pdecode(gcpl_buf)) < 0)
@@ -473,7 +473,7 @@ H5_daos_group_reconstitute(H5_daos_file_t *file, daos_obj_id_t oid,
 
     /* Open group */
     if(0 != (ret = daos_obj_open(file->coh, oid, file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &grp->obj.obj_oh, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENOBJ, NULL, "can't open group: %d", ret)
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENOBJ, NULL, "can't open group: %s", H5_daos_err_to_string(ret))
 
     /* Decode GCPL */
     if((grp->gcpl_id = H5Pdecode(gcpl_buf)) < 0)
@@ -607,19 +607,19 @@ H5_daos_group_open(void *_item, const H5VL_loc_params_t *loc_params,
 
             /* MPI_Bcast ginfo_buf */
             if(MPI_SUCCESS != MPI_Bcast((char *)ginfo_buf_static, sizeof(ginfo_buf_static), MPI_BYTE, 0, item->file->comm))
-                D_GOTO_ERROR(H5E_SYM, H5E_MPI, NULL, "can't bcast group info")
+                D_GOTO_ERROR(H5E_SYM, H5E_MPI, NULL, "can't broadcast group info")
 
             /* Need a second bcast if it did not fit in the receivers' static
              * buffer */
             if(gcpl_len + 3 * sizeof(uint64_t) > sizeof(ginfo_buf_static))
                 if(MPI_SUCCESS != MPI_Bcast((char *)gcpl_buf, (int)gcpl_len, MPI_BYTE, 0, item->file->comm))
-                    D_GOTO_ERROR(H5E_SYM, H5E_MPI, NULL, "can't bcast GCPL")
+                    D_GOTO_ERROR(H5E_SYM, H5E_MPI, NULL, "can't broadcast GCPL")
         } /* end if */
     } /* end if */
     else {
         /* Receive GCPL */
         if(MPI_SUCCESS != MPI_Bcast((char *)ginfo_buf_static, sizeof(ginfo_buf_static), MPI_BYTE, 0, item->file->comm))
-            D_GOTO_ERROR(H5E_SYM, H5E_MPI, NULL, "can't bcast group info")
+            D_GOTO_ERROR(H5E_SYM, H5E_MPI, NULL, "can't receive broadcasted group info")
 
         /* Decode oid */
         p = ginfo_buf_static;
@@ -638,7 +638,7 @@ H5_daos_group_open(void *_item, const H5VL_loc_params_t *loc_params,
             /* Allocate a dynamic buffer if necessary */
             if(gcpl_len > sizeof(ginfo_buf_static)) {
                 if(NULL == (gcpl_buf = (uint8_t *)DV_malloc(gcpl_len)))
-                    D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate space for global pool handle")
+                    D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate space for gcpl")
                 p = gcpl_buf;
             } /* end if */
             else
@@ -646,7 +646,7 @@ H5_daos_group_open(void *_item, const H5VL_loc_params_t *loc_params,
 
             /* Receive GCPL */
             if(MPI_SUCCESS != MPI_Bcast((char *)p, (int)gcpl_len, MPI_BYTE, 0, item->file->comm))
-                D_GOTO_ERROR(H5E_SYM, H5E_MPI, NULL, "can't bcast GCPL")
+                D_GOTO_ERROR(H5E_SYM, H5E_MPI, NULL, "can't receive broadcasted GCPL")
         } /* end if */
 
         /* Reconstitute group from received oid and GCPL buffer */
@@ -665,7 +665,7 @@ done:
         if(must_bcast) {
             memset(ginfo_buf_static, 0, sizeof(ginfo_buf_static));
             if(MPI_SUCCESS != MPI_Bcast(ginfo_buf_static, sizeof(ginfo_buf_static), MPI_BYTE, 0, item->file->comm))
-                D_DONE_ERROR(H5E_SYM, H5E_MPI, NULL, "can't bcast empty group info")
+                D_DONE_ERROR(H5E_SYM, H5E_MPI, NULL, "can't broadcast empty group info")
         } /* end if */
 
         /* Close group */
@@ -713,11 +713,11 @@ H5_daos_group_close(void *_grp, hid_t DV_ATTR_UNUSED dxpl_id,
         /* Free group data structures */
         if(!daos_handle_is_inval(grp->obj.obj_oh))
             if(0 != (ret = daos_obj_close(grp->obj.obj_oh, NULL /*event*/)))
-                D_DONE_ERROR(H5E_SYM, H5E_CANTCLOSEOBJ, FAIL, "can't close group DAOS object: %d", ret)
+                D_DONE_ERROR(H5E_SYM, H5E_CANTCLOSEOBJ, FAIL, "can't close group DAOS object: %s", H5_daos_err_to_string(ret))
         if(grp->gcpl_id != FAIL && H5Idec_ref(grp->gcpl_id) < 0)
-            D_DONE_ERROR(H5E_SYM, H5E_CANTDEC, FAIL, "failed to close plist")
+            D_DONE_ERROR(H5E_SYM, H5E_CANTDEC, FAIL, "failed to close gcpl")
         if(grp->gapl_id != FAIL && H5Idec_ref(grp->gapl_id) < 0)
-            D_DONE_ERROR(H5E_SYM, H5E_CANTDEC, FAIL, "failed to close plist")
+            D_DONE_ERROR(H5E_SYM, H5E_CANTDEC, FAIL, "failed to close gapl")
         grp = H5FL_FREE(H5_daos_group_t, grp);
     } /* end if */
 

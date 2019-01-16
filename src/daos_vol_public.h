@@ -17,7 +17,7 @@
  * Programmer:  Neil Fortner <nfortne2@hdfgroup.gov>
  *              December, 2016
  *
- * Purpose:	The public header file for the DAOS VOL plugin.
+ * Purpose:	The public header file for the DAOS VOL connector.
  */
 #ifndef daos_vol_public_H
 #define daos_vol_public_H
@@ -42,7 +42,7 @@ extern "C" {
 
 typedef uint64_t H5_daos_snap_id_t;
 
-/* DSINC - need to redefine H5_DLL since this will not work correctly for an external plugin */
+/* DSINC - need to redefine H5_DLL since this will not work correctly for an external connector */
 H5PLUGIN_DLL herr_t H5daos_init(MPI_Comm pool_comm, uuid_t pool_uuid,
     char *pool_grp);
 H5PLUGIN_DLL herr_t H5daos_term(void);

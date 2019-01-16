@@ -318,7 +318,7 @@ if (NOT DAOS_VOL_NO_PACKAGES)
 #
 #  This image must be 493 by 312 pixels.
 #
-    set(CPACK_WIX_PROPERTY_ARPCOMMENTS "HDF5 (Hierarchical Data Format 5) DAOS VOL plugin")
+    set(CPACK_WIX_PROPERTY_ARPCOMMENTS "HDF5 (Hierarchical Data Format 5) DAOS VOL connector")
     set(CPACK_WIX_PROPERTY_ARPURLINFOABOUT "${DAOS_VOL_PACKAGE_URL}")
     set(CPACK_WIX_PROPERTY_ARPHELPLINK "${DAOS_VOL_PACKAGE_BUGREPORT}")
   elseif (APPLE)
@@ -369,9 +369,9 @@ if (NOT DAOS_VOL_NO_PACKAGES)
     set (CPACK_RPM_PACKAGE_LICENSE "BSD-style")
     set (CPACK_RPM_PACKAGE_GROUP "Development/Libraries")
     set (CPACK_RPM_PACKAGE_URL "${DAOS_VOL_PACKAGE_URL}")
-    set (CPACK_RPM_PACKAGE_SUMMARY "The HDF5 DAOS VOL plugin is a plugin designed to allow access to ...")
+    set (CPACK_RPM_PACKAGE_SUMMARY "The HDF5 DAOS VOL connector is a connector designed to allow access to ...")
     set (CPACK_RPM_PACKAGE_DESCRIPTION
-        "The HDF5 DAOS VOL plugin..."
+        "The HDF5 DAOS VOL connector..."
     )
 
     #-----------------------------------------------------------------------------

@@ -21,11 +21,11 @@
  * library.  Attributre routines.
  */
 
-#include "daos_vol.h"           /* DAOS plugin                          */
-#include "daos_vol_err.h"       /* DAOS plugin error handling           */
-#include "daos_vol_config.h"    /* DAOS plugin configuration header     */
+#include "daos_vol.h"           /* DAOS connector                          */
+#include "daos_vol_config.h"    /* DAOS connector configuration header     */
 
-#include "util/daos_vol_mem.h"  /* DAOS plugin memory management        */
+#include "util/daos_vol_err.h"  /* DAOS connector error handling           */
+#include "util/daos_vol_mem.h"  /* DAOS connector memory management        */
 
 
 /*-------------------------------------------------------------------------
@@ -70,9 +70,9 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
 
     /* get creation properties */
     if(H5Pget(acpl_id, H5VL_PROP_ATTR_TYPE_ID, &type_id) < 0)
-        D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, NULL, "can't get property value for datatype id")
+        D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, NULL, "can't get property value for datatype ID")
     if(H5Pget(acpl_id, H5VL_PROP_ATTR_SPACE_ID, &space_id) < 0)
-        D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, NULL, "can't get property value for space id")
+        D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, NULL, "can't get property value for dataspace ID")
 
     /* Allocate the attribute object that is returned to the user */
     if(NULL == (attr = H5FL_CALLOC(H5_daos_attr_t)))
@@ -85,8 +85,7 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
 
     /* Determine attribute object */
     if(loc_params->type == H5VL_OBJECT_BY_SELF) {
-        /* Use item as attribute parent object, or the root group if item is a
-         * file */
+        /* Use item as attribute parent object, or the root group if item is a file */
         if(item->type == H5I_FILE)
             attr->parent = (H5_daos_obj_t *)((H5_daos_file_t *)item)->root_grp;
         else
@@ -160,7 +159,7 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
 
     /* Write attribute metadata to parent object */
     if(0 != (ret = daos_obj_update(attr->parent->obj_oh, DAOS_TX_NONE, &dkey, 2, iod, sgl, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't write attribute metadata: %d", ret)
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't write attribute metadata: %s", H5_daos_err_to_string(ret))
 
     /* Finish setting up attribute struct */
     if(NULL == (attr->name = strdup(name)))
@@ -237,8 +236,7 @@ H5_daos_attribute_open(void *_item, const H5VL_loc_params_t *loc_params,
 
     /* Determine attribute object */
     if(loc_params->type == H5VL_OBJECT_BY_SELF) {
-        /* Use item as attribute parent object, or the root group if item is a
-         * file */
+        /* Use item as attribute parent object, or the root group if item is a file */
         if(item->type == H5I_FILE)
             attr->parent = (H5_daos_obj_t *)((H5_daos_file_t *)item)->root_grp;
         else
@@ -286,7 +284,7 @@ H5_daos_attribute_open(void *_item, const H5VL_loc_params_t *loc_params,
 
     /* Read attribute metadata sizes from parent object */
     if(0 != (ret = daos_obj_fetch(attr->parent->obj_oh, DAOS_TX_NONE, &dkey, 2, iod, NULL, NULL /*maps*/, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTDECODE, NULL, "can't read attribute metadata sizes: %d", ret)
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTDECODE, NULL, "can't read attribute metadata sizes: %s", H5_daos_err_to_string(ret))
 
     if(iod[0].iod_size == (uint64_t)0 || iod[1].iod_size == (uint64_t)0)
         D_GOTO_ERROR(H5E_ATTR, H5E_NOTFOUND, NULL, "attribute not found")
@@ -295,7 +293,7 @@ H5_daos_attribute_open(void *_item, const H5VL_loc_params_t *loc_params,
     if(NULL == (type_buf = DV_malloc(iod[0].iod_size)))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized datatype")
     if(NULL == (space_buf = DV_malloc(iod[1].iod_size)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized dataaspace")
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized dataspace")
 
     /* Set up sgl */
     daos_iov_set(&sg_iov[0], type_buf, (daos_size_t)iod[0].iod_size);
@@ -309,7 +307,7 @@ H5_daos_attribute_open(void *_item, const H5VL_loc_params_t *loc_params,
 
     /* Read attribute metadata from parent object */
     if(0 != (ret = daos_obj_fetch(attr->parent->obj_oh, DAOS_TX_NONE, &dkey, 2, iod, sgl, NULL /*maps*/, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTDECODE, NULL, "can't read attribute metadata: %d", ret)
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTDECODE, NULL, "can't read attribute metadata: %s", H5_daos_err_to_string(ret))
 
     /* Decode datatype and dataspace */
     if((attr->type_id = H5Tdecode(type_buf)) < 0)
@@ -463,7 +461,7 @@ H5_daos_attribute_read(void *_attr, hid_t mem_type_id, void *buf,
         /* Note cast to unsigned reduces width to 32 bits.  Should eventually
          * check for overflow and iterate over 2^32 size blocks */
         if(0 != (ret = daos_obj_fetch(attr->parent->obj_oh, DAOS_TX_NONE, &dkey, (unsigned)attr_size, iods, NULL, NULL /*maps*/, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, FAIL, "can't read vl data sizes from attribute: %d", ret)
+            D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, FAIL, "can't read vl data sizes from attribute: %s", H5_daos_err_to_string(ret))
 
         /* Allocate array of sg_iovs */
         if(NULL == (sg_iovs = (daos_iov_t *)DV_malloc(attr_size * sizeof(daos_iov_t))))
@@ -534,7 +532,7 @@ H5_daos_attribute_read(void *_attr, hid_t mem_type_id, void *buf,
         /* Note cast to unsigned reduces width to 32 bits.  Should eventually
          * check for overflow and iterate over 2^32 size blocks */
         if(0 != (ret = daos_obj_fetch(attr->parent->obj_oh, DAOS_TX_NONE, &dkey, (unsigned)(attr_size - offset), iods, sgls, NULL /*maps*/, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, FAIL, "can't read data from attribute: %d", ret)
+            D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, FAIL, "can't read data from attribute: %s", H5_daos_err_to_string(ret))
     } /* end if */
     else {
         daos_iod_t iod;
@@ -590,7 +588,7 @@ H5_daos_attribute_read(void *_attr, hid_t mem_type_id, void *buf,
 
         /* Read data from attribute */
         if(0 != (ret = daos_obj_fetch(attr->parent->obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, FAIL, "can't read data from attribute: %d", ret)
+            D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, FAIL, "can't read data from attribute: %s", H5_daos_err_to_string(ret))
 
         /* Perform type conversion if necessary */
         if(tconv_buf) {
@@ -623,7 +621,7 @@ done:
 
     if(base_type_id != FAIL)
         if(H5Idec_ref(base_type_id) < 0)
-            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close base type id")
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close base type ID")
 
     PRINT_ERROR_STACK
 
@@ -803,7 +801,7 @@ H5_daos_attribute_write(void *_attr, hid_t mem_type_id, const void *buf,
         /* Note cast to unsigned reduces width to 32 bits.  Should eventually
          * check for overflow and iterate over 2^32 size blocks */
         if(0 != (ret = daos_obj_update(attr->parent->obj_oh, DAOS_TX_NONE, &dkey, (unsigned)attr_size, iods, sgls, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_ATTR, H5E_WRITEERROR, FAIL, "can't write data to attribute: %d", ret)
+            D_GOTO_ERROR(H5E_ATTR, H5E_WRITEERROR, FAIL, "can't write data to attribute: %s", H5_daos_err_to_string(ret))
     } /* end if */
     else {
         daos_iod_t iod;
@@ -855,7 +853,7 @@ H5_daos_attribute_write(void *_attr, hid_t mem_type_id, const void *buf,
                 daos_iov_set(&sg_iov, bkg_buf, (daos_size_t)(attr_size * (uint64_t)file_type_size));
 
                 if(0 != (ret = daos_obj_fetch(attr->parent->obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
-                    D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, FAIL, "can't read data from attribute: %d", ret)
+                    D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, FAIL, "can't read data from attribute: %s", H5_daos_err_to_string(ret))
             } /* end if */
 
             /* Copy data to type conversion buffer */
@@ -874,7 +872,7 @@ H5_daos_attribute_write(void *_attr, hid_t mem_type_id, const void *buf,
 
         /* Write data to attribute */
         if(0 != (ret = daos_obj_update(attr->parent->obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_ATTR, H5E_WRITEERROR, FAIL, "can't write data to attribute: %d", ret)
+            D_GOTO_ERROR(H5E_ATTR, H5E_WRITEERROR, FAIL, "can't write data to attribute: %s", H5_daos_err_to_string(ret))
     } /* end else */
 
 done:
@@ -894,7 +892,7 @@ done:
 
     if(base_type_id != FAIL)
         if(H5Idec_ref(base_type_id) < 0)
-            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close base type id")
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close base type ID")
 
     PRINT_ERROR_STACK
 
@@ -930,7 +928,7 @@ H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
 
                 /* Retrieve the attribute's dataspace */
                 if((*ret_id = H5Scopy(attr->space_id)) < 0)
-                    D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get dataspace ID of dataset");
+                    D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get dataspace ID of attribute");
                 break;
             } /* end block */
         /* H5Aget_type */
@@ -941,7 +939,7 @@ H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
 
                 /* Retrieve the attribute's datatype */
                 if((*ret_id = H5Tcopy(attr->type_id)) < 0)
-                    D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get datatype ID of dataset")
+                    D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get datatype ID of attribute")
                 break;
             } /* end block */
         /* H5Aget_create_plist */
@@ -952,7 +950,7 @@ H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
 
                 /* Retrieve the file's access property list */
                 if((*ret_id = H5Pcopy(H5P_ATTRIBUTE_CREATE_DEFAULT)) < 0)
-                    D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attr creation property list");
+                    D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute creation property list");
                 break;
             } /* end block */
         /* H5Aget_name */
@@ -993,7 +991,7 @@ H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
         case H5VL_ATTR_GET_INFO:
         case H5VL_ATTR_GET_STORAGE_SIZE:
         default:
-            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "can't get this type of information from attr")
+            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "can't get this type of information from attribute")
     } /* end switch */
 
 done:
@@ -1140,7 +1138,7 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
                             daos_iov_set(&sg_iov, akey_buf, (daos_size_t)(akey_buf_len - 1));
                         } /* end if */
                         else
-                            D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't retrieve attributes: %d", ret)
+                            D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't retrieve attributes: %s", H5_daos_err_to_string(ret))
                     } while(1);
 
                     /* Loop over returned akeys */
@@ -1169,7 +1167,7 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
 
                             /* Get number of elements in attribute */
                             if((npoints = (H5Sget_simple_extent_npoints(attr->space_id))) < 0)
-                                D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get number of elements in attribute")
+                                D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get number of elements in attribute dataspace extent")
 
                             /* Get attribute datatype size */
                             if(0 == (type_size = H5Tget_size(attr->type_id)))
@@ -1215,7 +1213,7 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
 done:
     if(target_obj_id != FAIL) {
         if(H5Idec_ref(target_obj_id) < 0)
-            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close object id")
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close object ID")
         target_obj_id = FAIL;
         target_obj = NULL;
     } /* end if */
@@ -1262,7 +1260,7 @@ H5_daos_attribute_close(void *_attr, hid_t dxpl_id, void **req)
         /* Free attribute data structures */
         if(attr->parent && H5_daos_object_close(attr->parent, dxpl_id, req))
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close parent object")
-        DV_free(attr->name);
+        attr->name = DV_free(attr->name);
         if(attr->type_id != FAIL && H5Idec_ref(attr->type_id) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CANTDEC, FAIL, "failed to close datatype")
         if(attr->space_id != FAIL && H5Idec_ref(attr->space_id) < 0)

@@ -62,7 +62,11 @@ H5_daos_link_read(H5_daos_group_t *grp, const char *name, size_t name_len,
     uint8_t *p;
     int ret;
     herr_t ret_value = SUCCEED;
- 
+
+    assert(grp);
+    assert(name);
+    assert(val);
+
     /* Use static link value buffer initially */
     val_buf = val_buf_static;
 
@@ -184,6 +188,10 @@ H5_daos_link_write(H5_daos_group_t *grp, const char *name,
     int ret;
     herr_t ret_value = SUCCEED;
 
+    assert(grp);
+    assert(name);
+    assert(val);
+
     /* Check for write access */
     if(!(grp->obj.item.file->flags & H5F_ACC_RDWR))
         D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, FAIL, "no write intent on file")
@@ -279,6 +287,9 @@ H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
     H5_daos_link_val_t link_val;
     herr_t ret_value = SUCCEED;
 
+    if(!loc_params)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "location parameters object is NULL")
+
     assert(loc_params->type == H5VL_OBJECT_BY_NAME);
 
     /* Find target group */
@@ -346,6 +357,11 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
     size_t dkey_buf_len = 0;
     int ret;
     herr_t ret_value = SUCCEED;    /* Return value */
+
+    if(!_item)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL")
+    if(!loc_params)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "location parameters object is NULL")
 
     switch (specific_type) {
         /* H5Lexists */

@@ -143,6 +143,7 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
     int ret;
     void *ret_value = NULL;
 
+    assert(file);
     assert(file->flags & H5F_ACC_RDWR);
 
     /* Allocate the group object that is returned to the user */
@@ -282,14 +283,22 @@ H5_daos_group_create(void *_item,
     H5_daos_group_t *grp = NULL;
     H5_daos_group_t *target_grp = NULL;
     const char *target_name = NULL;
-    hbool_t collective = item->file->collective;
+    hbool_t collective;
     void *ret_value = NULL;
+
+    if(!_item)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "group parent object is NULL")
+    if(!loc_params)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "location parameters object is NULL")
+    if(!name)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "group name is NULL")
 
     /* Check for write access */
     if(!(item->file->flags & H5F_ACC_RDWR))
         D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, NULL, "no write intent on file")
  
     /* Check for collective access, if not already set by the file */
+    collective = item->file->collective;
     if(!collective)
         if(H5Pget_all_coll_metadata_ops(gapl_id, &collective) < 0)
             D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, NULL, "can't get collective access property")
@@ -353,6 +362,8 @@ H5_daos_group_open_helper(H5_daos_file_t *file, daos_obj_id_t oid,
     uint64_t gcpl_len;
     int ret;
     void *ret_value = NULL;
+
+    assert(file);
 
     /* Allocate the group object that is returned to the user */
     if(NULL == (grp = H5FL_CALLOC(H5_daos_group_t)))
@@ -460,6 +471,8 @@ H5_daos_group_reconstitute(H5_daos_file_t *file, daos_obj_id_t oid,
     int ret;
     void *ret_value = NULL;
 
+    assert(file);
+
     /* Allocate the group object that is returned to the user */
     if(NULL == (grp = H5FL_CALLOC(H5_daos_group_t)))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate DAOS group struct")
@@ -522,11 +535,19 @@ H5_daos_group_open(void *_item, const H5VL_loc_params_t *loc_params,
     uint64_t gcpl_len = 0;
     uint8_t ginfo_buf_static[H5_DAOS_GINFO_BUF_SIZE];
     uint8_t *p;
-    hbool_t collective = item->file->collective;
+    hbool_t collective;
     hbool_t must_bcast = FALSE;
     void *ret_value = NULL;
+
+    if(!_item)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "group parent object is NULL")
+    if(!loc_params)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "location parameters object is NULL")
+    if(!name)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "group name is NULL")
  
     /* Check for collective access, if not already set by the file */
+    collective = item->file->collective;
     if(!collective)
         if(H5Pget_all_coll_metadata_ops(gapl_id, &collective) < 0)
             D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, NULL, "can't get collective access property")
@@ -707,7 +728,8 @@ H5_daos_group_close(void *_grp, hid_t DV_ATTR_UNUSED dxpl_id,
     int ret;
     herr_t ret_value = SUCCEED;
 
-    assert(grp);
+    if(!_grp)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "group object is NULL")
 
     if(--grp->obj.item.rc == 0) {
         /* Free group data structures */
@@ -721,6 +743,7 @@ H5_daos_group_close(void *_grp, hid_t DV_ATTR_UNUSED dxpl_id,
         grp = H5FL_FREE(H5_daos_group_t, grp);
     } /* end if */
 
+done:
     PRINT_ERROR_STACK
 
     D_FUNC_LEAVE

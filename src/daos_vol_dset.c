@@ -90,15 +90,23 @@ H5_daos_dataset_create(void *_item,
     void *type_buf = NULL;
     void *space_buf = NULL;
     void *dcpl_buf = NULL;
-    hbool_t collective = item->file->collective;
+    hbool_t collective;
     int ret;
     void *ret_value = NULL;
+
+    if(!_item)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "dataset parent object is NULL")
+    if(!loc_params)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "location parameters object is NULL")
+    if(!name)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "dataset name is NULL")
 
     /* Check for write access */
     if(!(item->file->flags & H5F_ACC_RDWR))
         D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, NULL, "no write intent on file")
- 
+
     /* Check for collective access, if not already set by the file */
+    collective = item->file->collective;
     if(!collective)
         if(H5Pget_all_coll_metadata_ops(dapl_id, &collective) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, NULL, "can't get collective access property")
@@ -323,12 +331,20 @@ H5_daos_dataset_open(void *_item,
     char space_key[] = H5_DAOS_SPACE_KEY;
     char dcpl_key[] = H5_DAOS_CPL_KEY;
     uint8_t *p;
-    hbool_t collective = item->file->collective;
+    hbool_t collective;
     hbool_t must_bcast = FALSE;
     int ret;
     void *ret_value = NULL;
- 
+
+    if(!_item)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "dataset parent object is NULL")
+    if(!loc_params)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "location parameters object is NULL")
+    if(!name)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "dataset name is NULL")
+
     /* Check for collective access, if not already set by the file */
+    collective = item->file->collective;
     if(!collective)
         if(H5Pget_all_coll_metadata_ops(dapl_id, &collective) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, NULL, "can't get collective access property")
@@ -874,8 +890,10 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
     uint64_t i;
     herr_t ret_value = SUCCEED;
 
+    if(!_dset)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "dataset object is NULL")
     if(!buf)
-        D_GOTO_ERROR(H5E_DATASET, H5E_BADVALUE, FAIL, "read buffer is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "read buffer is NULL")
 
     /* Get dataspace extent */
     if((ndims = H5Sget_simple_extent_ndims(dset->space_id)) < 0)
@@ -1279,8 +1297,10 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
     uint64_t i;
     herr_t ret_value = SUCCEED;
 
+    if(!_dset)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "dataset object is NULL")
     if(!buf)
-        D_GOTO_ERROR(H5E_DATASET, H5E_BADVALUE, FAIL, "write buffer is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "write buffer is NULL")
 
     /* Check for write access */
     if(!(dset->obj.item.file->flags & H5F_ACC_RDWR))
@@ -1528,6 +1548,9 @@ H5_daos_dataset_get(void *_dset, H5VL_dataset_get_t get_type,
     H5_daos_dset_t *dset = (H5_daos_dset_t *)_dset;
     herr_t       ret_value = SUCCEED;    /* Return value */
 
+    if(!_dset)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL")
+
     switch (get_type) {
         case H5VL_DATASET_GET_DCPL:
             {
@@ -1609,7 +1632,8 @@ H5_daos_dataset_close(void *_dset, hid_t DV_ATTR_UNUSED dxpl_id,
     int ret;
     herr_t ret_value = SUCCEED;
 
-    assert(dset);
+    if(!_dset)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "dataset object is NULL")
 
     if(--dset->obj.item.rc == 0) {
         /* Free dataset data structures */
@@ -1617,9 +1641,9 @@ H5_daos_dataset_close(void *_dset, hid_t DV_ATTR_UNUSED dxpl_id,
             if(0 != (ret = daos_obj_close(dset->obj.obj_oh, NULL /*event*/)))
                 D_DONE_ERROR(H5E_DATASET, H5E_CANTCLOSEOBJ, FAIL, "can't close dataset DAOS object: %s", H5_daos_err_to_string(ret))
         if(dset->type_id != FAIL && H5Idec_ref(dset->type_id) < 0)
-            D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close datatype")
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close dataset's datatype")
         if(dset->space_id != FAIL && H5Idec_ref(dset->space_id) < 0)
-            D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close dataspace")
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close dataset's dataspace")
         if(dset->dcpl_id != FAIL && H5Idec_ref(dset->dcpl_id) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close dcpl")
         if(dset->dapl_id != FAIL && H5Idec_ref(dset->dapl_id) < 0)
@@ -1627,6 +1651,7 @@ H5_daos_dataset_close(void *_dset, hid_t DV_ATTR_UNUSED dxpl_id,
         dset = H5FL_FREE(H5_daos_dset_t, dset);
     } /* end if */
 
+done:
     PRINT_ERROR_STACK
 
     D_FUNC_LEAVE

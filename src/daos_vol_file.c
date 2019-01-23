@@ -63,6 +63,9 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     int ret;
     void *ret_value = NULL;
 
+    if(!name)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "file name is NULL")
+
     /*
      * Adjust bit flags by turning on the creation bit and making sure that
      * the EXCL or TRUNC bit is set.  All newly-created files are opened for
@@ -236,7 +239,7 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
         if(0 != (ret = daos_obj_open(file->coh, gmd_oid, DAOS_OO_RW, &file->glob_md_oh, NULL /*event*/)))
             D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENFILE, NULL, "can't open global metadata object: %s", H5_daos_err_to_string(ret))
     } /* end else */
- 
+
     /* Create root group */
     if(NULL == (file->root_grp = (H5_daos_group_t *)H5_daos_group_create_helper(file, fcpl_id, H5P_GROUP_ACCESS_DEFAULT, dxpl_id, req, NULL, NULL, 0, TRUE)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create root group")
@@ -307,6 +310,9 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     hbool_t must_bcast = FALSE;
     int ret;
     void *ret_value = NULL;
+
+    if(!name)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "file name is NULL")
 
     /* Get information from the FAPL */
     /*
@@ -590,7 +596,9 @@ static herr_t
 H5_daos_file_flush(H5_daos_file_t *file)
 {
     int ret;
-    herr_t       ret_value = SUCCEED;    /* Return value */
+    herr_t ret_value = SUCCEED;    /* Return value */
+
+    assert(file);
 
     /* Nothing to do if no write intent */
     if(!(file->flags & H5F_ACC_RDWR))
@@ -647,7 +655,12 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
     H5_daos_file_t *file = NULL;
     herr_t          ret_value = SUCCEED;    /* Return value */
 
-    if (item)
+    /*
+     * TODO: H5Fis_accessible is the only thing that can result in a NULL
+     * item pointer.
+     */
+
+    if(item)
         file = ((H5_daos_item_t *)item)->file;
 
     switch (specific_type) {
@@ -697,7 +710,7 @@ H5_daos_file_close_helper(H5_daos_file_t *file, hid_t dxpl_id, void **req)
 
     /* Free file data structures */
     if(file->file_name)
-        free(file->file_name);
+        file->file_name = DV_free(file->file_name);
     if(file->comm || file->info)
         if(H5FDmpi_comm_info_free(&file->comm, &file->info) < 0)
             D_DONE_ERROR(H5E_INTERNAL, H5E_CANTFREE, FAIL, "failed to free copy of MPI communicator and info")
@@ -722,6 +735,7 @@ H5_daos_file_close_helper(H5_daos_file_t *file, hid_t dxpl_id, void **req)
     } /* end if */
     file = H5FL_FREE(H5_daos_file_t, file);
 
+done:
     D_FUNC_LEAVE
 } /* end H5_daos_file_close_helper() */
 
@@ -749,7 +763,8 @@ H5_daos_file_close(void *_file, hid_t dxpl_id, void **req)
 #endif
     herr_t ret_value = SUCCEED;
 
-    assert(file);
+    if(!_file)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "file object is NULL")
 
     /* Flush the file (barrier, commit epoch, slip epoch) *Update comment DSINC */
     if(H5_daos_file_flush(file) < 0)

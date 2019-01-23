@@ -52,11 +52,16 @@ H5_daos_object_open(void *_item, const H5VL_loc_params_t *loc_params,
     daos_obj_id_t oid;
     uint8_t oid_buf[2 * sizeof(uint64_t)];
     uint8_t *p;
-    hbool_t collective = item->file->collective;
+    hbool_t collective;
     hbool_t must_bcast = FALSE;
     H5I_type_t obj_type;
     H5VL_loc_params_t sub_loc_params;
     void *ret_value = NULL;
+
+    if(!_item)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "parent object is NULL")
+    if(!loc_params)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "location parameters object is NULL")
 
     /*
      * DSINC - should probably use a major error code other than
@@ -64,6 +69,8 @@ H5_daos_object_open(void *_item, const H5VL_loc_params_t *loc_params,
      */
     if(H5VL_OBJECT_BY_IDX == loc_params->type)
         D_GOTO_ERROR(H5E_OHDR, H5E_UNSUPPORTED, NULL, "H5Oopen_by_idx is unsupported")
+
+    collective = item->file->collective;
 
     /* Check loc_params type */
     if(H5VL_OBJECT_BY_ADDR == loc_params->type) {
@@ -227,6 +234,9 @@ H5_daos_object_optional(void *_item, hid_t dxpl_id, void **req,
     size_t akey_buf_len = 0;
     int ret;
     herr_t ret_value = SUCCEED;    /* Return value */
+
+    if(!_item)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL")
 
     /* Determine target object */
     if(loc_params->type == H5VL_OBJECT_BY_SELF) {
@@ -415,7 +425,9 @@ H5_daos_object_close(void *_obj, hid_t dxpl_id, void **req)
     H5_daos_obj_t *obj = (H5_daos_obj_t *)_obj;
     herr_t ret_value = SUCCEED;
 
-    assert(obj);
+    if(!_obj)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is NULL")
+
 #ifdef DV_HAVE_MAP
     /* DSINC - cannot place #ifdef inside assert macro - compiler warning
      * 'embedding a directive within macro arguments is not portable'
@@ -451,6 +463,8 @@ H5_daos_object_close(void *_obj, hid_t dxpl_id, void **req)
         assert(0 && "Invalid object type");
 
 done:
+    PRINT_ERROR_STACK
+
     D_FUNC_LEAVE
 } /* end H5_daos_object_close() */
 

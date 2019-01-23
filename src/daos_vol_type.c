@@ -54,7 +54,10 @@ H5_daos_need_bkg(hid_t src_type_id, hid_t dst_type_id, size_t *dst_type_size,
     char *memb_name = NULL;
     size_t memb_size;
     H5T_class_t tclass;
-    htri_t ret_value;
+    htri_t ret_value = FALSE;
+
+    assert(dst_type_size);
+    assert(fill_bkg);
 
     /* Get destination type size */
     if((*dst_type_size = H5Tget_size(dst_type_id)) == 0)
@@ -325,15 +328,23 @@ H5_daos_datatype_commit(void *_item,
     H5_daos_group_t *target_grp = NULL;
     void *type_buf = NULL;
     void *tcpl_buf = NULL;
-    hbool_t collective = item->file->collective;
+    hbool_t collective;
     int ret;
     void *ret_value = NULL;
+
+    if(!_item)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "datatype parent object is NULL")
+    if(!loc_params)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "location parameters object is NULL")
+    if(!name)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "datatype name is NULL")
 
     /* Check for write access */
     if(!(item->file->flags & H5F_ACC_RDWR))
         D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, NULL, "no write intent on file")
 
     /* Check for collective access, if not already set by the file */
+    collective = item->file->collective;
     if(!collective)
         if(H5Pget_all_coll_metadata_ops(tapl_id, &collective) < 0)
             D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, NULL, "can't get collective access property")
@@ -524,12 +535,20 @@ H5_daos_datatype_open(void *_item,
     char type_key[] = H5_DAOS_TYPE_KEY;
     char tcpl_key[] = H5_DAOS_CPL_KEY;
     uint8_t *p;
-    hbool_t collective = item->file->collective;
+    hbool_t collective;
     hbool_t must_bcast = FALSE;
     int ret;
     void *ret_value = NULL;
 
+    if(!_item)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "datatype parent object is NULL")
+    if(!loc_params)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "location parameters object is NULL")
+    if(!name)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "datatype name is NULL")
+
     /* Check for collective access, if not already set by the file */
+    collective = item->file->collective;
     if(!collective)
         if(H5Pget_all_coll_metadata_ops(tapl_id, &collective) < 0)
             D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, NULL, "can't get collective access property")
@@ -756,6 +775,9 @@ H5_daos_datatype_get(void *_dtype, H5VL_datatype_get_t get_type,
     H5_daos_dtype_t *dtype = (H5_daos_dtype_t *)_dtype;
     herr_t       ret_value = SUCCEED;    /* Return value */
 
+    if(!_dtype)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL")
+
     switch (get_type) {
         case H5VL_DATATYPE_GET_BINARY:
             {
@@ -811,7 +833,8 @@ H5_daos_datatype_close(void *_dtype, hid_t DV_ATTR_UNUSED dxpl_id,
     int ret;
     herr_t ret_value = SUCCEED;
 
-    assert(dtype);
+    if(!_dtype)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "datatype object is NULL")
 
     if(--dtype->obj.item.rc == 0) {
         /* Free datatype data structures */
@@ -827,6 +850,7 @@ H5_daos_datatype_close(void *_dtype, hid_t DV_ATTR_UNUSED dxpl_id,
         dtype = H5FL_FREE(H5_daos_dtype_t, dtype);
     } /* end if */
 
+done:
     PRINT_ERROR_STACK
 
     D_FUNC_LEAVE

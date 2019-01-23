@@ -176,6 +176,9 @@ H5daos_init(MPI_Comm pool_comm, uuid_t pool_uuid, char *pool_grp)
     H5I_type_t idType;
     herr_t     ret_value = SUCCEED;            /* Return value */
 
+    if(MPI_COMM_NULL == pool_comm)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "not a valid MPI communicator")
+
     /* Initialize HDF5 */
     if(H5open() < 0)
         D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "HDF5 failed to initialize")
@@ -550,7 +553,7 @@ H5Pset_fapl_daos(hid_t fapl_id, MPI_Comm file_comm, MPI_Info file_info)
 {
     H5_daos_fapl_t fa;
     htri_t         is_fapl;
-    herr_t         ret_value;
+    herr_t         ret_value = FAIL;
 
     /* H5TRACE3("e", "iMcMi", fapl_id, file_comm, file_info); DSINC */
 
@@ -566,7 +569,7 @@ H5Pset_fapl_daos(hid_t fapl_id, MPI_Comm file_comm, MPI_Info file_info)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "not a file access property list")
 
     if(MPI_COMM_NULL == file_comm)
-        D_GOTO_ERROR(H5E_PLIST, H5E_BADTYPE, FAIL, "not a valid communicator")
+        D_GOTO_ERROR(H5E_PLIST, H5E_BADTYPE, FAIL, "not a valid MPI communicator")
 
     /* Initialize driver specific properties */
     fa.comm = file_comm;
@@ -599,6 +602,9 @@ H5daos_snap_create(hid_t loc_id, H5_daos_snap_id_t *snap_id)
     H5_daos_file_t *file;
     H5VL_object_t     *obj = NULL;    /* object token of loc_id */
     herr_t          ret_value = SUCCEED;
+
+    if(!snap_id)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "snapshot ID pointer is NULL")
 
     /* get the location object */
     if(NULL == (obj = (H5VL_object_t *)H5I_object(loc_id)))
@@ -689,6 +695,9 @@ H5_daos_fapl_copy(const void *_old_fa)
     H5_daos_fapl_t       *new_fa = NULL;
     void                 *ret_value = NULL;
 
+    if(!_old_fa)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "invalid fapl")
+
     if(NULL == (new_fa = (H5_daos_fapl_t *)DV_malloc(sizeof(H5_daos_fapl_t))))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_NOSPACE, NULL, "memory allocation failed")
 
@@ -737,7 +746,8 @@ H5_daos_fapl_free(void *_fa)
     H5_daos_fapl_t *fa = (H5_daos_fapl_t*) _fa;
     herr_t          ret_value = SUCCEED;
 
-    assert(fa);
+    if(!_fa)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "invalid fapl")
 
     /* Free the internal communicator and INFO object */
     if(fa->comm != MPI_COMM_NULL)
@@ -759,6 +769,8 @@ done:
 void
 H5_daos_oid_generate(daos_obj_id_t *oid, uint64_t addr, H5I_type_t obj_type)
 {
+    assert(oid);
+
     /* Encode type and address */
     oid->lo = addr;
 
@@ -849,6 +861,9 @@ H5_daos_mult128(uint64_t x_lo, uint64_t x_hi, uint64_t y_lo, uint64_t y_hi,
     uint64_t xhyh;
     uint64_t temp;
 
+    assert(ans_lo);
+    assert(ans_hi);
+
     /*
      * First calculate x_lo * y_lo
      */
@@ -905,7 +920,12 @@ H5_daos_hash128(const char *name, void *hash)
     /* Initialize FNV prime number in accordance with the FNV algorithm */
     const uint64_t fnv_prime_lo = 0x13b;
     const uint64_t fnv_prime_hi = 0x1000000;
-    size_t name_len_rem = strlen(name);
+    size_t name_len_rem;
+
+    assert(name);
+    assert(hash);
+
+    name_len_rem = strlen(name);
 
     while(name_len_rem > 0) {
         /* "Decode" lower 64 bits of this 128 bit section of the name, so the
@@ -976,6 +996,8 @@ H5_daos_write_max_oid(H5_daos_file_t *file)
     char max_oid_key[] = H5_DAOS_MAX_OID_KEY;
     int ret;
     herr_t ret_value = SUCCEED;
+
+    assert(file);
 
     /* Set up dkey */
     daos_iov_set(&dkey, int_md_key, (daos_size_t)(sizeof(int_md_key) - 1));

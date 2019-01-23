@@ -64,6 +64,13 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
     int ret;
     void *ret_value = NULL;
 
+    if(!_item)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "attribute parent object is NULL")
+    if(!loc_params)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "location parameters object is NULL")
+    if(!name)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "attribute name is NULL")
+
     /* Check for write access */
     if(!(item->file->flags & H5F_ACC_RDWR))
         D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, NULL, "no write intent on file")
@@ -225,6 +232,13 @@ H5_daos_attribute_open(void *_item, const H5VL_loc_params_t *loc_params,
     int ret;
     void *ret_value = NULL;
 
+    if(!_item)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "attribute parent object is NULL")
+    if(!loc_params)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "location parameters object is NULL")
+    if(!name)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "attribute name is NULL")
+
     /* Allocate the attribute object that is returned to the user */
     if(NULL == (attr = H5FL_CALLOC(H5_daos_attr_t)))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate DAOS dataset struct")
@@ -383,8 +397,10 @@ H5_daos_attribute_read(void *_attr, hid_t mem_type_id, void *buf,
     uint64_t i;
     herr_t ret_value = SUCCEED;
 
+    if(!_attr)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "attribute object is NULL")
     if(!buf)
-        D_GOTO_ERROR(H5E_ATTR, H5E_BADVALUE, FAIL, "read buffer is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "read buffer is NULL")
 
     /* Get dataspace extent */
     if((ndims = H5Sget_simple_extent_ndims(attr->space_id)) < 0)
@@ -669,8 +685,10 @@ H5_daos_attribute_write(void *_attr, hid_t mem_type_id, const void *buf,
     uint64_t i;
     herr_t ret_value = SUCCEED;
 
+    if(!_attr)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "attribute object is NULL")
     if(!buf)
-        D_GOTO_ERROR(H5E_ATTR, H5E_BADVALUE, FAIL, "write buffer is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "write buffer is NULL")
 
     /* Check for write access */
     if(!(attr->item.file->flags & H5F_ACC_RDWR))
@@ -917,7 +935,10 @@ herr_t
 H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
     hid_t DV_ATTR_UNUSED dxpl_id, void DV_ATTR_UNUSED **req, va_list arguments)
 {
-    herr_t  ret_value = SUCCEED;    /* Return value */
+    herr_t ret_value = SUCCEED;    /* Return value */
+
+    if(!_item)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL")
 
     switch (get_type) {
         /* H5Aget_space */
@@ -1027,7 +1048,12 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
     H5_daos_attr_t *attr = NULL;
     int ret;
     herr_t ret_value = SUCCEED;    /* Return value */
-    
+
+    if(!_item)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL")
+    if(!loc_params)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "location parameters object is NULL")
+
     /* Determine attribute object */
     if(loc_params->type == H5VL_OBJECT_BY_SELF) {
         /* Use item as attribute parent object, or the root group if item is a
@@ -1254,20 +1280,22 @@ H5_daos_attribute_close(void *_attr, hid_t dxpl_id, void **req)
     H5_daos_attr_t *attr = (H5_daos_attr_t *)_attr;
     herr_t ret_value = SUCCEED;
 
-    assert(attr);
+    if(!_attr)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "attribute object is NULL")
 
     if(--attr->item.rc == 0) {
         /* Free attribute data structures */
         if(attr->parent && H5_daos_object_close(attr->parent, dxpl_id, req))
-            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close parent object")
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close attribute's parent object")
         attr->name = DV_free(attr->name);
         if(attr->type_id != FAIL && H5Idec_ref(attr->type_id) < 0)
-            D_DONE_ERROR(H5E_ATTR, H5E_CANTDEC, FAIL, "failed to close datatype")
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTDEC, FAIL, "failed to close attribute's datatype")
         if(attr->space_id != FAIL && H5Idec_ref(attr->space_id) < 0)
-            D_DONE_ERROR(H5E_ATTR, H5E_CANTDEC, FAIL, "failed to close dataspace")
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTDEC, FAIL, "failed to close attribute's dataspace")
         attr = H5FL_FREE(H5_daos_attr_t, attr);
     } /* end if */
 
+done:
     PRINT_ERROR_STACK
 
     D_FUNC_LEAVE

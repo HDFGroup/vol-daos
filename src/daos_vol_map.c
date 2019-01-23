@@ -49,15 +49,23 @@ H5_daos_map_create(void *_item, H5VL_loc_params_t DV_ATTR_UNUSED *loc_params,
     H5_daos_group_t *target_grp = NULL;
     void *ktype_buf = NULL;
     void *vtype_buf = NULL;
-    hbool_t collective = item->file->collective;
+    hbool_t collective;
     int ret;
     void *ret_value = NULL;
+
+    if(!_item)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "map parent object is NULL")
+    if(!loc_params)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "location parameters object is NULL")
+    if(!name)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "map name is NULL")
 
     /* Check for write access */
     if(!(item->file->flags & H5F_ACC_RDWR))
         D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, NULL, "no write intent on file")
- 
+
     /* Check for collective access, if not already set by the file */
+    collective = item->file->collective;
     if(!collective)
         if(H5Pget_all_coll_metadata_ops(mapl_id, &collective) < 0)
             D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, NULL, "can't get collective access property")
@@ -197,6 +205,8 @@ done:
     ktype_buf = DV_free(ktype_buf);
     vtype_buf = DV_free(vtype_buf);
 
+    PRINT_ERROR_STACK
+
     D_FUNC_LEAVE
 } /* end H5_daos_map_create() */
 
@@ -233,12 +243,20 @@ H5_daos_map_open(void *_item, H5VL_loc_params_t *loc_params, const char *name,
     char ktype_key[] = H5_DAOS_KTYPE_KEY;
     char vtype_key[] = H5_DAOS_VTYPE_KEY;
     uint8_t *p;
-    hbool_t collective = item->file->collective;
+    hbool_t collective;
     hbool_t must_bcast = FALSE;
     int ret;
     void *ret_value = NULL;
- 
+
+    if(!_item)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "map parent object is NULL")
+    if(!loc_params)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "location parameters object is NULL")
+    if(!name)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "map name is NULL")
+
     /* Check for collective access, if not already set by the file */
+    collective = item->file->collective;
     if(!collective)
         if(H5Pget_all_coll_metadata_ops(mapl_id, &collective) < 0)
             D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, NULL, "can't get collective access property")
@@ -434,6 +452,8 @@ done:
     /* Free memory */
     minfo_buf_dyn = (uint8_t *)DV_free(minfo_buf_dyn);
 
+    PRINT_ERROR_STACK
+
     D_FUNC_LEAVE
 } /* end H5_daos_map_open() */
 
@@ -458,6 +478,9 @@ H5_daos_map_get_size(hid_t type_id, const void *buf,
     H5T_t *dt = NULL;
     H5T_class_t dt_class;
     herr_t ret_value = SUCCEED;
+
+    assert(buf);
+    assert(size);
 
     if(NULL == (dt = (H5T_t *)H5Iobject_verify(type_id, H5I_DATATYPE)))
         D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, H5T_NO_CLASS, "not a datatype")
@@ -540,6 +563,8 @@ H5_daos_map_dtype_info(hid_t type_id, hbool_t *is_vl, size_t *size,
     H5T_class_t dt_class;
     herr_t ret_value = SUCCEED;
 
+    assert(is_vl);
+
     if(NULL == (dt = (H5T_t *)H5Iobject_verify(type_id, H5I_DATATYPE)))
         D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, H5T_NO_CLASS, "not a datatype")
 
@@ -587,7 +612,7 @@ done:
     D_FUNC_LEAVE
 } /* end H5_daos_map_dtype_info */
 
-
+
 herr_t 
 H5_daos_map_set(void *_map, hid_t key_mem_type_id, const void *key,
     hid_t val_mem_type_id, const void *value, hid_t DV_ATTR_UNUSED dxpl_id,
@@ -603,6 +628,13 @@ H5_daos_map_set(void *_map, hid_t key_mem_type_id, const void *key,
     H5T_class_t cls;
     int ret;
     herr_t ret_value = SUCCEED;
+
+    if(!_map)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map object is NULL")
+    if(!key)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map key is NULL")
+    if(!value)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map value is NULL")
 
     /* get the key size and checksum from the provdied key datatype & buffer */
     if(H5_daos_map_get_size(key_mem_type_id, key, NULL, &key_size, NULL) < 0)
@@ -643,10 +675,12 @@ H5_daos_map_set(void *_map, hid_t key_mem_type_id, const void *key,
         D_GOTO_ERROR(H5E_MAP, H5E_CANTSET, FAIL, "Map set failed: %s", H5_daos_err_to_string(ret));
 
 done:
+    PRINT_ERROR_STACK
+
     D_FUNC_LEAVE
 } /* end H5_daos_map_set() */
 
-
+
 herr_t 
 H5_daos_map_get(void *_map, hid_t key_mem_type_id, const void *key,
     hid_t val_mem_type_id, void *value, hid_t DV_ATTR_UNUSED dxpl_id,
@@ -663,6 +697,13 @@ H5_daos_map_get(void *_map, hid_t key_mem_type_id, const void *key,
     H5T_class_t cls;
     int ret;
     herr_t ret_value = SUCCEED;
+
+    if(!_map)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map object is NULL")
+    if(!key)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map key is NULL")
+    if(!value)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map value is NULL")
 
     /* get the key size and checksum from the provdied key datatype & buffer */
     if(H5_daos_map_get_size(key_mem_type_id, key, NULL, &key_size, NULL) < 0)
@@ -734,10 +775,12 @@ H5_daos_map_get(void *_map, hid_t key_mem_type_id, const void *key,
     }
 
 done:
+    PRINT_ERROR_STACK
+
     D_FUNC_LEAVE
 } /* end H5_daos_map_get() */
 
-
+
 herr_t 
 H5_daos_map_get_types(void *_map, hid_t *key_type_id, hid_t *val_type_id,
     void DV_ATTR_UNUSED **req)
@@ -745,13 +788,20 @@ H5_daos_map_get_types(void *_map, hid_t *key_type_id, hid_t *val_type_id,
     H5_daos_map_t *map = (H5_daos_map_t *)_map;
     herr_t ret_value = SUCCEED;
 
-    if((*key_type_id = H5Tcopy(map->ktype_id)) < 0)
-        D_GOTO_ERROR(H5E_ARGS, H5E_CANTGET, FAIL, "can't get datatype ID of map key");
+    if(!_map)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map object is NULL")
 
-    if((*val_type_id = H5Tcopy(map->vtype_id)) < 0)
-        D_GOTO_ERROR(H5E_ARGS, H5E_CANTGET, FAIL, "can't get datatype ID of map val");
+    if(key_type_id)
+        if((*key_type_id = H5Tcopy(map->ktype_id)) < 0)
+            D_GOTO_ERROR(H5E_ARGS, H5E_CANTGET, FAIL, "can't get datatype ID of map key");
+
+    if(val_type_id)
+        if((*val_type_id = H5Tcopy(map->vtype_id)) < 0)
+            D_GOTO_ERROR(H5E_ARGS, H5E_CANTGET, FAIL, "can't get datatype ID of map val");
 
 done:
+    PRINT_ERROR_STACK
+
     D_FUNC_LEAVE
 } /* end H5_daos_map_get_types() */
 
@@ -759,6 +809,7 @@ done:
 #define ENUM_DESC_BUF   512
 #define ENUM_DESC_NR    5
 
+
 herr_t 
 H5_daos_map_get_count(void *_map, hsize_t *count, void DV_ATTR_UNUSED **req)
 {
@@ -772,6 +823,11 @@ H5_daos_map_get_count(void *_map, hsize_t *count, void DV_ATTR_UNUSED **req)
     daos_iov_t   sg_iov;
     int ret;
     herr_t       ret_value = SUCCEED;
+
+    if(!_map)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map object is NULL")
+    if(!count)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "count is NULL")
 
     memset(&anchor, 0, sizeof(anchor));
     buf = (char *)malloc(ENUM_DESC_BUF);
@@ -800,10 +856,12 @@ H5_daos_map_get_count(void *_map, hsize_t *count, void DV_ATTR_UNUSED **req)
     *count = (hsize_t)(key_nr - 1);
 
 done:
+    PRINT_ERROR_STACK
+
     D_FUNC_LEAVE
 } /* end H5_daos_map_get_count() */
 
-
+
 herr_t 
 H5_daos_map_exists(void *_map, hid_t key_mem_type_id, const void *key,
     hbool_t *exists, void DV_ATTR_UNUSED **req)
@@ -815,6 +873,13 @@ H5_daos_map_exists(void *_map, hid_t key_mem_type_id, const void *key,
     daos_iod_t iod;
     int ret;
     herr_t ret_value = SUCCEED;
+
+    if(!_map)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map object is NULL")
+    if(!key)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map key is NULL")
+    if(!exists)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map exists pointer is NULL")
 
     /* get the key size and checksum from the provdied key datatype & buffer */
     if(H5_daos_map_get_size(key_mem_type_id, key, NULL, &key_size, NULL) < 0)
@@ -842,6 +907,8 @@ H5_daos_map_exists(void *_map, hid_t key_mem_type_id, const void *key,
         *exists = FALSE;
 
 done:
+    PRINT_ERROR_STACK
+
     D_FUNC_LEAVE
 } /* end H5_daos_map_exists() */
 
@@ -867,7 +934,8 @@ H5_daos_map_close(void *_map, hid_t DV_ATTR_UNUSED dxpl_id,
     int ret;
     herr_t ret_value = SUCCEED;
 
-    assert(map);
+    if(!_map)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map object is NULL")
 
     if(--map->obj.item.rc == 0) {
         /* Free map data structures */
@@ -880,6 +948,9 @@ H5_daos_map_close(void *_map, hid_t DV_ATTR_UNUSED dxpl_id,
             D_DONE_ERROR(H5E_MAP, H5E_CANTDEC, FAIL, "failed to close datatype")
         map = H5FL_FREE(H5_daos_map_t, map);
     } /* end if */
+
+done:
+    PRINT_ERROR_STACK
 
     D_FUNC_LEAVE
 } /* end H5_daos_map_close() */

@@ -449,18 +449,18 @@ herr_t H5_daos_attribute_close(void *_attr, hid_t dxpl_id, void **req);
 #ifdef DV_HAVE_MAP
 /* Map callbacks */
 H5PLUGIN_DLL void * H5_daos_map_create(void *_item, H5VL_loc_params_t *loc_params, const char *name,
-				    hid_t ktype_id, hid_t vtype_id, hid_t mcpl_id, hid_t mapl_id,
-				    hid_t dxpl_id, void **req);
+                    hid_t ktype_id, hid_t vtype_id, hid_t mcpl_id, hid_t mapl_id,
+                    hid_t dxpl_id, void **req);
 H5PLUGIN_DLL void * H5_daos_map_open(void *_item, H5VL_loc_params_t *loc_params, const char *name,
-				  hid_t mapl_id, hid_t dxpl_id, void **req);
+                  hid_t mapl_id, hid_t dxpl_id, void **req);
 H5PLUGIN_DLL herr_t H5_daos_map_set(void *_map, hid_t key_mem_type_id, const void *key, 
-				 hid_t val_mem_type_id, const void *value, hid_t dxpl_id, void **req);
+                 hid_t val_mem_type_id, const void *value, hid_t dxpl_id, void **req);
 H5PLUGIN_DLL herr_t H5_daos_map_get(void *_map, hid_t key_mem_type_id, const void *key, 
-				 hid_t val_mem_type_id, void *value, hid_t dxpl_id, void **req);
+                 hid_t val_mem_type_id, void *value, hid_t dxpl_id, void **req);
 H5PLUGIN_DLL herr_t H5_daos_map_get_types(void *_map, hid_t *key_type_id, hid_t *val_type_id, void **req);
 H5PLUGIN_DLL herr_t H5_daos_map_get_count(void *_map, hsize_t *count, void **req);
 H5PLUGIN_DLL herr_t H5_daos_map_exists(void *_map, hid_t key_mem_type_id, const void *key, 
-				    hbool_t *exists, void **req);
+                    hbool_t *exists, void **req);
 H5PLUGIN_DLL herr_t H5_daos_map_close(void *_map, hid_t dxpl_id, void **req);
 #endif /* DV_HAVE_MAP */
 

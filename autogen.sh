@@ -13,7 +13,7 @@
 # to either file, you may request a copy from help@hdfgroup.org.           
 #
 
-# A script to reconfigure autotools for the DAOS VOL plugin.
+# A script to reconfigure autotools for the DAOS VOL connector.
 #
 # IMPORTANT OS X NOTE
 #

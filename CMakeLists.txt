@@ -1,5 +1,5 @@
 #-------------------------------------------------#
-# CMake Build Script for the HDF5 DAOS VOL plugin #
+# CMake Build Script for the HDF5 DAOS VOL connector #
 #-------------------------------------------------#
 
 cmake_minimum_required (VERSION 3.10)
@@ -8,7 +8,7 @@ PROJECT (DAOS_VOL C)
 #-----------------------------------------------------------------------------
 # Instructions for use : Normal Build
 #
-# For standard build of the HDF5 DAOS VOL plugin.
+# For standard build of the HDF5 DAOS VOL connector.
 # Run cmake using the DAOS VOL source tree to generate a build tree.
 # Enable/Disable options according to requirements and
 # set CMAKE_INSTALL_PREFIX to the required install path.
@@ -64,7 +64,7 @@ set (HDF5_BINARY_DIR              ${DAOS_VOL_BINARY_DIR}/${HDF5_DIR_NAME})
 
 #-----------------------------------------------------------------------------
 # Define a CMake variable which the user can override to use
-# a pre-built HDF5 distribution for building the DAOS VOL plugin
+# a pre-built HDF5 distribution for building the DAOS VOL connector
 #-----------------------------------------------------------------------------
 set (PREBUILT_HDF5_DIR CACHE STRING "Directory of pre-built HDF5 distribution")
 
@@ -145,11 +145,11 @@ endif ()
 # Parse the full version number from README.md and include in DAOS_VOL_VERS_INFO
 #-------------------------------------------------------------------------------
 file (READ ${DAOS_VOL_SOURCE_DIR}/README.md _readme_contents)
-string (REGEX REPLACE "^.*DAOS.?VOL.?plugin.?version.([0-9][0-9]*).[0-9][0-9]*.[0-9][0-9]*.*$"
+string (REGEX REPLACE "^.*DAOS.?VOL.?connector.?version.([0-9][0-9]*).[0-9][0-9]*.[0-9][0-9]*.*$"
     "\\1" DAOS_VOL_VERS_MAJOR ${_readme_contents})
-string (REGEX REPLACE "^.*DAOS.?VOL.?plugin.?version.[0-9][0-9]*.([0-9][0-9]*).[0-9][0-9]*.*$"
+string (REGEX REPLACE "^.*DAOS.?VOL.?connector.?version.[0-9][0-9]*.([0-9][0-9]*).[0-9][0-9]*.*$"
     "\\1" DAOS_VOL_VERS_MINOR ${_readme_contents})
-string (REGEX REPLACE "^.*DAOS.?VOL.?plugin.?version.[0-9][0-9]*.[0-9][0-9]*.([0-9][0-9]*).*$"
+string (REGEX REPLACE "^.*DAOS.?VOL.?connector.?version.[0-9][0-9]*.[0-9][0-9]*.([0-9][0-9]*).*$"
     "\\1" DAOS_VOL_VERS_RELEASE ${_readme_contents})
 message (STATUS "VERSION: ${DAOS_VOL_VERS_MAJOR}.${DAOS_VOL_VERS_MINOR}.${DAOS_VOL_VERS_RELEASE}")
 
@@ -339,9 +339,9 @@ endif ()
 option (DAOS_VOL_ENABLE_EXAMPLES "Indicate that building examples should be enabled" ON)
 
 #-----------------------------------------------------------------------------
-# Option to indicate enabling plugin debugging output
+# Option to indicate enabling connector debugging output
 #-----------------------------------------------------------------------------
-option (DAOS_VOL_ENABLE_DEBUG "Indicate that plugin debug output is used" OFF)
+option (DAOS_VOL_ENABLE_DEBUG "Indicate that connector debug output is used" OFF)
 if (DAOS_VOL_ENABLE_DEBUG)
   set (DV_PLUGIN_DEBUG 1)
 endif ()

@@ -26,6 +26,8 @@ extern "C" {
 
 #include "H5Epublic.h"
 
+const char *H5_daos_err_to_string(int ret);
+
 extern hid_t dv_err_stack_g;
 extern hid_t dv_err_class_g;
 
@@ -109,7 +111,7 @@ extern hid_t dv_err_class_g;
     goto done;                                                                                                     \
 }
 
-/* Macro to print out the VOL plugin's current error stack
+/* Macro to print out the VOL connector's current error stack
  * and then clear it for future use
  */
 #define PRINT_ERROR_STACK                                                                                          \

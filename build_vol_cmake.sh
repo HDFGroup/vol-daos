@@ -13,8 +13,8 @@
 # to either file, you may request a copy from help@hdfgroup.org.           
 #
 # A script used to first configure and build the HDF5 source distribution
-# included with the DAOS VOL plugin source code, and then use that built
-# HDF5 to build the DAOS VOL plugin itself.
+# included with the DAOS VOL connector source code, and then use that built
+# HDF5 to build the DAOS VOL connector itself.
 
 # Get the directory of the script itself
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -72,7 +72,7 @@ usage()
     echo "              that due to a circular build dependency, this"
     echo "              option should not be chosen until after the"
     echo "              included HDF5 source distribution and the"
-    echo "              DAOS VOL plugin have been built once."
+    echo "              DAOS VOL connector have been built once."
     echo
     echo "      -G      Specify the CMake Generator to use for the build"
     echo "              files created. Default is 'Unix Makefiles'."
@@ -105,12 +105,12 @@ while getopts "$optspec" optchar; do
         ;;
     d)
         PLUGIN_DEBUG_OPT="-DDAOS_VOL_ENABLE_DEBUG=ON"
-        echo "Enabled DAOS VOL plugin debugging"
+        echo "Enabled DAOS VOL connector debugging"
         echo
         ;;
     m)
         MEM_TRACK_OPT="-DDAOS_VOL_ENABLE_MEM_TRACKING=ON"
-        echo "Enabled DAOS VOL plugin memory tracking"
+        echo "Enabled DAOS VOL connector memory tracking"
         echo
         ;;
     t)
@@ -168,9 +168,9 @@ if [ "$NPROCS" -eq "0" ]; then
     fi
 fi
 
-# Once HDF5 has been built, build the DAOS VOL plugin against HDF5.
+# Once HDF5 has been built, build the DAOS VOL connector against HDF5.
 echo "*******************************************"
-echo "* Building DAOS VOL plugin and test suite *"
+echo "* Building DAOS VOL connector and test suite *"
 echo "*******************************************"
 echo
 

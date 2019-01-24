@@ -4,11 +4,13 @@ PROJECT (DAOS_VOL_UTIL C)
 set (DAOS_VOL_SRCS
     ${DAOS_VOL_SRCS}
     ${DAOS_VOL_UTIL_SOURCE_DIR}/daos_vol_mem.c
+    ${DAOS_VOL_UTIL_SOURCE_DIR}/daos_vol_err.c
     PARENT_SCOPE
 )
 
 set (DAOS_VOL_HDRS
     ${DAOS_VOL_HDRS}
     ${DAOS_VOL_UTIL_SOURCE_DIR}/daos_vol_mem.h
+    ${DAOS_VOL_UTIL_SOURCE_DIR}/daos_vol_err.h
     PARENT_SCOPE
 )

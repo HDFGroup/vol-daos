@@ -13,8 +13,8 @@
 # to either file, you may request a copy from help@hdfgroup.org.           
 #
 # A script used to first configure and build the HDF5 source distribution
-# included with the DAOS VOL plugin source code, and then use that built
-# HDF5 to build the DAOS VOL plugin itself.
+# included with the DAOS VOL connector source code, and then use that built
+# HDF5 to build the DAOS VOL connector itself.
 
 # Get the directory of the script itself
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -78,7 +78,7 @@ usage()
     echo "              that due to a circular build dependency, this"
     echo "              option should not be chosen until after the"
     echo "              included HDF5 source distribution and the"
-    echo "              DAOS VOL plugin have been built once."
+    echo "              DAOS VOL connector have been built once."
     echo
     echo "      -P DIR  Similar to 'configure --prefix=DIR', specifies"
     echo "              where the DAOS VOL should be installed to. Default"
@@ -105,12 +105,12 @@ while getopts "$optspec" optchar; do
     d)
         DV_OPTS="${DV_OPTS} --enable-build-mode=debug"
         COMP_OPTS="${COMP_OPTS} -g"
-        echo "Enabled DAOS VOL plugin debugging"
+        echo "Enabled DAOS VOL connector debugging"
         echo
         ;;
     m)
         DV_OPTS="${DV_OPTS} --enable-mem-tracking"
-        echo "Enabled DAOS VOL plugin memory tracking"
+        echo "Enabled DAOS VOL connector memory tracking"
         echo
         ;;
     t)
@@ -288,9 +288,9 @@ if [ "$build_hdf5" = true ]; then
 fi
 
 
-# Once HDF5 has been built, build the DAOS VOL plugin against HDF5.
+# Once HDF5 has been built, build the DAOS VOL connector against HDF5.
 echo "*******************************************"
-echo "* Building DAOS VOL plugin and test suite *"
+echo "* Building DAOS VOL connector and test suite *"
 echo "*******************************************"
 echo
 

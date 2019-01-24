@@ -173,7 +173,7 @@ char *pool_grp_g = NULL;
 herr_t
 H5daos_init(MPI_Comm pool_comm, uuid_t pool_uuid, char *pool_grp)
 {
-    H5I_type_t idType;
+    H5I_type_t idType = H5I_UNINIT;
     herr_t     ret_value = SUCCEED;            /* Return value */
 
     if(MPI_COMM_NULL == pool_comm)
@@ -183,7 +183,7 @@ H5daos_init(MPI_Comm pool_comm, uuid_t pool_uuid, char *pool_grp)
     if(H5open() < 0)
         D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "HDF5 failed to initialize")
 
-    if((idType = H5Iget_type(H5_DAOS_g)) < 0)
+    if(H5_DAOS_g >= 0 && (idType = H5Iget_type(H5_DAOS_g)) < 0)
         D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "failed to retrieve DAOS VOL connector's ID type")
 
     /* Register the DAOS VOL, if it isn't already */

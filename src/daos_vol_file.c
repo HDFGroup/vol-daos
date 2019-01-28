@@ -60,6 +60,8 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     daos_obj_id_t gmd_oid = {0, 0};
     uint8_t *p;
     hbool_t must_bcast = FALSE;
+    hbool_t sched_init = FALSE;
+    bool is_empty;
     int ret;
     void *ret_value = NULL;
 
@@ -104,6 +106,15 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
         D_GOTO_ERROR(H5E_FILE, H5E_CANTCOPY, NULL, "failed to copy fcpl")
     if((file->fapl_id = H5Pcopy(fapl_id)) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTCOPY, NULL, "failed to copy fapl")
+
+    /* Create CART context */
+    if(0 != (ret = crt_context_create(&file->crt_ctx)))
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create CART context: %s", H5_daos_err_to_string(ret))
+
+    /* Create DAOS task scheduler */
+    if(0 != (ret = tse_sched_init(&file->sched, NULL, file->crt_ctx)))
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create task scheduler: %s", H5_daos_err_to_string(ret))
+    sched_init = TRUE;
 
     /* Duplicate communicator and Info object. */
     /*
@@ -248,6 +259,10 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     ret_value = (void *)file;
 
 done:
+    /* Wait for scheduler to be empty *//* Change to custom progress function DSINC */
+    if(sched_init && (ret = daos_progress(&file->sched, DAOS_EQ_WAIT, &is_empty)) < 0)
+        D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't progress scheduler: %s", H5_daos_err_to_string(ret))
+
     /* Cleanup on failure */
     if(NULL == ret_value) {
         /* Bcast bcast_buf_64 as '0' if necessary - this will trigger failures
@@ -349,6 +364,14 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     if((file->fapl_id = H5Pcopy(fapl_id)) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTCOPY, NULL, "failed to copy fapl")
 
+    /* Create CART context */
+    if(0 != (ret = crt_context_create(&file->crt_ctx)))
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create CART context: %s", H5_daos_err_to_string(ret))
+
+    /* Create DAOS task scheduler */
+    if(0 != (ret = tse_sched_init(&file->sched, NULL, file->crt_ctx)))
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create task scheduler: %s", H5_daos_err_to_string(ret))
+
     /* Duplicate communicator and Info object. */
     /*
      * XXX: DSINC - Need to pass in MPI Info to VOL connector as well.
@@ -379,8 +402,6 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
         daos_iod_t iod;
         daos_sg_list_t sgl;
         daos_iov_t sg_iov;
-        char int_md_key[] = H5_DAOS_INT_MD_KEY;
-        char max_oid_key[] = H5_DAOS_MAX_OID_KEY;
 
         /* If there are other processes and we fail we must bcast anyways so they
          * don't hang */
@@ -411,11 +432,11 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
 
         /* Read max OID from gmd obj */
         /* Set up dkey */
-        daos_iov_set(&dkey, int_md_key, (daos_size_t)(sizeof(int_md_key) - 1));
+        daos_iov_set(&dkey, H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
 
         /* Set up iod */
         memset(&iod, 0, sizeof(iod));
-        daos_iov_set(&iod.iod_name, (void *)max_oid_key, (daos_size_t)(sizeof(max_oid_key) - 1));
+        daos_iov_set(&iod.iod_name, H5_daos_max_oid_key_g, H5_daos_max_oid_key_size_g);
         daos_csum_set(&iod.iod_kcsum, NULL, 0);
         iod.iod_nr = 1u;
         iod.iod_size = (uint64_t)8;
@@ -604,6 +625,8 @@ H5_daos_file_flush(H5_daos_file_t *file)
     if(!(file->flags & H5F_ACC_RDWR))
         D_GOTO_DONE(SUCCEED)
 
+    /* Progress scheduler until empty? DSINC */
+
 #if 0
     /* Collectively determine if anyone requested a snapshot of the epoch */
     if(MPI_SUCCESS != MPI_Reduce(file->my_rank == 0 ? MPI_IN_PLACE : &file->snap_epoch, &file->snap_epoch, 1, MPI_INT, MPI_LOR, 0, file->comm))
@@ -733,9 +756,18 @@ H5_daos_file_close_helper(H5_daos_file_t *file, hid_t dxpl_id, void **req)
         if(H5Idec_ref(file->vol_id) < 0)
             D_DONE_ERROR(H5E_FILE, H5E_CANTDEC, FAIL, "can't decrement VOL connector ID")
     } /* end if */
+
+    /* Finish the scheduler *//* Make this cancel tasks?  Only if flush progresses until empty.  Otherwise change to custom progress function DSINC */
+    tse_sched_complete(&file->sched, 0, FALSE);
+    tse_sched_fini(&file->sched);
+
+    /* Destroy CART context */
+    if(0 != (ret = crt_context_destroy(file->crt_ctx, 1)))
+        D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, FAIL, "can't destroy CART context: %s", H5_daos_err_to_string(ret))
+
+    /* Free file struct */
     file = H5FL_FREE(H5_daos_file_t, file);
 
-done:
     D_FUNC_LEAVE
 } /* end H5_daos_file_close_helper() */
 

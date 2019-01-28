@@ -140,6 +140,8 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
 {
     H5_daos_group_t *grp = NULL;
     void *gcpl_buf = NULL;
+    H5_daos_md_update_cb_ud_t *update_cb_ud = NULL;
+    hbool_t task_scheduled = FALSE;
     int ret;
     void *ret_value = NULL;
 
@@ -161,13 +163,8 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
 
     /* Create group and write metadata if this process should */
     if(!collective || (file->my_rank == 0)) {
-        daos_key_t dkey;
-        daos_iod_t iod;
-        daos_sg_list_t sgl;
-        daos_iov_t sg_iov;
         size_t gcpl_size = 0;
-        char int_md_key[] = H5_DAOS_INT_MD_KEY;
-        char gcpl_key[] = H5_DAOS_CPL_KEY;
+        tse_task_t *update_task;
 
         /* Create group */
         /* Update max_oid */
@@ -177,9 +174,14 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
         if(H5_daos_write_max_oid(file) < 0)
             D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't write max OID")
 
+        /* Allocate argument struct */
+        if(NULL == (update_cb_ud = (H5_daos_md_update_cb_ud_t *)DV_malloc(sizeof(H5_daos_md_update_cb_ud_t))))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for update callback arguments")
+
         /* Open group */
         if(0 != (ret = daos_obj_open(file->coh, grp->obj.oid, DAOS_OO_RW, &grp->obj.obj_oh, NULL /*event*/)))
             D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENOBJ, NULL, "can't open group: %s", H5_daos_err_to_string(ret))
+        update_cb_ud->oh = grp->obj.obj_oh;
 
         /* Encode GCPL */
         if(H5Pencode(gcpl_id, NULL, &gcpl_size) < 0)
@@ -190,26 +192,46 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
             D_GOTO_ERROR(H5E_SYM, H5E_CANTENCODE, NULL, "can't serialize gcpl")
 
         /* Set up operation to write GCPL to group */
-        /* Set up dkey */
-        daos_iov_set(&dkey, int_md_key, (daos_size_t)(sizeof(int_md_key) - 1));
+        /* Set up dkey.  Point to global name buffer, do not free. */
+        daos_iov_set(&update_cb_ud->dkey, H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
+        update_cb_ud->free_dkey = FALSE;
 
-        /* Set up iod */
-        memset(&iod, 0, sizeof(iod));
-        daos_iov_set(&iod.iod_name, (void *)gcpl_key, (daos_size_t)(sizeof(gcpl_key) - 1));
-        daos_csum_set(&iod.iod_kcsum, NULL, 0);
-        iod.iod_nr = 1u;
-        iod.iod_size = (uint64_t)gcpl_size;
-        iod.iod_type = DAOS_IOD_SINGLE;
+        /* Single iod and sgl */
+        update_cb_ud->nr = 1u;
+
+        /* Set up iod.  Point akey to global name buffer, do not free. */
+        memset(&update_cb_ud->iod[0], 0, sizeof(update_cb_ud->iod[0]));
+        daos_iov_set(&update_cb_ud->iod[0].iod_name, (void *)H5_daos_cpl_key_g, H5_daos_cpl_key_size_g);
+        daos_csum_set(&update_cb_ud->iod[0].iod_kcsum, NULL, 0);
+        update_cb_ud->iod[0].iod_nr = 1u;
+        update_cb_ud->iod[0].iod_size = (uint64_t)gcpl_size;
+        update_cb_ud->iod[0].iod_type = DAOS_IOD_SINGLE;
+        update_cb_ud->free_akeys = FALSE;
 
         /* Set up sgl */
-        daos_iov_set(&sg_iov, gcpl_buf, (daos_size_t)gcpl_size);
-        sgl.sg_nr = 1;
-        sgl.sg_nr_out = 0;
-        sgl.sg_iovs = &sg_iov;
+        daos_iov_set(&update_cb_ud->sg_iov[0], gcpl_buf, (daos_size_t)gcpl_size);
+        update_cb_ud->sgl[0].sg_nr = 1;
+        update_cb_ud->sgl[0].sg_nr_out = 0;
+        update_cb_ud->sgl[0].sg_iovs = &update_cb_ud->sg_iov[0];
 
-        /* Write internal metadata to group */
-        if(0 != (ret = daos_obj_update(grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't write metadata to group: %s", H5_daos_err_to_string(ret))
+        /* Set task name */
+        update_cb_ud->task_name = "group metadata write";
+
+        /* Create task for group metadata write */
+        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_UPDATE, &file->sched, 0, NULL, &update_task)))
+            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create task to write group medadata: %s", H5_daos_err_to_string(ret))
+
+        /* Set callback functions for group metadata write */
+        if(0 != (ret = tse_task_register_cbs(update_task, H5_daos_md_update_prep_cb, NULL, 0, H5_daos_md_update_comp_cb, NULL, 0)))
+            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't register callbacks for task to write group medadata: %s", H5_daos_err_to_string(ret))
+
+        /* Set private data for group metadata write */
+        (void)tse_task_set_priv(update_task, update_cb_ud);
+
+        /* Schedule group metadata write task */
+        if(0 != (ret = tse_task_schedule(update_task, false)))
+            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't schedule task to write group metadata: %s", H5_daos_err_to_string(ret))
+        task_scheduled = TRUE;
 
         /* Write link to group if requested */
         if(parent_grp) {
@@ -249,13 +271,19 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
 done:
     /* Cleanup on failure */
     /* Destroy DAOS object if created before failure DSINC */
-    if(NULL == ret_value)
+    if(NULL == ret_value) {
         /* Close group */
         if(grp && H5_daos_group_close(grp, dxpl_id, req) < 0)
             D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, NULL, "can't close group")
 
-    /* Free memory */
-    gcpl_buf = DV_free(gcpl_buf);
+        /* Free memory */
+        if(!task_scheduled) {
+            gcpl_buf = DV_free(gcpl_buf);
+            update_cb_ud = DV_free(update_cb_ud);
+        } /* end if */
+    } /* end if */
+    else
+        assert(!gcpl_buf || task_scheduled);
 
     D_FUNC_LEAVE
 } /* end H5_daos_group_create_helper() */
@@ -284,6 +312,8 @@ H5_daos_group_create(void *_item,
     H5_daos_group_t *target_grp = NULL;
     const char *target_name = NULL;
     hbool_t collective;
+    bool is_empty;
+    int ret;
     void *ret_value = NULL;
 
     if(!_item)
@@ -319,6 +349,10 @@ done:
     /* Close target group */
     if(target_grp && H5_daos_group_close(target_grp, dxpl_id, req) < 0)
         D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, NULL, "can't close group")
+
+    /* Wait for scheduler to be empty *//* Change to custom progress function DSINC */
+    if(0 != (ret = daos_progress(&item->file->sched, DAOS_EQ_WAIT, &is_empty)))
+        D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't progress scheduler: %s", H5_daos_err_to_string(ret))
 
     /* Cleanup on failure */
     /* Destroy DAOS object if created before failure DSINC */
@@ -357,8 +391,6 @@ H5_daos_group_open_helper(H5_daos_file_t *file, daos_obj_id_t oid,
     daos_sg_list_t sgl;
     daos_iov_t sg_iov;
     void *gcpl_buf = NULL;
-    char int_md_key[] = H5_DAOS_INT_MD_KEY;
-    char gcpl_key[] = H5_DAOS_CPL_KEY;
     uint64_t gcpl_len;
     int ret;
     void *ret_value = NULL;
@@ -382,11 +414,11 @@ H5_daos_group_open_helper(H5_daos_file_t *file, daos_obj_id_t oid,
 
     /* Set up operation to read GCPL size from group */
     /* Set up dkey */
-    daos_iov_set(&dkey, int_md_key, (daos_size_t)(sizeof(int_md_key) - 1));
+    daos_iov_set(&dkey, H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
 
     /* Set up iod */
     memset(&iod, 0, sizeof(iod));
-    daos_iov_set(&iod.iod_name, (void *)gcpl_key, (daos_size_t)(sizeof(gcpl_key) - 1));
+    daos_iov_set(&iod.iod_name, H5_daos_cpl_key_g, H5_daos_cpl_key_size_g);
     daos_csum_set(&iod.iod_kcsum, NULL, 0);
     iod.iod_nr = 1u;
     iod.iod_size = DAOS_REC_ANY;

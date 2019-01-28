@@ -311,7 +311,6 @@ H5_daos_object_optional(void *_item, hid_t dxpl_id, void **req,
                     daos_key_desc_t kds[H5_DAOS_ITER_LEN];
                     daos_sg_list_t sgl;
                     daos_iov_t sg_iov;
-                    char attr_key[] = H5_DAOS_ATTR_KEY;
                     char *p;
                     uint32_t i;
 
@@ -319,7 +318,7 @@ H5_daos_object_optional(void *_item, hid_t dxpl_id, void **req,
                     memset(&anchor, 0, sizeof(anchor));
 
                     /* Set up dkey */
-                    daos_iov_set(&dkey, attr_key, (daos_size_t)(sizeof(attr_key) - 1));
+                    daos_iov_set(&dkey, H5_daos_attr_key_g, H5_daos_attr_key_size_g);
 
                     /* Allocate akey_buf */
                     if(NULL == (akey_buf = (char *)DV_malloc(H5_DAOS_ITER_SIZE_INIT)))

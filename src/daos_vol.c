@@ -152,6 +152,32 @@ MPI_Comm pool_comm_g;
 uuid_t pool_uuid_g;
 char *pool_grp_g = NULL;
 
+/* Constant Keys */
+char H5_daos_int_md_key_g[] = "/Internal Metadata";
+char H5_daos_max_oid_key_g[] = "Max OID";
+char H5_daos_cpl_key_g[] = "Creation Property List";
+char H5_daos_link_key_g[] = "Link";
+char H5_daos_type_key_g[] = "Datatype";
+char H5_daos_space_key_g[] = "Dataspace";
+char H5_daos_attr_key_g[] = "/Attribute";
+#ifdef DV_HAVE_MAP
+char H5_daos_ktype_g[] = "Key Datatype";
+char H5_daos_vtype_g[] = "Value Datatype";
+char H5_daos_map_key_g[] = "MAP_AKEY";
+#endif
+daos_size_t H5_daos_int_md_key_size_g = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
+daos_size_t H5_daos_max_oid_key_size_g = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
+daos_size_t H5_daos_cpl_key_size_g = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
+daos_size_t H5_daos_link_key_size_g = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
+daos_size_t H5_daos_type_key_size_g = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
+daos_size_t H5_daos_space_key_size_g = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
+daos_size_t H5_daos_attr_key_size_g = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
+#ifdef DV_HAVE_MAP
+daos_size_t H5_daos_ktype_size_g = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
+daos_size_t H5_daos_vtype_size_g = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
+daos_size_t H5_daos_map_key_size_g = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
+#endif
+
 
 /*-------------------------------------------------------------------------
  * Function:    H5daos_init
@@ -992,19 +1018,17 @@ H5_daos_write_max_oid(H5_daos_file_t *file)
     daos_iod_t iod;
     daos_sg_list_t sgl;
     daos_iov_t sg_iov;
-    char int_md_key[] = H5_DAOS_INT_MD_KEY;
-    char max_oid_key[] = H5_DAOS_MAX_OID_KEY;
     int ret;
     herr_t ret_value = SUCCEED;
 
     assert(file);
 
     /* Set up dkey */
-    daos_iov_set(&dkey, int_md_key, (daos_size_t)(sizeof(int_md_key) - 1));
+    daos_iov_set(&dkey, H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
 
     /* Set up iod */
     memset(&iod, 0, sizeof(iod));
-    daos_iov_set(&iod.iod_name, (void *)max_oid_key, (daos_size_t)(sizeof(max_oid_key) - 1));
+    daos_iov_set(&iod.iod_name, H5_daos_max_oid_key_g, H5_daos_max_oid_key_size_g);
     daos_csum_set(&iod.iod_kcsum, NULL, 0);
     iod.iod_nr = 1u;
     iod.iod_size = (uint64_t)8;
@@ -1022,6 +1046,84 @@ H5_daos_write_max_oid(H5_daos_file_t *file)
 done:
     D_FUNC_LEAVE
 } /* end H5_daos_write_max_oid() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_md_update_prep_cb
+ *
+ * Purpose:     Prepare callback for asynchronous daos_obj_update for
+ *              metadata writes.  Currently just sets arguments for
+ *              daos_obj_update.
+ *
+ * Return:      0 (Never fails)
+ *
+ * Programmer:  Neil Fortner
+ *              January, 2019
+ *
+ *-------------------------------------------------------------------------
+ */
+int
+H5_daos_md_update_prep_cb(tse_task_t *task, void DV_ATTR_UNUSED *args)
+{
+    H5_daos_md_update_cb_ud_t *udata;
+    daos_obj_update_t *update_args;
+    int ret;
+
+    /* Get private data */
+    udata = tse_task_get_priv(task);
+
+    /* Handle errors DSINC */
+
+    /* Set update task arguments */
+    update_args = daos_task_get_args(task);
+    update_args->oh = udata->oh;
+    update_args->th = DAOS_TX_NONE;
+    update_args->dkey = &udata->dkey;
+    update_args->nr = udata->nr;
+    update_args->iods = udata->iod;
+    update_args->sgls = udata->sgl;
+
+    return 0;
+} /* end H5_daos_md_update_prep_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_md_update_comp_cb
+ *
+ * Purpose:     Complete callback for asynchronous daos_obj_update for
+ *              metadata writes.  Currently just frees private data.
+ *
+ * Return:      0 (Never fails)
+ *
+ * Programmer:  Neil Fortner
+ *              January, 2019
+ *
+ *-------------------------------------------------------------------------
+ */
+int
+H5_daos_md_update_comp_cb(tse_task_t *task, void DV_ATTR_UNUSED *args)
+{
+    H5_daos_md_update_cb_ud_t *udata;
+    unsigned i;
+    int ret;
+
+    /* Get private data */
+    udata = tse_task_get_priv(task);
+
+    /* Handle errors DSINC */
+
+    /* Free private data */
+    if(udata->free_dkey)
+        DV_free(udata->dkey.iov_buf);
+    if(udata->free_akeys)
+        for(i = 0; i < udata->nr; i++)
+            DV_free(udata->iod[i].iod_name.iov_buf);
+    for(i = 0; i < udata->nr; i++)
+        DV_free(udata->sg_iov[0].iov_buf);
+    DV_free(udata);
+
+    return 0;
+} /* end H5_daos_md_update_comp_cb() */
 
 
 H5PL_type_t

@@ -143,10 +143,6 @@ H5_daos_dataset_create(void *_item,
         size_t type_size = 0;
         size_t space_size = 0;
         size_t dcpl_size = 0;
-        char int_md_key[] = H5_DAOS_INT_MD_KEY;
-        char type_key[] = H5_DAOS_TYPE_KEY;
-        char space_key[] = H5_DAOS_SPACE_KEY;
-        char dcpl_key[] = H5_DAOS_CPL_KEY;
 
         /* Traverse the path */
         if(name)
@@ -191,23 +187,23 @@ H5_daos_dataset_create(void *_item,
 
         /* Set up operation to write datatype, dataspace, and DCPL to dataset */
         /* Set up dkey */
-        daos_iov_set(&dkey, int_md_key, (daos_size_t)(sizeof(int_md_key) - 1));
+        daos_iov_set(&dkey, H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
 
         /* Set up iod */
         memset(iod, 0, sizeof(iod));
-        daos_iov_set(&iod[0].iod_name, (void *)type_key, (daos_size_t)(sizeof(type_key) - 1));
+        daos_iov_set(&iod[0].iod_name, H5_daos_type_key_g, H5_daos_type_key_size_g);
         daos_csum_set(&iod[0].iod_kcsum, NULL, 0);
         iod[0].iod_nr = 1u;
         iod[0].iod_size = (uint64_t)type_size;
         iod[0].iod_type = DAOS_IOD_SINGLE;
 
-        daos_iov_set(&iod[1].iod_name, (void *)space_key, (daos_size_t)(sizeof(space_key) - 1));
+        daos_iov_set(&iod[1].iod_name, H5_daos_space_key_g, H5_daos_space_key_size_g);
         daos_csum_set(&iod[1].iod_kcsum, NULL, 0);
         iod[1].iod_nr = 1u;
         iod[1].iod_size = (uint64_t)space_size;
         iod[1].iod_type = DAOS_IOD_SINGLE;
 
-        daos_iov_set(&iod[2].iod_name, (void *)dcpl_key, (daos_size_t)(sizeof(dcpl_key) - 1));
+        daos_iov_set(&iod[2].iod_name, H5_daos_cpl_key_g, H5_daos_cpl_key_size_g);
         daos_csum_set(&iod[2].iod_kcsum, NULL, 0);
         iod[2].iod_nr = 1u;
         iod[2].iod_size = (uint64_t)dcpl_size;
@@ -326,10 +322,6 @@ H5_daos_dataset_open(void *_item,
     uint8_t dinfo_buf_static[H5_DAOS_DINFO_BUF_SIZE];
     uint8_t *dinfo_buf_dyn = NULL;
     uint8_t *dinfo_buf = dinfo_buf_static;
-    char int_md_key[] = H5_DAOS_INT_MD_KEY;
-    char type_key[] = H5_DAOS_TYPE_KEY;
-    char space_key[] = H5_DAOS_SPACE_KEY;
-    char dcpl_key[] = H5_DAOS_CPL_KEY;
     uint8_t *p;
     hbool_t collective;
     hbool_t must_bcast = FALSE;
@@ -390,23 +382,23 @@ H5_daos_dataset_open(void *_item,
         /* Set up operation to read datatype, dataspace, and DCPL sizes from
          * dataset */
         /* Set up dkey */
-        daos_iov_set(&dkey, int_md_key, (daos_size_t)(sizeof(int_md_key) - 1));
+        daos_iov_set(&dkey, H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
 
         /* Set up iod */
         memset(iod, 0, sizeof(iod));
-        daos_iov_set(&iod[0].iod_name, (void *)type_key, (daos_size_t)(sizeof(type_key) - 1));
+        daos_iov_set(&iod[0].iod_name, H5_daos_type_key_g, H5_daos_type_key_size_g);
         daos_csum_set(&iod[0].iod_kcsum, NULL, 0);
         iod[0].iod_nr = 1u;
         iod[0].iod_size = DAOS_REC_ANY;
         iod[0].iod_type = DAOS_IOD_SINGLE;
 
-        daos_iov_set(&iod[1].iod_name, (void *)space_key, (daos_size_t)(sizeof(space_key) - 1));
+        daos_iov_set(&iod[1].iod_name, H5_daos_space_key_g, H5_daos_space_key_size_g);
         daos_csum_set(&iod[1].iod_kcsum, NULL, 0);
         iod[1].iod_nr = 1u;
         iod[1].iod_size = DAOS_REC_ANY;
         iod[1].iod_type = DAOS_IOD_SINGLE;
 
-        daos_iov_set(&iod[2].iod_name, (void *)dcpl_key, (daos_size_t)(sizeof(dcpl_key) - 1));
+        daos_iov_set(&iod[2].iod_name, (void *)H5_daos_cpl_key_g, H5_daos_cpl_key_size_g);
         daos_csum_set(&iod[2].iod_kcsum, NULL, 0);
         iod[2].iod_nr = 1u;
         iod[2].iod_size = DAOS_REC_ANY;

@@ -60,7 +60,6 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
     size_t space_size = 0;
     void *type_buf = NULL;
     void *space_buf = NULL;
-    char attr_key[] = H5_DAOS_ATTR_KEY;
     int ret;
     void *ret_value = NULL;
 
@@ -125,7 +124,7 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
 
     /* Set up operation to write datatype and dataspace to attribute */
     /* Set up dkey */
-    daos_iov_set(&dkey, attr_key, (daos_size_t)(sizeof(attr_key) - 1));
+    daos_iov_set(&dkey, H5_daos_attr_key_g, H5_daos_attr_key_size_g);
 
     /* Create akey strings (prefix "S-", "T-") */
     akey_len = strlen(name) + 2;
@@ -228,7 +227,6 @@ H5_daos_attribute_open(void *_item, const H5VL_loc_params_t *loc_params,
     daos_iov_t sg_iov[2];
     void *type_buf = NULL;
     void *space_buf = NULL;
-    char attr_key[] = H5_DAOS_ATTR_KEY;
     int ret;
     void *ret_value = NULL;
 
@@ -267,7 +265,7 @@ H5_daos_attribute_open(void *_item, const H5VL_loc_params_t *loc_params,
 
     /* Set up operation to write datatype and dataspace to attribute */
     /* Set up dkey */
-    daos_iov_set(&dkey, attr_key, (daos_size_t)(sizeof(attr_key) - 1));
+    daos_iov_set(&dkey, H5_daos_attr_key_g, H5_daos_attr_key_size_g);
 
     /* Create akey strings (prefix "S-", "T-") */
     akey_len = strlen(name) + 2;
@@ -384,7 +382,6 @@ H5_daos_attribute_read(void *_attr, hid_t mem_type_id, void *buf,
     daos_iod_t *iods = NULL;
     daos_sg_list_t *sgls = NULL;
     daos_iov_t *sg_iovs = NULL;
-    char attr_key[] = H5_DAOS_ATTR_KEY;
     hid_t base_type_id = FAIL;
     size_t base_type_size = 0;
     uint64_t attr_size;
@@ -414,7 +411,7 @@ H5_daos_attribute_read(void *_attr, hid_t mem_type_id, void *buf,
         attr_size *= (uint64_t)dim[i];
 
     /* Set up dkey */
-    daos_iov_set(&dkey, attr_key, (daos_size_t)(sizeof(attr_key) - 1));
+    daos_iov_set(&dkey, H5_daos_attr_key_g, H5_daos_attr_key_size_g);
 
     /* Check for vlen */
     if(H5T_NO_CLASS == (type_class = H5Tget_class(mem_type_id)))
@@ -672,7 +669,6 @@ H5_daos_attribute_write(void *_attr, hid_t mem_type_id, const void *buf,
     daos_iod_t *iods = NULL;
     daos_sg_list_t *sgls = NULL;
     daos_iov_t *sg_iovs = NULL;
-    char attr_key[] = H5_DAOS_ATTR_KEY;
     hid_t base_type_id = FAIL;
     size_t base_type_size = 0;
     uint64_t attr_size;
@@ -706,7 +702,7 @@ H5_daos_attribute_write(void *_attr, hid_t mem_type_id, const void *buf,
         attr_size *= (uint64_t)dim[i];
 
     /* Set up dkey */
-    daos_iov_set(&dkey, attr_key, (daos_size_t)(sizeof(attr_key) - 1));
+    daos_iov_set(&dkey, H5_daos_attr_key_g, H5_daos_attr_key_size_g);
 
     /* Check for vlen */
     if(H5T_NO_CLASS == (type_class = H5Tget_class(mem_type_id)))
@@ -1086,7 +1082,6 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
                 H5A_operator2_t op = va_arg(arguments, H5A_operator2_t);
                 void *op_data = va_arg(arguments, void *);
                 daos_anchor_t anchor;
-                char attr_key[] = H5_DAOS_ATTR_KEY;
                 daos_key_t dkey;
                 uint32_t nr;
                 daos_key_desc_t kds[H5_DAOS_ITER_LEN];
@@ -1124,7 +1119,7 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
                 memset(&anchor, 0, sizeof(anchor));
 
                 /* Set up dkey */
-                daos_iov_set(&dkey, attr_key, (daos_size_t)(sizeof(attr_key) - 1));
+                daos_iov_set(&dkey, H5_daos_attr_key_g, H5_daos_attr_key_size_g);
 
                 /* Allocate akey_buf */
                 if(NULL == (akey_buf = (char *)DV_malloc(H5_DAOS_ITER_SIZE_INIT)))

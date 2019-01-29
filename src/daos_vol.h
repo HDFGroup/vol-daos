@@ -30,6 +30,9 @@
 #ifdef H5_HAVE_EFF
 
 #include "daos.h"
+#include "daos_task.h"
+#include "daos/tse.h"
+#include "cart/api.h"
 
 #define HDF5_VOL_DAOS_VERSION_1	1	/* Version number of DAOS VOL connector */
 
@@ -48,21 +51,8 @@ extern "C" {
 /*
  * Macros
  */
-/* Constant Keys */
-#define H5_DAOS_INT_MD_KEY "/Internal Metadata"
-#define H5_DAOS_MAX_OID_KEY "Max OID"
-#define H5_DAOS_CPL_KEY "Creation Property List"
-#define H5_DAOS_LINK_KEY "Link"
-#define H5_DAOS_TYPE_KEY "Datatype"
-#define H5_DAOS_SPACE_KEY "Dataspace"
-#define H5_DAOS_ATTR_KEY "/Attribute"
+/* Constant keys */
 #define H5_DAOS_CHUNK_KEY 0u
-
-#ifdef DV_HAVE_MAP
-#define H5_DAOS_KTYPE_KEY "Key Datatype"
-#define H5_DAOS_VTYPE_KEY "Value Datatype"
-#define H5_DAOS_MAP_KEY "MAP_AKEY"
-#endif
 
 /* Stack allocation sizes */
 #define H5_DAOS_GH_BUF_SIZE 1024
@@ -82,6 +72,10 @@ extern "C" {
 #define H5_DAOS_TYPE_DSET  0x4000000000000000ull
 #define H5_DAOS_TYPE_DTYPE 0x8000000000000000ull
 #define H5_DAOS_TYPE_MAP   0xc000000000000000ull
+
+/* Private error codes for asynchronous operations */
+#define H5_DAOS_INCOMPLETE -1   /* Operation has not yet completed (should only be in the item struct) */
+#define H5_DAOS_PRE_ERROR -2    /* A precursor to this task failed (should only be used as the task return value) */
 
 /* Macros borrowed from H5Fprivate.h */
 #define UINT64ENCODE(p, n) {                           \
@@ -168,6 +162,8 @@ typedef struct H5_daos_fapl_t {
 typedef struct H5_daos_item_t {
     H5I_type_t type;
     struct H5_daos_file_t *file;
+    int open_status;
+    const char *failed_task; /* Add more error info? DSINC */
     int rc;
 } H5_daos_item_t;
 
@@ -182,6 +178,8 @@ typedef struct H5_daos_obj_t {
 typedef struct H5_daos_file_t {
     H5_daos_item_t item; /* Must be first */
     daos_handle_t coh;
+    crt_context_t crt_ctx;
+    tse_sched_t sched;
     char *file_name;
     uuid_t uuid;
     unsigned flags;
@@ -259,6 +257,19 @@ typedef enum {
     H5_DAOS_TCONV_REUSE_BKG      /* Use buffer as background buffer */
 } H5_daos_tconv_reuse_t;
 
+typedef struct H5_daos_md_update_cb_ud_t {
+    daos_handle_t oh;
+    daos_handle_t th;
+    daos_key_t dkey;
+    unsigned nr;
+    daos_iod_t iod[3];
+    daos_sg_list_t sgl[3];
+    daos_iov_t sg_iov[3];
+    hbool_t free_dkey;
+    hbool_t free_akeys;
+    const char *task_name;
+} H5_daos_md_update_cb_ud_t;
+
 /* XXX: The following two definitions are only here until they are
  * moved out of their respective H5Xpkg.h header files and into a
  * more public scope. They are still needed for the DAOS VOL to handle
@@ -333,6 +344,32 @@ extern daos_handle_t H5_daos_poh_g;
 /* Global variables used to open the pool */
 extern MPI_Comm pool_comm_g;
 
+/* Constant Keys */
+extern char H5_daos_int_md_key_g[];
+extern char H5_daos_max_oid_key_g[];
+extern char H5_daos_cpl_key_g[];
+extern char H5_daos_link_key_g[];
+extern char H5_daos_type_key_g[];
+extern char H5_daos_space_key_g[];
+extern char H5_daos_attr_key_g[];
+#ifdef DV_HAVE_MAP
+extern char H5_daos_ktype_g[];
+extern char H5_daos_vtype_g[];
+extern char H5_daos_map_key_g[];
+#endif
+extern daos_size_t H5_daos_int_md_key_size_g;
+extern daos_size_t H5_daos_max_oid_key_size_g;
+extern daos_size_t H5_daos_cpl_key_size_g;
+extern daos_size_t H5_daos_link_key_size_g;
+extern daos_size_t H5_daos_type_key_size_g;
+extern daos_size_t H5_daos_space_key_size_g;
+extern daos_size_t H5_daos_attr_key_size_g;
+#ifdef DV_HAVE_MAP
+extern daos_size_t H5_daos_ktype_size_g;
+extern daos_size_t H5_daos_vtype_size_g;
+extern daos_size_t H5_daos_map_key_size_g;
+#endif
+
 /*
  * Prototypes
  */
@@ -346,6 +383,8 @@ H5I_type_t H5_daos_oid_to_type(daos_obj_id_t oid);
 uint64_t H5_daos_oid_to_idx(daos_obj_id_t oid);
 void H5_daos_hash128(const char *name, void *hash);
 herr_t H5_daos_write_max_oid(H5_daos_file_t *file);
+int H5_daos_md_update_prep_cb(tse_task_t *task, void *args);
+int H5_daos_md_update_comp_cb(tse_task_t *task, void *args);
 
 /* File callbacks */
 void *H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,

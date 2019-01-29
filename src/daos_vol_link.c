@@ -51,7 +51,6 @@ static herr_t
 H5_daos_link_read(H5_daos_group_t *grp, const char *name, size_t name_len,
     H5_daos_link_val_t *val)
 {
-    char const_link_key[] = H5_DAOS_LINK_KEY;
     daos_key_t dkey;
     daos_iod_t iod;
     daos_sg_list_t sgl;
@@ -75,7 +74,7 @@ H5_daos_link_read(H5_daos_group_t *grp, const char *name, size_t name_len,
 
     /* Set up iod */
     memset(&iod, 0, sizeof(iod));
-    daos_iov_set(&iod.iod_name, const_link_key, (daos_size_t)(sizeof(const_link_key) - 1));
+    daos_iov_set(&iod.iod_name, H5_daos_link_key_g, H5_daos_link_key_size_g);
     daos_csum_set(&iod.iod_kcsum, NULL, 0);
     iod.iod_nr = 1u;
     iod.iod_size = DAOS_REC_ANY;
@@ -178,7 +177,6 @@ herr_t
 H5_daos_link_write(H5_daos_group_t *grp, const char *name,
     size_t name_len, H5_daos_link_val_t *val)
 {
-    char const_link_key[] = H5_DAOS_LINK_KEY;
     daos_key_t dkey;
     daos_iod_t iod;
     daos_sg_list_t sgl;
@@ -246,7 +244,7 @@ H5_daos_link_write(H5_daos_group_t *grp, const char *name,
 
 
     /* Finish setting up iod */
-    daos_iov_set(&iod.iod_name, const_link_key, (daos_size_t)(sizeof(const_link_key) - 1));
+    daos_iov_set(&iod.iod_name, H5_daos_link_key_g, H5_daos_link_key_size_g);
     daos_csum_set(&iod.iod_kcsum, NULL, 0);
     iod.iod_nr = 1u;
     iod.iod_type = DAOS_IOD_SINGLE;
@@ -369,7 +367,6 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
             {
                 htri_t *lexists_ret = va_arg(arguments, htri_t *);
                 const char *target_name = NULL;
-                char const_link_key[] = H5_DAOS_LINK_KEY;
                 daos_key_t dkey;
                 daos_iod_t iod;
 
@@ -384,7 +381,7 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
 
                 /* Set up iod */
                 memset(&iod, 0, sizeof(iod));
-                daos_iov_set(&iod.iod_name, const_link_key, (daos_size_t)(sizeof(const_link_key) - 1));
+                daos_iov_set(&iod.iod_name, H5_daos_link_key_g, H5_daos_link_key_size_g);
                 daos_csum_set(&iod.iod_kcsum, NULL, 0);
                 iod.iod_nr = 1u;
                 iod.iod_size = DAOS_REC_ANY;

@@ -336,8 +336,6 @@ H5_daos_datatype_commit(void *_item,
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "datatype parent object is NULL")
     if(!loc_params)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "location parameters object is NULL")
-    if(!name)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "datatype name is NULL")
 
     /* Check for write access */
     if(!(item->file->flags & H5F_ACC_RDWR))

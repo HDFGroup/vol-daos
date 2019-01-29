@@ -18,7 +18,7 @@
  *              September, 2016
  *
  * Purpose: The DAOS VOL connector where access is forwarded to the DAOS
- * library.  Attributre routines.
+ * library.  Attribute routines.
  */
 
 #include "daos_vol.h"           /* DAOS connector                          */
@@ -398,6 +398,8 @@ H5_daos_attribute_read(void *_attr, hid_t mem_type_id, void *buf,
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "attribute object is NULL")
     if(!buf)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "read buffer is NULL")
+    if(H5I_ATTR != attr->item.type)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not an attribute")
 
     /* Get dataspace extent */
     if((ndims = H5Sget_simple_extent_ndims(attr->space_id)) < 0)
@@ -685,6 +687,8 @@ H5_daos_attribute_write(void *_attr, hid_t mem_type_id, const void *buf,
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "attribute object is NULL")
     if(!buf)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "write buffer is NULL")
+    if(H5I_ATTR != attr->item.type)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not an attribute")
 
     /* Check for write access */
     if(!(attr->item.file->flags & H5F_ACC_RDWR))

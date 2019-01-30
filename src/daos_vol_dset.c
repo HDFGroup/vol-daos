@@ -96,10 +96,6 @@ H5_daos_dataset_create(void *_item,
 
     if(!_item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "dataset parent object is NULL")
-    if(!loc_params)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "location parameters object is NULL")
-    if(!name)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "dataset name is NULL")
 
     /* Check for write access */
     if(!(item->file->flags & H5F_ACC_RDWR))
@@ -333,8 +329,6 @@ H5_daos_dataset_open(void *_item,
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "dataset parent object is NULL")
     if(!loc_params)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "location parameters object is NULL")
-    if(!name)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "dataset name is NULL")
 
     /* Check for collective access, if not already set by the file */
     collective = item->file->collective;
@@ -368,6 +362,11 @@ H5_daos_dataset_open(void *_item,
         } /* end if */
         else {
             /* Open using name parameter */
+            if(H5VL_OBJECT_BY_SELF != loc_params->type)
+                D_GOTO_ERROR(H5E_ARGS, H5E_UNSUPPORTED, NULL, "unsupported dataset open location parameters type")
+            if(!name)
+                D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "dataset name is NULL")
+
             /* Traverse the path */
             if(NULL == (target_grp = H5_daos_group_traverse(item, name, dxpl_id, req, &target_name, NULL, NULL)))
                 D_GOTO_ERROR(H5E_DATASET, H5E_BADITER, NULL, "can't traverse path")

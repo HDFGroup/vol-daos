@@ -350,10 +350,6 @@ H5_daos_group_create(void *_item,
 
     if(!_item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "group parent object is NULL")
-    if(!loc_params)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "location parameters object is NULL")
-    if(!name)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "group name is NULL")
 
     /* Check for write access */
     if(!(item->file->flags & H5F_ACC_RDWR))
@@ -623,8 +619,6 @@ H5_daos_group_open(void *_item, const H5VL_loc_params_t *loc_params,
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "group parent object is NULL")
     if(!loc_params)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "location parameters object is NULL")
-    if(!name)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "group name is NULL")
  
     /* Check for collective access, if not already set by the file */
     collective = item->file->collective;
@@ -650,6 +644,11 @@ H5_daos_group_open(void *_item, const H5VL_loc_params_t *loc_params,
         } /* end if */
         else {
             /* Open using name parameter */
+            if(H5VL_OBJECT_BY_SELF != loc_params->type)
+                D_GOTO_ERROR(H5E_ARGS, H5E_UNSUPPORTED, NULL, "unsupported group open location parameters type")
+            if(!name)
+                D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "group name is NULL")
+
             /* Traverse the path */
             if(NULL == (target_grp = H5_daos_group_traverse(item, name, dxpl_id, req, &target_name, (collective && (item->file->num_procs > 1)) ? (void **)&gcpl_buf : NULL, &gcpl_len)))
                 D_GOTO_ERROR(H5E_SYM, H5E_BADITER, NULL, "can't traverse path")

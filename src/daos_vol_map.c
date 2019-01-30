@@ -55,10 +55,6 @@ H5_daos_map_create(void *_item, H5VL_loc_params_t DV_ATTR_UNUSED *loc_params,
 
     if(!_item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "map parent object is NULL")
-    if(!loc_params)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "location parameters object is NULL")
-    if(!name)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "map name is NULL")
 
     /* Check for write access */
     if(!(item->file->flags & H5F_ACC_RDWR))
@@ -96,9 +92,10 @@ H5_daos_map_create(void *_item, H5VL_loc_params_t DV_ATTR_UNUSED *loc_params,
         size_t vtype_size = 0;
 
         /* Traverse the path */
-        if(NULL == (target_grp = H5_daos_group_traverse(item, name, dxpl_id,
-                req, &target_name, NULL, NULL)))
-            D_GOTO_ERROR(H5E_MAP, H5E_BADITER, NULL, "can't traverse path")
+        if(name)
+            if(NULL == (target_grp = H5_daos_group_traverse(item, name, dxpl_id,
+                    req, &target_name, NULL, NULL)))
+                D_GOTO_ERROR(H5E_MAP, H5E_BADITER, NULL, "can't traverse path")
 
         /* Create map */
         /* Update max_oid */
@@ -164,10 +161,12 @@ H5_daos_map_create(void *_item, H5VL_loc_params_t DV_ATTR_UNUSED *loc_params,
             D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't write metadata to map: %s", H5_daos_err_to_string(ret))
 
         /* Create link to map */
-        link_val.type = H5L_TYPE_HARD;
-        link_val.target.hard = map->obj.oid;
-        if(H5_daos_link_write(target_grp, target_name, strlen(target_name), &link_val) < 0)
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create link to map")
+        if(name) {
+            link_val.type = H5L_TYPE_HARD;
+            link_val.target.hard = map->obj.oid;
+            if(H5_daos_link_write(target_grp, target_name, strlen(target_name), &link_val) < 0)
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create link to map")
+        } /* end if */
     } /* end if */
     else {
         /* Update max_oid */
@@ -247,8 +246,6 @@ H5_daos_map_open(void *_item, H5VL_loc_params_t *loc_params, const char *name,
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "map parent object is NULL")
     if(!loc_params)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "location parameters object is NULL")
-    if(!name)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "map name is NULL")
 
     /* Check for collective access, if not already set by the file */
     collective = item->file->collective;
@@ -280,6 +277,11 @@ H5_daos_map_open(void *_item, H5VL_loc_params_t *loc_params, const char *name,
         } /* end if */
         else {
             /* Open using name parameter */
+            if(H5VL_OBJECT_BY_SELF != loc_params->type)
+                D_GOTO_ERROR(H5E_ARGS, H5E_UNSUPPORTED, NULL, "unsupported map open location parameters type")
+            if(!name)
+                D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "map name is NULL")
+
             /* Traverse the path */
             if(NULL == (target_grp = H5_daos_group_traverse(item, name, dxpl_id, req, &target_name, NULL, NULL)))
                 D_GOTO_ERROR(H5E_MAP, H5E_BADITER, NULL, "can't traverse path")

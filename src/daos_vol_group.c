@@ -97,7 +97,7 @@ H5_daos_group_traverse(H5_daos_item_t *item, const char *path,
         grp = NULL;
 
         /* Open group */
-        if(NULL == (grp = (H5_daos_group_t *)H5_daos_group_open_helper(item->file, oid, H5P_GROUP_ACCESS_DEFAULT, dxpl_id, req, gcpl_buf_out, gcpl_len_out)))
+        if(NULL == (grp = (H5_daos_group_t *)H5_daos_group_open_helper(item->file, oid, H5P_GROUP_ACCESS_DEFAULT, dxpl_id, NULL, gcpl_buf_out, gcpl_len_out)))
             D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't open group")
 
         /* Advance to next path element */
@@ -135,13 +135,17 @@ done:
  */
 void *
 H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
-    hid_t gapl_id, hid_t dxpl_id, void **req, H5_daos_group_t *parent_grp,
-    const char *name, size_t name_len, hbool_t collective)
+    hid_t gapl_id, hid_t dxpl_id, H5_daos_req_t *req,
+    H5_daos_group_t *parent_grp, const char *name, size_t name_len,
+    hbool_t collective)
 {
     H5_daos_group_t *grp = NULL;
     void *gcpl_buf = NULL;
     H5_daos_md_update_cb_ud_t *update_cb_ud = NULL;
     hbool_t task_scheduled = FALSE;
+    tse_task_t *finalize_task;
+    int finalize_ndeps = 0;
+    tse_task_t *finalize_deps[2];
     int ret;
     void *ret_value = NULL;
 
@@ -152,6 +156,8 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
     if(NULL == (grp = H5FL_CALLOC(H5_daos_group_t)))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate DAOS group struct")
     grp->obj.item.type = H5I_GROUP;
+    grp->obj.item.open_req = req;
+    req->rc++;
     grp->obj.item.file = file;
     grp->obj.item.rc = 1;
     grp->obj.obj_oh = DAOS_HDL_INVAL;
@@ -192,6 +198,9 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
             D_GOTO_ERROR(H5E_SYM, H5E_CANTENCODE, NULL, "can't serialize gcpl")
 
         /* Set up operation to write GCPL to group */
+        /* Point to req */
+        update_cb_ud->req = req;
+
         /* Set up dkey.  Point to global name buffer, do not free. */
         daos_iov_set(&update_cb_ud->dkey, H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
         update_cb_ud->free_dkey = FALSE;
@@ -228,10 +237,15 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
         /* Set private data for group metadata write */
         (void)tse_task_set_priv(update_task, update_cb_ud);
 
-        /* Schedule group metadata write task */
+        /* Schedule group metadata write task and give it a reference to req */
         if(0 != (ret = tse_task_schedule(update_task, false)))
             D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't schedule task to write group metadata: %s", H5_daos_err_to_string(ret))
         task_scheduled = TRUE;
+        update_cb_ud->req->rc++;
+
+        /* Add dependency for finalize task */
+        finalize_deps[finalize_ndeps] = update_task;
+        finalize_ndeps++;
 
         /* Write link to group if requested */
         if(parent_grp) {
@@ -258,6 +272,8 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
         /* Open group */
         if(0 != (ret = daos_obj_open(file->coh, grp->obj.oid, DAOS_OO_RW, &grp->obj.obj_oh, NULL /*event*/)))
             D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENOBJ, NULL, "can't open group: %s", H5_daos_err_to_string(ret))
+
+        /* Check for failure of process 0 DSINC */
     } /* end else */
 
     /* Finish setting up group struct */
@@ -269,11 +285,26 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
     ret_value = (void *)grp;
 
 done:
+    /* Create task to finalize H5 operation */
+    if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &file->sched, req, &finalize_task))) {
+        H5_daos_req_free_int(req);
+        D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+    } /* end if */
+    /* Register dependencies (if any) */
+    else if(finalize_ndeps > 0 && 0 != (ret = tse_task_register_deps(finalize_task, finalize_ndeps, finalize_deps)))
+        D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+    /* Schedule finalize task */
+    else if(0 != (ret = tse_task_schedule(finalize_task, false)))
+        D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+    else
+        /* finalize_task now owns a reference to req */
+        req->rc++;
+
     /* Cleanup on failure */
     /* Destroy DAOS object if created before failure DSINC */
     if(NULL == ret_value) {
         /* Close group */
-        if(grp && H5_daos_group_close(grp, dxpl_id, req) < 0)
+        if(grp && H5_daos_group_close(grp, dxpl_id, NULL) < 0)
             D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, NULL, "can't close group")
 
         /* Free memory */
@@ -313,6 +344,7 @@ H5_daos_group_create(void *_item,
     const char *target_name = NULL;
     hbool_t collective;
     bool is_empty;
+    H5_daos_req_t *int_req;
     int ret;
     void *ret_value = NULL;
 
@@ -333,13 +365,24 @@ H5_daos_group_create(void *_item,
         if(H5Pget_all_coll_metadata_ops(gapl_id, &collective) < 0)
             D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, NULL, "can't get collective access property")
 
+    /* Start H5 operation */
+    if(NULL == (int_req = (H5_daos_req_t *)DV_malloc(sizeof(H5_daos_req_t))))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for request")
+    int_req->th = DAOS_TX_NONE;
+    int_req->th_open = FALSE;
+    int_req->file = item->file;
+    int_req->file->item.rc++;
+    int_req->rc = 1;
+    int_req->status = H5_DAOS_INCOMPLETE;
+    int_req->failed_task = NULL;
+
     /* Traverse the path */
     if(name && (!collective || (item->file->my_rank == 0)))
         if(NULL == (target_grp = H5_daos_group_traverse(item, name, dxpl_id, req, &target_name, NULL, NULL)))
             D_GOTO_ERROR(H5E_SYM, H5E_BADITER, NULL, "can't traverse path")
 
     /* Create group and link to group */
-    if(NULL == (grp = (H5_daos_group_t *)H5_daos_group_create_helper(item->file, gcpl_id, gapl_id, dxpl_id, req, target_grp, target_name, target_name ? strlen(target_name) : 0, collective)))
+    if(NULL == (grp = (H5_daos_group_t *)H5_daos_group_create_helper(item->file, gcpl_id, gapl_id, dxpl_id, int_req, target_grp, target_name, target_name ? strlen(target_name) : 0, collective)))
         D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't create group")
 
     /* Set return value */
@@ -347,8 +390,11 @@ H5_daos_group_create(void *_item,
 
 done:
     /* Close target group */
-    if(target_grp && H5_daos_group_close(target_grp, dxpl_id, req) < 0)
+    if(target_grp && H5_daos_group_close(target_grp, dxpl_id, NULL) < 0)
         D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, NULL, "can't close group")
+
+    /* Close internal request */
+    H5_daos_req_free_int(int_req);
 
     /* Wait for scheduler to be empty *//* Change to custom progress function DSINC */
     if(0 != (ret = daos_progress(&item->file->sched, DAOS_EQ_WAIT, &is_empty)))
@@ -382,7 +428,7 @@ done:
  */
 void *
 H5_daos_group_open_helper(H5_daos_file_t *file, daos_obj_id_t oid,
-    hid_t gapl_id, hid_t dxpl_id, void **req, void **gcpl_buf_out,
+    hid_t gapl_id, hid_t dxpl_id, H5_daos_req_t *req, void **gcpl_buf_out,
     uint64_t *gcpl_len_out)
 {
     H5_daos_group_t *grp = NULL;
@@ -401,6 +447,7 @@ H5_daos_group_open_helper(H5_daos_file_t *file, daos_obj_id_t oid,
     if(NULL == (grp = H5FL_CALLOC(H5_daos_group_t)))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate DAOS group struct")
     grp->obj.item.type = H5I_GROUP;
+    grp->obj.item.open_req = NULL;
     grp->obj.item.file = file;
     grp->obj.item.rc = 1;
     grp->obj.oid = oid;
@@ -472,7 +519,7 @@ done:
     /* Cleanup on failure */
     if(NULL == ret_value)
         /* Close group */
-        if(grp && H5_daos_group_close(grp, dxpl_id, req) < 0)
+        if(grp && H5_daos_group_close(grp, dxpl_id, NULL) < 0)
             D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, NULL, "can't close group")
 
     /* Free memory */
@@ -497,7 +544,7 @@ done:
  */
 void *
 H5_daos_group_reconstitute(H5_daos_file_t *file, daos_obj_id_t oid,
-    uint8_t *gcpl_buf, hid_t gapl_id, hid_t dxpl_id, void **req)
+    uint8_t *gcpl_buf, hid_t gapl_id, hid_t dxpl_id, H5_daos_req_t *req)
 {
     H5_daos_group_t *grp = NULL;
     int ret;
@@ -509,6 +556,7 @@ H5_daos_group_reconstitute(H5_daos_file_t *file, daos_obj_id_t oid,
     if(NULL == (grp = H5FL_CALLOC(H5_daos_group_t)))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate DAOS group struct")
     grp->obj.item.type = H5I_GROUP;
+    grp->obj.item.open_req = NULL;
     grp->obj.item.file = file;
     grp->obj.item.rc = 1;
     grp->obj.oid = oid;
@@ -534,7 +582,7 @@ done:
     /* Cleanup on failure */
     if(NULL == ret_value)
         /* Close group */
-        if(grp && H5_daos_group_close(grp, dxpl_id, req) < 0)
+        if(grp && H5_daos_group_close(grp, dxpl_id, NULL) < 0)
             D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, NULL, "can't close group")
 
     D_FUNC_LEAVE
@@ -597,7 +645,7 @@ H5_daos_group_open(void *_item, const H5VL_loc_params_t *loc_params,
             H5_daos_oid_generate(&oid, (uint64_t)loc_params->loc_data.loc_by_addr.addr, H5I_GROUP);
 
             /* Open group */
-            if(NULL == (grp = (H5_daos_group_t *)H5_daos_group_open_helper(item->file, oid, gapl_id, dxpl_id, req, (collective && (item->file->num_procs > 1)) ? (void **)&gcpl_buf : NULL, &gcpl_len)))
+            if(NULL == (grp = (H5_daos_group_t *)H5_daos_group_open_helper(item->file, oid, gapl_id, dxpl_id, NULL, (collective && (item->file->num_procs > 1)) ? (void **)&gcpl_buf : NULL, &gcpl_len)))
                 D_GOTO_ERROR(H5E_SYM, H5E_CANTOPENOBJ, NULL, "can't open group")
         } /* end if */
         else {
@@ -633,7 +681,7 @@ H5_daos_group_open(void *_item, const H5VL_loc_params_t *loc_params,
                     D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't follow link to group")
 
                 /* Open group */
-                if(NULL == (grp = (H5_daos_group_t *)H5_daos_group_open_helper(item->file, oid, gapl_id, dxpl_id, req, (collective && (item->file->num_procs > 1)) ? (void **)&gcpl_buf : NULL, &gcpl_len)))
+                if(NULL == (grp = (H5_daos_group_t *)H5_daos_group_open_helper(item->file, oid, gapl_id, dxpl_id, NULL, (collective && (item->file->num_procs > 1)) ? (void **)&gcpl_buf : NULL, &gcpl_len)))
                     D_GOTO_ERROR(H5E_SYM, H5E_CANTOPENOBJ, NULL, "can't open group")
             } /* end else */
         } /* end else */
@@ -703,7 +751,7 @@ H5_daos_group_open(void *_item, const H5VL_loc_params_t *loc_params,
         } /* end if */
 
         /* Reconstitute group from received oid and GCPL buffer */
-        if(NULL == (grp = (H5_daos_group_t *)H5_daos_group_reconstitute(item->file, oid, p, gapl_id, dxpl_id, req)))
+        if(NULL == (grp = (H5_daos_group_t *)H5_daos_group_reconstitute(item->file, oid, p, gapl_id, dxpl_id, NULL)))
             D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't reconstitute group")
     } /* end else */
 
@@ -722,12 +770,12 @@ done:
         } /* end if */
 
         /* Close group */
-        if(grp && H5_daos_group_close(grp, dxpl_id, req) < 0)
+        if(grp && H5_daos_group_close(grp, dxpl_id, NULL) < 0)
             D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, NULL, "can't close group")
     } /* end if */
 
     /* Close target group */
-    if(target_grp && H5_daos_group_close(target_grp, dxpl_id, req) < 0)
+    if(target_grp && H5_daos_group_close(target_grp, dxpl_id, NULL) < 0)
         D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, NULL, "can't close group")
 
     /* Free memory */
@@ -765,6 +813,8 @@ H5_daos_group_close(void *_grp, hid_t DV_ATTR_UNUSED dxpl_id,
 
     if(--grp->obj.item.rc == 0) {
         /* Free group data structures */
+        if(grp->obj.item.open_req)
+            H5_daos_req_free_int(grp->obj.item.open_req);
         if(!daos_handle_is_inval(grp->obj.obj_oh))
             if(0 != (ret = daos_obj_close(grp->obj.obj_oh, NULL /*event*/)))
                 D_DONE_ERROR(H5E_SYM, H5E_CANTCLOSEOBJ, FAIL, "can't close group DAOS object: %s", H5_daos_err_to_string(ret))

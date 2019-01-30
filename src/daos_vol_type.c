@@ -353,6 +353,7 @@ H5_daos_datatype_commit(void *_item,
     if(NULL == (dtype = H5FL_CALLOC(H5_daos_dtype_t)))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate DAOS dataset struct")
     dtype->obj.item.type = H5I_DATATYPE;
+    dtype->obj.item.open_req = NULL;
     dtype->obj.item.file = item->file;
     dtype->obj.item.rc = 1;
     dtype->obj.obj_oh = DAOS_HDL_INVAL;
@@ -551,6 +552,7 @@ H5_daos_datatype_open(void *_item,
     if(NULL == (dtype = H5FL_CALLOC(H5_daos_dtype_t)))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate DAOS datatype struct")
     dtype->obj.item.type = H5I_DATATYPE;
+    dtype->obj.item.open_req = NULL;
     dtype->obj.item.file = item->file;
     dtype->obj.item.rc = 1;
     dtype->obj.obj_oh = DAOS_HDL_INVAL;
@@ -832,6 +834,8 @@ H5_daos_datatype_close(void *_dtype, hid_t DV_ATTR_UNUSED dxpl_id,
 
     if(--dtype->obj.item.rc == 0) {
         /* Free datatype data structures */
+        if(dtype->obj.item.open_req)
+            H5_daos_req_free_int(dtype->obj.item.open_req);
         if(!daos_handle_is_inval(dtype->obj.obj_oh))
             if(0 != (ret = daos_obj_close(dtype->obj.obj_oh, NULL /*event*/)))
                 D_DONE_ERROR(H5E_DATATYPE, H5E_CANTCLOSEOBJ, FAIL, "can't close datatype DAOS object: %s", H5_daos_err_to_string(ret))

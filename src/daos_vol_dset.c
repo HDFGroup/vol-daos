@@ -281,9 +281,7 @@ done:
     space_buf = DV_free(space_buf);
     dcpl_buf = DV_free(dcpl_buf);
 
-    PRINT_ERROR_STACK
-
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_dataset_create() */
 
 
@@ -557,9 +555,7 @@ done:
     /* Free memory */
     dinfo_buf_dyn = (uint8_t *)DV_free(dinfo_buf_dyn);
 
-    PRINT_ERROR_STACK
-
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_dataset_open() */
 
 
@@ -1160,9 +1156,7 @@ done:
     if(sel_iter_init && H5Sselect_iter_release(sel_iter) < 0)
         D_DONE_ERROR(H5E_DATASPACE, H5E_CANTRELEASE, FAIL, "unable to release selection iterator")
 
-    PRINT_ERROR_STACK
-
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_dataset_read() */
 
 
@@ -1516,9 +1510,7 @@ done:
         if(H5Idec_ref(base_type_id) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close base type ID")
 
-    PRINT_ERROR_STACK
-
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_dataset_write() */
 
 
@@ -1599,10 +1591,46 @@ H5_daos_dataset_get(void *_dset, H5VL_dataset_get_t get_type,
     } /* end switch */
 
 done:
-    PRINT_ERROR_STACK
-
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_dataset_get() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_dataset_specific
+ *
+ * Purpose:     Performs a dataset "specific" operation
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ * Programmer:  Jordan Henderson
+ *              January, 2019
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_dataset_specific(void *_item, H5VL_dataset_specific_t specific_type,
+    hid_t dxpl_id, void **req, va_list arguments)
+{
+    H5_daos_dset_t *dset = (H5_daos_dset_t *)_item;
+    herr_t          ret_value = SUCCEED;
+
+    if(!_item)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL")
+    if(H5I_DATASET != dset->obj.item.type)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a dataset")
+
+    switch (specific_type) {
+        case H5VL_DATASET_SET_EXTENT:
+        case H5VL_DATASET_FLUSH:
+        case H5VL_DATASET_REFRESH:
+        default:
+            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported dataset specific operation")
+    }  /* end switch */
+
+done:
+    D_FUNC_LEAVE_API
+} /* end H5_daos_dataset_specific() */
 
 
 /*-------------------------------------------------------------------------
@@ -1646,8 +1674,6 @@ H5_daos_dataset_close(void *_dset, hid_t DV_ATTR_UNUSED dxpl_id,
     } /* end if */
 
 done:
-    PRINT_ERROR_STACK
-
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_dataset_close() */
 

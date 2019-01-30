@@ -193,9 +193,7 @@ done:
         if(attr && H5_daos_attribute_close(attr, dxpl_id, req) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, NULL, "can't close attribute")
 
-    PRINT_ERROR_STACK
-
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_attribute_create() */
 
 
@@ -349,9 +347,7 @@ done:
         if(attr && H5_daos_attribute_close(attr, dxpl_id, req) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, NULL, "can't close attribute")
 
-    PRINT_ERROR_STACK
-
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_attribute_open() */
 
 
@@ -638,9 +634,7 @@ done:
         if(H5Idec_ref(base_type_id) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close base type ID")
 
-    PRINT_ERROR_STACK
-
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_attribute_read() */
 
 
@@ -912,9 +906,7 @@ done:
         if(H5Idec_ref(base_type_id) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close base type ID")
 
-    PRINT_ERROR_STACK
-
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_attribute_write() */
 
 
@@ -1016,9 +1008,7 @@ H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
     } /* end switch */
 
 done:
-    PRINT_ERROR_STACK
-
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_attribute_get() */
 
 
@@ -1077,7 +1067,6 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
         case H5VL_ATTR_DELETE:
         case H5VL_ATTR_EXISTS:
             D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "unsupported specific operation")
-#ifdef DV_HAVE_ATTR_ITERATION
         case H5VL_ATTR_ITER:
             {
                 H5_index_t DV_ATTR_UNUSED idx_type = (H5_index_t)va_arg(arguments, int);
@@ -1116,7 +1105,7 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
                 ainfo.cset = H5T_CSET_ASCII;
 
                 /* Register id for target_obj */
-                if((target_obj_id = H5VLregister(target_obj->item.type, target_obj, H5_DAOS_g)) < 0)
+                if((target_obj_id = H5VLwrap_register(target_obj, target_obj->item.type)) < 0)
                     D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, FAIL, "unable to atomize object handle")
 
                 /* Initialize anchor */
@@ -1227,7 +1216,6 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
 
                 break;
             } /* end block */
-#endif
 
         case H5VL_ATTR_RENAME:
             D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "unsupported specific operation")
@@ -1254,9 +1242,7 @@ done:
     } /* end if */
     akey_buf = (char *)DV_free(akey_buf);
 
-    PRINT_ERROR_STACK
-
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_attribute_specific() */
 
 
@@ -1295,8 +1281,6 @@ H5_daos_attribute_close(void *_attr, hid_t dxpl_id, void **req)
     } /* end if */
 
 done:
-    PRINT_ERROR_STACK
-
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_attribute_close() */
 

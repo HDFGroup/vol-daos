@@ -359,9 +359,7 @@ done:
         if(grp && H5_daos_group_close(grp, dxpl_id, req) < 0)
             D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, NULL, "can't close group")
 
-    PRINT_ERROR_STACK
-
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_group_create() */
 
 
@@ -731,10 +729,82 @@ done:
     /* Free memory */
     gcpl_buf = (uint8_t *)DV_free(gcpl_buf);
 
-    PRINT_ERROR_STACK
-
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_group_open() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_group_get
+ *
+ * Purpose:     Performs a group "get" operation
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ * Programmer:  Jordan Henderson
+ *              January, 2019
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_group_get(void *_item, H5VL_group_get_t get_type, hid_t dxpl_id,
+    void **req, va_list arguments)
+{
+    H5_daos_group_t *grp = (H5_daos_group_t *)_item;
+    herr_t           ret_value = SUCCEED;
+
+    if(!_item)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL")
+    if(H5I_GROUP != grp->obj.item.type)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a group")
+
+    switch (get_type) {
+        case H5VL_GROUP_GET_GCPL:
+        case H5VL_GROUP_GET_INFO:
+        default:
+            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported group get operation")
+    } /* end switch */
+
+done:
+    D_FUNC_LEAVE_API
+} /* end H5_daos_group_get() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_group_specific
+ *
+ * Purpose:     Performs a group "specific" operation
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ * Programmer:  Jordan Henderson
+ *              January, 2019
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_group_specific(void *_item, H5VL_group_specific_t specific_type,
+    hid_t dxpl_id, void **req, va_list arguments)
+{
+    H5_daos_group_t *grp = (H5_daos_group_t *)_item;
+    herr_t           ret_value = SUCCEED;
+
+    if(!_item)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL")
+    if(H5I_GROUP != grp->obj.item.type)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a group")
+
+    switch (specific_type) {
+        case H5VL_GROUP_FLUSH:
+        case H5VL_GROUP_REFRESH:
+        default:
+            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported group specific operation")
+    } /* end switch */
+
+done:
+    D_FUNC_LEAVE_API
+} /* end H5_daos_group_specific() */
 
 
 /*-------------------------------------------------------------------------
@@ -774,8 +844,6 @@ H5_daos_group_close(void *_grp, hid_t DV_ATTR_UNUSED dxpl_id,
     } /* end if */
 
 done:
-    PRINT_ERROR_STACK
-
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_group_close() */
 

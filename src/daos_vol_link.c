@@ -324,10 +324,79 @@ done:
     if(link_grp && H5_daos_group_close(link_grp, dxpl_id, req) < 0)
         D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group")
 
-    PRINT_ERROR_STACK
-
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_link_create() */
+
+
+herr_t
+H5_daos_link_copy(void *src_obj, const H5VL_loc_params_t *loc_params1,
+    void *dst_obj, const H5VL_loc_params_t *loc_params2, hid_t lcpl,
+    hid_t lapl, hid_t dxpl_id, void **req)
+{
+    herr_t ret_value = SUCCEED;
+
+    if(!src_obj)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "source object location is NULL")
+    if(!loc_params1)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "first location parameters object is NULL")
+    if(!dst_obj)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "destination object location is NULL")
+    if(!loc_params2)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "second location parameters object is NULL")
+
+    D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "link copying is unsupported")
+
+done:
+    D_FUNC_LEAVE_API
+} /* end H5_daos_link_copy() */
+
+
+herr_t
+H5_daos_link_move(void *src_obj, const H5VL_loc_params_t *loc_params1,
+    void *dst_obj, const H5VL_loc_params_t *loc_params2, hid_t lcpl,
+    hid_t lapl, hid_t dxpl_id, void **req)
+{
+    herr_t ret_value = SUCCEED;
+
+    if(!src_obj)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "source object location is NULL")
+    if(!loc_params1)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "first location parameters object is NULL")
+    if(!dst_obj)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "destination object location is NULL")
+    if(!loc_params2)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "second location parameters object is NULL")
+
+    D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "link moving is unsupported")
+
+done:
+    D_FUNC_LEAVE_API
+} /* end H5_daos_link_move() */
+
+
+herr_t
+H5_daos_link_get(void *_item, const H5VL_loc_params_t *loc_params,
+    H5VL_link_get_t get_type, hid_t dxpl_id, void **req, va_list arguments)
+{
+    H5_daos_item_t *item = (H5_daos_item_t *)_item;
+    herr_t          ret_value = SUCCEED;
+
+    if(!_item)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL")
+    if(!loc_params)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "location parameters object is NULL")
+
+    switch (get_type) {
+        case H5VL_LINK_GET_INFO:
+        case H5VL_LINK_GET_NAME:
+        case H5VL_LINK_GET_VAL:
+        default:
+            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported link get operation")
+    } /* end switch */
+
+done:
+    D_FUNC_LEAVE_API
+} /* end H5_daos_link_get() */
 
 
 /*-------------------------------------------------------------------------
@@ -397,7 +466,6 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
                 break;
             } /* end block */
 
-#ifdef DV_HAVE_LINK_ITERATION
         case H5VL_LINK_ITER:
             {
                 hbool_t recursive = va_arg(arguments, int);
@@ -458,7 +526,7 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
                 linfo.cset = H5T_CSET_ASCII;
 
                 /* Register id for target_grp */
-                if((target_grp_id = H5VLregister(H5I_GROUP, target_grp, H5_DAOS_g)) < 0)
+                if((target_grp_id = H5VLwrap_register(target_grp, H5I_GROUP)) < 0)
                     D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, FAIL, "unable to atomize object handle")
 
                 /* Initialize anchor */
@@ -553,7 +621,6 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
 
                 break;
             } /* end block */
-#endif
 
         case H5VL_LINK_DELETE:
             D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "unsupported specific operation")
@@ -575,9 +642,7 @@ done:
     } /* end else */
     dkey_buf = (char *)DV_free(dkey_buf);
 
-    PRINT_ERROR_STACK
-
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_link_specific() */
 
 

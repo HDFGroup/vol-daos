@@ -488,9 +488,7 @@ done:
     type_buf = DV_free(type_buf);
     tcpl_buf = DV_free(tcpl_buf);
 
-    PRINT_ERROR_STACK
-
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_datatype_commit() */
 
 
@@ -741,9 +739,7 @@ done:
     /* Free memory */
     tinfo_buf_dyn = (uint8_t *)DV_free(tinfo_buf_dyn);
 
-    PRINT_ERROR_STACK
-
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_datatype_open() */
 
 
@@ -798,10 +794,45 @@ H5_daos_datatype_get(void *_dtype, H5VL_datatype_get_t get_type,
     } /* end switch */
 
 done:
-    PRINT_ERROR_STACK
-
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_datatype_get() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_datatype_specific
+ *
+ * Purpose:     Performs a datatype "specific" operation
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ * Programmer:  Jordan Henderson
+ *              January, 2019
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_datatype_specific(void *_item, H5VL_datatype_specific_t specific_type,
+    hid_t dxpl_id, void **req, va_list arguments)
+{
+    H5_daos_dtype_t *dtype = (H5_daos_dtype_t *)_item;
+    herr_t           ret_value = SUCCEED;
+
+    if(!_item)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL")
+    if(H5I_DATATYPE != dtype->obj.item.type)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a datatype")
+
+    switch (specific_type) {
+        case H5VL_DATATYPE_FLUSH:
+        case H5VL_DATATYPE_REFRESH:
+        default:
+            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported datatype specific operation")
+    } /* end switch */
+
+done:
+    D_FUNC_LEAVE_API
+} /* end H5_daos_datatype_specific() */
 
 
 /*-------------------------------------------------------------------------
@@ -843,8 +874,6 @@ H5_daos_datatype_close(void *_dtype, hid_t DV_ATTR_UNUSED dxpl_id,
     } /* end if */
 
 done:
-    PRINT_ERROR_STACK
-
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_datatype_close() */
 

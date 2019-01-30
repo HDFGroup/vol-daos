@@ -67,7 +67,7 @@ static H5VL_class_t H5_daos_g = {
         H5_daos_dataset_read,                /* Plugin Dataset read */
         H5_daos_dataset_write,               /* Plugin Dataset write */
         H5_daos_dataset_get,                 /* Plugin Dataset get */
-        NULL,/*H5_daos_dataset_specific,*/   /* Plugin Dataset specific */
+        H5_daos_dataset_specific,            /* Plugin Dataset specific */
         NULL,                                /* Plugin Dataset optional */
         H5_daos_dataset_close                /* Plugin Dataset close */
     },
@@ -75,14 +75,14 @@ static H5VL_class_t H5_daos_g = {
         H5_daos_datatype_commit,             /* Plugin Datatype commit */
         H5_daos_datatype_open,               /* Plugin Datatype open */
         H5_daos_datatype_get,                /* Plugin Datatype get */
-        NULL,                                /* Plugin Datatype specific */
+        H5_daos_datatype_specific,           /* Plugin Datatype specific */
         NULL,                                /* Plugin Datatype optional */
         H5_daos_datatype_close               /* Plugin Datatype close */
     },
     {                                        /* Plugin File cls */
         H5_daos_file_create,                 /* Plugin File create */
         H5_daos_file_open,                   /* Plugin File open */
-        NULL,/*H5_daos_file_get,*/           /* Plugin File get */
+        H5_daos_file_get,                    /* Plugin File get */
         H5_daos_file_specific,               /* Plugin File specific */
         NULL,                                /* Plugin File optional */
         H5_daos_file_close                   /* Plugin File close */
@@ -90,24 +90,24 @@ static H5VL_class_t H5_daos_g = {
     {                                        /* Plugin Group cls */
         H5_daos_group_create,                /* Plugin Group create */
         H5_daos_group_open,                  /* Plugin Group open */
-        NULL,/*H5_daos_group_get,*/          /* Plugin Group get */
-        NULL,                                /* Plugin Group specific */
+        H5_daos_group_get,                   /* Plugin Group get */
+        H5_daos_group_specific,              /* Plugin Group specific */
         NULL,                                /* Plugin Group optional */
         H5_daos_group_close                  /* Plugin Group close */
     },
     {                                        /* Plugin Link cls */
         H5_daos_link_create,                 /* Plugin Link create */
-        NULL,/*H5_daos_link_copy,*/          /* Plugin Link copy */
-        NULL,/*H5_daos_link_move,*/          /* Plugin Link move */
-        NULL,/*H5_daos_link_get,*/           /* Plugin Link get */
+        H5_daos_link_copy,                   /* Plugin Link copy */
+        H5_daos_link_move,                   /* Plugin Link move */
+        H5_daos_link_get,                    /* Plugin Link get */
         H5_daos_link_specific,               /* Plugin Link specific */
         NULL                                 /* Plugin Link optional */
     },
     {                                        /* Plugin Object cls */
         H5_daos_object_open,                 /* Plugin Object open */
-        NULL,                                /* Plugin Object copy */
-        NULL,                                /* Plugin Object get */
-        NULL,/*H5_daos_object_specific,*/    /* Plugin Object specific */
+        H5_daos_object_copy,                 /* Plugin Object copy */
+        H5_daos_object_get,                  /* Plugin Object get */
+        H5_daos_object_specific,             /* Plugin Object specific */
         H5_daos_object_optional              /* Plugin Object optional */
     },
     {
@@ -747,9 +747,7 @@ done:
             D_DONE_ERROR(H5E_PLIST, H5E_CANTFREE, NULL, "can't free fapl")
     } /* end if */
 
-    PRINT_ERROR_STACK
-
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_fapl_copy() */
 
 
@@ -784,9 +782,7 @@ H5_daos_fapl_free(void *_fa)
     DV_free(fa);
 
 done:
-    PRINT_ERROR_STACK
-
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_fapl_free() */
 
 

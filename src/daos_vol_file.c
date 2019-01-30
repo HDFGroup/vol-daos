@@ -284,9 +284,7 @@ done:
     /* Clean up */
     DV_free(gh_buf_dyn);
 
-    PRINT_ERROR_STACK
-
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_file_create() */
 
 
@@ -593,10 +591,49 @@ done:
     foi_buf_dyn = (char *)DV_free(foi_buf_dyn);
     gcpl_buf = DV_free(gcpl_buf);
 
-    PRINT_ERROR_STACK
-
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_file_open() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_file_get
+ *
+ * Purpose:     Performs a file "get" operation
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ * Programmer:  Jordan Henderson
+ *              January, 2019
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_file_get(void *_item, H5VL_file_get_t get_type, hid_t dxpl_id,
+    void **req, va_list arguments)
+{
+    H5_daos_file_t *file = (H5_daos_file_t *)_item;
+    herr_t          ret_value = SUCCEED;
+
+    if(!_item)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL")
+    if(H5I_FILE != file->item.type)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a file")
+
+    switch (get_type) {
+        case H5VL_FILE_GET_FAPL:
+        case H5VL_FILE_GET_FCPL:
+        case H5VL_FILE_GET_INTENT:
+        case H5VL_FILE_GET_NAME:
+        case H5VL_FILE_GET_OBJ_COUNT:
+        case H5VL_FILE_GET_OBJ_IDS:
+        default:
+            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported file get operation")
+    } /* end switch */
+
+done:
+    D_FUNC_LEAVE_API
+} /* end H5_daos_file_get() */
 
 
 /*-------------------------------------------------------------------------
@@ -616,7 +653,9 @@ done:
 static herr_t
 H5_daos_file_flush(H5_daos_file_t *file)
 {
+#if 0
     int ret;
+#endif
     herr_t ret_value = SUCCEED;    /* Return value */
 
     assert(file);
@@ -700,13 +739,11 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
         /* H5Fis_accessible */
         case H5VL_FILE_IS_ACCESSIBLE:
         default:
-            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported specific operation")
+            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported file specific operation")
     } /* end switch */
 
 done:
-    PRINT_ERROR_STACK
-
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_file_specific() */
 
 
@@ -813,8 +850,6 @@ H5_daos_file_close(void *_file, hid_t dxpl_id, void **req)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTCLOSEFILE, FAIL, "can't close file")
 
 done:
-    PRINT_ERROR_STACK
-
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_file_close() */
 

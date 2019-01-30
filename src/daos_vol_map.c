@@ -74,6 +74,7 @@ H5_daos_map_create(void *_item, H5VL_loc_params_t DV_ATTR_UNUSED *loc_params,
     if(NULL == (map = H5FL_CALLOC(H5_daos_map_t)))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate DAOS map struct")
     map->obj.item.type = H5I_MAP;
+    map->obj.item.open_req = NULL;
     map->obj.item.file = item->file;
     map->obj.item.rc = 1;
     map->obj.obj_oh = DAOS_HDL_INVAL;
@@ -259,6 +260,7 @@ H5_daos_map_open(void *_item, H5VL_loc_params_t *loc_params, const char *name,
     if(NULL == (map = H5FL_CALLOC(H5_daos_map_t)))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate DAOS map struct")
     map->obj.item.type = H5I_MAP;
+    map->obj.item.open_req = NULL;
     map->obj.item.file = item->file;
     map->obj.item.rc = 1;
     map->obj.obj_oh = DAOS_HDL_INVAL;
@@ -930,6 +932,8 @@ H5_daos_map_close(void *_map, hid_t DV_ATTR_UNUSED dxpl_id,
 
     if(--map->obj.item.rc == 0) {
         /* Free map data structures */
+        if(map->obj.item.open_req)
+            H5_daos_req_free_int(map->obj.item.open_req);
         if(!daos_handle_is_inval(map->obj.obj_oh))
             if(0 != (ret = daos_obj_close(map->obj.obj_oh, NULL /*event*/)))
                 D_DONE_ERROR(H5E_MAP, H5E_CANTCLOSEOBJ, FAIL, "can't close map DAOS object: %s", H5_daos_err_to_string(ret))

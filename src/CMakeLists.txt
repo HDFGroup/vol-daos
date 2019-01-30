@@ -29,6 +29,7 @@ set (DAOS_VOL_SRCS
     ${DAOS_VOL_SRC_DIR}/daos_vol_group.c
     ${DAOS_VOL_SRC_DIR}/daos_vol_link.c
     ${DAOS_VOL_SRC_DIR}/daos_vol_obj.c
+    ${DAOS_VOL_SRC_DIR}/daos_vol_req.c
     ${DAOS_VOL_SRC_DIR}/daos_vol_type.c
 )
 

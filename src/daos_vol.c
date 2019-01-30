@@ -116,7 +116,7 @@ static H5VL_class_t H5_daos_g = {
         NULL,                                /* Plugin Request cancel */
         NULL,                                /* Plugin Request specific */
         NULL,                                /* Plugin Request optional */
-        NULL,                                /* Plugin Request free */
+        H5_daos_req_free                     /* Plugin Request free */
     },
     NULL                                     /* Plugin optional */
 };
@@ -1049,11 +1049,171 @@ done:
 
 
 /*-------------------------------------------------------------------------
+ * Function:    H5_daos_tx_comp_cb
+ *
+ * Purpose:     Callback for daos_tx_commit()/abort() which closes the
+ *              transaction.
+ *
+ * Return:      Success:        0
+ *              Failure:        1
+ *
+ * Programmer:  Neil Fortner
+ *              January, 2019
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_tx_comp_cb(tse_task_t *task, void *args)
+{
+    daos_handle_t *th = (daos_handle_t *)args;
+    int ret;
+    int ret_value = 0;
+
+    if(0 != (ret = daos_tx_close(*th, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_IO, H5E_CLOSEERROR, ret, "can't close transaction: %s", H5_daos_err_to_string(ret))
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_tx_comp_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_h5op_finalize
+ *
+ * Purpose:     Task function which is called when an HDF5 operation is
+ *              complete.  Commits the transaction if one was opened for
+ *              the operation, then releases its reference to req.
+ *
+ * Return:      Success:        0
+ *              Failure:        1
+ *
+ * Programmer:  Neil Fortner
+ *              January, 2019
+ *
+ *-------------------------------------------------------------------------
+ */
+int
+H5_daos_h5op_finalize(tse_task_t *task)
+{
+    H5_daos_req_t *req;
+    hbool_t close_tx = FALSE;
+    int ret;
+    int ret_value = 0;
+
+    /* Get private data */
+    req = tse_task_get_priv(task);
+
+    assert(!req->file->closed);
+
+    /* Check for error */
+    if(req->status < H5_DAOS_INCOMPLETE) {
+        /* Print error message */
+        D_DONE_ERROR(H5E_IO, H5E_CANTINIT, req->status, "open failed in task \"%s\": %s", req->failed_task, H5_daos_err_to_string(req->status))
+
+        /* Abort transaction if opened */
+        if(req->th_open) {
+            tse_task_t *abort_task;
+            daos_tx_abort_t *abort_args;
+
+            /* Create task */
+            if(0 != (ret = daos_task_create(DAOS_OPC_TX_ABORT, &req->file->sched, 0, NULL, &abort_task))) {
+                close_tx = TRUE;
+                req->th_open = FALSE;
+                D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, ret, "can't create task to abort transaction: %s", H5_daos_err_to_string(ret))
+            } /* end if */
+
+            /* Set arguments */
+            abort_args = daos_task_get_args(abort_task);
+            abort_args->th = req->th;
+
+            /* Register callback to close transaction */
+            if(0 != (ret = tse_task_register_comp_cb(abort_task, H5_daos_tx_comp_cb, &req->th, sizeof(req->th)))) {
+                close_tx = TRUE;
+                req->th_open = FALSE;
+                D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, ret, "can't register callback to close transaction: %s", H5_daos_err_to_string(ret))
+            } /* end if */
+
+            /* Register dependency for this task */
+            if(0 != (ret = tse_task_register_deps(task, 1, &abort_task))) {
+                close_tx = TRUE;
+                req->th_open = FALSE;
+                D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, ret, "can't register dependency on task to abort transaction: %s", H5_daos_err_to_string(ret))
+            } /* end if */
+
+            /* Schedule abort task */
+            if(0 != (ret = tse_task_schedule(abort_task, false))) {
+                close_tx = TRUE;
+                tse_task_complete(abort_task, ret_value);
+                D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, ret, "can't schedule task to abort transaction: %s", H5_daos_err_to_string(ret))
+            } /* end if */
+        } /* end if */
+    } /* end if */
+    else {
+        /* Commit transaction if opened */
+        if(req->th_open) {
+            tse_task_t *commit_task;
+            daos_tx_commit_t *commit_args;
+
+            /* Create task */
+            if(0 != (ret = daos_task_create(DAOS_OPC_TX_COMMIT, &req->file->sched, 0, NULL, &commit_task))) {
+                close_tx = TRUE;
+                req->th_open = FALSE;
+                D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, ret, "can't create task to commit transaction: %s", H5_daos_err_to_string(ret))
+            } /* end if */
+
+            /* Set arguments */
+            commit_args = daos_task_get_args(commit_task);
+            commit_args->th = req->th;
+
+            /* Register callback to close transaction */
+            if(0 != (ret = tse_task_register_comp_cb(commit_task, H5_daos_tx_comp_cb, &req->th, sizeof(req->th)))) {
+                close_tx = TRUE;
+                req->th_open = FALSE;
+                D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, ret, "can't register callback to close transaction: %s", H5_daos_err_to_string(ret))
+            } /* end if */
+
+            /* Register dependency for this task */
+            if(0 != (ret = tse_task_register_deps(task, 1, &commit_task))) {
+                close_tx = TRUE;
+                req->th_open = FALSE;
+                D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, ret, "can't register dependency on task to commit transaction: %s", H5_daos_err_to_string(ret))
+            } /* end if */
+
+            /* Schedule commit task */
+            if(0 != (ret = tse_task_schedule(commit_task, false))) {
+                close_tx = TRUE;
+                tse_task_complete(commit_task, ret_value);
+                D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, ret, "can't schedule task to commit transaction: %s", H5_daos_err_to_string(ret))
+            } /* end if */
+        } /* end if */
+    } /* end else */
+
+done:
+    if(req->th_open)
+        /* Progress schedule */
+        tse_sched_progress(&req->file->sched);
+    else
+        tse_task_complete(task, ret_value);
+
+    if(close_tx) {
+        if(0 != (ret = daos_tx_close(req->th, NULL /*event*/)))
+            D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, ret, "can't close transaction: %s", H5_daos_err_to_string(ret))
+        req->th_open = FALSE;
+    } /* end if */
+
+    /* Release our reference to req */
+    H5_daos_req_free_int(req);
+
+    D_FUNC_LEAVE
+} /* end H5_daos_h5op_finalize() */
+
+
+/*-------------------------------------------------------------------------
  * Function:    H5_daos_md_update_prep_cb
  *
  * Purpose:     Prepare callback for asynchronous daos_obj_update for
- *              metadata writes.  Currently just sets arguments for
- *              daos_obj_update.
+ *              metadata writes.  Currently checks for errors from
+ *              previous tasks then sets arguments for daos_obj_update.
  *
  * Return:      0 (Never fails)
  *
@@ -1067,12 +1227,15 @@ H5_daos_md_update_prep_cb(tse_task_t *task, void DV_ATTR_UNUSED *args)
 {
     H5_daos_md_update_cb_ud_t *udata;
     daos_obj_update_t *update_args;
-    int ret;
 
     /* Get private data */
     udata = tse_task_get_priv(task);
 
-    /* Handle errors DSINC */
+    assert(!udata->req->file->closed);
+
+    /* Handle errors */
+    if(udata->req->status < H5_DAOS_INCOMPLETE)
+        tse_task_complete(task, H5_DAOS_PRE_ERROR);
 
     /* Set update task arguments */
     update_args = daos_task_get_args(task);
@@ -1091,7 +1254,8 @@ H5_daos_md_update_prep_cb(tse_task_t *task, void DV_ATTR_UNUSED *args)
  * Function:    H5_daos_md_update_comp_cb
  *
  * Purpose:     Complete callback for asynchronous daos_obj_update for
- *              metadata writes.  Currently just frees private data.
+ *              metadata writes.  Currently checks for a failed task then
+ *              frees private data.
  *
  * Return:      0 (Never fails)
  *
@@ -1105,14 +1269,20 @@ H5_daos_md_update_comp_cb(tse_task_t *task, void DV_ATTR_UNUSED *args)
 {
     H5_daos_md_update_cb_ud_t *udata;
     unsigned i;
-    int ret;
 
     /* Get private data */
     udata = tse_task_get_priv(task);
 
-    /* Handle errors DSINC */
+    assert(!udata->req->file->closed);
+
+    /* Handle errors */
+    if(task->dt_result < H5_DAOS_PRE_ERROR) {
+        udata->req->status = task->dt_result;
+        udata->req->failed_task = udata->task_name;
+    } /* end if */
 
     /* Free private data */
+    H5_daos_req_free_int(udata->req);
     if(udata->free_dkey)
         DV_free(udata->dkey.iov_buf);
     if(udata->free_akeys)

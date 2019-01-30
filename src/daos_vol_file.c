@@ -61,6 +61,7 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     uint8_t *p;
     hbool_t must_bcast = FALSE;
     hbool_t sched_init = FALSE;
+    H5_daos_req_t *int_req;
     bool is_empty;
     int ret;
     void *ret_value = NULL;
@@ -87,16 +88,18 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     /* allocate the file object that is returned to the user */
     if(NULL == (file = H5FL_CALLOC(H5_daos_file_t)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, NULL, "can't allocate DAOS file struct")
+    file->item.open_req = NULL;
+    file->closed = FALSE;
     file->glob_md_oh = DAOS_HDL_INVAL;
     file->root_grp = NULL;
     file->fcpl_id = FAIL;
     file->fapl_id = FAIL;
     file->vol_id = FAIL;
+    file->item.rc = 1;
 
     /* Fill in fields of file we know */
     file->item.type = H5I_FILE;
     file->item.file = file;
-    file->item.rc = 1;
     if(NULL == (file->file_name = strdup(name)))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't copy file name")
     file->flags = flags;
@@ -137,6 +140,17 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
 
     /* Generate oid for global metadata object */
     daos_obj_generate_id(&gmd_oid, DAOS_OF_DKEY_HASHED | DAOS_OF_AKEY_HASHED, DAOS_OC_TINY_RW);
+
+    /* Start H5 operation */
+    if(NULL == (int_req = (H5_daos_req_t *)DV_malloc(sizeof(H5_daos_req_t))))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for request")
+    int_req->th = DAOS_TX_NONE;
+    int_req->th_open = FALSE;
+    int_req->file = file;
+    int_req->file->item.rc++;
+    int_req->rc = 1;
+    int_req->status = H5_DAOS_INCOMPLETE;
+    int_req->failed_task = NULL;
 
     if(file->my_rank == 0) {
         /* If there are other processes and we fail we must bcast anyways so they
@@ -252,13 +266,16 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     } /* end else */
 
     /* Create root group */
-    if(NULL == (file->root_grp = (H5_daos_group_t *)H5_daos_group_create_helper(file, fcpl_id, H5P_GROUP_ACCESS_DEFAULT, dxpl_id, req, NULL, NULL, 0, TRUE)))
+    if(NULL == (file->root_grp = (H5_daos_group_t *)H5_daos_group_create_helper(file, fcpl_id, H5P_GROUP_ACCESS_DEFAULT, dxpl_id, int_req, NULL, NULL, 0, TRUE)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create root group")
     assert(file->root_grp->obj.oid.lo == (uint64_t)1);
 
     ret_value = (void *)file;
 
 done:
+    /* Close internal request */
+    H5_daos_req_free_int(int_req);
+
     /* Wait for scheduler to be empty *//* Change to custom progress function DSINC */
     if(sched_init && (ret = daos_progress(&file->sched, DAOS_EQ_WAIT, &is_empty)) < 0)
         D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't progress scheduler: %s", H5_daos_err_to_string(ret))
@@ -345,19 +362,21 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "write access requested to snapshot - disallowed")
 #endif
 
-    /* allocate the file object that is returned to the user */
+    /* Allocate the file object that is returned to the user */
     if(NULL == (file = H5FL_CALLOC(H5_daos_file_t)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, NULL, "can't allocate DAOS file struct")
+    file->item.open_req = NULL;
+    file->closed = FALSE;
     file->glob_md_oh = DAOS_HDL_INVAL;
     file->root_grp = NULL;
     file->fcpl_id = FAIL;
     file->fapl_id = FAIL;
     file->vol_id = FAIL;
+    file->item.rc = 1;
 
     /* Fill in fields of file we know */
     file->item.type = H5I_FILE;
     file->item.file = file;
-    file->item.rc = 1;
     if(NULL == (file->file_name = strdup(name)))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't copy file name")
     file->flags = flags;
@@ -453,7 +472,7 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
             D_GOTO_ERROR(H5E_FILE, H5E_CANTDECODE, NULL, "can't read max OID from global metadata object: %s", H5_daos_err_to_string(ret))
 
         /* Open root group */
-        if(NULL == (file->root_grp = (H5_daos_group_t *)H5_daos_group_open_helper(file, root_grp_oid, H5P_GROUP_ACCESS_DEFAULT, dxpl_id, req, (file->num_procs > 1) ? &gcpl_buf : NULL, &gcpl_len)))
+        if(NULL == (file->root_grp = (H5_daos_group_t *)H5_daos_group_open_helper(file, root_grp_oid, H5P_GROUP_ACCESS_DEFAULT, dxpl_id, NULL, (file->num_procs > 1) ? &gcpl_buf : NULL, &gcpl_len)))
             D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't open root group")
 
         /* Bcast global handles if there are other processes */
@@ -558,7 +577,7 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
             D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENFILE, NULL, "can't open global metadata object: %s", H5_daos_err_to_string(ret))
 
         /* Reconstitute root group from revieved GCPL */
-        if(NULL == (file->root_grp = (H5_daos_group_t *)H5_daos_group_reconstitute(file, root_grp_oid, p + gh_len, H5P_GROUP_ACCESS_DEFAULT, dxpl_id, req)))
+        if(NULL == (file->root_grp = (H5_daos_group_t *)H5_daos_group_reconstitute(file, root_grp_oid, p + gh_len, H5P_GROUP_ACCESS_DEFAULT, dxpl_id, NULL)))
             D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't reconstitute root group")
     } /* end else */
 
@@ -711,6 +730,35 @@ done:
 
 
 /*-------------------------------------------------------------------------
+ * Function:    H5_daos_file_decref
+ *
+ * Purpose:     Decrements the reference count on an HDF5/DAOS file,
+ *              freeing it if the ref count reaches 0.
+ *
+ * Return:      Success:        the file id. 
+ *              Failure:        NULL
+ *
+ * Programmer:  Neil Fortner
+ *              January, 2019
+ *
+ *-------------------------------------------------------------------------
+ */
+void
+H5_daos_file_decref(H5_daos_file_t *file)
+{
+    assert(file);
+
+    if(--file->item.rc == 0) {
+        /* Free file data structure */
+        assert(file->closed);
+        H5FL_FREE(H5_daos_file_t, file);
+    } /* end if */
+
+    return;
+} /* end H5_daos_file_decref() */
+
+
+/*-------------------------------------------------------------------------
  * Function:    H5_daos_file_close_helper
  *
  * Purpose:     Closes a daos HDF5 file.
@@ -732,6 +780,9 @@ H5_daos_file_close_helper(H5_daos_file_t *file, hid_t dxpl_id, void **req)
     assert(file);
 
     /* Free file data structures */
+    if(file->item.open_req)
+        H5_daos_req_free_int(file->item.open_req);
+    file->item.open_req = NULL;
     if(file->file_name)
         file->file_name = DV_free(file->file_name);
     if(file->comm || file->info)
@@ -765,8 +816,11 @@ H5_daos_file_close_helper(H5_daos_file_t *file, hid_t dxpl_id, void **req)
     if(0 != (ret = crt_context_destroy(file->crt_ctx, 1)))
         D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, FAIL, "can't destroy CART context: %s", H5_daos_err_to_string(ret))
 
-    /* Free file struct */
-    file = H5FL_FREE(H5_daos_file_t, file);
+    /* File is closed */
+    file->closed = TRUE;
+
+    /* Decrement ref count on file struct */
+    H5_daos_file_decref(file);
 
     D_FUNC_LEAVE
 } /* end H5_daos_file_close_helper() */

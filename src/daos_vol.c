@@ -335,14 +335,18 @@ H5_daos_init(hid_t vipl_id)
         if(NULL != (uuid_str = getenv("DAOS_POOL"))) {
             if(uuid_parse(uuid_str, pool_uuid) < 0)
                 D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "failed to parse pool UUID from environment")
+#ifdef DV_PLUGIN_DEBUG
             printf("POOL UUID = %s\n", uuid_str);
+#endif
         }
         else {
             char uuid_buf[37];
 
             memcpy(pool_uuid, pool_uuid_g, sizeof(uuid_t));
             uuid_unparse(pool_uuid, uuid_buf);
+#ifdef DV_PLUGIN_DEBUG
             printf("POOL UUID = %s\n", uuid_buf);
+#endif
         }
 
         if(NULL != (svcl_str = getenv("DAOS_SVCL"))) {
@@ -352,7 +356,9 @@ H5_daos_init(hid_t vipl_id)
             if(NULL == (svcl = daos_rank_list_parse(svcl_str, ":")))
                 D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "failed to parse SVC list from environment")
         }
+#ifdef DV_PLUGIN_DEBUG
         printf("SVC LIST = %s\n", svcl_str);
+#endif
 
         /* Connect to the pool */
         if(0 != (ret = daos_pool_connect(pool_uuid, pool_grp_g, svcl, DAOS_PC_RW, &H5_daos_poh_g, &pool_info, NULL /*event*/)))

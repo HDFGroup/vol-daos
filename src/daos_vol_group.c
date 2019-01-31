@@ -755,8 +755,8 @@ H5_daos_group_get(void *_item, H5VL_group_get_t get_type, hid_t dxpl_id,
 
     if(!_item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL")
-    if(H5I_GROUP != grp->obj.item.type)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a group")
+    if(H5I_FILE != grp->obj.item.type && H5I_GROUP != grp->obj.item.type)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a file or group")
 
     switch (get_type) {
         case H5VL_GROUP_GET_GCPL:
@@ -792,8 +792,8 @@ H5_daos_group_specific(void *_item, H5VL_group_specific_t specific_type,
 
     if(!_item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL")
-    if(H5I_GROUP != grp->obj.item.type)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a group")
+    if(H5I_FILE != grp->obj.item.type && H5I_GROUP != grp->obj.item.type)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a file or group")
 
     switch (specific_type) {
         case H5VL_GROUP_FLUSH:

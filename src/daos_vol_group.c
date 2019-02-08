@@ -27,6 +27,8 @@
 #include "util/daos_vol_err.h"  /* DAOS connector error handling           */
 #include "util/daos_vol_mem.h"  /* DAOS connector memory management        */
 
+static herr_t H5_daos_get_group_info(H5_daos_group_t *grp, H5G_info_t *group_info);
+
 
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_group_traverse
@@ -759,8 +761,29 @@ H5_daos_group_get(void *_item, H5VL_group_get_t get_type, hid_t dxpl_id,
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a file or group")
 
     switch (get_type) {
+        /* H5Gget_create_plist */
         case H5VL_GROUP_GET_GCPL:
+        {
+            hid_t *ret_id = va_arg(arguments, hid_t *);
+
+            if((*ret_id = H5Pcopy(grp->gcpl_id)) < 0)
+                D_GOTO_ERROR(H5E_PLIST, H5E_CANTCOPY, FAIL, "can't get group's GCPL")
+
+            break;
+        } /* H5VL_GROUP_GET_GCPL */
+
+        /* H5Gget_info(_by_name/by_idx) */
         case H5VL_GROUP_GET_INFO:
+        {
+            H5VL_loc_params_t  loc_params = va_arg(arguments, H5VL_loc_params_t);
+            H5G_info_t        *group_info = va_arg(arguments, H5G_info_t *);
+
+            if((H5_daos_get_group_info(grp, group_info)) < 0)
+                D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, FAIL, "can't get group's info")
+
+            break;
+        } /* H5VL_GROUP_GET_INFO */
+
         default:
             D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported group get operation")
     } /* end switch */
@@ -796,7 +819,15 @@ H5_daos_group_specific(void *_item, H5VL_group_specific_t specific_type,
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a file or group")
 
     switch (specific_type) {
+        /* H5Gflush */
         case H5VL_GROUP_FLUSH:
+        {
+            if (H5_daos_group_flush(grp) < 0)
+                D_GOTO_ERROR(H5E_SYM, H5E_WRITEERROR, FAIL, "can't flush group")
+
+            break;
+        } /* H5VL_GROUP_FLUSH */
+
         case H5VL_GROUP_REFRESH:
         default:
             D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported group specific operation")
@@ -847,3 +878,71 @@ done:
     D_FUNC_LEAVE_API
 } /* end H5_daos_group_close() */
 
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_group_flush
+ *
+ * Purpose:     Flushes a DAOS group.  Currently a no-op, may create a
+ *              snapshot in the future.
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ * Programmer:  Jordan Henderson
+ *              February, 2019
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_group_flush(H5_daos_group_t *grp)
+{
+    herr_t ret_value = SUCCEED;    /* Return value */
+
+    assert(grp);
+
+    /* Nothing to do if no write intent */
+    if(!(grp->obj.item.file->flags & H5F_ACC_RDWR))
+        D_GOTO_DONE(SUCCEED)
+
+    /* Progress scheduler until empty? DSINC */
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_group_flush() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_get_group_info
+ *
+ * Purpose:     Retrieves a group's info, storing the results in the
+ *              supplied H5G_info_t.
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ * Programmer:  Jordan Henderson
+ *              February, 2019
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_get_group_info(H5_daos_group_t *grp, H5G_info_t *group_info)
+{
+    H5G_info_t local_grp_info;
+    herr_t     ret_value = SUCCEED;
+
+    assert(grp);
+    assert(group_info);
+
+    local_grp_info.storage_type = H5G_STORAGE_TYPE_UNKNOWN;
+    local_grp_info.nlinks = 0;
+    local_grp_info.max_corder = 0;
+    local_grp_info.mounted = 0;
+
+    /* TODO: retrieve number of links in group */
+
+    memcpy(group_info, local_grp_info, sizeof(*group_info));
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_get_group_info() */

@@ -374,6 +374,10 @@ H5_daos_group_create(void *_item,
     int_req->status = H5_DAOS_INCOMPLETE;
     int_req->failed_task = NULL;
 
+    /* Start transaction */
+    if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't start transaction")
+
     /* Traverse the path */
     if(name && (!collective || (item->file->my_rank == 0)))
         if(NULL == (target_grp = H5_daos_group_traverse(item, name, dxpl_id, req, &target_name, NULL, NULL)))

@@ -50,11 +50,15 @@ H5_daos_map_create(void *_item, H5VL_loc_params_t DV_ATTR_UNUSED *loc_params,
     void *ktype_buf = NULL;
     void *vtype_buf = NULL;
     hbool_t collective;
+    tse_task_t *finalize_task;
+    int finalize_ndeps = 0;
+    tse_task_t *finalize_deps[2];
+    H5_daos_req_t *int_req;
     int ret;
     void *ret_value = NULL;
 
     if(!_item)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "map parent object is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "datatype parent object is NULL")
 
     /* Check for write access */
     if(!(item->file->flags & H5F_ACC_RDWR))
@@ -66,11 +70,23 @@ H5_daos_map_create(void *_item, H5VL_loc_params_t DV_ATTR_UNUSED *loc_params,
         if(H5Pget_all_coll_metadata_ops(mapl_id, &collective) < 0)
             D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, NULL, "can't get collective access property")
 
+    /* Start H5 operation */
+    if(NULL == (int_req = (H5_daos_req_t *)DV_malloc(sizeof(H5_daos_req_t))))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for request")
+    int_req->th = DAOS_TX_NONE;
+    int_req->th_open = FALSE;
+    int_req->file = item->file;
+    int_req->file->item.rc++;
+    int_req->rc = 1;
+    int_req->status = H5_DAOS_INCOMPLETE;
+    int_req->failed_task = NULL;
+
     /* Allocate the map object that is returned to the user */
     if(NULL == (map = H5FL_CALLOC(H5_daos_map_t)))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate DAOS map struct")
     map->obj.item.type = H5I_MAP;
-    map->obj.item.open_req = NULL;
+    map->obj.item.open_req = int_req;
+    int_req->rc++;
     map->obj.item.file = item->file;
     map->obj.item.rc = 1;
     map->obj.obj_oh = DAOS_HDL_INVAL;
@@ -83,7 +99,6 @@ H5_daos_map_create(void *_item, H5VL_loc_params_t DV_ATTR_UNUSED *loc_params,
     /* Create map and write metadata if this process should */
     if(!collective || (item->file->my_rank == 0)) {
         const char *target_name = NULL;
-        H5_daos_link_val_t link_val;
         daos_key_t dkey;
         daos_iod_t iod[2];
         daos_sg_list_t sgl[2];
@@ -161,11 +176,15 @@ H5_daos_map_create(void *_item, H5VL_loc_params_t DV_ATTR_UNUSED *loc_params,
             D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't write metadata to map: %s", H5_daos_err_to_string(ret))
 
         /* Create link to map */
-        if(name) {
+        if(target_grp) {
+            H5_daos_link_val_t link_val;
+
             link_val.type = H5L_TYPE_HARD;
             link_val.target.hard = map->obj.oid;
-            if(H5_daos_link_write(target_grp, target_name, strlen(target_name), &link_val) < 0)
+            if(H5_daos_link_write(target_grp, target_name, strlen(target_name), &link_val, int_req, &link_write_task) < 0)
                 D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create link to map")
+            finalize_deps[finalize_ndeps] = link_write_task;
+            finalize_ndeps++;
         } /* end if */
     } /* end if */
     else {
@@ -188,14 +207,45 @@ H5_daos_map_create(void *_item, H5VL_loc_params_t DV_ATTR_UNUSED *loc_params,
 
 done:
     /* Close target group */
-    if(target_grp && H5_daos_group_close(target_grp, dxpl_id, req) < 0)
+    if(target_grp && H5_daos_group_close(target_grp, dxpl_id, NULL) < 0)
         D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't close group")
+
+    if(int_req) {
+        /* Create task to finalize H5 operation */
+        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &item->file->sched, int_req, &finalize_task)))
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+        /* Register dependencies (if any) */
+        else if(finalize_ndeps > 0 && 0 != (ret = tse_task_register_deps(finalize_task, finalize_ndeps, finalize_deps)))
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+        /* Schedule finalize task */
+        else if(0 != (ret = tse_task_schedule(finalize_task, false)))
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+        else
+            /* finalize_task now owns a reference to req */
+            int_req->rc++;
+
+        /* Block until operation completes */
+        {
+            bool is_empty;
+
+            /* Wait for scheduler to be empty *//* Change to custom progress function DSINC */
+            if(0 != (ret = daos_progress(&item->file->sched, DAOS_EQ_WAIT, &is_empty)))
+                D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't progress scheduler: %s", H5_daos_err_to_string(ret))
+
+            /* Check for failure */
+            if(int_req->status < 0)
+                D_DONE_ERROR(H5E_MAP, H5E_CANTOPERATE, NULL, "map creation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status))
+        } /* end block */
+
+        /* Close internal request */
+        H5_daos_req_free_int(int_req);
+    } /* end if */
 
     /* Cleanup on failure */
     /* Destroy DAOS object if created before failure DSINC */
     if(NULL == ret_value)
         /* Close map */
-        if(map && H5_daos_map_close(map, dxpl_id, req) < 0)
+        if(map && H5_daos_map_close(map, dxpl_id, NULL) < 0)
             D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't close map");
 
     /* Free memory */

@@ -91,6 +91,10 @@ H5_daos_dataset_create(void *_item,
     void *space_buf = NULL;
     void *dcpl_buf = NULL;
     hbool_t collective;
+    tse_task_t *finalize_task;
+    int finalize_ndeps = 0;
+    tse_task_t *finalize_deps[2];
+    H5_daos_req_t *int_req;
     int ret;
     void *ret_value = NULL;
 
@@ -113,11 +117,23 @@ H5_daos_dataset_create(void *_item,
     if(H5Pget(dcpl_id, H5VL_PROP_DSET_SPACE_ID, &space_id) < 0)
         D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, NULL, "can't get property value for dataspace ID")
 
+    /* Start H5 operation */
+    if(NULL == (int_req = (H5_daos_req_t *)DV_malloc(sizeof(H5_daos_req_t))))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for request")
+    int_req->th = DAOS_TX_NONE;
+    int_req->th_open = FALSE;
+    int_req->file = item->file;
+    int_req->file->item.rc++;
+    int_req->rc = 1;
+    int_req->status = H5_DAOS_INCOMPLETE;
+    int_req->failed_task = NULL;
+
     /* Allocate the dataset object that is returned to the user */
     if(NULL == (dset = H5FL_CALLOC(H5_daos_dset_t)))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate DAOS dataset struct")
     dset->obj.item.type = H5I_DATASET;
-    dset->obj.item.open_req = NULL;
+    dset->obj.item.open_req = int_req;
+    int_req->rc++;
     dset->obj.item.file = item->file;
     dset->obj.item.rc = 1;
     dset->obj.obj_oh = DAOS_HDL_INVAL;
@@ -132,7 +148,6 @@ H5_daos_dataset_create(void *_item,
     /* Create dataset and write metadata if this process should */
     if(!collective || (item->file->my_rank == 0)) {
         const char *target_name = NULL;
-        H5_daos_link_val_t link_val;
         daos_key_t dkey;
         daos_iod_t iod[3];
         daos_sg_list_t sgl[3];
@@ -140,6 +155,7 @@ H5_daos_dataset_create(void *_item,
         size_t type_size = 0;
         size_t space_size = 0;
         size_t dcpl_size = 0;
+        tse_task_t *link_write_task;
 
         /* Traverse the path */
         if(name)
@@ -225,11 +241,15 @@ H5_daos_dataset_create(void *_item,
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't write metadata to dataset: %s", H5_daos_err_to_string(ret))
 
         /* Create link to dataset */
-        if(name) {
+        if(target_grp) {
+            H5_daos_link_val_t link_val;
+
             link_val.type = H5L_TYPE_HARD;
             link_val.target.hard = dset->obj.oid;
-            if(H5_daos_link_write(target_grp, target_name, strlen(target_name), &link_val) < 0)
+            if(H5_daos_link_write(target_grp, target_name, strlen(target_name), &link_val, int_req, &link_write_task) < 0)
                 D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't create link to dataset")
+            finalize_deps[finalize_ndeps] = link_write_task;
+            finalize_ndeps++;
         } /* end if */
     } /* end if */
     else {
@@ -250,29 +270,60 @@ H5_daos_dataset_create(void *_item,
 
     /* Finish setting up dataset struct */
     if((dset->type_id = H5Tcopy(type_id)) < 0)
-        D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, NULL, "failed to copy datatype")
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, NULL, "failed to copy datatype")
     if((dset->space_id = H5Scopy(space_id)) < 0)
-        D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, NULL, "failed to copy dataspace")
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, NULL, "failed to copy dataspace")
     if(H5Sselect_all(dset->space_id) < 0)
         D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTDELETE, NULL, "can't change selection")
     if((dset->dcpl_id = H5Pcopy(dcpl_id)) < 0)
-        D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, NULL, "failed to copy dcpl")
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, NULL, "failed to copy dcpl")
     if((dset->dapl_id = H5Pcopy(dapl_id)) < 0)
-        D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, NULL, "failed to copy dapl")
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, NULL, "failed to copy dapl")
 
     /* Set return value */
     ret_value = (void *)dset;
 
 done:
     /* Close target group */
-    if(target_grp && H5_daos_group_close(target_grp, dxpl_id, req) < 0)
+    if(target_grp && H5_daos_group_close(target_grp, dxpl_id, NULL) < 0)
         D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, NULL, "can't close group")
+
+    if(int_req) {
+        /* Create task to finalize H5 operation */
+        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &item->file->sched, int_req, &finalize_task)))
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+        /* Register dependencies (if any) */
+        else if(finalize_ndeps > 0 && 0 != (ret = tse_task_register_deps(finalize_task, finalize_ndeps, finalize_deps)))
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+        /* Schedule finalize task */
+        else if(0 != (ret = tse_task_schedule(finalize_task, false)))
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+        else
+            /* finalize_task now owns a reference to req */
+            int_req->rc++;
+
+        /* Block until operation completes */
+        {
+            bool is_empty;
+
+            /* Wait for scheduler to be empty *//* Change to custom progress function DSINC */
+            if(0 != (ret = daos_progress(&item->file->sched, DAOS_EQ_WAIT, &is_empty)))
+                D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't progress scheduler: %s", H5_daos_err_to_string(ret))
+
+            /* Check for failure */
+            if(int_req->status < 0)
+                D_DONE_ERROR(H5E_DATASET, H5E_CANTOPERATE, NULL, "dataset creation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status))
+        } /* end block */
+
+        /* Close internal request */
+        H5_daos_req_free_int(int_req);
+    } /* end if */
 
     /* Cleanup on failure */
     /* Destroy DAOS object if created before failure DSINC */
     if(NULL == ret_value)
         /* Close dataset */
-        if(dset && H5_daos_dataset_close(dset, dxpl_id, req) < 0)
+        if(dset && H5_daos_dataset_close(dset, dxpl_id, NULL) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, NULL, "can't close dataset")
 
     /* Free memory */

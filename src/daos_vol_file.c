@@ -62,7 +62,6 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     hbool_t must_bcast = FALSE;
     hbool_t sched_init = FALSE;
     H5_daos_req_t *int_req;
-    bool is_empty;
     int ret;
     void *ret_value = NULL;
 
@@ -273,12 +272,23 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     ret_value = (void *)file;
 
 done:
-    /* Close internal request */
-    H5_daos_req_free_int(int_req);
+    if(int_req) {
+        /* Block until operation completes */
+        {
+            bool is_empty;
 
-    /* Wait for scheduler to be empty *//* Change to custom progress function DSINC */
-    if(sched_init && (ret = daos_progress(&file->sched, DAOS_EQ_WAIT, &is_empty)) < 0)
-        D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't progress scheduler: %s", H5_daos_err_to_string(ret))
+            /* Wait for scheduler to be empty *//* Change to custom progress function DSINC */
+            if(sched_init && (ret = daos_progress(&file->sched, DAOS_EQ_WAIT, &is_empty)) < 0)
+                D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't progress scheduler: %s", H5_daos_err_to_string(ret))
+
+            /* Check for failure */
+            if(int_req->status < 0)
+                D_DONE_ERROR(H5E_SYM, H5E_CANTOPERATE, NULL, "file creation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status))
+        } /* end block */
+    
+        /* Close internal request */
+        H5_daos_req_free_int(int_req);
+    } /* end if */
 
     /* Cleanup on failure */
     if(NULL == ret_value) {

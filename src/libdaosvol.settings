@@ -1,0 +1,50 @@
+	    SUMMARY OF THE DAOS VOL CONFIGURATION
+	    =====================================
+
+General Information:
+-------------------
+               DAOS VOL Version: 1.0.0
+                  Configured on: Wed Jan 30 14:36:10 CST 2019
+                  Configured by: nfortne2@ummon.ad.hdfgroup.org
+                    Host system: x86_64-pc-linux-gnu
+              Uname information: Linux ummon.ad.hdfgroup.org 4.20.0-1-default #1 SMP PREEMPT Tue Jan 8 08:38:29 UTC 2019 (34f009a) x86_64 x86_64 x86_64 GNU/Linux
+                       Byte sex: little-endian
+             Installation point: /home/nfortne2/daos-vol/daos_vol_build
+
+Compiling Options:
+------------------
+                     Build Mode: debug
+              Debugging Symbols: yes
+                        Asserts: yes
+                      Profiling: no
+             Optimization Level: debug
+
+Linking Options:
+----------------
+                      Libraries: 
+  Statically Linked Executables: 
+                        LDFLAGS: 
+                     DV_LDFLAGS: 
+                     AM_LDFLAGS: 
+                Extra libraries: -ldl -lm -luuid 
+                       Archiver: ar
+                         Ranlib: ranlib
+
+Languages:
+----------
+                              C: yes
+                     C Compiler: /usr/bin/gcc
+                       CPPFLAGS: 
+                    DV_CPPFLAGS: 
+                    AM_CPPFLAGS: 
+                        C Flags: -Wall -pedantic -Wunused-macros -I/home/nfortne2/daos-vol/src -g -I/home/nfortne2/daos/install/include -L/home/nfortne2/daos/install/lib -ldaos -ldaos_common -lmpi
+                     DV C Flags: 
+                     AM C Flags: 
+               Shared C Library: yes
+               Static C Library: yes
+
+
+Features:
+---------
+            Plugin debug output: @@
+           Using memory checker: no

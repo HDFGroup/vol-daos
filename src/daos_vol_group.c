@@ -28,6 +28,7 @@
 #include "util/daos_vol_mem.h"  /* DAOS connector memory management        */
 
 static herr_t H5_daos_get_group_info(H5_daos_group_t *grp, H5G_info_t *group_info);
+static herr_t H5_daos_group_flush(H5_daos_group_t *grp);
 
 
 /*-------------------------------------------------------------------------
@@ -753,6 +754,7 @@ H5_daos_group_get(void *_item, H5VL_group_get_t get_type, hid_t dxpl_id,
     void **req, va_list arguments)
 {
     H5_daos_group_t *grp = (H5_daos_group_t *)_item;
+    H5_daos_group_t *target_group = NULL;
     herr_t           ret_value = SUCCEED;
 
     if(!_item)
@@ -778,8 +780,46 @@ H5_daos_group_get(void *_item, H5VL_group_get_t get_type, hid_t dxpl_id,
             H5VL_loc_params_t  loc_params = va_arg(arguments, H5VL_loc_params_t);
             H5G_info_t        *group_info = va_arg(arguments, H5G_info_t *);
 
-            if((H5_daos_get_group_info(grp, group_info)) < 0)
-                D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, FAIL, "can't get group's info")
+            switch (loc_params.type) {
+                /* H5Gget_info */
+                case H5VL_OBJECT_BY_SELF:
+                {
+                    if((H5_daos_get_group_info(grp, group_info)) < 0)
+                        D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, FAIL, "can't get group's info")
+
+                    break;
+                } /* H5VL_OBJECT_BY_SELF */
+
+                /* H5Gget_info_by_name */
+                case H5VL_OBJECT_BY_NAME:
+                {
+                    const char *target_group_name = NULL;
+
+                    /*
+                     * Locate the object by name.
+                     */
+                    if(NULL == (target_group = H5_daos_group_traverse(&grp->obj.item, loc_params.loc_data.loc_by_name.name,
+                            dxpl_id, req, &target_group_name, NULL, NULL)))
+                        D_GOTO_ERROR(H5E_SYM, H5E_BADITER, FAIL, "can't traverse path")
+
+                    if((H5_daos_get_group_info(target_group, group_info)) < 0)
+                        D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, FAIL, "can't get group's info")
+
+                    break;
+                } /* H5VL_OBJECT_BY_NAME */
+
+                /* H5Gget_info_by_idx */
+                case H5VL_OBJECT_BY_IDX:
+                {
+                    D_GOTO_ERROR(H5E_SYM, H5E_UNSUPPORTED, FAIL, "H5Gget_info_by_idx is unsupported")
+                    break;
+                } /* H5VL_OBJECT_BY_IDX */
+
+                case H5VL_OBJECT_BY_ADDR:
+                case H5VL_OBJECT_BY_REF:
+                default:
+                    D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, FAIL, "invalid loc_params type")
+            }
 
             break;
         } /* H5VL_GROUP_GET_INFO */
@@ -789,6 +829,10 @@ H5_daos_group_get(void *_item, H5VL_group_get_t get_type, hid_t dxpl_id,
     } /* end switch */
 
 done:
+    if(target_group)
+        if(H5_daos_group_close(target_group, dxpl_id, req) < 0)
+            D_DONE_ERROR(H5E_SYM, H5E_CANTCLOSEOBJ, FAIL, "can't close group")
+
     D_FUNC_LEAVE_API
 } /* end H5_daos_group_get() */
 
@@ -935,13 +979,11 @@ H5_daos_get_group_info(H5_daos_group_t *grp, H5G_info_t *group_info)
     assert(group_info);
 
     local_grp_info.storage_type = H5G_STORAGE_TYPE_UNKNOWN;
-    local_grp_info.nlinks = 0;
-    local_grp_info.max_corder = 0;
-    local_grp_info.mounted = 0;
+    local_grp_info.nlinks = 0; /* TODO: retrieve number of links in group */
+    local_grp_info.max_corder = 0; /* TODO: retrieve max creation order of group */
+    local_grp_info.mounted = FALSE; /* DSINC - will file mounting be supported? */
 
-    /* TODO: retrieve number of links in group */
-
-    memcpy(group_info, local_grp_info, sizeof(*group_info));
+    memcpy(group_info, &local_grp_info, sizeof(*group_info));
 
 done:
     D_FUNC_LEAVE

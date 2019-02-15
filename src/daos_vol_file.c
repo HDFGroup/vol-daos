@@ -62,7 +62,6 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     hbool_t must_bcast = FALSE;
     hbool_t sched_init = FALSE;
     H5_daos_req_t *int_req;
-    bool is_empty;
     int ret;
     void *ret_value = NULL;
 
@@ -173,6 +172,10 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
         if(0 != (ret = daos_cont_open(H5_daos_poh_g, file->uuid, DAOS_COO_RW, &file->coh, NULL /*&file->co_info*/, NULL /*event*/)))
             D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENFILE, NULL, "can't open container: %s", H5_daos_err_to_string(ret))
 
+        /* Start transaction */
+        if(0 != (ret = daos_tx_open(file->coh, &int_req->th, NULL /*event*/)))
+            D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't start transaction")
+
         /* Open global metadata object */
         if(0 != (ret = daos_obj_open(file->coh, gmd_oid, DAOS_OO_RW, &file->glob_md_oh, NULL /*event*/)))
             D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENFILE, NULL, "can't open global metadata object: %s", H5_daos_err_to_string(ret))
@@ -273,12 +276,23 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     ret_value = (void *)file;
 
 done:
-    /* Close internal request */
-    H5_daos_req_free_int(int_req);
+    if(int_req) {
+        /* Block until operation completes */
+        {
+            bool is_empty;
 
-    /* Wait for scheduler to be empty *//* Change to custom progress function DSINC */
-    if(sched_init && (ret = daos_progress(&file->sched, DAOS_EQ_WAIT, &is_empty)) < 0)
-        D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't progress scheduler: %s", H5_daos_err_to_string(ret))
+            /* Wait for scheduler to be empty *//* Change to custom progress function DSINC */
+            if(sched_init && (ret = daos_progress(&file->sched, DAOS_EQ_WAIT, &is_empty)) < 0)
+                D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't progress scheduler: %s", H5_daos_err_to_string(ret))
+
+            /* Check for failure */
+            if(int_req->status < 0)
+                D_DONE_ERROR(H5E_SYM, H5E_CANTOPERATE, NULL, "file creation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status))
+        } /* end block */
+    
+        /* Close internal request */
+        H5_daos_req_free_int(int_req);
+    } /* end if */
 
     /* Cleanup on failure */
     if(NULL == ret_value) {

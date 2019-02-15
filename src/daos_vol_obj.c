@@ -427,18 +427,6 @@ H5_daos_object_close(void *_obj, hid_t dxpl_id, void **req)
     if(!_obj)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is NULL")
 
-#ifdef DV_HAVE_MAP
-    /* DSINC - cannot place #ifdef inside assert macro - compiler warning
-     * 'embedding a directive within macro arguments is not portable'
-     */
-    assert(obj->item.type == H5I_GROUP || obj->item.type == H5I_DATASET
-            || obj->item.type == H5I_DATATYPE || obj->item.type == H5I_MAP
-    );
-#else
-    assert(obj->item.type == H5I_GROUP || obj->item.type == H5I_DATASET
-                || obj->item.type == H5I_DATATYPE);
-#endif
-
     /* Call type's close function */
     if(obj->item.type == H5I_GROUP) {
         if(H5_daos_group_close(obj, dxpl_id, req))

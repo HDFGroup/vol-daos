@@ -76,6 +76,7 @@ extern "C" {
 /* Private error codes for asynchronous operations */
 #define H5_DAOS_INCOMPLETE -1   /* Operation has not yet completed (should only be in the item struct) */
 #define H5_DAOS_PRE_ERROR -2    /* A precursor to this task failed (should only be used as the task return value) */
+#define H5_DAOS_CLOSE_ERROR -3  /* Failed to close HDF5 object */
 
 /* Macros borrowed from H5Fprivate.h */
 #define UINT64ENCODE(p, n) {                           \
@@ -269,7 +270,7 @@ typedef struct H5_daos_req_t {
 
 typedef struct H5_daos_md_update_cb_ud_t {
     H5_daos_req_t *req;
-    daos_handle_t oh;
+    H5_daos_obj_t *obj;
     daos_key_t dkey;
     unsigned nr;
     daos_iod_t iod[3];
@@ -420,7 +421,8 @@ herr_t H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
 
 /* Other link routines */
 herr_t H5_daos_link_write(H5_daos_group_t *grp, const char *name,
-    size_t name_len, H5_daos_link_val_t *val);
+    size_t name_len, H5_daos_link_val_t *val, H5_daos_req_t *req,
+    tse_task_t **taskp);
 herr_t H5_daos_link_follow(H5_daos_group_t *grp, const char *name,
     size_t name_len, hid_t dxpl_id, void **req, daos_obj_id_t *oid);
 

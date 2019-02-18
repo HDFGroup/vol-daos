@@ -263,6 +263,24 @@ typedef struct H5_daos_md_update_cb_ud_t {
     const char *task_name;
 } H5_daos_md_update_cb_ud_t;
 
+/*
+ * A struct which is filled out and used when performing
+ * link and attribute iteration.
+ */
+typedef struct iter_data {
+    H5_iter_order_t  iter_order;
+    H5_index_t       index_type;
+    hbool_t          is_recursive;
+    hsize_t         *idx_p;
+    hid_t            iter_root_obj;
+    void            *op_data;
+
+    union {
+        H5A_operator2_t attr_iter_op;
+        H5L_iterate_t   link_iter_op;
+    } iter_function;
+} iter_data;
+
 /* XXX: The following two definitions are only here until they are
  * moved out of their respective H5Xpkg.h header files and into a
  * more public scope. They are still needed for the DAOS VOL to handle
@@ -411,6 +429,11 @@ herr_t H5_daos_link_write(H5_daos_group_t *grp, const char *name,
     size_t name_len, H5_daos_link_val_t *val);
 herr_t H5_daos_link_follow(H5_daos_group_t *grp, const char *name,
     size_t name_len, hid_t dxpl_id, void **req, daos_obj_id_t *oid);
+herr_t H5_daos_link_iterate(H5_daos_group_t *target_grp, iter_data *link_iter_data);
+
+/* Link iterate callbacks */
+herr_t H5_daos_link_iterate_count_links_callback(hid_t group, const char *name,
+    const H5L_info_t *info, void *op_data);
 
 /* Group callbacks */
 void *H5_daos_group_create(void *_item, const H5VL_loc_params_t *loc_params,

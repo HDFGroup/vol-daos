@@ -84,6 +84,7 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
     if(NULL == (attr = H5FL_CALLOC(H5_daos_attr_t)))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate DAOS dataset struct")
     attr->item.type = H5I_ATTR;
+    attr->item.open_req = NULL;
     attr->item.file = item->file;
     attr->item.rc = 1;
     attr->type_id = FAIL;
@@ -239,6 +240,7 @@ H5_daos_attribute_open(void *_item, const H5VL_loc_params_t *loc_params,
     if(NULL == (attr = H5FL_CALLOC(H5_daos_attr_t)))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate DAOS dataset struct")
     attr->item.type = H5I_ATTR;
+    attr->item.open_req = NULL;
     attr->item.file = item->file;
     attr->item.rc = 1;
     attr->type_id = FAIL;
@@ -1270,6 +1272,8 @@ H5_daos_attribute_close(void *_attr, hid_t dxpl_id, void **req)
 
     if(--attr->item.rc == 0) {
         /* Free attribute data structures */
+        if(attr->item.open_req)
+            H5_daos_req_free_int(attr->item.open_req);
         if(attr->parent && H5_daos_object_close(attr->parent, dxpl_id, req))
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close attribute's parent object")
         attr->name = DV_free(attr->name);

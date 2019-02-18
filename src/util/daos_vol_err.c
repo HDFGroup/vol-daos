@@ -37,6 +37,15 @@ H5_daos_err_to_string(int ret)
             return "no error (DER_SUCCESS)";
 
         /*
+         * Private errors
+         */
+        case H5_DAOS_INCOMPLETE:
+            return "object open incomplete (should not see this)";
+        case H5_DAOS_PRE_ERROR:
+            return "error in earlier task (should not see this)";
+        case H5_DAOS_CLOSE_ERROR:
+            return "failed to close HDF5 object";
+        /*
          * GURT errors
          */
         case -DER_NO_PERM:

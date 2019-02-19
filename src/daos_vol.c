@@ -1218,8 +1218,8 @@ done:
     } /* end if */
 
     /* Report failures in this routine */
-    if(ret < 0 && req->status == H5_DAOS_INCOMPLETE) {
-        req->status = ret;
+    if(ret_value < 0 && req->status == H5_DAOS_INCOMPLETE) {
+        req->status = ret_value;
         req->failed_task = "h5 op finalize";
     } /* end if */
 

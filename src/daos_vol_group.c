@@ -349,7 +349,7 @@ H5_daos_group_create(void *_item,
     H5_daos_group_t *target_grp = NULL;
     const char *target_name = NULL;
     hbool_t collective;
-    H5_daos_req_t *int_req;
+    H5_daos_req_t *int_req = NULL;
     int ret;
     void *ret_value = NULL;
 

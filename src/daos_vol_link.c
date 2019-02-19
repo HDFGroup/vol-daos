@@ -340,7 +340,7 @@ H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
     tse_task_t *finalize_task;
     int finalize_ndeps = 0;
     tse_task_t *finalize_deps[2];
-    H5_daos_req_t *int_req;
+    H5_daos_req_t *int_req = NULL;
     int ret;
     herr_t ret_value = SUCCEED;
 

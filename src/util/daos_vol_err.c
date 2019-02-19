@@ -161,9 +161,5 @@ H5_daos_err_to_string(int ret)
 
         default:
             return d_errstr(ret);
-#if 0
-        default:
-            return "invalid error code or no error";
-#endif
     }
 }

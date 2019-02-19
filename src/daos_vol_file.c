@@ -61,7 +61,7 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     uint8_t *p;
     hbool_t must_bcast = FALSE;
     hbool_t sched_init = FALSE;
-    H5_daos_req_t *int_req;
+    H5_daos_req_t *int_req = NULL;
     int ret;
     void *ret_value = NULL;
 

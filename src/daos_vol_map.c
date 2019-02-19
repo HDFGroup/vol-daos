@@ -53,7 +53,7 @@ H5_daos_map_create(void *_item, H5VL_loc_params_t DV_ATTR_UNUSED *loc_params,
     tse_task_t *finalize_task;
     int finalize_ndeps = 0;
     tse_task_t *finalize_deps[2];
-    H5_daos_req_t *int_req;
+    H5_daos_req_t *int_req = NULL;
     int ret;
     void *ret_value = NULL;
 

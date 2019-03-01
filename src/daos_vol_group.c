@@ -27,6 +27,9 @@
 #include "util/daos_vol_err.h"  /* DAOS connector error handling           */
 #include "util/daos_vol_mem.h"  /* DAOS connector memory management        */
 
+static herr_t H5_daos_get_group_info(H5_daos_group_t *grp, H5G_info_t *group_info);
+static herr_t H5_daos_group_flush(H5_daos_group_t *grp);
+
 
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_group_traverse
@@ -346,12 +349,14 @@ H5_daos_group_create(void *_item,
     H5_daos_group_t *target_grp = NULL;
     const char *target_name = NULL;
     hbool_t collective;
-    H5_daos_req_t *int_req;
+    H5_daos_req_t *int_req = NULL;
     int ret;
     void *ret_value = NULL;
 
     if(!_item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "group parent object is NULL")
+    if(!loc_params)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "location parameters object is NULL")
 
     /* Check for write access */
     if(!(item->file->flags & H5F_ACC_RDWR))
@@ -422,9 +427,7 @@ done:
         if(grp && H5_daos_group_close(grp, dxpl_id, NULL) < 0)
             D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, NULL, "can't close group")
 
-    PRINT_ERROR_STACK
-
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_group_create() */
 
 
@@ -799,10 +802,157 @@ done:
     /* Free memory */
     gcpl_buf = (uint8_t *)DV_free(gcpl_buf);
 
-    PRINT_ERROR_STACK
-
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_group_open() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_group_get
+ *
+ * Purpose:     Performs a group "get" operation
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ * Programmer:  Jordan Henderson
+ *              January, 2019
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_group_get(void *_item, H5VL_group_get_t get_type, hid_t dxpl_id,
+    void **req, va_list arguments)
+{
+    H5_daos_group_t *grp = (H5_daos_group_t *)_item;
+    H5_daos_group_t *target_group = NULL;
+    herr_t           ret_value = SUCCEED;
+
+    if(!_item)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL")
+    if(H5I_FILE != grp->obj.item.type && H5I_GROUP != grp->obj.item.type)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a file or group")
+
+    switch (get_type) {
+        /* H5Gget_create_plist */
+        case H5VL_GROUP_GET_GCPL:
+        {
+            hid_t *ret_id = va_arg(arguments, hid_t *);
+
+            if((*ret_id = H5Pcopy(grp->gcpl_id)) < 0)
+                D_GOTO_ERROR(H5E_PLIST, H5E_CANTCOPY, FAIL, "can't get group's GCPL")
+
+            break;
+        } /* H5VL_GROUP_GET_GCPL */
+
+        /* H5Gget_info(_by_name/by_idx) */
+        case H5VL_GROUP_GET_INFO:
+        {
+            H5VL_loc_params_t *loc_params = va_arg(arguments, H5VL_loc_params_t *);
+            H5G_info_t        *group_info = va_arg(arguments, H5G_info_t *);
+
+            switch (loc_params->type) {
+                /* H5Gget_info */
+                case H5VL_OBJECT_BY_SELF:
+                {
+                    if(grp->obj.item.type == H5I_FILE)
+                        grp = ((H5_daos_file_t *) grp)->root_grp;
+
+                    if((H5_daos_get_group_info(grp, group_info)) < 0)
+                        D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, FAIL, "can't get group's info")
+
+                    break;
+                } /* H5VL_OBJECT_BY_SELF */
+
+                /* H5Gget_info_by_name */
+                case H5VL_OBJECT_BY_NAME:
+                {
+                    const char *target_group_name = NULL;
+
+                    /*
+                     * Locate the object by name.
+                     */
+                    if(NULL == (target_group = H5_daos_group_traverse(&grp->obj.item, loc_params->loc_data.loc_by_name.name,
+                            dxpl_id, req, &target_group_name, NULL, NULL)))
+                        D_GOTO_ERROR(H5E_SYM, H5E_BADITER, FAIL, "can't traverse path")
+
+                    if((H5_daos_get_group_info(target_group, group_info)) < 0)
+                        D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, FAIL, "can't get group's info")
+
+                    break;
+                } /* H5VL_OBJECT_BY_NAME */
+
+                /* H5Gget_info_by_idx */
+                case H5VL_OBJECT_BY_IDX:
+                {
+                    D_GOTO_ERROR(H5E_SYM, H5E_UNSUPPORTED, FAIL, "H5Gget_info_by_idx is unsupported")
+                    break;
+                } /* H5VL_OBJECT_BY_IDX */
+
+                case H5VL_OBJECT_BY_ADDR:
+                case H5VL_OBJECT_BY_REF:
+                default:
+                    D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, FAIL, "invalid loc_params type")
+            }
+
+            break;
+        } /* H5VL_GROUP_GET_INFO */
+
+        default:
+            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported group get operation")
+    } /* end switch */
+
+done:
+    if(target_group)
+        if(H5_daos_group_close(target_group, dxpl_id, req) < 0)
+            D_DONE_ERROR(H5E_SYM, H5E_CANTCLOSEOBJ, FAIL, "can't close group")
+
+    D_FUNC_LEAVE_API
+} /* end H5_daos_group_get() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_group_specific
+ *
+ * Purpose:     Performs a group "specific" operation
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ * Programmer:  Jordan Henderson
+ *              January, 2019
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_group_specific(void *_item, H5VL_group_specific_t specific_type,
+    hid_t dxpl_id, void **req, va_list arguments)
+{
+    H5_daos_group_t *grp = (H5_daos_group_t *)_item;
+    herr_t           ret_value = SUCCEED;
+
+    if(!_item)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL")
+    if(H5I_FILE != grp->obj.item.type && H5I_GROUP != grp->obj.item.type)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a file or group")
+
+    switch (specific_type) {
+        /* H5Gflush */
+        case H5VL_GROUP_FLUSH:
+        {
+            if (H5_daos_group_flush(grp) < 0)
+                D_GOTO_ERROR(H5E_SYM, H5E_WRITEERROR, FAIL, "can't flush group")
+
+            break;
+        } /* H5VL_GROUP_FLUSH */
+
+        case H5VL_GROUP_REFRESH:
+        default:
+            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported group specific operation")
+    } /* end switch */
+
+done:
+    D_FUNC_LEAVE_API
+} /* end H5_daos_group_specific() */
 
 
 /*-------------------------------------------------------------------------
@@ -844,8 +994,98 @@ H5_daos_group_close(void *_grp, hid_t DV_ATTR_UNUSED dxpl_id,
     } /* end if */
 
 done:
-    PRINT_ERROR_STACK
-
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_group_close() */
 
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_group_flush
+ *
+ * Purpose:     Flushes a DAOS group.  Currently a no-op, may create a
+ *              snapshot in the future.
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ * Programmer:  Jordan Henderson
+ *              February, 2019
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_group_flush(H5_daos_group_t *grp)
+{
+    herr_t ret_value = SUCCEED;    /* Return value */
+
+    assert(grp);
+
+    /* Nothing to do if no write intent */
+    if(!(grp->obj.item.file->flags & H5F_ACC_RDWR))
+        D_GOTO_DONE(SUCCEED)
+
+    /* Progress scheduler until empty? DSINC */
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_group_flush() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_get_group_info
+ *
+ * Purpose:     Retrieves a group's info, storing the results in the
+ *              supplied H5G_info_t.
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ * Programmer:  Jordan Henderson
+ *              February, 2019
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_get_group_info(H5_daos_group_t *grp, H5G_info_t *group_info)
+{
+    H5G_info_t local_grp_info;
+    iter_data  link_iter_data;
+    hid_t      target_grp_id = -1;
+    herr_t     ret_value = SUCCEED;
+
+    assert(grp);
+    assert(group_info);
+
+    local_grp_info.storage_type = H5G_STORAGE_TYPE_UNKNOWN;
+    local_grp_info.nlinks = 0;
+    local_grp_info.max_corder = 0; /* TODO: retrieve max creation order of group */
+    local_grp_info.mounted = FALSE; /* DSINC - will file mounting be supported? */
+
+    /* Register id for grp */
+    if((target_grp_id = H5VLwrap_register(grp, H5I_GROUP)) < 0)
+        D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, FAIL, "unable to atomize object handle")
+    grp->obj.item.rc++;
+
+    /*
+     * Retrieve the number of links in the group.
+     */
+    link_iter_data.idx_p = NULL;
+    link_iter_data.index_type = H5_INDEX_NAME;
+    link_iter_data.is_recursive = FALSE;
+    link_iter_data.iter_function.link_iter_op = H5_daos_link_iterate_count_links_callback;
+    link_iter_data.iter_order = H5_ITER_NATIVE;
+    link_iter_data.iter_root_obj = target_grp_id;
+    link_iter_data.op_data = &local_grp_info.nlinks;
+    if(H5_daos_link_iterate(grp, &link_iter_data) < 0)
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, FAIL, "can't retrieve the number of links in group")
+
+    memcpy(group_info, &local_grp_info, sizeof(*group_info));
+
+done:
+    if(target_grp_id >= 0) {
+        if(H5Idec_ref(target_grp_id) < 0)
+            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group ID")
+        target_grp_id = -1;
+    } /* end if */
+
+    D_FUNC_LEAVE
+} /* end H5_daos_get_group_info() */

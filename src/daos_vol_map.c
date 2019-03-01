@@ -53,7 +53,7 @@ H5_daos_map_create(void *_item, H5VL_loc_params_t DV_ATTR_UNUSED *loc_params,
     tse_task_t *finalize_task;
     int finalize_ndeps = 0;
     tse_task_t *finalize_deps[2];
-    H5_daos_req_t *int_req;
+    H5_daos_req_t *int_req = NULL;
     int ret;
     void *ret_value = NULL;
 
@@ -252,9 +252,7 @@ done:
     ktype_buf = DV_free(ktype_buf);
     vtype_buf = DV_free(vtype_buf);
 
-    PRINT_ERROR_STACK
-
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_map_create() */
 
 
@@ -500,9 +498,7 @@ done:
     /* Free memory */
     minfo_buf_dyn = (uint8_t *)DV_free(minfo_buf_dyn);
 
-    PRINT_ERROR_STACK
-
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_map_open() */
 
 
@@ -722,9 +718,7 @@ H5_daos_map_set(void *_map, hid_t key_mem_type_id, const void *key,
         D_GOTO_ERROR(H5E_MAP, H5E_CANTSET, FAIL, "Map set failed: %s", H5_daos_err_to_string(ret));
 
 done:
-    PRINT_ERROR_STACK
-
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_map_set() */
 
 
@@ -821,9 +815,7 @@ H5_daos_map_get(void *_map, hid_t key_mem_type_id, const void *key,
     }
 
 done:
-    PRINT_ERROR_STACK
-
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_map_get() */
 
 
@@ -846,9 +838,7 @@ H5_daos_map_get_types(void *_map, hid_t *key_type_id, hid_t *val_type_id,
             D_GOTO_ERROR(H5E_ARGS, H5E_CANTGET, FAIL, "can't get datatype ID of map val");
 
 done:
-    PRINT_ERROR_STACK
-
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_map_get_types() */
 
 
@@ -902,9 +892,7 @@ H5_daos_map_get_count(void *_map, hsize_t *count, void DV_ATTR_UNUSED **req)
     *count = (hsize_t)(key_nr - 1);
 
 done:
-    PRINT_ERROR_STACK
-
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_map_get_count() */
 
 
@@ -952,9 +940,7 @@ H5_daos_map_exists(void *_map, hid_t key_mem_type_id, const void *key,
         *exists = FALSE;
 
 done:
-    PRINT_ERROR_STACK
-
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_map_exists() */
 
 
@@ -997,9 +983,7 @@ H5_daos_map_close(void *_map, hid_t DV_ATTR_UNUSED dxpl_id,
     } /* end if */
 
 done:
-    PRINT_ERROR_STACK
-
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_map_close() */
 #endif /* DV_HAVE_MAP */
 

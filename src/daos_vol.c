@@ -67,7 +67,7 @@ static H5VL_class_t H5_daos_g = {
         H5_daos_dataset_read,                /* Plugin Dataset read */
         H5_daos_dataset_write,               /* Plugin Dataset write */
         H5_daos_dataset_get,                 /* Plugin Dataset get */
-        NULL,/*H5_daos_dataset_specific,*/   /* Plugin Dataset specific */
+        H5_daos_dataset_specific,            /* Plugin Dataset specific */
         NULL,                                /* Plugin Dataset optional */
         H5_daos_dataset_close                /* Plugin Dataset close */
     },
@@ -75,14 +75,14 @@ static H5VL_class_t H5_daos_g = {
         H5_daos_datatype_commit,             /* Plugin Datatype commit */
         H5_daos_datatype_open,               /* Plugin Datatype open */
         H5_daos_datatype_get,                /* Plugin Datatype get */
-        NULL,                                /* Plugin Datatype specific */
+        H5_daos_datatype_specific,           /* Plugin Datatype specific */
         NULL,                                /* Plugin Datatype optional */
         H5_daos_datatype_close               /* Plugin Datatype close */
     },
     {                                        /* Plugin File cls */
         H5_daos_file_create,                 /* Plugin File create */
         H5_daos_file_open,                   /* Plugin File open */
-        NULL,/*H5_daos_file_get,*/           /* Plugin File get */
+        H5_daos_file_get,                    /* Plugin File get */
         H5_daos_file_specific,               /* Plugin File specific */
         NULL,                                /* Plugin File optional */
         H5_daos_file_close                   /* Plugin File close */
@@ -90,24 +90,24 @@ static H5VL_class_t H5_daos_g = {
     {                                        /* Plugin Group cls */
         H5_daos_group_create,                /* Plugin Group create */
         H5_daos_group_open,                  /* Plugin Group open */
-        NULL,/*H5_daos_group_get,*/          /* Plugin Group get */
-        NULL,                                /* Plugin Group specific */
+        H5_daos_group_get,                   /* Plugin Group get */
+        H5_daos_group_specific,              /* Plugin Group specific */
         NULL,                                /* Plugin Group optional */
         H5_daos_group_close                  /* Plugin Group close */
     },
     {                                        /* Plugin Link cls */
         H5_daos_link_create,                 /* Plugin Link create */
-        NULL,/*H5_daos_link_copy,*/          /* Plugin Link copy */
-        NULL,/*H5_daos_link_move,*/          /* Plugin Link move */
-        NULL,/*H5_daos_link_get,*/           /* Plugin Link get */
+        H5_daos_link_copy,                   /* Plugin Link copy */
+        H5_daos_link_move,                   /* Plugin Link move */
+        H5_daos_link_get,                    /* Plugin Link get */
         H5_daos_link_specific,               /* Plugin Link specific */
         NULL                                 /* Plugin Link optional */
     },
     {                                        /* Plugin Object cls */
         H5_daos_object_open,                 /* Plugin Object open */
-        NULL,                                /* Plugin Object copy */
-        NULL,                                /* Plugin Object get */
-        NULL,/*H5_daos_object_specific,*/    /* Plugin Object specific */
+        H5_daos_object_copy,                 /* Plugin Object copy */
+        H5_daos_object_get,                  /* Plugin Object get */
+        H5_daos_object_specific,             /* Plugin Object specific */
         H5_daos_object_optional              /* Plugin Object optional */
     },
     {
@@ -335,14 +335,18 @@ H5_daos_init(hid_t vipl_id)
         if(NULL != (uuid_str = getenv("DAOS_POOL"))) {
             if(uuid_parse(uuid_str, pool_uuid) < 0)
                 D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "failed to parse pool UUID from environment")
+#ifdef DV_PLUGIN_DEBUG
             printf("POOL UUID = %s\n", uuid_str);
+#endif
         }
         else {
             char uuid_buf[37];
 
             memcpy(pool_uuid, pool_uuid_g, sizeof(uuid_t));
             uuid_unparse(pool_uuid, uuid_buf);
+#ifdef DV_PLUGIN_DEBUG
             printf("POOL UUID = %s\n", uuid_buf);
+#endif
         }
 
         if(NULL != (svcl_str = getenv("DAOS_SVCL"))) {
@@ -352,7 +356,9 @@ H5_daos_init(hid_t vipl_id)
             if(NULL == (svcl = daos_rank_list_parse(svcl_str, ":")))
                 D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "failed to parse SVC list from environment")
         }
+#ifdef DV_PLUGIN_DEBUG
         printf("SVC LIST = %s\n", svcl_str);
+#endif
 
         /* Connect to the pool */
         if(0 != (ret = daos_pool_connect(pool_uuid, pool_grp_g, svcl, DAOS_PC_RW, &H5_daos_poh_g, &pool_info, NULL /*event*/)))
@@ -747,9 +753,7 @@ done:
             D_DONE_ERROR(H5E_PLIST, H5E_CANTFREE, NULL, "can't free fapl")
     } /* end if */
 
-    PRINT_ERROR_STACK
-
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_fapl_copy() */
 
 
@@ -784,9 +788,7 @@ H5_daos_fapl_free(void *_fa)
     DV_free(fa);
 
 done:
-    PRINT_ERROR_STACK
-
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_fapl_free() */
 
 
@@ -1216,8 +1218,8 @@ done:
     } /* end if */
 
     /* Report failures in this routine */
-    if(ret < 0 && req->status == H5_DAOS_INCOMPLETE) {
-        req->status = ret;
+    if(ret_value < 0 && req->status == H5_DAOS_INCOMPLETE) {
+        req->status = ret_value;
         req->failed_task = "h5 op finalize";
     } /* end if */
 

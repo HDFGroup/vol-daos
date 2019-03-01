@@ -340,7 +340,7 @@ H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
     tse_task_t *finalize_task;
     int finalize_ndeps = 0;
     tse_task_t *finalize_deps[2];
-    H5_daos_req_t *int_req;
+    H5_daos_req_t *int_req = NULL;
     int ret;
     herr_t ret_value = SUCCEED;
 
@@ -433,8 +433,79 @@ done:
 
     PRINT_ERROR_STACK
 
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_link_create() */
+
+
+herr_t
+H5_daos_link_copy(void *src_obj, const H5VL_loc_params_t *loc_params1,
+    void *dst_obj, const H5VL_loc_params_t *loc_params2, hid_t lcpl,
+    hid_t lapl, hid_t dxpl_id, void **req)
+{
+    herr_t ret_value = SUCCEED;
+
+    if(!src_obj)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "source object location is NULL")
+    if(!loc_params1)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "first location parameters object is NULL")
+    if(!dst_obj)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "destination object location is NULL")
+    if(!loc_params2)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "second location parameters object is NULL")
+
+    D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "link copying is unsupported")
+
+done:
+    D_FUNC_LEAVE_API
+} /* end H5_daos_link_copy() */
+
+
+herr_t
+H5_daos_link_move(void *src_obj, const H5VL_loc_params_t *loc_params1,
+    void *dst_obj, const H5VL_loc_params_t *loc_params2, hid_t lcpl,
+    hid_t lapl, hid_t dxpl_id, void **req)
+{
+    herr_t ret_value = SUCCEED;
+
+    if(!src_obj)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "source object location is NULL")
+    if(!loc_params1)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "first location parameters object is NULL")
+    if(!dst_obj)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "destination object location is NULL")
+    if(!loc_params2)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "second location parameters object is NULL")
+
+    D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "link moving is unsupported")
+
+done:
+    D_FUNC_LEAVE_API
+} /* end H5_daos_link_move() */
+
+
+herr_t
+H5_daos_link_get(void *_item, const H5VL_loc_params_t *loc_params,
+    H5VL_link_get_t get_type, hid_t dxpl_id, void **req, va_list arguments)
+{
+    H5_daos_item_t *item = (H5_daos_item_t *)_item;
+    herr_t          ret_value = SUCCEED;
+
+    if(!_item)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL")
+    if(!loc_params)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "location parameters object is NULL")
+
+    switch (get_type) {
+        case H5VL_LINK_GET_INFO:
+        case H5VL_LINK_GET_NAME:
+        case H5VL_LINK_GET_VAL:
+        default:
+            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported link get operation")
+    } /* end switch */
+
+done:
+    D_FUNC_LEAVE_API
+} /* end H5_daos_link_get() */
 
 
 /*-------------------------------------------------------------------------
@@ -504,163 +575,66 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
                 break;
             } /* end block */
 
-#ifdef DV_HAVE_LINK_ITERATION
+        /* H5Literate/visit(_by_name) */
         case H5VL_LINK_ITER:
             {
-                hbool_t recursive = va_arg(arguments, int);
-                H5_index_t DV_ATTR_UNUSED idx_type = (H5_index_t)va_arg(arguments, int);
-                H5_iter_order_t order = (H5_iter_order_t)va_arg(arguments, int);
-                hsize_t *idx = va_arg(arguments, hsize_t *);
-                H5L_iterate_t op = va_arg(arguments, H5L_iterate_t);
-                void *op_data = va_arg(arguments, void *);
-                daos_anchor_t anchor;
-                uint32_t nr;
-                daos_key_desc_t kds[H5_DAOS_ITER_LEN];
-                daos_sg_list_t sgl;
-                daos_iov_t sg_iov;
-                H5_daos_link_val_t link_val;
-                H5L_info_t linfo;
-                herr_t op_ret;
-                char tmp_char;
-                char *p;
-                uint32_t i;
+                iter_data link_iter_data;
 
-                /* Determine the target group */
-                if(loc_params->type == H5VL_OBJECT_BY_SELF) {
-                    /* Use item as attribute parent object, or the root group if item is a
-                     * file */
-                    if(item->type == H5I_GROUP)
-                        target_grp = (H5_daos_group_t *)item;
-                    else if(item->type == H5I_FILE)
-                        target_grp = ((H5_daos_file_t *)item)->root_grp;
-                    else
-                        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "item not a file or group")
-                    target_grp->obj.item.rc++;
-                } /* end if */
-                else if(loc_params->type == H5VL_OBJECT_BY_NAME) {
-                    H5VL_loc_params_t sub_loc_params;
+                link_iter_data.is_recursive = va_arg(arguments, int);
+                link_iter_data.index_type = (H5_index_t) va_arg(arguments, int);
+                link_iter_data.iter_order = (H5_iter_order_t) va_arg(arguments, int);
+                link_iter_data.idx_p = va_arg(arguments, hsize_t *);
+                link_iter_data.iter_function.link_iter_op = va_arg(arguments, H5L_iterate_t);
+                link_iter_data.op_data = va_arg(arguments, void *);
 
-                    /* Open target_grp */
-                    sub_loc_params.obj_type = item->type;
-                    sub_loc_params.type = H5VL_OBJECT_BY_SELF;
-                    if(NULL == (target_grp = (H5_daos_group_t *)H5_daos_group_open(item, &sub_loc_params, loc_params->loc_data.loc_by_name.name, loc_params->loc_data.loc_by_name.lapl_id, dxpl_id, req)))
-                        D_GOTO_ERROR(H5E_SYM, H5E_CANTOPENOBJ, FAIL, "can't open group for link operation")
-                } /* end else */
+                switch (loc_params->type) {
+                    /* H5Literate/H5Lvisit */
+                    case H5VL_OBJECT_BY_SELF:
+                    {
+                        /* Use item as attribute parent object, or the root group if item is a
+                         * file */
+                        if(item->type == H5I_GROUP)
+                            target_grp = (H5_daos_group_t *)item;
+                        else if(item->type == H5I_FILE)
+                            target_grp = ((H5_daos_file_t *)item)->root_grp;
+                        else
+                            D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "item not a file or group")
 
-                /* Iteration restart not supported */
-                if(idx && (*idx != 0))
-                    D_GOTO_ERROR(H5E_SYM, H5E_UNSUPPORTED, FAIL, "iteration restart not supported (must start from 0)")
+                        target_grp->obj.item.rc++;
+                        break;
+                    } /* H5VL_OBJECT_BY_SELF */
 
-                /* Ordered iteration not supported */
-                if(order != H5_ITER_NATIVE)
-                    D_GOTO_ERROR(H5E_SYM, H5E_UNSUPPORTED, FAIL, "ordered iteration not supported (order must be H5_ITER_NATIVE)")
+                    /* H5Literate_by_name/H5Lvisit_by_name */
+                    case H5VL_OBJECT_BY_NAME:
+                    {
+                        H5VL_loc_params_t sub_loc_params;
 
-                /* Recursive iteration not supported */
-                if(recursive)
-                    D_GOTO_ERROR(H5E_SYM, H5E_UNSUPPORTED, FAIL, "recursive iteration not supported")
+                        /* Open target_grp */
+                        sub_loc_params.obj_type = item->type;
+                        sub_loc_params.type = H5VL_OBJECT_BY_SELF;
+                        if(NULL == (target_grp = (H5_daos_group_t *)H5_daos_group_open(item, &sub_loc_params, loc_params->loc_data.loc_by_name.name, loc_params->loc_data.loc_by_name.lapl_id, dxpl_id, req)))
+                            D_GOTO_ERROR(H5E_SYM, H5E_CANTOPENOBJ, FAIL, "can't open group for link operation")
 
-                /* Initialize const linfo info */
-                linfo.corder_valid = FALSE;
-                linfo.corder = 0;
-                linfo.cset = H5T_CSET_ASCII;
+                        break;
+                    } /* H5VL_OBJECT_BY_NAME */
+
+                    case H5VL_OBJECT_BY_IDX:
+                    case H5VL_OBJECT_BY_ADDR:
+                    case H5VL_OBJECT_BY_REF:
+                    default:
+                        D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, FAIL, "invalid loc_params type")
+                } /* end switch */
 
                 /* Register id for target_grp */
-                if((target_grp_id = H5VLregister(H5I_GROUP, target_grp, H5_DAOS_g)) < 0)
+                if((target_grp_id = H5VLwrap_register(target_grp, H5I_GROUP)) < 0)
                     D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, FAIL, "unable to atomize object handle")
+                link_iter_data.iter_root_obj = target_grp_id;
 
-                /* Initialize anchor */
-                memset(&anchor, 0, sizeof(anchor));
-
-                /* Allocate dkey_buf */
-                if(NULL == (dkey_buf = (char *)DV_malloc(H5_DAOS_ITER_SIZE_INIT)))
-                    D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for dkeys")
-                dkey_buf_len = H5_DAOS_ITER_SIZE_INIT;
-
-                /* Set up sgl.  Report size as 1 less than buffer size so we
-                 * always have room for a null terminator. */
-                daos_iov_set(&sg_iov, dkey_buf, (daos_size_t)(dkey_buf_len - 1));
-                sgl.sg_nr = 1;
-                sgl.sg_nr_out = 0;
-                sgl.sg_iovs = &sg_iov;
-
-                /* Loop to retrieve keys and make callbacks */
-                do {
-                    /* Loop to retrieve keys (exit as soon as we get at least 1
-                     * key) */
-                    do {
-                        /* Reset nr */
-                        nr = H5_DAOS_ITER_LEN;
-
-                        /* Ask daos for a list of dkeys, break out if we succeed
-                         */
-                        if(0 == (ret = daos_obj_list_dkey(target_grp->obj.obj_oh, DAOS_TX_NONE, &nr, kds, &sgl, &anchor, NULL /*event*/)))
-                            break;
-
-                        /* Call failed, if the buffer is too small double it and
-                         * try again, otherwise fail */
-                        if(ret == -DER_KEY2BIG) {
-                            /* Allocate larger buffer */
-                            DV_free(dkey_buf);
-                            dkey_buf_len *= 2;
-                            if(NULL == (dkey_buf = (char *)DV_malloc(dkey_buf_len)))
-                                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for dkeys")
-
-                            /* Update sgl */
-                            daos_iov_set(&sg_iov, dkey_buf, (daos_size_t)(dkey_buf_len - 1));
-                        } /* end if */
-                        else
-                            D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, FAIL, "can't retrieve attributes: %s", H5_daos_err_to_string(ret))
-                    } while(1);
-
-                    /* Loop over returned dkeys */
-                    p = dkey_buf;
-                    op_ret = 0;
-                    for(i = 0; (i < nr) && (op_ret == 0); i++) {
-                        /* Check if this key represents a link */
-                        if(p[0] != '/') {
-                            /* Add null terminator temporarily */
-                            tmp_char = p[kds[i].kd_key_len];
-                            p[kds[i].kd_key_len] = '\0';
-
-                            /* Read link */
-                            if(H5_daos_link_read(target_grp, p, (size_t)kds[i].kd_key_len, &link_val) < 0)
-                                D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't read link")
-
-                            /* Update linfo */
-                            linfo.type = link_val.type;
-                            if(link_val.type == H5L_TYPE_HARD)
-                                linfo.u.address = (haddr_t)link_val.target.hard.lo;
-                            else {
-                                assert(link_val.type == H5L_TYPE_SOFT);
-                                linfo.u.val_size = strlen(link_val.target.soft) + 1;
-
-                                /* Free soft link value */
-                                link_val.target.soft = (char *)DV_free(link_val.target.soft);
-                            } /* end else */
-
-                            /* Make callback */
-                            if((op_ret = op(target_grp_id, p, &linfo, op_data)) < 0)
-                                D_GOTO_ERROR(H5E_SYM, H5E_BADITER, op_ret, "operator function returned failure")
-
-                            /* Replace null terminator */
-                            p[kds[i].kd_key_len] = tmp_char;
-
-                            /* Advance idx */
-                            if(idx)
-                                (*idx)++;
-                        } /* end if */
-
-                        /* Advance to next akey */
-                        p += kds[i].kd_key_len + kds[i].kd_csum_len;
-                    } /* end for */
-                } while(!daos_anchor_is_eof(&anchor) && (op_ret == 0));
-
-                /* Set return value */
-                ret_value = op_ret;
+                if((ret_value = H5_daos_link_iterate(target_grp, &link_iter_data)) < 0)
+                    D_GOTO_ERROR(H5E_LINK, H5E_BADITER, FAIL, "link iteration failed")
 
                 break;
             } /* end block */
-#endif
 
         case H5VL_LINK_DELETE:
             D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "unsupported specific operation")
@@ -682,9 +656,7 @@ done:
     } /* end else */
     dkey_buf = (char *)DV_free(dkey_buf);
 
-    PRINT_ERROR_STACK
-
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_link_specific() */
 
 
@@ -770,3 +742,172 @@ done:
     D_FUNC_LEAVE
 } /* end H5_daos_link_follow() */
 
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_link_iterate
+ *
+ * Purpose:     Iterates over the links in the specified group, using the
+ *              supplied iter_data struct for the iteration parameters.
+ *
+ * Return:      Success:        SUCCEED or positive
+ *              Failure:        FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              January, 2017
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_link_iterate(H5_daos_group_t *target_grp, iter_data *link_iter_data)
+{
+    daos_anchor_t anchor;
+    uint32_t nr;
+    daos_key_desc_t kds[H5_DAOS_ITER_LEN];
+    daos_sg_list_t sgl;
+    daos_iov_t sg_iov;
+    H5_daos_link_val_t link_val;
+    H5L_info_t linfo;
+    herr_t op_ret;
+    char tmp_char;
+    char *dkey_buf = NULL;
+    size_t dkey_buf_len = 0;
+    char *p;
+    int ret;
+    uint32_t i;
+    herr_t ret_value = SUCCEED;
+
+    assert(target_grp);
+    assert(link_iter_data);
+
+    /* Iteration restart not supported */
+    if(link_iter_data->idx_p && (*link_iter_data->idx_p != 0))
+        D_GOTO_ERROR(H5E_SYM, H5E_UNSUPPORTED, FAIL, "iteration restart not supported (must start from 0)")
+
+    /* Ordered iteration not supported */
+    if(link_iter_data->iter_order != H5_ITER_NATIVE)
+        D_GOTO_ERROR(H5E_SYM, H5E_UNSUPPORTED, FAIL, "ordered iteration not supported (order must be H5_ITER_NATIVE)")
+
+    /* Recursive iteration not supported */
+    if(link_iter_data->is_recursive)
+        D_GOTO_ERROR(H5E_SYM, H5E_UNSUPPORTED, FAIL, "recursive iteration not supported")
+
+    /* Initialize const linfo info */
+    linfo.corder_valid = FALSE;
+    linfo.corder = 0;
+    linfo.cset = H5T_CSET_ASCII;
+
+    /* Initialize anchor */
+    memset(&anchor, 0, sizeof(anchor));
+
+    /* Allocate dkey_buf */
+    if(NULL == (dkey_buf = (char *)DV_malloc(H5_DAOS_ITER_SIZE_INIT)))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for dkeys")
+    dkey_buf_len = H5_DAOS_ITER_SIZE_INIT;
+
+    /* Set up sgl.  Report size as 1 less than buffer size so we
+     * always have room for a null terminator. */
+    daos_iov_set(&sg_iov, dkey_buf, (daos_size_t)(dkey_buf_len - 1));
+    sgl.sg_nr = 1;
+    sgl.sg_nr_out = 0;
+    sgl.sg_iovs = &sg_iov;
+
+    /* Loop to retrieve keys and make callbacks */
+    do {
+        /* Loop to retrieve keys (exit as soon as we get at least 1
+         * key) */
+        do {
+            /* Reset nr */
+            nr = H5_DAOS_ITER_LEN;
+
+            /* Ask daos for a list of dkeys, break out if we succeed
+             */
+            if(0 == (ret = daos_obj_list_dkey(target_grp->obj.obj_oh, DAOS_TX_NONE, &nr, kds, &sgl, &anchor, NULL /*event*/)))
+                break;
+
+            /* Call failed, if the buffer is too small double it and
+             * try again, otherwise fail */
+            if(ret == -DER_KEY2BIG) {
+                /* Allocate larger buffer */
+                DV_free(dkey_buf);
+                dkey_buf_len *= 2;
+                if(NULL == (dkey_buf = (char *)DV_malloc(dkey_buf_len)))
+                    D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for dkeys")
+
+                /* Update sgl */
+                daos_iov_set(&sg_iov, dkey_buf, (daos_size_t)(dkey_buf_len - 1));
+            } /* end if */
+            else
+                D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, FAIL, "can't retrieve attributes: %s", H5_daos_err_to_string(ret))
+        } while(1);
+
+        /* Loop over returned dkeys */
+        p = dkey_buf;
+        op_ret = 0;
+        for(i = 0; (i < nr) && (op_ret == 0); i++) {
+            /* Check if this key represents a link */
+            if(p[0] != '/') {
+                /* Add null terminator temporarily */
+                tmp_char = p[kds[i].kd_key_len];
+                p[kds[i].kd_key_len] = '\0';
+
+                /* Read link */
+                if(H5_daos_link_read(target_grp, p, (size_t)kds[i].kd_key_len, &link_val) < 0)
+                    D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't read link")
+
+                /* Update linfo */
+                linfo.type = link_val.type;
+                if(link_val.type == H5L_TYPE_HARD)
+                    linfo.u.address = (haddr_t)link_val.target.hard.lo;
+                else {
+                    assert(link_val.type == H5L_TYPE_SOFT);
+                    linfo.u.val_size = strlen(link_val.target.soft) + 1;
+
+                    /* Free soft link value */
+                    link_val.target.soft = (char *)DV_free(link_val.target.soft);
+                } /* end else */
+
+                /* Make callback */
+                if((op_ret = link_iter_data->iter_function.link_iter_op(link_iter_data->iter_root_obj, p, &linfo, link_iter_data->op_data)) < 0)
+                    D_GOTO_ERROR(H5E_SYM, H5E_BADITER, op_ret, "operator function returned failure")
+
+                /* Replace null terminator */
+                p[kds[i].kd_key_len] = tmp_char;
+
+                /* Advance idx */
+                if(link_iter_data->idx_p)
+                    (*link_iter_data->idx_p)++;
+            } /* end if */
+
+            /* Advance to next akey */
+            p += kds[i].kd_key_len + kds[i].kd_csum_len;
+        } /* end for */
+    } while(!daos_anchor_is_eof(&anchor) && (op_ret == 0));
+
+    ret_value = op_ret;
+
+done:
+    dkey_buf = (char *)DV_free(dkey_buf);
+
+    D_FUNC_LEAVE
+} /* end H5_daos_link_iterate() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_link_iterate_count_links_callback
+ *
+ * Purpose:     A callback for H5_daos_link_iterate() that simply counts
+ *              the number of links in the given group.
+ *
+ * Return:      0 (can't fail)
+ *
+ * Programmer:  Jordan Henderson
+ *              February, 2019
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_link_iterate_count_links_callback(hid_t group, const char *name, const H5L_info_t *info, void *op_data)
+{
+    (*((hsize_t *) op_data))++;
+    return 0;
+} /* end H5_daos_link_iterate_count_links_callback() */

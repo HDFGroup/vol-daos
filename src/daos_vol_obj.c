@@ -203,10 +203,128 @@ done:
     if(target_grp && H5_daos_group_close(target_grp, dxpl_id, req) < 0)
         D_DONE_ERROR(H5E_OHDR, H5E_CLOSEERROR, NULL, "can't close group")
 
-    PRINT_ERROR_STACK
-
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_object_open() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_object_copy
+ *
+ * Purpose:     Performs an object copy
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ * Programmer:  Jordan Henderson
+ *              January, 2019
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_object_copy(void *src_obj, const H5VL_loc_params_t *loc_params1,
+    const char *src_name, void *dst_obj, const H5VL_loc_params_t *loc_params2,
+    const char *dst_name, hid_t ocpypl_id, hid_t lcpl_id, hid_t dxpl_id, void **req)
+{
+    herr_t ret_value = SUCCEED;
+
+    if(!src_obj)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "source object location is NULL")
+    if(!loc_params1)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "first location parameters object is NULL")
+    if(!src_name)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "source object name is NULL")
+    if(!dst_obj)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "destination object location is NULL")
+    if(!loc_params2)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "second location parameters object is NULL")
+    if(!dst_name)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "destination object name is NULL")
+
+    D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "object copying is unsupported")
+
+done:
+    D_FUNC_LEAVE_API
+} /* end H5_daos_object_copy() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_object_get
+ *
+ * Purpose:     Performs an object "get" operation
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ * Programmer:  Jordan Henderson
+ *              January, 2019
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_object_get(void *_item, const H5VL_loc_params_t *loc_params,
+    H5VL_object_get_t get_type, hid_t dxpl_id, void **req, va_list arguments)
+{
+    H5_daos_item_t *item = (H5_daos_item_t *)_item;
+    herr_t          ret_value = SUCCEED;
+
+    if(!_item)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL")
+    if(!loc_params)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "location parameters object is NULL")
+
+    switch (get_type) {
+        case H5VL_REF_GET_NAME:
+        case H5VL_REF_GET_REGION:
+        case H5VL_REF_GET_TYPE:
+        case H5VL_ID_GET_NAME:
+        default:
+            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported object get operation")
+    } /* end switch */
+
+done:
+    D_FUNC_LEAVE_API
+} /* end H5_daos_object_get() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_object_specific
+ *
+ * Purpose:     Performs an object "specific" operation
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ * Programmer:  Jordan Henderson
+ *              January, 2019
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
+    H5VL_object_specific_t specific_type, hid_t dxpl_id, void **req, va_list arguments)
+{
+    H5_daos_item_t *item = (H5_daos_item_t *)_item;
+    herr_t          ret_value = SUCCEED;
+
+    if(!_item)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL")
+    if(!loc_params)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "location parameters object is NULL")
+
+    switch (specific_type) {
+        case H5VL_OBJECT_CHANGE_REF_COUNT:
+        case H5VL_OBJECT_EXISTS:
+        case H5VL_OBJECT_VISIT:
+        case H5VL_REF_CREATE:
+        case H5VL_OBJECT_FLUSH:
+        case H5VL_OBJECT_REFRESH:
+        default:
+            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported object specific operation")
+    } /* end switch */
+
+done:
+    D_FUNC_LEAVE_API
+} /* end H5_daos_object_specific() */
 
 
 /*-------------------------------------------------------------------------
@@ -399,9 +517,7 @@ done:
 
     akey_buf = (char *)DV_free(akey_buf);
 
-    PRINT_ERROR_STACK
-
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_object_optional() */
 
 
@@ -450,8 +566,6 @@ H5_daos_object_close(void *_obj, hid_t dxpl_id, void **req)
         assert(0 && "Invalid object type");
 
 done:
-    PRINT_ERROR_STACK
-
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE_API
 } /* end H5_daos_object_close() */
 

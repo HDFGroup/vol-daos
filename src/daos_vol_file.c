@@ -159,7 +159,7 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
                 D_GOTO_ERROR(H5E_FILE, H5E_CANTCREATE, NULL, "can't destroy container: %s", H5_daos_err_to_string(ret))
 
         /* Create the container for the file */
-        if(0 != (ret = daos_cont_create(H5_daos_poh_g, file->uuid, NULL /*event*/)))
+        if(0 != (ret = daos_cont_create(H5_daos_poh_g, file->uuid, NULL /* cont_prop */, NULL /*event*/)))
             D_GOTO_ERROR(H5E_FILE, H5E_CANTCREATE, NULL, "can't create container: %s", H5_daos_err_to_string(ret))
 
         /* Open the container */

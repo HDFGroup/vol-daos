@@ -35,16 +35,20 @@ static H5VL_class_t H5_daos_g = {
     0,                                       /* Plugin capability flags */
     H5_daos_init,                            /* Plugin initialize */
     H5_daos_term,                            /* Plugin terminate */
+    {
     sizeof(H5_daos_fapl_t),                  /* Plugin Info size */
     H5_daos_fapl_copy,                       /* Plugin Info copy */
     NULL,                                    /* Plugin Info compare */
     H5_daos_fapl_free,                       /* Plugin Info free */
     NULL,                                    /* Plugin Info To String */
     NULL,                                    /* Plugin String To Info */
+    },
+    {
     NULL,                                    /* Plugin Get Object */
     NULL,                                    /* Plugin Get Wrap Ctx */
     NULL,                                    /* Plugin Wrap Object */
     NULL,                                    /* Plugin Free Wrap Ctx */
+    },
     {                                        /* Plugin Attribute cls */
         H5_daos_attribute_create,            /* Plugin Attribute create */
         H5_daos_attribute_open,              /* Plugin Attribute open */

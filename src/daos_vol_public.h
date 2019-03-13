@@ -17,29 +17,39 @@
 #ifndef daos_vol_public_H
 #define daos_vol_public_H
 
-#define H5_HAVE_EFF 1 /* DSINC */
-
-/* System headers needed by this file */
+/* Public headers needed by this file */
+#include <hdf5.h>
+#include <mpi.h>
 #include <uuid/uuid.h>
 
-#include "H5PLextern.h"
+#include <H5PLextern.h>
 
-/* Public headers needed by this file */
-#include "hdf5.h"
+/*****************/
+/* Public Macros */
+/*****************/
+
+#define H5_DAOS_SNAP_ID_INVAL (uint64_t)(int64_t)-1
+
+/*******************/
+/* Public Typedefs */
+/*******************/
+
+typedef uint64_t H5_daos_snap_id_t;
+
+/********************/
+/* Public Variables */
+/********************/
+
+/*********************/
+/* Public Prototypes */
+/*********************/
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#ifdef H5_HAVE_EFF
-
-#define H5_DAOS_SNAP_ID_INVAL (uint64_t)(int64_t)-1
-
-typedef uint64_t H5_daos_snap_id_t;
-
 /* DSINC - need to redefine H5_DLL since this will not work correctly for an external connector */
-H5PLUGIN_DLL herr_t H5daos_init(MPI_Comm pool_comm, uuid_t pool_uuid,
-    char *pool_grp);
+H5PLUGIN_DLL herr_t H5daos_init(MPI_Comm pool_comm, uuid_t pool_uuid, char *pool_grp);
 H5PLUGIN_DLL herr_t H5daos_term(void);
 H5PLUGIN_DLL herr_t H5Pset_fapl_daos(hid_t fapl_id, MPI_Comm comm, MPI_Info info);
 #ifdef DSINC
@@ -50,10 +60,6 @@ H5PLUGIN_DLL herr_t H5daos_snap_create(hid_t loc_id,
 H5PLUGIN_DLL herr_t H5Pset_daos_snap_open(hid_t fapl_id,
     H5_daos_snap_id_t snap_id);
 #endif
-/* H5_DLL herr_t EFF_init(void); DSINC */
-/* H5_DLL herr_t EFF_finalize(void); DSINC */
-
-#endif /* H5_HAVE_EFF */
 
 #ifdef __cplusplus
 }

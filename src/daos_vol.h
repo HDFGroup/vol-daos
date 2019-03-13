@@ -17,35 +17,24 @@
 #ifndef daos_vol_H
 #define daos_vol_H
 
-#define H5_HAVE_EFF 1 /* DSINC */
-
-/* Include package's public header */
+/* Public headers needed by this file */
 #include "daos_vol_public.h"
-
-#ifdef H5_HAVE_EFF
 
 #include "daos.h"
 #include "daos_task.h"
 #include "daos/tse.h"
-#include "cart/api.h"
 
-#define HDF5_VOL_DAOS_VERSION_1	1	/* Version number of DAOS VOL connector */
+#include <assert.h>
 
-#define H5_VOL_DAOS_CLS_VAL (H5VL_class_value_t) H5_VOL_RESERVED + 2 /* Class value of the DAOS VOL connector as defined in H5VLpublic.h DSINC */
+/*****************/
+/* Public Macros */
+/*****************/
 
+#define HDF5_VOL_DAOS_VERSION_1	(1)	/* Version number of DAOS VOL connector */
+/* Class value of the DAOS VOL connector as defined in H5VLpublic.h DSINC */
+#define H5_VOL_DAOS_CLS_VAL (H5VL_class_value_t) (H5_VOL_RESERVED + 2)
 #define H5_DAOS_VOL_NAME "daos"
 
-#endif
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-#ifdef H5_HAVE_EFF
-
-/*
- * Macros
- */
 /* Constant keys */
 #define H5_DAOS_CHUNK_KEY 0u
 
@@ -72,6 +61,14 @@ extern "C" {
 #define H5_DAOS_INCOMPLETE -1   /* Operation has not yet completed (should only be in the item struct) */
 #define H5_DAOS_PRE_ERROR -2    /* A precursor to this task failed (should only be used as the task return value) */
 #define H5_DAOS_CLOSE_ERROR -3  /* Failed to close HDF5 object */
+
+/* Min/max macros */
+#ifndef MAX
+# define MAX(a, b) (((a) > (b)) ? (a) : (b))
+#endif
+#ifndef MIN
+# define MIN(a, b) (((a) < (b)) ? (a) : (b))
+#endif
 
 /* Macros borrowed from H5Fprivate.h */
 #define UINT64ENCODE(p, n) {                           \
@@ -138,9 +135,10 @@ extern "C" {
  */
 #undef DV_HAVE_SNAP_OPEN_ID
 
-/*
- * Typedefs
- */
+/*******************/
+/* Public Typedefs */
+/*******************/
+
 /* DAOS-specific file access properties */
 typedef struct H5_daos_fapl_t {
     MPI_Comm            comm;           /* communicator                  */
@@ -327,9 +325,10 @@ typedef enum H5VL_object_optional_t {
     H5VL_OBJECT_SET_COMMENT             /* set object comment                   */
 } H5VL_object_optional_t;
 
-/*
- * Declarations
- */
+/********************/
+/* Public Variables */
+/********************/
+
 extern hid_t H5_DAOS_g;
 
 /* Free list definitions */
@@ -387,9 +386,14 @@ extern daos_size_t H5_daos_vtype_size_g;
 extern daos_size_t H5_daos_map_key_size_g;
 #endif
 
-/*
- * Prototypes
- */
+/*********************/
+/* Public Prototypes */
+/*********************/
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* General routines */
 herr_t H5_daos_init(hid_t vipl_id);
 void H5_daos_oid_generate(daos_obj_id_t *oid, uint64_t addr,
@@ -557,8 +561,6 @@ H5PLUGIN_DLL herr_t H5_daos_map_exists(void *_map, hid_t key_mem_type_id, const 
                     hbool_t *exists, void **req);
 H5PLUGIN_DLL herr_t H5_daos_map_close(void *_map, hid_t dxpl_id, void **req);
 #endif /* DV_HAVE_MAP */
-
-#endif /* H5_HAVE_EFF */
 
 #ifdef __cplusplus
 }

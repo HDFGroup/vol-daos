@@ -1,496 +1,290 @@
-#-------------------------------------------------#
-# CMake Build Script for the HDF5 DAOS VOL connector #
-#-------------------------------------------------#
+cmake_minimum_required(VERSION 2.8.12.2 FATAL_ERROR)
 
-cmake_minimum_required (VERSION 3.10)
-PROJECT (DAOS_VOL C)
+# Setup cmake policies.
+foreach(policy
+    CMP0012
+    CMP0013
+    CMP0014
+    CMP0022 # CMake 2.8.12
+    CMP0025 # CMake 3.0
+    CMP0053 # CMake 3.1
+    CMP0054 # CMake 3.1
+    CMP0074 # CMake 3.12
+    CMP0075 # CMake 3.12
+  )
+  if(POLICY ${policy})
+    cmake_policy(SET ${policy} NEW)
+  endif()
+endforeach()
 
-#-----------------------------------------------------------------------------
-# Instructions for use : Normal Build
-#
-# For standard build of the HDF5 DAOS VOL connector.
-# Run cmake using the DAOS VOL source tree to generate a build tree.
-# Enable/Disable options according to requirements and
-# set CMAKE_INSTALL_PREFIX to the required install path.
-# Make install can be used to install all components for system-wide use.
-#
-if ("${CMAKE_CURRENT_SOURCE_DIR}" STREQUAL "${CMAKE_CURRENT_BINARY_DIR}")
-    MESSAGE(FATAL_ERROR "\nERROR! ${PROJECT_NAME} DOES NOT SUPPORT IN SOURCE BUILDS!\n"
-      "CMAKE_CURRENT_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}"
-      " == CMAKE_CURRENT_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}\n"
-      "NEXT STEPS:\n"
-      "(1) Delete the CMakeCache.txt file and the CMakeFiles/ directory\n"
-      "     under the source directory for ${PROJECT_NAME}, otherwise you\n"
-      "     will not be able to configure ${PROJECT_NAME} correctly!\n"
-      "      * For example, on linux machines do:\n"
-      "        $ rm -r CMakeCache.txt CMakeFiles/\n"
-      "(2) Create a different directory and configure ${PROJECT_NAME} in that directory.\n"
-      "      * For example, on linux machines do:\n"
-      "        $ mkdir MY_BUILD\n"
-      "        $ cd MY_BUILD\n"
-      "        $ cmake [OPTIONS] ..\n"
-      )
-endif ()
+project(HDF5_DAOS C)
 
-string(TIMESTAMP CONFIG_DATE "%Y-%m-%d")
+#------------------------------------------------------------------------------
+# Version information 
+#------------------------------------------------------------------------------
+set(HDF5_DAOS_VERSION_MAJOR "0")
+set(HDF5_DAOS_VERSION_MINOR "1")
+set(HDF5_DAOS_VERSION_PATCH "0")
+set(HDF5_DAOS_PACKAGE "hdf5_daos")
+set(HDF5_DAOS_PACKAGE_NAME "HDF5_DAOS")
+set(HDF5_DAOS_PACKAGE_VERSION "${HDF5_DAOS_VERSION_MAJOR}.${HDF5_DAOS_VERSION_MINOR}.${HDF5_DAOS_VERSION_PATCH}")
+set(HDF5_DAOS_PACKAGE_VERSION_MAJOR "${HDF5_DAOS_VERSION_MAJOR}.${HDF5_DAOS_VERSION_MINOR}")
+set(HDF5_DAOS_PACKAGE_VERSION_MINOR "${HDF5_DAOS_VERSION_PATCH}")
+set(HDF5_DAOS_PACKAGE_STRING "${HDF5_DAOS_PACKAGE_NAME} ${HDF5_DAOS_PACKAGE_VERSION}")
+set(HDF5_DAOS_PACKAGE_TARNAME "${HDF5_DAOS_PACKAGE}")
 
+#------------------------------------------------------------------------------
+# Setup install and output Directories
+#------------------------------------------------------------------------------
+if(NOT HDF5_DAOS_INSTALL_BIN_DIR)
+  set(HDF5_DAOS_INSTALL_BIN_DIR ${CMAKE_INSTALL_PREFIX}/bin)
+endif()
+if(NOT HDF5_DAOS_INSTALL_LIB_DIR)
+  set(HDF5_DAOS_INSTALL_LIB_DIR ${CMAKE_INSTALL_PREFIX}/lib)
+endif()
+if(NOT HDF5_DAOS_INSTALL_INCLUDE_DIR)
+  # Interface include will default to prefix/include
+  set(HDF5_DAOS_INSTALL_INTERFACE include)
+  set(HDF5_DAOS_INSTALL_INCLUDE_DIR ${CMAKE_INSTALL_PREFIX}/include)
+else()
+  set(HDF5_DAOS_INSTALL_INTERFACE ${HDF5_DAOS_INSTALL_INCLUDE_DIR})
+endif()
+if(NOT HDF5_DAOS_INSTALL_DATA_DIR)
+  set(HDF5_DAOS_INSTALL_DATA_DIR ${CMAKE_INSTALL_PREFIX}/share)
+endif()
 
-#-----------------------------------------------------------------------------
-# Set the core names of all the libraries
-#-----------------------------------------------------------------------------
-set (DAOS_VOL_LIB_CORENAME        "daosvol")
-set (DAOS_VOL_TEST_LIB_CORENAME   "daosvol_test")
+# Setting this ensures that "make install" will leave rpaths to external
+# libraries intact on "make install". This ensures that one can install a
+# version of HDF5 DAOS on the build machine without any issues. If this not
+# desired, simply specify CMAKE_INSTALL_RPATH_USE_LINK_PATH when configuring
+# HDF5 DAOS and "make install" will strip all rpaths, which is default behavior.
+if(NOT CMAKE_INSTALL_RPATH_USE_LINK_PATH)
+  set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+endif()
 
-#-----------------------------------------------------------------------------
-# Set the target names of all the libraries
-#-----------------------------------------------------------------------------
-set (DAOS_VOL_LIB_TARGET          "${DAOS_VOL_LIB_CORENAME}-static")
-set (DAOS_VOL_LIBSH_TARGET        "${DAOS_VOL_LIB_CORENAME}-shared")
-set (DAOS_VOL_TEST_LIB_TARGET     "${DAOS_VOL_TEST_LIB_CORENAME}-static")
-set (DAOS_VOL_TEST_LIBSH_TARGET   "${DAOS_VOL_TEST_LIB_CORENAME}-shared")
+#------------------------------------------------------------------------------
+# Setup CMake Environment
+#------------------------------------------------------------------------------
+if(APPLE OR WIN32)
+  message("The HDF5 DAOS VOL connector is not supported on this platform." FATAL_ERROR)
+endif()
 
-#-----------------------------------------------------------------------------
-# Define some CMake variables for use later in the project
-#-----------------------------------------------------------------------------
-set (DAOS_VOL_RESOURCES_DIR       ${DAOS_VOL_SOURCE_DIR}/config/cmake)
-set (DAOS_VOL_RESOURCES_EXT_DIR   ${DAOS_VOL_SOURCE_DIR}/config/cmake_ext_mod)
-set (DAOS_VOL_RESOURCES_MOD_DIR   ${DAOS_VOL_SOURCE_DIR}/config/cmake/modules)
-set (DAOS_VOL_SRC_DIR             ${DAOS_VOL_SOURCE_DIR}/src)
-set (DAOS_VOL_TEST_SRC_DIR        ${DAOS_VOL_SOURCE_DIR}/test)
-set (DAOS_VOL_EXAMPLES_DIR        ${DAOS_VOL_SOURCE_DIR}/examples)
-set (HDF5_DIR_NAME                "hdf5")
-set (HDF5_DIR                     ${DAOS_VOL_SOURCE_DIR}/${HDF5_DIR_NAME})
-set (HDF5_BINARY_DIR              ${DAOS_VOL_BINARY_DIR}/${HDF5_DIR_NAME})
+#------------------------------------------------------------------------------
+if(NOT HDF5_DAOS_EXTERNALLY_CONFIGURED)
+  set(CMAKE_RUNTIME_OUTPUT_DIRECTORY
+      ${PROJECT_BINARY_DIR}/bin CACHE PATH "Single Directory for all Executables."
+  )
+  set(EXECUTABLE_OUTPUT_PATH ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
+  set(CMAKE_LIBRARY_OUTPUT_DIRECTORY
+      ${PROJECT_BINARY_DIR}/bin CACHE PATH "Single Directory for all Libraries"
+  )
+  set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY
+      ${PROJECT_BINARY_DIR}/bin CACHE PATH "Single Directory for all static libraries."
+  )
+endif()
+set(HDF5_DAOS_CMAKE_DIR "${HDF5_DAOS_SOURCE_DIR}/CMake")
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${HDF5_DAOS_CMAKE_DIR})
 
-#-----------------------------------------------------------------------------
-# Define a CMake variable which the user can override to use
-# a pre-built HDF5 distribution for building the DAOS VOL connector
-#-----------------------------------------------------------------------------
-set (PREBUILT_HDF5_DIR CACHE STRING "Directory of pre-built HDF5 distribution")
+#------------------------------------------------------------------------------
+# Disallow in-source build
+#------------------------------------------------------------------------------
+if("${HDF5_DAOS_SOURCE_DIR}" STREQUAL "${HDF5_DAOS_BINARY_DIR}")
+  message(FATAL_ERROR
+    "HDF5 DAOS requires an out of source Build. "
+    "Please create a separate binary directory and run CMake there.")
+endif()
 
+#------------------------------------------------------------------------------
+# Set a default build type if none was specified
+#------------------------------------------------------------------------------
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+  message(STATUS "Setting build type to 'RelWithDebInfo' as none was specified.")
+  set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Choose the type of build." FORCE)
+  # Set the possible values of build type for cmake-gui
+  set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release"
+    "MinSizeRel" "RelWithDebInfo")
+endif()
 
-#-----------------------------------------------------------------------------
-# Find UUID before building
-#-----------------------------------------------------------------------------
-find_package (uuid REQUIRED)
-if (UUID_FOUND)
-  include_directories(${UUID_INCLUDE_DIRS})
-  set (LINK_LIBS ${LINK_LIBS} ${UUID_LIBRARIES})
-endif ()
-
-
-#-----------------------------------------------------------------------------
-# Setup the RPATH for the installed executables
-#-----------------------------------------------------------------------------
-SET(CMAKE_SKIP_BUILD_RPATH  FALSE)
-SET(CMAKE_BUILD_WITH_INSTALL_RPATH FALSE) 
-SET(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib")
-SET(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
-LIST(FIND CMAKE_PLATFORM_IMPLICIT_LINK_DIRECTORIES "${CMAKE_INSTALL_PREFIX}/lib" isSystemDir)
-IF("${isSystemDir}" STREQUAL "-1")
-   SET(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib")
-ENDIF("${isSystemDir}" STREQUAL "-1")
-
+if(NOT CMAKE_C_FLAGS AND CMAKE_COMPILER_IS_GNUCC)
+  message(STATUS "GCC detected, setting additional flags")
+  set(CMAKE_C_FLAGS "-Wall -Wextra -Winline -Wcast-qual -std=gnu99 -Wshadow" CACHE STRING "Flags used by the compiler during all build types." FORCE)
+endif()
 
 #-----------------------------------------------------------------------------
 # Targets built within this project are exported at Install time for use
-# by other projects using FindH4H5.
+# by other projects.
 #-----------------------------------------------------------------------------
-if (NOT DAOS_VOL_EXPORTED_TARGETS)
-  set (DAOS_VOL_EXPORTED_TARGETS "daosvol-targets")
-endif ()
-
-
-if(DEFINED ADDITIONAL_CMAKE_PREFIX_PATH AND EXISTS "${ADDITIONAL_CMAKE_PREFIX_PATH}")
-  set (CMAKE_PREFIX_PATH ${ADDITIONAL_CMAKE_PREFIX_PATH} ${CMAKE_PREFIX_PATH})
+if(NOT HDF5_DAOS_EXPORTED_TARGETS)
+  set(HDF5_DAOS_EXPORTED_TARGETS "${HDF5_DAOS_PACKAGE}-targets")
 endif()
 
-
-#-----------------------------------------------------------------------------
-# Setup the install directories
-#-----------------------------------------------------------------------------
-if (NOT DAOS_VOL_INSTALL_BIN_DIR)
-  set (DAOS_VOL_INSTALL_BIN_DIR bin)
-endif ()
-if (NOT DAOS_VOL_INSTALL_LIB_DIR)
-  if (APPLE)
-    set (DAOS_VOL_INSTALL_FMWK_DIR ${CMAKE_INSTALL_FRAMEWORK_PREFIX})
-  else (APPLE)
-    set (DAOS_VOL_INSTALL_JAR_DIR lib)
-  endif ()
-  set (DAOS_VOL_INSTALL_LIB_DIR lib)
-endif ()
-if (NOT DAOS_VOL_INSTALL_INCLUDE_DIR)
-  set (DAOS_VOL_INSTALL_INCLUDE_DIR include)
-endif ()
-if (NOT DAOS_VOL_INSTALL_DATA_DIR)
-  if (NOT WIN32)
-    if (APPLE)
-      if (DAOS_VOL_BUILD_FRAMEWORKS)
-        set (DAOS_VOL_INSTALL_EXTRA_DIR ../SharedSupport)
-      else (DAOS_VOL_BUILD_FRAMEWORKS)
-        set (DAOS_VOL_INSTALL_EXTRA_DIR share)
-      endif ()
-      set (DAOS_VOL_INSTALL_FWRK_DIR ${CMAKE_INSTALL_FRAMEWORK_PREFIX})
-    endif ()
-    set (DAOS_VOL_INSTALL_DATA_DIR share)
-    set (DAOS_VOL_INSTALL_CMAKE_DIR share/cmake)
-  else (NOT WIN32)
-    set (DAOS_VOL_INSTALL_DATA_DIR ".")
-    set (DAOS_VOL_INSTALL_CMAKE_DIR cmake)
-  endif ()
-endif ()
-
-#-------------------------------------------------------------------------------
-# Parse the full version number from README.md and include in DAOS_VOL_VERS_INFO
-#-------------------------------------------------------------------------------
-file (READ ${DAOS_VOL_SOURCE_DIR}/README.md _readme_contents)
-string (REGEX REPLACE "^.*DAOS.?VOL.?connector.?version.([0-9][0-9]*).[0-9][0-9]*.[0-9][0-9]*.*$"
-    "\\1" DAOS_VOL_VERS_MAJOR ${_readme_contents})
-string (REGEX REPLACE "^.*DAOS.?VOL.?connector.?version.[0-9][0-9]*.([0-9][0-9]*).[0-9][0-9]*.*$"
-    "\\1" DAOS_VOL_VERS_MINOR ${_readme_contents})
-string (REGEX REPLACE "^.*DAOS.?VOL.?connector.?version.[0-9][0-9]*.[0-9][0-9]*.([0-9][0-9]*).*$"
-    "\\1" DAOS_VOL_VERS_RELEASE ${_readme_contents})
-message (STATUS "VERSION: ${DAOS_VOL_VERS_MAJOR}.${DAOS_VOL_VERS_MINOR}.${DAOS_VOL_VERS_RELEASE}")
-
-
-#-------------------------------------------------------------------------------
-# Basic DAOS VOL stuff here
-#-------------------------------------------------------------------------------
-set (DAOS_VOL_PACKAGE "daos-vol")
-set (DAOS_VOL_PACKAGE_NAME "DAOS_VOL")
-set (DAOS_VOL_PACKAGE_VERSION "${DAOS_VOL_VERS_MAJOR}.${DAOS_VOL_VERS_MINOR}.${DAOS_VOL_VERS_RELEASE}")
-set (DAOS_VOL_PACKAGE_VERSION_MAJOR "${DAOS_VOL_VERS_MAJOR}.${DAOS_VOL_VERS_MINOR}")
-set (DAOS_VOL_PACKAGE_VERSION_MINOR "${DAOS_VOL_VERS_RELEASE}")
-if (NOT "${DAOS_VOL_VERS_SUBRELEASE}" STREQUAL "")
-  set (DAOS_VOL_PACKAGE_VERSION_STRING "${DAOS_VOL_PACKAGE_VERSION}-${DAOS_VOL_VERS_SUBRELEASE}")
-else (NOT "${DAOS_VOL_VERS_SUBRELEASE}" STREQUAL "")
-  set (DAOS_VOL_PACKAGE_VERSION_STRING "${DAOS_VOL_PACKAGE_VERSION}")
-endif ()
-
-set (DAOS_VOL_PACKAGE_STRING "${DAOS_VOL_PACKAGE_NAME} ${DAOS_VOL_PACKAGE_VERSION_STRING}")
-set (DAOS_VOL_PACKAGE_TARNAME "${DAOS_VOL_PACKAGE}${DAOS_VOL_PACKAGE_EXT}")
-set (DAOS_VOL_PACKAGE_URL "http://www.hdfgroup.org")
-set (DAOS_VOL_PACKAGE_BUGREPORT "help@hdfgroup.org")
-
-#-----------------------------------------------------------------------------
-# Include some macros for reusable code
-#-----------------------------------------------------------------------------
-
-#-------------------------------------------------------------------------------
-macro (DAOS_VOL_SET_LIB_OPTIONS libtarget libname libtype)
-  set (LIB_OUT_NAME "${libname}")
-  # SOVERSION passed in ARGN when shared
-  if (${libtype} MATCHES "SHARED")
-    if (ARGN)
-      set (PACKAGE_SOVERSION ${ARGN})
-    else (ARGN)
-      set (PACKAGE_SOVERSION ${DAOS_VOL_PACKAGE_SOVERSION})
-    endif (ARGN)
-    if (WIN32)
-      set (LIBDAOS_VOL_VERSION ${DAOS_VOL_PACKAGE_VERSION_MAJOR})
-    else (WIN32)
-      set (LIBDAOS_VOL_VERSION ${DAOS_VOL_PACKAGE_VERSION})
-    endif (WIN32)
-    set_target_properties (${libtarget} PROPERTIES VERSION ${LIBDAOS_VOL_VERSION})
-    if (WIN32)
-        set (${LIB_OUT_NAME} "${LIB_OUT_NAME}-${PACKAGE_SOVERSION}")
-    else (WIN32)
-        set_target_properties (${libtarget} PROPERTIES SOVERSION ${PACKAGE_SOVERSION})
-    endif (WIN32)
-  endif (${libtype} MATCHES "SHARED")
-  DAOS_VOL_SET_LIB_OPTIONS (${libtarget} ${LIB_OUT_NAME} ${libtype})
-
-  #-- Apple Specific install_name for libraries
-  if (APPLE)
-    option (DAOS_VOL_BUILD_WITH_INSTALL_NAME "Build with library install_name set to the installation path" OFF)
-    if (DAOS_VOL_BUILD_WITH_INSTALL_NAME)
-      set_target_properties (${libtarget} PROPERTIES
-          LINK_FLAGS "-current_version ${DAOS_VOL_PACKAGE_VERSION} -compatibility_version ${DAOS_VOL_PACKAGE_VERSION}"
-          INSTALL_NAME_DIR "${CMAKE_INSTALL_PREFIX}/lib"
-          BUILD_WITH_INSTALL_RPATH ${DAOS_VOL_BUILD_WITH_INSTALL_NAME}
-      )
-    endif (DAOS_VOL_BUILD_WITH_INSTALL_NAME)
-    if (DAOS_VOL_BUILD_FRAMEWORKS)
-      if (${libtype} MATCHES "SHARED")
-        # adapt target to build frameworks instead of dylibs
-        set_target_properties(${libtarget} PROPERTIES
-            XCODE_ATTRIBUTE_INSTALL_PATH "@rpath"
-            FRAMEWORK TRUE
-            FRAMEWORK_VERSION ${DAOS_VOL_PACKAGE_VERSION_MAJOR}
-            MACOSX_FRAMEWORK_IDENTIFIER org.hdfgroup.${libtarget}
-            MACOSX_FRAMEWORK_SHORT_VERSION_STRING ${DAOS_VOL_PACKAGE_VERSION_MAJOR}
-            MACOSX_FRAMEWORK_BUNDLE_VERSION ${DAOS_VOL_PACKAGE_VERSION_MAJOR})
-      endif (${libtype} MATCHES "SHARED")
-    endif (DAOS_VOL_BUILD_FRAMEWORKS)
-  endif (APPLE)
-endmacro (DAOS_VOL_SET_LIB_OPTIONS)
-
-#-------------------------------------------------------------------------------
-macro (TARGET_C_PROPERTIES wintarget libtype addcompileflags addlinkflags)
-  if (MSVC)
-    TARGET_MSVC_PROPERTIES (${wintarget} ${libtype} "${addcompileflags} ${WIN_COMPILE_FLAGS}" "${addlinkflags} ${WIN_LINK_FLAGS}")
-  else ()
-    set_target_properties (${wintarget} PROPERTIES COMPILE_FLAGS "${addcompileflags}" LINK_FLAGS "${addlinkflags}")
-  endif ()
-endmacro ()
-
-#-------------------------------------------------------------------------------
-macro (INSTALL_TARGET_PDB libtarget targetdestination targetcomponent)
-  if (WIN32 AND MSVC)
-    get_target_property (target_type ${libtarget} TYPE)
-    if (${libtype} MATCHES "SHARED")
-      set (targetfilename $<TARGET_PDB_FILE:${libtarget}>)
-    else ()
-      get_property (target_name TARGET ${libtarget} PROPERTY OUTPUT_NAME_RELWITHDEBINFO)
-      set (targetfilename $<TARGET_FILE_DIR:${libtarget}>/${target_name}.pdb)
-    endif ()
-    install (
-      FILES
-          ${targetfilename}
-      DESTINATION
-          ${targetdestination}
-      CONFIGURATIONS RelWithDebInfo
-      COMPONENT ${targetcomponent}
-  )
-  endif ()
-endmacro ()
-
-
-#-----------------------------------------------------------------------------
-# Setup output Directories
-#-----------------------------------------------------------------------------
-set (CMAKE_RUNTIME_OUTPUT_DIRECTORY
-    ${PROJECT_BINARY_DIR}/bin CACHE PATH "Single Directory for all Exectuables."
-)
-set (CMAKE_LIBRARY_OUTPUT_DIRECTORY
-    ${PROJECT_BINARY_DIR}/bin CACHE PATH "Single Directory for all Libraries"
-)
-set (CMAKE_ARCHIVE_OUTPUT_DIRECTORY
-    ${PROJECT_BINARY_DIR}/bin CACHE PATH "Single Directory for all static libraries."
-)
-
-if (WIN32)
-  set (CMAKE_TEST_OUTPUT_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${CMAKE_BUILD_TYPE})
-else (WIN32)
-  set (CMAKE_TEST_OUTPUT_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
-endif ()
-
-#-----------------------------------------------------------------------------
-# To include a library in the list exported by the project AT BUILD TIME,
-# add it to this variable. This is NOT used by Make Install, but for projects
-# which include the DAOS VOL as a sub-project within their build tree
-#-----------------------------------------------------------------------------
-set (DAOS_VOL_LIBRARIES_TO_EXPORT ${DAOS_VOL_LIB_TARGET} CACHE INTERNAL "Used to pass variables between directories" FORCE)
-set (EXTERNAL_HEADER_LIST "")
-set (EXTERNAL_LIBRARY_LIST "")
-set (EXTERNAL_LIBRARYDLL_LIST "")
-
-#-----------------------------------------------------------------------------
-# Run all the CMake configuration tests for our build environment
-#-----------------------------------------------------------------------------
-#include (${DAOS_VOL_RESOURCES_DIR}/ConfigureChecks.cmake)
-
-set (CMAKE_INCLUDE_CURRENT_DIR_IN_INTERFACE ON)
-
-#-----------------------------------------------------------------------------
-# Mac OS X Options
-#-----------------------------------------------------------------------------
-if (DAOS_VOL_BUILD_FRAMEWORKS AND NOT BUILD_SHARED_LIBS)
-  set (BUILD_SHARED_LIBS ON CACHE BOOL "Build Shared Libraries")
-endif ()
-
-#-----------------------------------------------------------------------------
-# Option to Build Shared and Static libs, default is static
-#-----------------------------------------------------------------------------
-option (BUILD_SHARED_LIBS "Build Shared Libraries" ON)
-set (DAOS_VOL_ENABLE_SHARED_LIB NO)
-if (BUILD_SHARED_LIBS)
-  set (DAOS_VOL_ENABLE_SHARED_LIB YES)
-  set (LINK_SHARED_LIBS ${LINK_LIBS})
-endif ()
-set (DAOS_VOL_ENABLE_STATIC_LIB YES)
+#------------------------------------------------------------------------------
+# Choose static or shared libraries.
+#------------------------------------------------------------------------------
+option(BUILD_SHARED_LIBS "Build with shared libraries." OFF)
+if(BUILD_SHARED_LIBS)
+  set(HG_BUILD_SHARED_LIBS 1)
+  set(HDF5_DAOS_LIBTYPE SHARED)
+  set (DAOS_VOL_ENABLE_SHARED_LIB NO)
+else()
+  set(HG_BUILD_SHARED_LIBS 0)
+  set(HDF5_DAOS_LIBTYPE STATIC)
+    set (DAOS_VOL_ENABLE_SHARED_LIB YES)
+endif()
 set (CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-#-----------------------------------------------------------------------------
-# Option to Build Static executables
-#-----------------------------------------------------------------------------
-option (BUILD_STATIC_EXECS "Build Static Executabless" OFF)
-if (BUILD_STATIC_EXECS)
-  if (NOT WIN32)
-    set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -static")
-    set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -static")
-  endif ()
-endif ()
+#-------------------------------------------------------------------------------
+function(hdf5_daos_set_lib_options libtarget libname libtype)
+  if(${libtype} MATCHES "SHARED")
+    set(LIB_RELEASE_NAME "${libname}")
+    set(LIB_DEBUG_NAME "${libname}_debug")
+    set(LIB_VERSION ${HDF5_DAOS_PACKAGE_VERSION})
+  else()
+    # if the generator supports configuration types or if the CMAKE_BUILD_TYPE has a value
+    if(CMAKE_CONFIGURATION_TYPES OR CMAKE_BUILD_TYPE)
+      set(LIB_RELEASE_NAME "${libname}")
+      set(LIB_DEBUG_NAME "${libname}_debug")
+    else()
+      set(LIB_RELEASE_NAME "lib${libname}")
+      set(LIB_DEBUG_NAME "lib${libname}_debug")
+    endif()
+  endif()
+
+  set_target_properties(${libtarget}
+      PROPERTIES
+      DEBUG_OUTPUT_NAME          ${LIB_DEBUG_NAME}
+      RELEASE_OUTPUT_NAME        ${LIB_RELEASE_NAME}
+      MINSIZEREL_OUTPUT_NAME     ${LIB_RELEASE_NAME}
+      RELWITHDEBINFO_OUTPUT_NAME ${LIB_RELEASE_NAME}
+      VERSION                    ${LIB_VERSION}
+      SOVERSION                  ${LIB_VERSION}
+  )
+endfunction()
+
+# Avoid explicitly including system include paths
+set(HDF5_DAOS_SYSTEM_INCLUDE_PATH ${CMAKE_SYSTEM_INCLUDE_PATH}
+  ${CMAKE_C_IMPLICIT_INCLUDE_DIRECTORIES})
+if(NOT WIN32)
+  set(HDF5_DAOS_SYSTEM_INCLUDE_PATH /usr/include ${HDF5_DAOS_SYSTEM_INCLUDE_PATH})
+endif()
 
 #-----------------------------------------------------------------------------
-# Option to use code coverage
+# Coverage
 #-----------------------------------------------------------------------------
-option (DAOS_VOL_ENABLE_COVERAGE "Enable code coverage for Libraries and Programs" OFF)
-if (DAOS_VOL_ENABLE_COVERAGE)
-  set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -O0 -fprofile-arcs -ftest-coverage")
-  set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O0 -fprofile-arcs -ftest-coverage")
-  set (LDFLAGS "${LDFLAGS} -fprofile-arcs -ftest-coverage")
-endif ()
+if(NOT HDF5_DAOS_EXTERNALLY_CONFIGURED)
+  option(HDF5_DAOS_ENABLE_COVERAGE "Enable coverage." OFF)
+  if(HDF5_DAOS_ENABLE_COVERAGE)
+    set(COVERAGE_FLAGS "-fprofile-arcs -ftest-coverage" CACHE STRING
+      "Flags to the coverage program that CTest uses to perform coverage inspection"
+    )
+    mark_as_advanced(COVERAGE_FLAGS)
+  endif()
+
+  macro(set_coverage_flags target)
+    set_target_properties(${target}
+      PROPERTIES
+        COMPILE_FLAGS ${COVERAGE_FLAGS}
+        LINK_FLAGS ${COVERAGE_FLAGS}
+    )
+  endmacro()
+endif()
 
 #-----------------------------------------------------------------------------
-# Option to build the examples
+# Source
 #-----------------------------------------------------------------------------
-option (DAOS_VOL_ENABLE_EXAMPLES "Indicate that building examples should be enabled" ON)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 #-----------------------------------------------------------------------------
-# Option to indicate enabling connector debugging output
+# Examples
 #-----------------------------------------------------------------------------
-option (DAOS_VOL_ENABLE_DEBUG "Indicate that connector debug output is used" OFF)
-if (DAOS_VOL_ENABLE_DEBUG)
-  set (DV_PLUGIN_DEBUG 1)
-endif ()
+option(BUILD_EXAMPLES "Build examples." OFF)
+if(BUILD_EXAMPLES)
+  # BuildExamples.cmake builds the examples as a separate project. This ensures
+  # that examples can be built by themselves as well as avoiding pollution of
+  # the target space with targets (and other things) from examples.
+  include(${CMAKE_CURRENT_SOURCE_DIR}/examples/BuildExamples.cmake)
+endif()
 
 #-----------------------------------------------------------------------------
-# Option to indicate using a memory checker
+# Testing
 #-----------------------------------------------------------------------------
-option (DAOS_VOL_ENABLE_MEM_TRACKING "Indicate that a memory checker is used" OFF)
-if (DAOS_VOL_ENABLE_MEM_TRACKING)
-  set (DV_TRACK_MEM_USAGE 1)
-endif ()
+#option(BUILD_TESTING "Build testing." OFF)
+#if(NOT HDF5_DAOS_EXTERNALLY_CONFIGURED AND BUILD_TESTING)
+#  enable_testing()
+#  include(CTest)
+#  add_subdirectory(Testing)
+#endif()
 
 #-----------------------------------------------------------------------------
-# Allow Visual Studio solution directories
+# Configure the config.cmake file for the build directory
 #-----------------------------------------------------------------------------
-# Provide a way for Visual Studio Express users to turn OFF the new FOLDER
-# organization feature. Default to ON for non-Express users. Express users must
-# explicitly turn off this option to build HDF5 in the Express IDE...
-#
-option (DAOS_VOL_USE_FOLDERS "Enable folder grouping of projects in IDEs." ON)
-mark_as_advanced (DAOS_VOL_USE_FOLDERS)
-if (DAOS_VOL_USE_FOLDERS)
-  set_property (GLOBAL PROPERTY USE_FOLDERS ON)
-endif ()
-option (DAOS_VOL_NO_PACKAGES "CPACK - Disable packaging" OFF)
-mark_as_advanced (DAOS_VOL_NO_PACKAGES)
-
-
-#-----------------------------------------------------------------------------
-# Generate the daos_vol_config.h file containing user settings needed by
-# compilation
-#-----------------------------------------------------------------------------
-configure_file (${DAOS_VOL_RESOURCES_DIR}/dv_cmake_config.h.in ${DAOS_VOL_BINARY_DIR}/daos_vol_config.h @ONLY)
-
-#-----------------------------------------------------------------------------
-# Include the main src directory
-#-----------------------------------------------------------------------------
-set (DAOS_VOL_INCLUDE_DIRECTORIES
-    ${DAOS_VOL_SRC_DIR}
-    ${DAOS_VOL_BINARY_DIR}
-    ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}
+configure_file(
+  ${HDF5_DAOS_SOURCE_DIR}/CMake/${HDF5_DAOS_PACKAGE}-config.cmake.build.in
+  ${HDF5_DAOS_BINARY_DIR}/${HDF5_DAOS_PACKAGE}-config.cmake @ONLY
 )
 
 #-----------------------------------------------------------------------------
-# Include the HDF5 distribution directory
+# Configure the config.cmake file for the install directory
 #-----------------------------------------------------------------------------
-if (PREBUILT_HDF5_DIR)
-  set (DAOS_VOL_INCLUDE_DIRECTORIES
-      ${DAOS_VOL_INCLUDE_DIRECTORIES}
-      ${PREBUILT_HDF5_DIR}/include
-  )
-else ()
-  set (DAOS_VOL_INCLUDE_DIRECTORIES
-      ${DAOS_VOL_INCLUDE_DIRECTORIES}    
-      ${HDF5_DIR}
-      ${HDF5_BINARY_DIR}
-  )
-endif ()
+configure_file(
+  ${HDF5_DAOS_SOURCE_DIR}/CMake/${HDF5_DAOS_PACKAGE}-config.cmake.install.in
+  ${HDF5_DAOS_BINARY_DIR}/CMakeFiles/${HDF5_DAOS_PACKAGE}-config.cmake @ONLY
+)
 
-INCLUDE_DIRECTORIES (${DAOS_VOL_INCLUDE_DIRECTORIES})
-
+install(
+  FILES
+    ${HDF5_DAOS_BINARY_DIR}/CMakeFiles/${HDF5_DAOS_PACKAGE}-config.cmake
+  DESTINATION
+    ${HDF5_DAOS_INSTALL_DATA_DIR}/cmake/${HDF5_DAOS_PACKAGE}
+)
 
 #-----------------------------------------------------------------------------
-# When building utility executables that generate other (source) files :
-# we make use of the following variables defined in the root CMakeLists.
-# Certain systems may add /Debug or /Release to output paths
-# and we need to call the executable from inside the CMake configuration
+# Configure the config-version.cmake file for the install directory
 #-----------------------------------------------------------------------------
-set (EXE_EXT "")
-if (WIN32)
-  set (EXE_EXT ".exe")
-  if (NOT CYGWIN)
-    add_definitions (-D_BIND_TO_CURRENT_VCLIBS_VERSION=1)
-    add_definitions (-D_CRT_SECURE_NO_WARNINGS)
-    add_definitions (-D_CONSOLE)
-  endif (NOT CYGWIN)
-endif ()
+configure_file(
+  ${HDF5_DAOS_SOURCE_DIR}/CMake/${HDF5_DAOS_PACKAGE}-config-version.cmake.in
+  ${HDF5_DAOS_BINARY_DIR}/CMakeFiles/${HDF5_DAOS_PACKAGE}-config-version.cmake @ONLY
+)
 
-if (MSVC)
-  set (CMAKE_MFC_FLAG 0)
-  set (WIN_COMPILE_FLAGS "")
-  set (WIN_LINK_FLAGS "")
-endif ()
-
-set (MAKE_SYSTEM)
-if (CMAKE_BUILD_TOOL MATCHES "make")
-  set (MAKE_SYSTEM 1)
-endif ()
-
-set (CFG_INIT "/${CMAKE_CFG_INTDIR}")
-if (MAKE_SYSTEM)
-  set (CFG_INIT "")
-endif ()
+install(
+  FILES
+    ${HDF5_DAOS_BINARY_DIR}/CMakeFiles/${HDF5_DAOS_PACKAGE}-config-version.cmake
+  DESTINATION
+    ${HDF5_DAOS_INSTALL_DATA_DIR}/cmake/${HDF5_DAOS_PACKAGE}
+)
 
 #-----------------------------------------------------------------------------
-# Add some definitions for Debug Builds
+# For automake compatibility, also provide a pkgconfig file
 #-----------------------------------------------------------------------------
-if (CMAKE_BUILD_TYPE MATCHES Debug)
-  add_definitions (-DDEBUG)
-else (CMAKE_BUILD_TYPE MATCHES Debug)
-  add_definitions (-DNDEBUG)
-endif ()
-
-include (${DAOS_VOL_RESOURCES_DIR}/HDFCompilerFlags.cmake)
-
-#-----------------------------------------------------------------------------
-# Build HDF5, unless the user has specified to use
-# a pre-built HDF5 distribution
-#-----------------------------------------------------------------------------
-if (NOT PREBUILT_HDF5_DIR)
-  add_subdirectory(${HDF5_DIR} ${PROJECT_BINARY_DIR}/${HDF5_DIR_NAME})
-else ()
-  link_directories(${PREBUILT_HDF5_DIR}/lib)
-  set (HDF5_LIBRARIES_TO_EXPORT
-       libhdf5.so
-       libhdf5_hl.so
-       libhdf5.a
-       libhdf5_hl.a
-  )
-endif ()
-
-#-----------------------------------------------------------------------------
-# Build the DAOS VOL
-#-----------------------------------------------------------------------------
-add_subdirectory(${DAOS_VOL_SRC_DIR} ${PROJECT_BINARY_DIR}/src)
-
-#-----------------------------------------------------------------------------
-# Add the DAOS VOL test Target to the build if testing is enabled
-#-----------------------------------------------------------------------------
-option (BUILD_TESTING "Build DAOS VOL Unit Testing" ON)
-if (BUILD_TESTING)
-  set (DART_TESTING_TIMEOUT 1200
-      CACHE INTEGER
-      "Timeout in seconds for each test (default 1200=20minutes)"
+if(NOT WIN32)
+  configure_file(
+    ${HDF5_DAOS_SOURCE_DIR}/CMake/${HDF5_DAOS_PACKAGE}.pc.in
+    ${HDF5_DAOS_BINARY_DIR}/CMakeFiles/${HDF5_DAOS_PACKAGE}.pc @ONLY
   )
 
-  enable_testing ()
-  include (CTest)
-
-  add_subdirectory(${DAOS_VOL_TEST_SRC_DIR} ${PROJECT_BINARY_DIR}/test)
-
-  include (${DAOS_VOL_SOURCE_DIR}/CTestConfig.cmake)
-endif ()
+  install(
+    FILES
+      ${HDF5_DAOS_BINARY_DIR}/CMakeFiles/${HDF5_DAOS_PACKAGE}.pc
+    DESTINATION
+      ${HDF5_DAOS_INSTALL_LIB_DIR}/pkgconfig
+  )
+endif()
 
 #-----------------------------------------------------------------------------
-# Add the DAOS VOL examples Target to the build
+# CPack
 #-----------------------------------------------------------------------------
-if (DAOS_VOL_ENABLE_EXAMPLES)
-  add_subdirectory(${DAOS_VOL_EXAMPLES_DIR} ${PROJECT_BINARY_DIR}/examples)
-endif ()
-
-include (CMakeInstallation.cmake)
+if(NOT HDF5_DAOS_EXTERNALLY_CONFIGURED)
+  set(CPACK_PACKAGE_DESCRIPTION_FILE ${HDF5_DAOS_SOURCE_DIR}/README.md)
+  set(CPACK_RESOURCE_FILE_LICENSE ${HDF5_DAOS_SOURCE_DIR}/COPYING)
+  set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "HDF5 DAOS VOL connector")
+  set(CPACK_PACKAGE_NAME "HDF5 DAOS")
+  set(CPACK_PACKAGE_VENDOR "The HDF Group")
+  set(CPACK_PACKAGE_VERSION_MAJOR ${HDF5_DAOS_VERSION_MAJOR})
+  set(CPACK_PACKAGE_VERSION_MINOR ${HDF5_DAOS_VERSION_MINOR})
+  set(CPACK_PACKAGE_VERSION_PATCH ${HDF5_DAOS_VERSION_PATCH})
+  set(CPACK_GENERATOR "TBZ2")
+  set(CPACK_SOURCE_PACKAGE_FILE_NAME ${HDF5_DAOS_PACKAGE_TARNAME}-${HDF5_DAOS_PACKAGE_VERSION})
+  set(CPACK_SOURCE_IGNORE_FILES ".git*;/GitSetup/;/.git/;.swp$;.#;/#;.*~")
+  set(CPACK_SOURCE_STRIP_FILES "")
+  include(CPack)
+endif()

@@ -1,196 +1,269 @@
-cmake_minimum_required (VERSION 3.1.0)
-PROJECT (DAOS_VOL_SRC C)
-
-macro (IDE_GENERATED_PROPERTIES SOURCE_PATH HEADERS SOURCES)
-  #set(source_group_path "Source/AIM/${NAME}")
-  string (REPLACE "/" "\\\\" source_group_path ${SOURCE_PATH})
-  source_group (${source_group_path} FILES ${HEADERS} ${SOURCES})
-
-  #-- The following is needed if we ever start to use OS X Frameworks but only
-  #--  works on CMake 2.6 and greater
-  #set_property (SOURCE ${HEADERS}
-  #       PROPERTY MACOSX_PACKAGE_LOCATION Headers/${NAME}
-  #)
-endmacro (IDE_GENERATED_PROPERTIES)
-
-#-----------------------------------------------------------------------------
-# Apply definitions to compiler in this directory
-#-----------------------------------------------------------------------------
-add_definitions(${DAOS_VOL_EXTRA_C_FLAGS})
-
-#-----------------------------------------------------------------------------
-# List source files
-#-----------------------------------------------------------------------------
-set (DAOS_VOL_SRCS
-    ${DAOS_VOL_SRC_DIR}/daos_vol.c
-    ${DAOS_VOL_SRC_DIR}/daos_vol_attr.c
-    ${DAOS_VOL_SRC_DIR}/daos_vol_dset.c
-    ${DAOS_VOL_SRC_DIR}/daos_vol_file.c
-    ${DAOS_VOL_SRC_DIR}/daos_vol_group.c
-    ${DAOS_VOL_SRC_DIR}/daos_vol_link.c
-    ${DAOS_VOL_SRC_DIR}/daos_vol_obj.c
-    ${DAOS_VOL_SRC_DIR}/daos_vol_req.c
-    ${DAOS_VOL_SRC_DIR}/daos_vol_type.c
+#------------------------------------------------------------------------------
+# Include source and build directories
+#------------------------------------------------------------------------------
+set(HDF5_DAOS_BUILD_INCLUDE_DEPENDENCIES
+  ${CMAKE_CURRENT_SOURCE_DIR}
+  ${CMAKE_CURRENT_SOURCE_DIR}/util
+  ${CMAKE_CURRENT_BINARY_DIR}
 )
 
-set (DAOS_VOL_HDRS
-    ${DAOS_VOL_SRC_DIR}/daos_vol.h
-    ${DAOS_VOL_SRC_DIR}/daos_vol_public.h
-)
+#------------------------------------------------------------------------------
+# Internal dependencies (exported libs)
+#------------------------------------------------------------------------------
 
-#-----------------------------------------------------------------------------
-# Add in source files from the "util" diectory
-#-----------------------------------------------------------------------------
-add_subdirectory(util ${PROJECT_BINARY_DIR}/src/util)
-
-IDE_GENERATED_PROPERTIES("DAOS_VOL" "${DAOS_VOL_HDRS}" "${DAOS_VOL_SRCS}")
-
-set (DAOS_VOL_PUBLIC_HEADERS
-    ${DAOS_VOL_SRC_DIR}/daos_vol_public.h
-)
-
-add_library (${DAOS_VOL_LIB_TARGET} STATIC ${DAOS_VOL_SRCS} ${DAOS_VOL_HDRS})
-TARGET_C_PROPERTIES (${DAOS_VOL_LIB_TARGET} STATIC " " " ")
-target_link_libraries (${DAOS_VOL_LIB_TARGET} ${HDF5_LIBRARIES_TO_EXPORT} ${LINK_LIBS})
-if (NOT WIN32)
-  target_link_libraries (${DAOS_VOL_LIB_TARGET} dl)
-endif ()
-set (DAOS_VOL_LIBRARIES_TO_EXPORT ${DAOS_VOL_LIB_TARGET} CACHE INTERNAL "Used to pass variables between directories" FORCE)
-set_target_properties (${DAOS_VOL_LIB_TARGET} PROPERTIES
-    FOLDER libraries
-    INTERFACE_INCLUDE_DIRECTORIES "$<INSTALL_INTERFACE:$<INSTALL_PREFIX>/include>"
-)
-if (WIN32)
-  set_target_properties (${DAOS_VOL_LIB_TARGET} PROPERTIES
-    OUTPUT_NAME lib${DAOS_VOL_LIB_CORENAME}
+#------------------------------------------------------------------------------
+# External dependencies
+#------------------------------------------------------------------------------
+# DAOS
+find_package(DAOS REQUIRED)
+if(DAOS_FOUND)
+  set(HDF5_DAOS_EXT_INCLUDE_DEPENDENCIES
+    ${HDF5_DAOS_EXT_INCLUDE_DEPENDENCIES}
+    ${DAOS_INCLUDE_DIRS}
   )
-else ()
-  set_target_properties (${DAOS_VOL_LIB_TARGET} PROPERTIES
-    OUTPUT_NAME ${DAOS_VOL_LIB_CORENAME}
+  set(HDF5_DAOS_EXT_LIB_DEPENDENCIES
+    ${HDF5_DAOS_EXT_LIB_DEPENDENCIES}
+    ${DAOS_LIBRARIES}
   )
+else()
+  message(FATAL_ERROR "Could not find DAOS, please check DAOS_INCLUDE_DIR.")
 endif()
 
-#add_dependencies(${DAOS_VOL_LIB_TARGET} ${HDF5_LIBRARIES_TO_EXPORT})
-
-set (install_targets ${DAOS_VOL_LIB_TARGET})
-
-if (BUILD_SHARED_LIBS)
-  file (MAKE_DIRECTORY "${DAOS_VOL_BINARY_DIR}/shared")
-  add_library (${DAOS_VOL_LIBSH_TARGET} SHARED ${DAOS_VOL_SRCS} ${DAOS_VOL_HDRS})
-  TARGET_C_PROPERTIES (${DAOS_VOL_LIBSH_TARGET} SHARED " " " ")
-  target_link_libraries (${DAOS_VOL_LIBSH_TARGET} ${HDF5_LIBRARIES_TO_EXPORT} ${LINK_SHARED_LIBS})
-  if (NOT WIN32)
-    target_link_libraries (${DAOS_VOL_LIBSH_TARGET} dl)
-  endif ()
-  set (DAOS_VOL_LIBRARIES_TO_EXPORT "${DAOS_VOL_LIBRARIES_TO_EXPORT};${DAOS_VOL_LIBSH_TARGET}" CACHE INTERNAL "Used to pass variables between directories" FORCE)
-  set_target_properties (${DAOS_VOL_LIBSH_TARGET} PROPERTIES
-      OUTPUT_NAME ${DAOS_VOL_LIB_CORENAME}
-      FOLDER libraries
-      COMPILE_DEFINITIONS "DAOS_VOL_BUILT_AS_DYNAMIC_LIB"
-      INTERFACE_INCLUDE_DIRECTORIES "$<INSTALL_INTERFACE:$<INSTALL_PREFIX>/include>"
-      INTERFACE_COMPILE_DEFINITIONS DAOS_VOL_BUILT_AS_DYNAMIC_LIB=1
+# CART
+# Temporary workaround because DAOS does not pull Cart dependency
+find_package(CART REQUIRED)
+if(CART_FOUND)
+  set(HDF5_DAOS_EXT_INCLUDE_DEPENDENCIES
+    ${HDF5_DAOS_EXT_INCLUDE_DEPENDENCIES}
+    ${CART_INCLUDE_DIRS}
   )
-  
-  #add_dependencies(${DAOS_VOL_LIBSH_TARGET} ${HDF5_LIBRARIES_TO_EXPORT})
+  set(HDF5_DAOS_EXT_LIB_DEPENDENCIES
+    ${HDF5_DAOS_EXT_LIB_DEPENDENCIES}
+    ${CART_LIBRARIES}
+  )
+else()
+  message(FATAL_ERROR "Could not find CART, please check CART_INCLUDE_DIR.")
+endif()
 
-  set (install_targets ${install_targets} ${DAOS_VOL_LIBSH_TARGET})
-endif ()
+# HDF5
+find_package(HDF5 NO_MODULE REQUIRED)
+if(HDF5_FOUND)
+  set(HDF5_DAOS_EXT_PKG_DEPENDENCIES
+    ${HDF5_DAOS_EXT_PKG_DEPENDENCIES}
+    hdf5::hdf5-shared
+  )
+else()
+  message(FATAL_ERROR "Could not find HDF5, please check HDF5_DIR.")
+endif()
+
+# MPI
+# Temporary workaround because HDF5 does not pull MPI dependency
+find_package(MPI REQUIRED)
+if(MPI_FOUND)
+  set(HDF5_DAOS_EXT_INCLUDE_DEPENDENCIES
+    ${HDF5_DAOS_EXT_INCLUDE_DEPENDENCIES}
+    ${MPI_INCLUDE_PATH}
+  )
+  set(HDF5_DAOS_EXT_LIB_DEPENDENCIES
+    ${HDF5_DAOS_EXT_LIB_DEPENDENCIES}
+    ${MPI_LIBRARIES}
+  )
+else()
+  message(FATAL_ERROR "Could not find MPI.")
+endif()
+
+# UUID
+find_package(UUID REQUIRED)
+if(UUID_FOUND)
+  set(HDF5_DAOS_EXT_INCLUDE_DEPENDENCIES
+    ${HDF5_DAOS_EXT_INCLUDE_DEPENDENCIES}
+    ${UUID_INCLUDE_DIRS}
+  )
+  set(HDF5_DAOS_EXT_LIB_DEPENDENCIES
+    ${HDF5_DAOS_EXT_LIB_DEPENDENCIES}
+    ${UUID_LIBRARIES}
+  )
+else()
+  message(FATAL_ERROR "Could not find libuuid, please check UUID_INCLUDE_DIR.")
+endif()
+
+#------------------------------------------------------------------------------
+# Configure module header files
+#------------------------------------------------------------------------------
+# Set unique vars used in the autogenerated config file (symbol import/export)
+configure_file(
+  ${CMAKE_CURRENT_SOURCE_DIR}/daos_vol_config.h.in
+  ${CMAKE_CURRENT_BINARY_DIR}/daos_vol_config.h
+)
+
+#------------------------------------------------------------------------------
+# Set sources
+#------------------------------------------------------------------------------
+set(HDF5_DAOS_SRCS
+  ${CMAKE_CURRENT_SOURCE_DIR}/daos_vol.c
+  ${CMAKE_CURRENT_SOURCE_DIR}/daos_vol_attr.c
+  ${CMAKE_CURRENT_SOURCE_DIR}/daos_vol_dset.c
+  ${CMAKE_CURRENT_SOURCE_DIR}/daos_vol_file.c
+  ${CMAKE_CURRENT_SOURCE_DIR}/daos_vol_group.c
+  ${CMAKE_CURRENT_SOURCE_DIR}/daos_vol_link.c
+  ${CMAKE_CURRENT_SOURCE_DIR}/daos_vol_obj.c
+  ${CMAKE_CURRENT_SOURCE_DIR}/daos_vol_req.c
+  ${CMAKE_CURRENT_SOURCE_DIR}/daos_vol_type.c
+  ${CMAKE_CURRENT_SOURCE_DIR}/util/daos_vol_mem.c
+  ${CMAKE_CURRENT_SOURCE_DIR}/util/daos_vol_err.c
+)
+
+#------------------------------------------------------------------------------
+# Libraries
+#------------------------------------------------------------------------------
+
+# Clean up system include path first
+foreach(item ${HDF5_DAOS_SYSTEM_INCLUDE_PATH})
+  if(HDF5_DAOS_EXT_INCLUDE_DEPENDENCIES)
+    list(REMOVE_ITEM HDF5_DAOS_EXT_INCLUDE_DEPENDENCIES ${item})
+  endif()
+endforeach()
+
+# HDF5 DAOS
+add_library(hdf5_daos ${HDF5_DAOS_SRCS})
+target_include_directories(hdf5_daos
+  PUBLIC  "$<BUILD_INTERFACE:${HDF5_DAOS_BUILD_INCLUDE_DEPENDENCIES}>"
+          $<INSTALL_INTERFACE:${HDF5_DAOS_INSTALL_INCLUDE_INTERFACE}>
+)
+target_include_directories(hdf5_daos
+  SYSTEM PUBLIC ${HDF5_DAOS_EXT_INCLUDE_DEPENDENCIES}
+)
+target_link_libraries(hdf5_daos
+  ${HDF5_DAOS_EXPORTED_LIBS}
+  ${HDF5_DAOS_EXT_LIB_DEPENDENCIES}
+  ${HDF5_DAOS_EXT_PKG_DEPENDENCIES}
+  )
+hdf5_daos_set_lib_options(hdf5_daos "hdf5_daos" ${HDF5_DAOS_LIBTYPE})
+if(HDF5_DAOS_ENABLE_COVERAGE)
+  set_coverage_flags(hdf5_daos)
+endif()
+
+set(HDF5_DAOS_EXPORTED_LIBS hdf5_daos ${HDF5_DAOS_EXPORTED_LIBS})
 
 #-----------------------------------------------------------------------------
-# Make the DAOS VOL depend on H5pubconf.h existing
+# Specify project header files to be installed
 #-----------------------------------------------------------------------------
-if (PREBUILT_HDF5_DIR)
-  add_custom_target(
-    daos_vol_pubconf_depend
-    DEPENDS ${PREBUILT_HDF5_DIR}/include/H5pubconf.h
-  )
-else ()
-  add_custom_target(
-    daos_vol_pubconf_depend
-    DEPENDS ${CMAKE_BINARY_DIR}/${HDF5_DIR_NAME}/H5pubconf.h
-  )
-endif ()
-
-add_dependencies(${DAOS_VOL_LIB_TARGET} daos_vol_pubconf_depend)
+set(HDF5_DAOS_HEADERS
+  ${CMAKE_CURRENT_BINARY_DIR}/daos_vol_config.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/daos_vol_public.h
+)
 
 #-----------------------------------------------------------------------------
 # Add file(s) to CMake Install
 #-----------------------------------------------------------------------------
-if (NOT DAOS_VOL_INSTALL_NO_DEVELOPMENT)
-  install (
-      FILES
-          ${DAOS_VOL_PUBLIC_HEADERS}
-      DESTINATION
-          ${DAOS_VOL_INSTALL_INCLUDE_DIR}
-      COMPONENT
-          headers
-  )
-endif ()
+install(
+  FILES
+    ${HDF5_DAOS_HEADERS}
+  DESTINATION
+    ${HDF5_DAOS_INSTALL_INCLUDE_DIR}
+  COMPONENT
+    headers
+)
+
+#-----------------------------------------------------------------------------
+# Add Target(s) to CMake Install
+#-----------------------------------------------------------------------------
+install(
+  TARGETS
+    hdf5_daos
+  EXPORT
+    ${HDF5_DAOS_EXPORTED_TARGETS}
+  LIBRARY DESTINATION ${HDF5_DAOS_INSTALL_LIB_DIR}
+  ARCHIVE DESTINATION ${HDF5_DAOS_INSTALL_LIB_DIR}
+  RUNTIME DESTINATION ${HDF5_DAOS_INSTALL_BIN_DIR}
+)
 
 #-----------------------------------------------------------------------------
 # Add Target(s) to CMake Install for import into other projects
 #-----------------------------------------------------------------------------
-if (DAOS_VOL_EXPORTED_TARGETS)
-  if (BUILD_SHARED_LIBS)
-    INSTALL_TARGET_PDB (${DAOS_VOL_LIBSH_TARGET} ${DAOS_VOL_INSTALL_BIN_DIR} libraries)
-  endif ()
-
-  install (
-      TARGETS
-          ${install_targets}
-      EXPORT
-          ${DAOS_VOL_EXPORTED_TARGETS}
-      LIBRARY DESTINATION ${DAOS_VOL_INSTALL_LIB_DIR} COMPONENT libraries
-      ARCHIVE DESTINATION ${DAOS_VOL_INSTALL_LIB_DIR} COMPONENT libraries
-      RUNTIME DESTINATION ${DAOS_VOL_INSTALL_BIN_DIR} COMPONENT libraries
-      FRAMEWORK DESTINATION ${DAOS_VOL_INSTALL_FWRK_DIR} COMPONENT libraries
-  )
-endif ()
-
-#-----------------------------------------------------------------------------
-# Create pkgconfig files
-#-----------------------------------------------------------------------------
-set (_PKG_CONFIG_PREFIX ${CMAKE_INSTALL_PREFIX})
-set (_PKG_CONFIG_EXEC_PREFIX \${prefix})
-set (_PKG_CONFIG_LIBDIR \${exec_prefix}/lib)
-set (_PKG_CONFIG_INCLUDEDIR \${prefix}/include)
-set (_PKG_CONFIG_LIBNAME "${DAOS_VOL_LIB_CORENAME}")
-set (_PKG_CONFIG_VERSION "${DAOS_VOL_PACKAGE_VERSION}")
-
-foreach (libs ${LINK_LIBS} ${LINK_COMP_LIBS})
-  set (_PKG_CONFIG_LIBS_PRIVATE "${_PKG_CONFIG_LIBS_PRIVATE} -l${libs}")
-endforeach ()
-
-set (_PKG_CONFIG_LIBS "${_PKG_CONFIG_LIBS} -l${DAOS_VOL_LIB_CORENAME}")
-if (BUILD_SHARED_LIBS)
-  set (_PKG_CONFIG_SH_LIBS "${_PKG_CONFIG_SH_LIBS} -l${DAOS_VOL_LIB_CORENAME}")
-endif ()
-
-set (_PKG_CONFIG_REQUIRES "hdf5")
-set (_PKG_CONFIG_REQUIRES_PRIVATE "hdf5")
-
-configure_file (
-    ${DAOS_VOL_RESOURCES_DIR}/libdaosvol.pc.in
-    ${DAOS_VOL_BINARY_DIR}/CMakeFiles/${DAOS_VOL_LIB_CORENAME}-${DAOS_VOL_PACKAGE_VERSION}.pc
-    @ONLY
-)
-install (
-    FILES ${DAOS_VOL_BINARY_DIR}/CMakeFiles/${DAOS_VOL_LIB_CORENAME}-${DAOS_VOL_PACKAGE_VERSION}.pc
-    DESTINATION ${DAOS_VOL_INSTALL_LIB_DIR}/pkgconfig
-    COMPONENT libraries
+install(
+  EXPORT
+    ${HDF5_DAOS_EXPORTED_TARGETS}
+  DESTINATION
+    ${HDF5_DAOS_INSTALL_DATA_DIR}/cmake/hdf5_daos
+  FILE
+    ${HDF5_DAOS_EXPORTED_TARGETS}.cmake
 )
 
-if (NOT WIN32)
-  set (_PKG_CONFIG_COMPILER ${CMAKE_C_COMPILER})
-  configure_file (
-      ${DAOS_VOL_RESOURCES_DIR}/dvcc.in
-      ${DAOS_VOL_BINARY_DIR}/CMakeFiles/dvcc
-      @ONLY
-  )
-  install (
-      FILES ${DAOS_VOL_BINARY_DIR}/CMakeFiles/dvcc
-      DESTINATION ${DAOS_VOL_INSTALL_BIN_DIR}
-      PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
-      COMPONENT libraries
-  )
-endif ()
+#-----------------------------------------------------------------------------
+# Export all exported targets to the build tree for use by parent project
+#-----------------------------------------------------------------------------
+if(NOT HDF5_DAOS_EXTERNALLY_CONFIGURED)
+EXPORT (
+  TARGETS
+    ${HDF5_DAOS_EXPORTED_LIBS}
+  FILE
+    ${HDF5_DAOS_EXPORTED_TARGETS}.cmake
+)
+endif()
+
+#------------------------------------------------------------------------------
+# Set variables for parent scope
+#------------------------------------------------------------------------------
+
+# Pkg-config configuration
+if(CMAKE_BUILD_TYPE)
+  string(TOLOWER ${CMAKE_BUILD_TYPE} lower_cmake_build_type)
+endif()
+
+# HDF5 DAOS package dependencies
+foreach(pkg_dep ${HDF5_DAOS_EXT_PKG_DEPENDENCIES})
+  set(HDF5_DAOS_PKG_DEPENDENCIES "${HDF5_DAOS_PKG_DEPENDENCIES} ${pkg_dep}")
+endforeach()
+set(HDF5_DAOS_PKG_DEPENDENCIES ${HDF5_DAOS_PKG_DEPENDENCIES} PARENT_SCOPE)
+
+# HDF5 DAOS private library dependencies
+foreach(exported_lib ${HDF5_DAOS_EXPORTED_LIBS})
+  if(lower_cmake_build_type MATCHES "debug")
+    get_target_property(HDF5_DAOS_LIBRARY ${exported_lib} DEBUG_OUTPUT_NAME)
+  else()
+    get_target_property(HDF5_DAOS_LIBRARY ${exported_lib} RELEASE_OUTPUT_NAME)
+  endif()
+  set(HDF5_DAOS_LIBRARIES "${HDF5_DAOS_LIBRARIES} -l${HDF5_DAOS_LIBRARY}")
+endforeach()
+set(HDF5_DAOS_LIBRARIES ${HDF5_DAOS_LIBRARIES} PARENT_SCOPE)
+
+# HDF5 DAOS external library dependencies
+# Need to generate -llib if not already passed
+set(HDF5_DAOS_EXT_LIB_DEPENDENCIES
+  ${HDF5_DAOS_EXT_LIB_DEPENDENCIES}
+  ${HDF5_DAOS_EXT_PKG_LIB_DEPENDENCIES}
+)
+foreach(lib_dep ${HDF5_DAOS_EXT_LIB_DEPENDENCIES})
+  # get library name
+  get_filename_component(lib_name ${lib_dep} NAME_WE)
+  if(lib_name MATCHES "^-l")
+    # lib_name found is -lxxx
+    set(HDF5_DAOS_EXT_LIB_DEPENDENCIES_LIST ${HDF5_DAOS_EXT_LIB_DEPENDENCIES_LIST} ${lib_name})
+  else()
+    # lib_name is /path/to/lib so get library path and name
+    get_filename_component(lib_path ${lib_dep} PATH)
+    string(REGEX REPLACE "^lib" "" lib_name ${lib_name})
+    set(HDF5_DAOS_EXT_LIB_DEPENDENCIES_LIST ${HDF5_DAOS_EXT_LIB_DEPENDENCIES_LIST} -L${lib_path} -l${lib_name})
+  endif()
+endforeach()
+if(HDF5_DAOS_EXT_LIB_DEPENDENCIES_LIST)
+  list(REMOVE_DUPLICATES HDF5_DAOS_EXT_LIB_DEPENDENCIES_LIST)
+endif()
+foreach(lib_dep ${HDF5_DAOS_EXT_LIB_DEPENDENCIES_LIST})
+  set(HDF5_DAOS_LIB_DEPENDENCIES "${HDF5_DAOS_LIB_DEPENDENCIES} ${lib_dep}")
+endforeach()
+set(HDF5_DAOS_LIB_DEPENDENCIES ${HDF5_DAOS_LIB_DEPENDENCIES} PARENT_SCOPE)
+
+# External include dependencies
+set(HDF5_DAOS_EXT_INCLUDE_DEPENDENCIES
+  ${HDF5_DAOS_EXT_INCLUDE_DEPENDENCIES}
+  ${HDF5_DAOS_EXT_PKG_INCLUDE_DEPENDENCIES}
+)
+if(HDF5_DAOS_EXT_INCLUDE_DEPENDENCIES)
+  list(REMOVE_DUPLICATES HDF5_DAOS_EXT_INCLUDE_DEPENDENCIES)
+endif()
+foreach(inc_dep ${HDF5_DAOS_EXT_INCLUDE_DEPENDENCIES})
+  set(HDF5_DAOS_INCLUDE_DEPENDENCIES "${HDF5_DAOS_INCLUDE_DEPENDENCIES} -I${inc_dep}")
+endforeach()
+set(HDF5_DAOS_INCLUDE_DEPENDENCIES ${HDF5_DAOS_INCLUDE_DEPENDENCIES} PARENT_SCOPE)

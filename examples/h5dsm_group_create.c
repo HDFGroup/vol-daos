@@ -37,12 +37,14 @@ int main(int argc, char *argv[]) {
     if((grp = H5Gcreate2(file, argv[3], H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT)) < 0)
         ERROR;
 
+#ifdef DV_HAVE_SNAP_OPEN_ID
     /* Save snapshot if requested */
     if(argc == 5) {
         if(H5daos_snap_create(file, &snap_id) < 0)
             ERROR;
         printf("Saved snapshot: snap_id = %llu\n", (long long unsigned)snap_id);
     } /* end if */
+#endif
 
     /* Close */
     if(H5Gclose(grp) < 0)

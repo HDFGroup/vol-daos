@@ -28,6 +28,7 @@ int main(int argc, char *argv[]) {
     if(H5Pset_all_coll_metadata_ops(fapl, true) < 0)
         ERROR;
 
+#ifdef DV_HAVE_SNAP_OPEN_ID
     /* Open snapshot if specified */
     if(argc == 4) {
         snap_id = (H5_daos_snap_id_t)atoi(argv[3]);
@@ -35,13 +36,14 @@ int main(int argc, char *argv[]) {
         if(H5Pset_daos_snap_open(fapl, snap_id) < 0)
             ERROR;
     } /* end if */
+#endif
 
     /* Open file */
-    if((file = H5Fopen_ff(argv[2], H5F_ACC_RDONLY, fapl, NULL)) < 0)
+    if((file = H5Fopen(argv[2], H5F_ACC_RDONLY, fapl)) < 0)
         ERROR;
 
     /* Close */
-    if(H5Fclose_ff(file, -1) < 0)
+    if(H5Fclose(file) < 0)
         ERROR;
     if(H5Pclose(fapl) < 0)
         ERROR;
@@ -54,7 +56,7 @@ int main(int argc, char *argv[]) {
 
 error:
     H5E_BEGIN_TRY {
-        H5Fclose_ff(file, -1);
+        H5Fclose(file);
         H5Pclose(fapl);
     } H5E_END_TRY;
 

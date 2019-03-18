@@ -23,22 +23,22 @@ foreach(flag CMAKE_C_FLAGS_DEBUG
 endforeach()
 
 set(examples_dependencies
-  hdf5_daos
+  hdf5_vol_daos
   )
 
 add_custom_command(
-  OUTPUT "${HDF5_DAOS_BINARY_DIR}/Hdf5DaosExamples.done"
+  OUTPUT "${HDF5_VOL_DAOS_BINARY_DIR}/Hdf5VolDaosExamples.done"
   COMMAND ${CMAKE_CTEST_COMMAND}
   ARGS ${build_config_arg}
        --build-and-test
-       ${HDF5_DAOS_SOURCE_DIR}/examples
-       ${HDF5_DAOS_BINARY_DIR}/examples
+       ${HDF5_VOL_DAOS_SOURCE_DIR}/examples
+       ${HDF5_VOL_DAOS_BINARY_DIR}/examples
        --build-noclean
        --build-two-config
-       --build-project Hdf5DaosExamples
+       --build-project Hdf5VolDaosExamples
        --build-generator ${CMAKE_GENERATOR}
        --build-makeprogram ${CMAKE_MAKE_PROGRAM}
-       --build-options -DHDF5_DAOS_DIR:PATH=${HDF5_DAOS_BINARY_DIR}
+       --build-options -DHDF5_VOL_DAOS_DIR:PATH=${HDF5_VOL_DAOS_BINARY_DIR}
                        -DCMAKE_BUILD_TYPE:STRING=${CMAKE_BUILD_TYPE}
                        -DCMAKE_C_COMPILER:FILEPATH=${CMAKE_C_COMPILER}
                        -DCMAKE_C_FLAGS:STRING=${CMAKE_C_FLAGS}
@@ -47,11 +47,11 @@ add_custom_command(
                        ${extra_params}
                        --no-warn-unused-cli
   COMMAND ${CMAKE_COMMAND} -E touch
-          "${HDF5_DAOS_BINARY_DIR}/Hdf5DaosExamples.done"
+          "${HDF5_VOL_DAOS_BINARY_DIR}/Hdf5VolDaosExamples.done"
   COMMENT "Build examples as a separate project"
   DEPENDS ${examples_dependencies}
 )
 
 # Add custom target to ensure that the examples get built.
 add_custom_target(examples ALL DEPENDS
-  "${HDF5_DAOS_BINARY_DIR}/Hdf5DaosExamples.done")
+  "${HDF5_VOL_DAOS_BINARY_DIR}/Hdf5VolDaosExamples.done")

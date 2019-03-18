@@ -17,47 +17,48 @@ foreach(policy
   endif()
 endforeach()
 
-project(HDF5_DAOS C)
+project(HDF5_VOL_DAOS C)
 
 #------------------------------------------------------------------------------
 # Version information 
 #------------------------------------------------------------------------------
-set(HDF5_DAOS_VERSION_MAJOR "0")
-set(HDF5_DAOS_VERSION_MINOR "1")
-set(HDF5_DAOS_VERSION_PATCH "0")
-set(HDF5_DAOS_PACKAGE "hdf5_daos")
-set(HDF5_DAOS_PACKAGE_NAME "HDF5_DAOS")
-set(HDF5_DAOS_PACKAGE_VERSION "${HDF5_DAOS_VERSION_MAJOR}.${HDF5_DAOS_VERSION_MINOR}.${HDF5_DAOS_VERSION_PATCH}")
-set(HDF5_DAOS_PACKAGE_VERSION_MAJOR "${HDF5_DAOS_VERSION_MAJOR}.${HDF5_DAOS_VERSION_MINOR}")
-set(HDF5_DAOS_PACKAGE_VERSION_MINOR "${HDF5_DAOS_VERSION_PATCH}")
-set(HDF5_DAOS_PACKAGE_STRING "${HDF5_DAOS_PACKAGE_NAME} ${HDF5_DAOS_PACKAGE_VERSION}")
-set(HDF5_DAOS_PACKAGE_TARNAME "${HDF5_DAOS_PACKAGE}")
+set(HDF5_VOL_DAOS_VERSION_MAJOR "0")
+set(HDF5_VOL_DAOS_VERSION_MINOR "1")
+set(HDF5_VOL_DAOS_VERSION_PATCH "0")
+set(HDF5_VOL_DAOS_PACKAGE "hdf5_vol_daos")
+set(HDF5_VOL_DAOS_PACKAGE_NAME "HDF5_VOL_DAOS")
+set(HDF5_VOL_DAOS_PACKAGE_VERSION "${HDF5_VOL_DAOS_VERSION_MAJOR}.${HDF5_VOL_DAOS_VERSION_MINOR}.${HDF5_VOL_DAOS_VERSION_PATCH}")
+set(HDF5_VOL_DAOS_PACKAGE_VERSION_MAJOR "${HDF5_VOL_DAOS_VERSION_MAJOR}.${HDF5_VOL_DAOS_VERSION_MINOR}")
+set(HDF5_VOL_DAOS_PACKAGE_VERSION_MINOR "${HDF5_VOL_DAOS_VERSION_PATCH}")
+set(HDF5_VOL_DAOS_PACKAGE_STRING "${HDF5_VOL_DAOS_PACKAGE_NAME} ${HDF5_VOL_DAOS_PACKAGE_VERSION}")
+set(HDF5_VOL_DAOS_PACKAGE_TARNAME "${HDF5_VOL_DAOS_PACKAGE}")
 
 #------------------------------------------------------------------------------
 # Setup install and output Directories
 #------------------------------------------------------------------------------
-if(NOT HDF5_DAOS_INSTALL_BIN_DIR)
-  set(HDF5_DAOS_INSTALL_BIN_DIR ${CMAKE_INSTALL_PREFIX}/bin)
+if(NOT HDF5_VOL_DAOS_INSTALL_BIN_DIR)
+  set(HDF5_VOL_DAOS_INSTALL_BIN_DIR ${CMAKE_INSTALL_PREFIX}/bin)
 endif()
-if(NOT HDF5_DAOS_INSTALL_LIB_DIR)
-  set(HDF5_DAOS_INSTALL_LIB_DIR ${CMAKE_INSTALL_PREFIX}/lib)
+if(NOT HDF5_VOL_DAOS_INSTALL_LIB_DIR)
+  set(HDF5_VOL_DAOS_INSTALL_LIB_DIR ${CMAKE_INSTALL_PREFIX}/lib)
 endif()
-if(NOT HDF5_DAOS_INSTALL_INCLUDE_DIR)
+if(NOT HDF5_VOL_DAOS_INSTALL_INCLUDE_DIR)
   # Interface include will default to prefix/include
-  set(HDF5_DAOS_INSTALL_INTERFACE include)
-  set(HDF5_DAOS_INSTALL_INCLUDE_DIR ${CMAKE_INSTALL_PREFIX}/include)
+  set(HDF5_VOL_DAOS_INSTALL_INTERFACE include)
+  set(HDF5_VOL_DAOS_INSTALL_INCLUDE_DIR ${CMAKE_INSTALL_PREFIX}/include)
 else()
-  set(HDF5_DAOS_INSTALL_INTERFACE ${HDF5_DAOS_INSTALL_INCLUDE_DIR})
+  set(HDF5_VOL_DAOS_INSTALL_INTERFACE ${HDF5_VOL_DAOS_INSTALL_INCLUDE_DIR})
 endif()
-if(NOT HDF5_DAOS_INSTALL_DATA_DIR)
-  set(HDF5_DAOS_INSTALL_DATA_DIR ${CMAKE_INSTALL_PREFIX}/share)
+if(NOT HDF5_VOL_DAOS_INSTALL_DATA_DIR)
+  set(HDF5_VOL_DAOS_INSTALL_DATA_DIR ${CMAKE_INSTALL_PREFIX}/share)
 endif()
 
 # Setting this ensures that "make install" will leave rpaths to external
 # libraries intact on "make install". This ensures that one can install a
 # version of HDF5 DAOS on the build machine without any issues. If this not
 # desired, simply specify CMAKE_INSTALL_RPATH_USE_LINK_PATH when configuring
-# HDF5 DAOS and "make install" will strip all rpaths, which is default behavior.
+# HDF5 VOL DAOS and "make install" will strip all rpaths, which is default
+# behavior.
 if(NOT CMAKE_INSTALL_RPATH_USE_LINK_PATH)
   set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 endif()
@@ -70,7 +71,7 @@ if(APPLE OR WIN32)
 endif()
 
 #------------------------------------------------------------------------------
-if(NOT HDF5_DAOS_EXTERNALLY_CONFIGURED)
+if(NOT HDF5_VOL_DAOS_EXTERNALLY_CONFIGURED)
   set(CMAKE_RUNTIME_OUTPUT_DIRECTORY
       ${PROJECT_BINARY_DIR}/bin CACHE PATH "Single Directory for all Executables."
   )
@@ -82,15 +83,15 @@ if(NOT HDF5_DAOS_EXTERNALLY_CONFIGURED)
       ${PROJECT_BINARY_DIR}/bin CACHE PATH "Single Directory for all static libraries."
   )
 endif()
-set(HDF5_DAOS_CMAKE_DIR "${HDF5_DAOS_SOURCE_DIR}/CMake")
-set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${HDF5_DAOS_CMAKE_DIR})
+set(HDF5_VOL_DAOS_CMAKE_DIR "${HDF5_VOL_DAOS_SOURCE_DIR}/CMake")
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${HDF5_VOL_DAOS_CMAKE_DIR})
 
 #------------------------------------------------------------------------------
 # Disallow in-source build
 #------------------------------------------------------------------------------
-if("${HDF5_DAOS_SOURCE_DIR}" STREQUAL "${HDF5_DAOS_BINARY_DIR}")
+if("${HDF5_VOL_DAOS_SOURCE_DIR}" STREQUAL "${HDF5_VOL_DAOS_BINARY_DIR}")
   message(FATAL_ERROR
-    "HDF5 DAOS requires an out of source Build. "
+    "HDF5 DAOS VOL requires an out of source Build. "
     "Please create a separate binary directory and run CMake there.")
 endif()
 
@@ -114,31 +115,29 @@ endif()
 # Targets built within this project are exported at Install time for use
 # by other projects.
 #-----------------------------------------------------------------------------
-if(NOT HDF5_DAOS_EXPORTED_TARGETS)
-  set(HDF5_DAOS_EXPORTED_TARGETS "${HDF5_DAOS_PACKAGE}-targets")
+if(NOT HDF5_VOL_DAOS_EXPORTED_TARGETS)
+  set(HDF5_VOL_DAOS_EXPORTED_TARGETS "${HDF5_VOL_DAOS_PACKAGE}-targets")
 endif()
 
 #------------------------------------------------------------------------------
 # Choose static or shared libraries.
 #------------------------------------------------------------------------------
-option(BUILD_SHARED_LIBS "Build with shared libraries." OFF)
+option(BUILD_SHARED_LIBS "Build with shared libraries." ON)
 if(BUILD_SHARED_LIBS)
-  set(HG_BUILD_SHARED_LIBS 1)
-  set(HDF5_DAOS_LIBTYPE SHARED)
-  set (DAOS_VOL_ENABLE_SHARED_LIB NO)
+  set(H5VL_DAOS_BUILD_SHARED_LIBS 1)
+  set(HDF5_VOL_DAOS_LIBTYPE SHARED)
 else()
-  set(HG_BUILD_SHARED_LIBS 0)
-  set(HDF5_DAOS_LIBTYPE STATIC)
-    set (DAOS_VOL_ENABLE_SHARED_LIB YES)
+  message(FATAL_ERROR
+    "HDF5 DAOS VOL requires shared libraries.")
 endif()
-set (CMAKE_POSITION_INDEPENDENT_CODE ON)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 #-------------------------------------------------------------------------------
-function(hdf5_daos_set_lib_options libtarget libname libtype)
+function(hdf5_vol_daos_set_lib_options libtarget libname libtype)
   if(${libtype} MATCHES "SHARED")
     set(LIB_RELEASE_NAME "${libname}")
     set(LIB_DEBUG_NAME "${libname}_debug")
-    set(LIB_VERSION ${HDF5_DAOS_PACKAGE_VERSION})
+    set(LIB_VERSION ${HDF5_VOL_DAOS_PACKAGE_VERSION})
   else()
     # if the generator supports configuration types or if the CMAKE_BUILD_TYPE has a value
     if(CMAKE_CONFIGURATION_TYPES OR CMAKE_BUILD_TYPE)
@@ -162,18 +161,16 @@ function(hdf5_daos_set_lib_options libtarget libname libtype)
 endfunction()
 
 # Avoid explicitly including system include paths
-set(HDF5_DAOS_SYSTEM_INCLUDE_PATH ${CMAKE_SYSTEM_INCLUDE_PATH}
+set(HDF5_VOL_DAOS_SYSTEM_INCLUDE_PATH ${CMAKE_SYSTEM_INCLUDE_PATH}
   ${CMAKE_C_IMPLICIT_INCLUDE_DIRECTORIES})
-if(NOT WIN32)
-  set(HDF5_DAOS_SYSTEM_INCLUDE_PATH /usr/include ${HDF5_DAOS_SYSTEM_INCLUDE_PATH})
-endif()
+  set(HDF5_VOL_DAOS_SYSTEM_INCLUDE_PATH /usr/include ${HDF5_VOL_DAOS_SYSTEM_INCLUDE_PATH})
 
 #-----------------------------------------------------------------------------
 # Coverage
 #-----------------------------------------------------------------------------
-if(NOT HDF5_DAOS_EXTERNALLY_CONFIGURED)
-  option(HDF5_DAOS_ENABLE_COVERAGE "Enable coverage." OFF)
-  if(HDF5_DAOS_ENABLE_COVERAGE)
+if(NOT HDF5_VOL_DAOS_EXTERNALLY_CONFIGURED)
+  option(HDF5_VOL_DAOS_ENABLE_COVERAGE "Enable coverage." OFF)
+  if(HDF5_VOL_DAOS_ENABLE_COVERAGE)
     set(COVERAGE_FLAGS "-fprofile-arcs -ftest-coverage" CACHE STRING
       "Flags to the coverage program that CTest uses to perform coverage inspection"
     )
@@ -209,7 +206,7 @@ endif()
 # Testing
 #-----------------------------------------------------------------------------
 #option(BUILD_TESTING "Build testing." OFF)
-#if(NOT HDF5_DAOS_EXTERNALLY_CONFIGURED AND BUILD_TESTING)
+#if(NOT HDF5_VOL_DAOS_EXTERNALLY_CONFIGURED AND BUILD_TESTING)
 #  enable_testing()
 #  include(CTest)
 #  add_subdirectory(Testing)
@@ -219,71 +216,69 @@ endif()
 # Configure the config.cmake file for the build directory
 #-----------------------------------------------------------------------------
 configure_file(
-  ${HDF5_DAOS_SOURCE_DIR}/CMake/${HDF5_DAOS_PACKAGE}-config.cmake.build.in
-  ${HDF5_DAOS_BINARY_DIR}/${HDF5_DAOS_PACKAGE}-config.cmake @ONLY
+  ${HDF5_VOL_DAOS_SOURCE_DIR}/CMake/${HDF5_VOL_DAOS_PACKAGE}-config.cmake.build.in
+  ${HDF5_VOL_DAOS_BINARY_DIR}/${HDF5_VOL_DAOS_PACKAGE}-config.cmake @ONLY
 )
 
 #-----------------------------------------------------------------------------
 # Configure the config.cmake file for the install directory
 #-----------------------------------------------------------------------------
 configure_file(
-  ${HDF5_DAOS_SOURCE_DIR}/CMake/${HDF5_DAOS_PACKAGE}-config.cmake.install.in
-  ${HDF5_DAOS_BINARY_DIR}/CMakeFiles/${HDF5_DAOS_PACKAGE}-config.cmake @ONLY
+  ${HDF5_VOL_DAOS_SOURCE_DIR}/CMake/${HDF5_VOL_DAOS_PACKAGE}-config.cmake.install.in
+  ${HDF5_VOL_DAOS_BINARY_DIR}/CMakeFiles/${HDF5_VOL_DAOS_PACKAGE}-config.cmake @ONLY
 )
 
 install(
   FILES
-    ${HDF5_DAOS_BINARY_DIR}/CMakeFiles/${HDF5_DAOS_PACKAGE}-config.cmake
+    ${HDF5_VOL_DAOS_BINARY_DIR}/CMakeFiles/${HDF5_VOL_DAOS_PACKAGE}-config.cmake
   DESTINATION
-    ${HDF5_DAOS_INSTALL_DATA_DIR}/cmake/${HDF5_DAOS_PACKAGE}
+    ${HDF5_VOL_DAOS_INSTALL_DATA_DIR}/cmake/${HDF5_VOL_DAOS_PACKAGE}
 )
 
 #-----------------------------------------------------------------------------
 # Configure the config-version.cmake file for the install directory
 #-----------------------------------------------------------------------------
 configure_file(
-  ${HDF5_DAOS_SOURCE_DIR}/CMake/${HDF5_DAOS_PACKAGE}-config-version.cmake.in
-  ${HDF5_DAOS_BINARY_DIR}/CMakeFiles/${HDF5_DAOS_PACKAGE}-config-version.cmake @ONLY
+  ${HDF5_VOL_DAOS_SOURCE_DIR}/CMake/${HDF5_VOL_DAOS_PACKAGE}-config-version.cmake.in
+  ${HDF5_VOL_DAOS_BINARY_DIR}/CMakeFiles/${HDF5_VOL_DAOS_PACKAGE}-config-version.cmake @ONLY
 )
 
 install(
   FILES
-    ${HDF5_DAOS_BINARY_DIR}/CMakeFiles/${HDF5_DAOS_PACKAGE}-config-version.cmake
+    ${HDF5_VOL_DAOS_BINARY_DIR}/CMakeFiles/${HDF5_VOL_DAOS_PACKAGE}-config-version.cmake
   DESTINATION
-    ${HDF5_DAOS_INSTALL_DATA_DIR}/cmake/${HDF5_DAOS_PACKAGE}
+    ${HDF5_VOL_DAOS_INSTALL_DATA_DIR}/cmake/${HDF5_VOL_DAOS_PACKAGE}
 )
 
 #-----------------------------------------------------------------------------
 # For automake compatibility, also provide a pkgconfig file
 #-----------------------------------------------------------------------------
-if(NOT WIN32)
-  configure_file(
-    ${HDF5_DAOS_SOURCE_DIR}/CMake/${HDF5_DAOS_PACKAGE}.pc.in
-    ${HDF5_DAOS_BINARY_DIR}/CMakeFiles/${HDF5_DAOS_PACKAGE}.pc @ONLY
-  )
+configure_file(
+  ${HDF5_VOL_DAOS_SOURCE_DIR}/CMake/${HDF5_VOL_DAOS_PACKAGE}.pc.in
+  ${HDF5_VOL_DAOS_BINARY_DIR}/CMakeFiles/${HDF5_VOL_DAOS_PACKAGE}.pc @ONLY
+)
 
-  install(
-    FILES
-      ${HDF5_DAOS_BINARY_DIR}/CMakeFiles/${HDF5_DAOS_PACKAGE}.pc
-    DESTINATION
-      ${HDF5_DAOS_INSTALL_LIB_DIR}/pkgconfig
-  )
-endif()
+install(
+  FILES
+    ${HDF5_VOL_DAOS_BINARY_DIR}/CMakeFiles/${HDF5_VOL_DAOS_PACKAGE}.pc
+  DESTINATION
+    ${HDF5_VOL_DAOS_INSTALL_LIB_DIR}/pkgconfig
+)
 
 #-----------------------------------------------------------------------------
 # CPack
 #-----------------------------------------------------------------------------
-if(NOT HDF5_DAOS_EXTERNALLY_CONFIGURED)
-  set(CPACK_PACKAGE_DESCRIPTION_FILE ${HDF5_DAOS_SOURCE_DIR}/README.md)
-  set(CPACK_RESOURCE_FILE_LICENSE ${HDF5_DAOS_SOURCE_DIR}/COPYING)
+if(NOT HDF5_VOL_DAOS_EXTERNALLY_CONFIGURED)
+  set(CPACK_PACKAGE_DESCRIPTION_FILE ${HDF5_VOL_DAOS_SOURCE_DIR}/README.md)
+  set(CPACK_RESOURCE_FILE_LICENSE ${HDF5_VOL_DAOS_SOURCE_DIR}/COPYING)
   set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "HDF5 DAOS VOL connector")
-  set(CPACK_PACKAGE_NAME "HDF5 DAOS")
+  set(CPACK_PACKAGE_NAME "HDF5 DAOS VOL")
   set(CPACK_PACKAGE_VENDOR "The HDF Group")
-  set(CPACK_PACKAGE_VERSION_MAJOR ${HDF5_DAOS_VERSION_MAJOR})
-  set(CPACK_PACKAGE_VERSION_MINOR ${HDF5_DAOS_VERSION_MINOR})
-  set(CPACK_PACKAGE_VERSION_PATCH ${HDF5_DAOS_VERSION_PATCH})
+  set(CPACK_PACKAGE_VERSION_MAJOR ${HDF5_VOL_DAOS_VERSION_MAJOR})
+  set(CPACK_PACKAGE_VERSION_MINOR ${HDF5_VOL_DAOS_VERSION_MINOR})
+  set(CPACK_PACKAGE_VERSION_PATCH ${HDF5_VOL_DAOS_VERSION_PATCH})
   set(CPACK_GENERATOR "TBZ2")
-  set(CPACK_SOURCE_PACKAGE_FILE_NAME ${HDF5_DAOS_PACKAGE_TARNAME}-${HDF5_DAOS_PACKAGE_VERSION})
+  set(CPACK_SOURCE_PACKAGE_FILE_NAME ${HDF5_VOL_DAOS_PACKAGE_TARNAME}-${HDF5_VOL_DAOS_PACKAGE_VERSION})
   set(CPACK_SOURCE_IGNORE_FILES ".git*;/GitSetup/;/.git/;.swp$;.#;/#;.*~")
   set(CPACK_SOURCE_STRIP_FILES "")
   include(CPack)

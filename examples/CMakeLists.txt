@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 2.8.12.2 FATAL_ERROR)
-project(HDF5_DAOS_EXAMPLES C)
+project(HDF5_VOL_DAOS_EXAMPLES C)
 
 #------------------------------------------------------------------------------
 # Include source and build directories
@@ -13,7 +13,7 @@ include_directories(
 # External dependencies
 #------------------------------------------------------------------------------
 # HDF5 DAOS
-find_package(HDF5_DAOS REQUIRED)
+find_package(HDF5_VOL_DAOS REQUIRED)
 
 #-----------------------------------------------------------------------------
 # Define Sources
@@ -49,8 +49,8 @@ set(examples
 )
 
 foreach (example ${examples})
-  add_executable (h5daos_${example}
+  add_executable (h5vldaos_${example}
     ${CMAKE_CURRENT_SOURCE_DIR}/h5dsm_${example}.c
   )
-  target_link_libraries(h5daos_${example} hdf5_daos)
+  target_link_libraries(h5vldaos_${example} hdf5_vol_daos)
 endforeach()

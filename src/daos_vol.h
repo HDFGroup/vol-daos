@@ -329,7 +329,7 @@ typedef enum H5VL_object_optional_t {
 /* Public Variables */
 /********************/
 
-extern hid_t H5_DAOS_g;
+extern H5VL_DAOS_PRIVATE hid_t H5_DAOS_g;
 
 /* Free list definitions */
 /* DSINC - currently no external access to free lists
@@ -355,35 +355,35 @@ extern size_t daos_vol_curr_alloc_bytes;
 #endif
 
 /* Pool handle for use with all files */
-extern daos_handle_t H5_daos_poh_g;
+extern H5VL_DAOS_PRIVATE daos_handle_t H5_daos_poh_g;
 
 /* Global variables used to open the pool */
-extern MPI_Comm pool_comm_g;
+extern H5VL_DAOS_PRIVATE MPI_Comm pool_comm_g;
 
 /* Constant Keys */
-extern char H5_daos_int_md_key_g[];
-extern char H5_daos_max_oid_key_g[];
-extern char H5_daos_cpl_key_g[];
-extern char H5_daos_link_key_g[];
-extern char H5_daos_type_key_g[];
-extern char H5_daos_space_key_g[];
-extern char H5_daos_attr_key_g[];
+extern H5VL_DAOS_PRIVATE char H5_daos_int_md_key_g[];
+extern H5VL_DAOS_PRIVATE char H5_daos_max_oid_key_g[];
+extern H5VL_DAOS_PRIVATE char H5_daos_cpl_key_g[];
+extern H5VL_DAOS_PRIVATE char H5_daos_link_key_g[];
+extern H5VL_DAOS_PRIVATE char H5_daos_type_key_g[];
+extern H5VL_DAOS_PRIVATE char H5_daos_space_key_g[];
+extern H5VL_DAOS_PRIVATE char H5_daos_attr_key_g[];
 #ifdef DV_HAVE_MAP
-extern char H5_daos_ktype_g[];
-extern char H5_daos_vtype_g[];
-extern char H5_daos_map_key_g[];
+extern H5VL_DAOS_PRIVATE char H5_daos_ktype_g[];
+extern H5VL_DAOS_PRIVATE char H5_daos_vtype_g[];
+extern H5VL_DAOS_PRIVATE char H5_daos_map_key_g[];
 #endif
-extern daos_size_t H5_daos_int_md_key_size_g;
-extern daos_size_t H5_daos_max_oid_key_size_g;
-extern daos_size_t H5_daos_cpl_key_size_g;
-extern daos_size_t H5_daos_link_key_size_g;
-extern daos_size_t H5_daos_type_key_size_g;
-extern daos_size_t H5_daos_space_key_size_g;
-extern daos_size_t H5_daos_attr_key_size_g;
+extern H5VL_DAOS_PRIVATE daos_size_t H5_daos_int_md_key_size_g;
+extern H5VL_DAOS_PRIVATE daos_size_t H5_daos_max_oid_key_size_g;
+extern H5VL_DAOS_PRIVATE daos_size_t H5_daos_cpl_key_size_g;
+extern H5VL_DAOS_PRIVATE daos_size_t H5_daos_link_key_size_g;
+extern H5VL_DAOS_PRIVATE daos_size_t H5_daos_type_key_size_g;
+extern H5VL_DAOS_PRIVATE daos_size_t H5_daos_space_key_size_g;
+extern H5VL_DAOS_PRIVATE daos_size_t H5_daos_attr_key_size_g;
 #ifdef DV_HAVE_MAP
-extern daos_size_t H5_daos_ktype_size_g;
-extern daos_size_t H5_daos_vtype_size_g;
-extern daos_size_t H5_daos_map_key_size_g;
+extern H5VL_DAOS_PRIVATE daos_size_t H5_daos_ktype_size_g;
+extern H5VL_DAOS_PRIVATE daos_size_t H5_daos_vtype_size_g;
+extern H5VL_DAOS_PRIVATE daos_size_t H5_daos_map_key_size_g;
 #endif
 
 /*********************/
@@ -395,154 +395,154 @@ extern "C" {
 #endif
 
 /* General routines */
-herr_t H5_daos_init(hid_t vipl_id);
-void H5_daos_oid_generate(daos_obj_id_t *oid, uint64_t addr,
+H5VL_DAOS_PRIVATE herr_t H5_daos_init(hid_t vipl_id);
+H5VL_DAOS_PRIVATE void H5_daos_oid_generate(daos_obj_id_t *oid, uint64_t addr,
     H5I_type_t obj_type);
-void H5_daos_oid_encode(daos_obj_id_t *oid, uint64_t idx, H5I_type_t obj_type);
-H5I_type_t H5_daos_addr_to_type(uint64_t addr);
-H5I_type_t H5_daos_oid_to_type(daos_obj_id_t oid);
-uint64_t H5_daos_oid_to_idx(daos_obj_id_t oid);
-void H5_daos_hash128(const char *name, void *hash);
-herr_t H5_daos_write_max_oid(H5_daos_file_t *file);
-int H5_daos_h5op_finalize(tse_task_t *task);
-int H5_daos_md_update_prep_cb(tse_task_t *task, void *args);
-int H5_daos_md_update_comp_cb(tse_task_t *task, void *args);
+H5VL_DAOS_PRIVATE void H5_daos_oid_encode(daos_obj_id_t *oid, uint64_t idx, H5I_type_t obj_type);
+H5VL_DAOS_PRIVATE H5I_type_t H5_daos_addr_to_type(uint64_t addr);
+H5VL_DAOS_PRIVATE H5I_type_t H5_daos_oid_to_type(daos_obj_id_t oid);
+H5VL_DAOS_PRIVATE uint64_t H5_daos_oid_to_idx(daos_obj_id_t oid);
+H5VL_DAOS_PRIVATE void H5_daos_hash128(const char *name, void *hash);
+H5VL_DAOS_PRIVATE herr_t H5_daos_write_max_oid(H5_daos_file_t *file);
+H5VL_DAOS_PRIVATE int H5_daos_h5op_finalize(tse_task_t *task);
+H5VL_DAOS_PRIVATE int H5_daos_md_update_prep_cb(tse_task_t *task, void *args);
+H5VL_DAOS_PRIVATE int H5_daos_md_update_comp_cb(tse_task_t *task, void *args);
 
 /* File callbacks */
-void *H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
+H5VL_DAOS_PRIVATE void *H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     hid_t fapl_id, hid_t dxpl_id, void **req);
-void *H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
+H5VL_DAOS_PRIVATE void *H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     hid_t dxpl_id, void **req);
-herr_t H5_daos_file_get(void *_item, H5VL_file_get_t get_type, hid_t dxpl_id,
+H5VL_DAOS_PRIVATE herr_t H5_daos_file_get(void *_item, H5VL_file_get_t get_type, hid_t dxpl_id,
     void **req, va_list arguments);
-herr_t H5_daos_file_specific(void *_item, H5VL_file_specific_t specific_type,
+H5VL_DAOS_PRIVATE herr_t H5_daos_file_specific(void *_item, H5VL_file_specific_t specific_type,
     hid_t dxpl_id, void **req, va_list arguments);
-herr_t H5_daos_file_close(void *_file, hid_t dxpl_id, void **req);
+H5VL_DAOS_PRIVATE herr_t H5_daos_file_close(void *_file, hid_t dxpl_id, void **req);
 
 /* Other file routines */
-void H5_daos_file_decref(H5_daos_file_t *file);
+H5VL_DAOS_PRIVATE void H5_daos_file_decref(H5_daos_file_t *file);
 
 /* Link callbacks */
-herr_t H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
+H5VL_DAOS_PRIVATE herr_t H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
     const H5VL_loc_params_t *loc_params, hid_t lcpl_id, hid_t lapl_id,
     hid_t dxpl_id, void **req);
-herr_t H5_daos_link_copy(void *src_obj, const H5VL_loc_params_t *loc_params1,
+H5VL_DAOS_PRIVATE herr_t H5_daos_link_copy(void *src_obj, const H5VL_loc_params_t *loc_params1,
     void *dst_obj, const H5VL_loc_params_t *loc_params2, hid_t lcpl,
     hid_t lapl, hid_t dxpl_id, void **req);
-herr_t H5_daos_link_move(void *src_obj, const H5VL_loc_params_t *loc_params1,
+H5VL_DAOS_PRIVATE herr_t H5_daos_link_move(void *src_obj, const H5VL_loc_params_t *loc_params1,
     void *dst_obj, const H5VL_loc_params_t *loc_params2, hid_t lcpl,
     hid_t lapl, hid_t dxpl_id, void **req);
-herr_t H5_daos_link_get(void *_item, const H5VL_loc_params_t *loc_params,
+H5VL_DAOS_PRIVATE herr_t H5_daos_link_get(void *_item, const H5VL_loc_params_t *loc_params,
     H5VL_link_get_t get_type, hid_t dxpl_id, void **req, va_list arguments);
-herr_t H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
+H5VL_DAOS_PRIVATE herr_t H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
     H5VL_link_specific_t specific_type, hid_t dxpl_id, void **req,
     va_list arguments);
 
 /* Other link routines */
-herr_t H5_daos_link_write(H5_daos_group_t *grp, const char *name,
+H5VL_DAOS_PRIVATE herr_t H5_daos_link_write(H5_daos_group_t *grp, const char *name,
     size_t name_len, H5_daos_link_val_t *val, H5_daos_req_t *req,
     tse_task_t **taskp);
-herr_t H5_daos_link_follow(H5_daos_group_t *grp, const char *name,
+H5VL_DAOS_PRIVATE herr_t H5_daos_link_follow(H5_daos_group_t *grp, const char *name,
     size_t name_len, hid_t dxpl_id, void **req, daos_obj_id_t *oid);
-herr_t H5_daos_link_iterate(H5_daos_group_t *target_grp, iter_data *link_iter_data);
+H5VL_DAOS_PRIVATE herr_t H5_daos_link_iterate(H5_daos_group_t *target_grp, iter_data *link_iter_data);
 
 /* Link iterate callbacks */
-herr_t H5_daos_link_iterate_count_links_callback(hid_t group, const char *name,
+H5VL_DAOS_PRIVATE herr_t H5_daos_link_iterate_count_links_callback(hid_t group, const char *name,
     const H5L_info_t *info, void *op_data);
 
 /* Group callbacks */
-void *H5_daos_group_create(void *_item, const H5VL_loc_params_t *loc_params,
+H5VL_DAOS_PRIVATE void *H5_daos_group_create(void *_item, const H5VL_loc_params_t *loc_params,
     const char *name, hid_t gcpl_id, hid_t gapl_id, hid_t dxpl_id, void **req);
-void *H5_daos_group_open(void *_item, const H5VL_loc_params_t *loc_params,
+H5VL_DAOS_PRIVATE void *H5_daos_group_open(void *_item, const H5VL_loc_params_t *loc_params,
     const char *name, hid_t gapl_id, hid_t dxpl_id, void **req);
-herr_t H5_daos_group_get(void *_item, H5VL_group_get_t get_type, hid_t dxpl_id,
+H5VL_DAOS_PRIVATE herr_t H5_daos_group_get(void *_item, H5VL_group_get_t get_type, hid_t dxpl_id,
     void **req, va_list arguments);
-herr_t H5_daos_group_specific(void *_item, H5VL_group_specific_t specific_type,
+H5VL_DAOS_PRIVATE herr_t H5_daos_group_specific(void *_item, H5VL_group_specific_t specific_type,
     hid_t dxpl_id, void **req, va_list arguments);
-herr_t H5_daos_group_close(void *_grp, hid_t dxpl_id, void **req);
+H5VL_DAOS_PRIVATE herr_t H5_daos_group_close(void *_grp, hid_t dxpl_id, void **req);
 
 /* Other group routines */
-H5_daos_group_t *H5_daos_group_traverse(H5_daos_item_t *item, const char *path,
+H5VL_DAOS_PRIVATE H5_daos_group_t *H5_daos_group_traverse(H5_daos_item_t *item, const char *path,
     hid_t dxpl_id, void **req, const char **obj_name, void **gcpl_buf_out,
     uint64_t *gcpl_len_out);
-void *H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
+H5VL_DAOS_PRIVATE void *H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
     hid_t gapl_id, hid_t dxpl_id, H5_daos_req_t *req, H5_daos_group_t *parent_grp,
     const char *name, size_t name_len, hbool_t collective);
-void *H5_daos_group_open_helper(H5_daos_file_t *file, daos_obj_id_t oid,
+H5VL_DAOS_PRIVATE void *H5_daos_group_open_helper(H5_daos_file_t *file, daos_obj_id_t oid,
     hid_t gapl_id, hid_t dxpl_id, H5_daos_req_t *req, void **gcpl_buf_out,
     uint64_t *gcpl_len_out);
-void *H5_daos_group_reconstitute(H5_daos_file_t *file, daos_obj_id_t oid,
+H5VL_DAOS_PRIVATE void *H5_daos_group_reconstitute(H5_daos_file_t *file, daos_obj_id_t oid,
     uint8_t *gcpl_buf, hid_t gapl_id, hid_t dxpl_id, H5_daos_req_t *req);
 
 /* Dataset callbacks */
-void *H5_daos_dataset_create(void *_item, const H5VL_loc_params_t *loc_params,
+H5VL_DAOS_PRIVATE void *H5_daos_dataset_create(void *_item, const H5VL_loc_params_t *loc_params,
     const char *name, hid_t dcpl_id, hid_t dapl_id, hid_t dxpl_id, void **req);
-void *H5_daos_dataset_open(void *_item, const H5VL_loc_params_t *loc_params,
+H5VL_DAOS_PRIVATE void *H5_daos_dataset_open(void *_item, const H5VL_loc_params_t *loc_params,
     const char *name, hid_t dapl_id, hid_t dxpl_id, void **req);
-herr_t H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
+H5VL_DAOS_PRIVATE herr_t H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
     hid_t file_space_id, hid_t dxpl_id, void *buf, void **req);
-herr_t H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
+H5VL_DAOS_PRIVATE herr_t H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
     hid_t file_space_id, hid_t dxpl_id, const void *buf, void **req);
-herr_t H5_daos_dataset_get(void *_dset, H5VL_dataset_get_t get_type,
+H5VL_DAOS_PRIVATE herr_t H5_daos_dataset_get(void *_dset, H5VL_dataset_get_t get_type,
     hid_t dxpl_id, void **req, va_list arguments);
-herr_t H5_daos_dataset_specific(void *_item, H5VL_dataset_specific_t specific_type,
+H5VL_DAOS_PRIVATE herr_t H5_daos_dataset_specific(void *_item, H5VL_dataset_specific_t specific_type,
     hid_t dxpl_id, void **req, va_list arguments);
-herr_t H5_daos_dataset_close(void *_dset, hid_t dxpl_id, void **req);
+H5VL_DAOS_PRIVATE herr_t H5_daos_dataset_close(void *_dset, hid_t dxpl_id, void **req);
 
 /* Datatype callbacks */
-void *H5_daos_datatype_commit(void *obj, const H5VL_loc_params_t *loc_params,
+H5VL_DAOS_PRIVATE void *H5_daos_datatype_commit(void *obj, const H5VL_loc_params_t *loc_params,
     const char *name, hid_t type_id, hid_t lcpl_id, hid_t tcpl_id,
     hid_t tapl_id, hid_t dxpl_id, void **req);
-void *H5_daos_datatype_open(void *_item, const H5VL_loc_params_t *loc_params,
+H5VL_DAOS_PRIVATE void *H5_daos_datatype_open(void *_item, const H5VL_loc_params_t *loc_params,
     const char *name, hid_t tapl_id, hid_t dxpl_id, void **req);
-herr_t H5_daos_datatype_get(void *obj, H5VL_datatype_get_t get_type,
+H5VL_DAOS_PRIVATE herr_t H5_daos_datatype_get(void *obj, H5VL_datatype_get_t get_type,
     hid_t dxpl_id, void **req, va_list arguments);
-herr_t H5_daos_datatype_specific(void *_item, H5VL_datatype_specific_t specific_type,
+H5VL_DAOS_PRIVATE herr_t H5_daos_datatype_specific(void *_item, H5VL_datatype_specific_t specific_type,
     hid_t dxpl_id, void **req, va_list arguments);
-herr_t H5_daos_datatype_close(void *_dtype, hid_t dxpl_id, void **req);
+H5VL_DAOS_PRIVATE herr_t H5_daos_datatype_close(void *_dtype, hid_t dxpl_id, void **req);
 
 /* Other datatype routines */
-herr_t H5_daos_tconv_init(hid_t src_type_id, size_t *src_type_size,
+H5VL_DAOS_PRIVATE herr_t H5_daos_tconv_init(hid_t src_type_id, size_t *src_type_size,
     hid_t dst_type_id, size_t *dst_type_size, size_t num_elem, void **tconv_buf,
     void **bkg_buf, H5_daos_tconv_reuse_t *reuse, hbool_t *fill_bkg);
 
 /* Object callbacks */
-void *H5_daos_object_open(void *_item, const H5VL_loc_params_t *loc_params,
+H5VL_DAOS_PRIVATE void *H5_daos_object_open(void *_item, const H5VL_loc_params_t *loc_params,
     H5I_type_t *opened_type, hid_t dxpl_id, void **req);
-herr_t H5_daos_object_copy(void *src_obj, const H5VL_loc_params_t *loc_params1,
+H5VL_DAOS_PRIVATE herr_t H5_daos_object_copy(void *src_obj, const H5VL_loc_params_t *loc_params1,
     const char *src_name, void *dst_obj, const H5VL_loc_params_t *loc_params2,
     const char *dst_name, hid_t ocpypl_id, hid_t lcpl_id, hid_t dxpl_id, void **req);
-herr_t H5_daos_object_get(void *_item, const H5VL_loc_params_t *loc_params,
+H5VL_DAOS_PRIVATE herr_t H5_daos_object_get(void *_item, const H5VL_loc_params_t *loc_params,
     H5VL_object_get_t get_type, hid_t dxpl_id, void **req, va_list arguments);
-herr_t H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
+H5VL_DAOS_PRIVATE herr_t H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
     H5VL_object_specific_t specific_type, hid_t dxpl_id, void **req, va_list arguments);
-herr_t H5_daos_object_optional(void *_item, hid_t dxpl_id, void **req,
+H5VL_DAOS_PRIVATE herr_t H5_daos_object_optional(void *_item, hid_t dxpl_id, void **req,
     va_list arguments);
 
 /* Other object routines */
-herr_t H5_daos_object_close(void *_obj, hid_t dxpl_id, void **req);
+H5VL_DAOS_PRIVATE herr_t H5_daos_object_close(void *_obj, hid_t dxpl_id, void **req);
 
 /* Attribute callbacks */
-void *H5_daos_attribute_create(void *_obj, const H5VL_loc_params_t *loc_params,
+H5VL_DAOS_PRIVATE void *H5_daos_attribute_create(void *_obj, const H5VL_loc_params_t *loc_params,
     const char *name, hid_t acpl_id, hid_t aapl_id, hid_t dxpl_id, void **req);
-void *H5_daos_attribute_open(void *_obj, const H5VL_loc_params_t *loc_params,
+H5VL_DAOS_PRIVATE void *H5_daos_attribute_open(void *_obj, const H5VL_loc_params_t *loc_params,
     const char *name, hid_t aapl_id, hid_t dxpl_id, void **req);
-herr_t H5_daos_attribute_read(void *_attr, hid_t mem_type_id, void *buf,
+H5VL_DAOS_PRIVATE herr_t H5_daos_attribute_read(void *_attr, hid_t mem_type_id, void *buf,
     hid_t dxpl_id, void **req);
-herr_t H5_daos_attribute_write(void *_attr, hid_t mem_type_id, const void *buf,
+H5VL_DAOS_PRIVATE herr_t H5_daos_attribute_write(void *_attr, hid_t mem_type_id, const void *buf,
     hid_t dxpl_id, void **req);
-herr_t H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
+H5VL_DAOS_PRIVATE herr_t H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
     hid_t dxpl_id, void **req, va_list arguments);
-herr_t H5_daos_attribute_specific(void *_item,
+H5VL_DAOS_PRIVATE herr_t H5_daos_attribute_specific(void *_item,
     const H5VL_loc_params_t *loc_params, H5VL_attr_specific_t specific_type,
     hid_t dxpl_id, void **req, va_list arguments);
-herr_t H5_daos_attribute_close(void *_attr, hid_t dxpl_id, void **req);
+H5VL_DAOS_PRIVATE herr_t H5_daos_attribute_close(void *_attr, hid_t dxpl_id, void **req);
 
 /* Request callback */
-herr_t H5_daos_req_free(void *req);
+H5VL_DAOS_PRIVATE herr_t H5_daos_req_free(void *req);
 
 /* Other request routines */
-void H5_daos_req_free_int(void *_req);
+H5VL_DAOS_PRIVATE void H5_daos_req_free_int(void *_req);
 
 #ifdef DV_HAVE_MAP
 /* Map callbacks */

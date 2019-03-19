@@ -112,6 +112,22 @@ else()
   message(FATAL_ERROR "Could not find libuuid, please check UUID_INCLUDE_DIR.")
 endif()
 
+#-----------------------------------------------------------------------------
+# Option to enable debug output
+#-----------------------------------------------------------------------------
+option(HDF5_VOL_DAOS_ENABLE_DEBUG "Turn on debug output." OFF)
+if(HDF5_VOL_DAOS_ENABLE_DEBUG)
+  set(DV_PLUGIN_DEBUG 1)
+endif()
+
+#-----------------------------------------------------------------------------
+# Option to enable memory checker
+#-----------------------------------------------------------------------------
+option(HDF5_VOL_DAOS_ENABLE_MEM_TRACKING "Turn on memory checker." OFF)
+if(HDF5_VOL_DAOS_ENABLE_MEM_TRACKING)
+  set(DV_TRACK_MEM_USAGE 1)
+endif()
+
 #------------------------------------------------------------------------------
 # Configure module header files
 #------------------------------------------------------------------------------

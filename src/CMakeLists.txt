@@ -46,14 +46,39 @@ else()
 endif()
 
 # HDF5
-find_package(HDF5 NO_MODULE REQUIRED)
-if(HDF5_FOUND)
-  set(HDF5_VOL_DAOS_EXT_PKG_DEPENDENCIES
-    ${HDF5_VOL_DAOS_EXT_PKG_DEPENDENCIES}
-    hdf5::hdf5-shared
-  )
+option(HDF5_VOL_DAOS_USE_SYSTEM_HDF5 "Use system-installed HDF5." ON)
+if(HDF5_VOL_DAOS_USE_SYSTEM_HDF5)
+  find_package(HDF5 NO_MODULE REQUIRED)
+  if(HDF5_FOUND)
+    if(NOT TARGET hdf5::hdf5-shared)
+        message(FATAL_ERROR "Could not find hdf5 shared target, please make "
+        "sure that HDF5 has ben compiled with shared libraries enabled.")
+    endif()
+    set(HDF5_VOL_DAOS_EXT_PKG_DEPENDENCIES
+      ${HDF5_VOL_DAOS_EXT_PKG_DEPENDENCIES}
+      hdf5::hdf5-shared
+    )
+  else()
+    message(FATAL_ERROR "Could not find HDF5, please check HDF5_DIR.")
+  endif()
 else()
-  message(FATAL_ERROR "Could not find HDF5, please check HDF5_DIR.")
+  set(HDF5_EXTERNALLY_CONFIGURED 1)
+  set(HDF5_INSTALL_BIN_DIR ${HDF5_VOL_DAOS_INSTALL_BIN_DIR})
+  set(HDF5_INSTALL_LIB_DIR ${HDF5_VOL_DAOS_INSTALL_LIB_DIR})
+  set(HDF5_INSTALL_INCLUDE_DIR ${HDF5_VOL_DAOS_INSTALL_INCLUDE_DIR})
+  set(HDF5_INSTALL_DATA_DIR ${HDF5_VOL_DAOS_INSTALL_DATA_DIR})
+  # TODO might need to fix HDF5_INSTALL_INCLUDE_INTERFACE from here
+  set(HDF5_EXTERNAL_EXPORTED_TARGETS ${HDF5_VOL_DAOS_EXPORTED_TARGETS})
+  add_subdirectory(../hdf5)
+  include(${HDF5_BINARY_DIR}/hdf5-config.cmake)
+  set(HDF5_VOL_DAOS_EXPORTED_LIBS hdf5::hdf5-shared ${HDF5_VOL_DAOS_EXPORTED_LIBS})
+  get_target_property(HDF5_EXT_LIB_DEPENDENCIES hdf5::hdf5-shared INTERFACE_LINK_LIBRARIES)
+  if(HDF5_EXT_LIB_DEPENDENCIES)
+    set(HDF5_VOL_DAOS_EXT_PKG_LIB_DEPENDENCIES
+      ${HDF5_VOL_DAOS_EXT_PKG_LIB_DEPENDENCIES}
+      ${HDF5_EXT_LIB_DEPENDENCIES}
+    )
+  endif()
 endif()
 
 # MPI

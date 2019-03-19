@@ -205,12 +205,12 @@ endif()
 #-----------------------------------------------------------------------------
 # Testing
 #-----------------------------------------------------------------------------
-#option(BUILD_TESTING "Build testing." OFF)
-#if(NOT HDF5_VOL_DAOS_EXTERNALLY_CONFIGURED AND BUILD_TESTING)
-#  enable_testing()
-#  include(CTest)
-#  add_subdirectory(Testing)
-#endif()
+option(BUILD_TESTING "Build testing." OFF)
+if(NOT HDF5_VOL_DAOS_EXTERNALLY_CONFIGURED AND BUILD_TESTING)
+  enable_testing()
+  include(CTest)
+  add_subdirectory(test/vol)
+endif()
 
 #-----------------------------------------------------------------------------
 # Configure the config.cmake file for the build directory

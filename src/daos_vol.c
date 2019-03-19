@@ -16,7 +16,6 @@
  */
 
 #include "daos_vol.h"           /* DAOS connector                          */
-#include "daos_vol_config.h"    /* DAOS connector configuration header     */
 
 #include "util/daos_vol_err.h"  /* DAOS connector error handling           */
 #include "util/daos_vol_mem.h"  /* DAOS connector memory management        */

@@ -253,7 +253,7 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_init(hid_t vipl_id)
+H5_daos_init(hid_t H5VL_DAOS_UNUSED vipl_id)
 {
 #ifdef DV_HAVE_SNAP_OPEN_ID
     H5_daos_snap_id_t snap_id_default;
@@ -1063,7 +1063,7 @@ done:
  *-------------------------------------------------------------------------
  */
 static int
-H5_daos_tx_comp_cb(tse_task_t *task, void DV_ATTR_UNUSED *args)
+H5_daos_tx_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
     H5_daos_req_t *req;
     int ret;
@@ -1254,7 +1254,7 @@ done:
  *-------------------------------------------------------------------------
  */
 int
-H5_daos_md_update_prep_cb(tse_task_t *task, void DV_ATTR_UNUSED *args)
+H5_daos_md_update_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
     H5_daos_md_update_cb_ud_t *udata;
     daos_obj_update_t *update_args;
@@ -1297,7 +1297,7 @@ H5_daos_md_update_prep_cb(tse_task_t *task, void DV_ATTR_UNUSED *args)
  *-------------------------------------------------------------------------
  */
 int
-H5_daos_md_update_comp_cb(tse_task_t *task, void DV_ATTR_UNUSED *args)
+H5_daos_md_update_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
     H5_daos_md_update_cb_ud_t *udata;
     unsigned i;

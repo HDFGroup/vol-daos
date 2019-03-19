@@ -636,8 +636,8 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_file_get(void *_item, H5VL_file_get_t get_type, hid_t dxpl_id,
-    void **req, va_list arguments)
+H5_daos_file_get(void *_item, H5VL_file_get_t get_type, hid_t H5VL_DAOS_UNUSED dxpl_id,
+    void H5VL_DAOS_UNUSED **req, va_list H5VL_DAOS_UNUSED arguments)
 {
     H5_daos_file_t *file = (H5_daos_file_t *)_item;
     herr_t          ret_value = SUCCEED;
@@ -738,8 +738,8 @@ done:
  */
 herr_t
 H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
-    hid_t DV_ATTR_UNUSED dxpl_id, void DV_ATTR_UNUSED **req,
-    va_list DV_ATTR_UNUSED arguments)
+    hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req,
+    va_list H5VL_DAOS_UNUSED arguments)
 {
     H5_daos_file_t *file = NULL;
     herr_t          ret_value = SUCCEED;    /* Return value */

@@ -324,7 +324,7 @@ done:
 herr_t
 H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
     const H5VL_loc_params_t *loc_params, hid_t lcpl_id,
-    hid_t DV_ATTR_UNUSED lapl_id, hid_t dxpl_id, void **req)
+    hid_t H5VL_DAOS_UNUSED lapl_id, hid_t dxpl_id, void **req)
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_group_t *link_grp = NULL;
@@ -433,8 +433,8 @@ done:
 
 herr_t
 H5_daos_link_copy(void *src_obj, const H5VL_loc_params_t *loc_params1,
-    void *dst_obj, const H5VL_loc_params_t *loc_params2, hid_t lcpl,
-    hid_t lapl, hid_t dxpl_id, void **req)
+    void *dst_obj, const H5VL_loc_params_t *loc_params2, hid_t H5VL_DAOS_UNUSED lcpl,
+    hid_t H5VL_DAOS_UNUSED lapl, hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req)
 {
     herr_t ret_value = SUCCEED;
 
@@ -456,8 +456,8 @@ done:
 
 herr_t
 H5_daos_link_move(void *src_obj, const H5VL_loc_params_t *loc_params1,
-    void *dst_obj, const H5VL_loc_params_t *loc_params2, hid_t lcpl,
-    hid_t lapl, hid_t dxpl_id, void **req)
+    void *dst_obj, const H5VL_loc_params_t *loc_params2, hid_t H5VL_DAOS_UNUSED lcpl,
+    hid_t H5VL_DAOS_UNUSED lapl, hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req)
 {
     herr_t ret_value = SUCCEED;
 
@@ -479,9 +479,10 @@ done:
 
 herr_t
 H5_daos_link_get(void *_item, const H5VL_loc_params_t *loc_params,
-    H5VL_link_get_t get_type, hid_t dxpl_id, void **req, va_list arguments)
+    H5VL_link_get_t get_type, hid_t H5VL_DAOS_UNUSED dxpl_id,
+    void H5VL_DAOS_UNUSED **req, va_list H5VL_DAOS_UNUSED arguments)
 {
-    H5_daos_item_t *item = (H5_daos_item_t *)_item;
+//    H5_daos_item_t *item = (H5_daos_item_t *)_item;
     herr_t          ret_value = SUCCEED;
 
     if(!_item)
@@ -524,7 +525,7 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
     H5_daos_group_t *target_grp = NULL;
     hid_t target_grp_id = -1;
     char *dkey_buf = NULL;
-    size_t dkey_buf_len = 0;
+//    size_t dkey_buf_len = 0;
     int ret;
     herr_t ret_value = SUCCEED;    /* Return value */
 
@@ -900,7 +901,8 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_link_iterate_count_links_callback(hid_t group, const char *name, const H5L_info_t *info, void *op_data)
+H5_daos_link_iterate_count_links_callback(hid_t H5VL_DAOS_UNUSED group, const char H5VL_DAOS_UNUSED *name,
+    const H5L_info_t H5VL_DAOS_UNUSED *info, void *op_data)
 {
     (*((hsize_t *) op_data))++;
     return 0;

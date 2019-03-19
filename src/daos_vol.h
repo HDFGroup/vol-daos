@@ -62,6 +62,15 @@
 #define H5_DAOS_PRE_ERROR -2    /* A precursor to this task failed (should only be used as the task return value) */
 #define H5_DAOS_CLOSE_ERROR -3  /* Failed to close HDF5 object */
 
+/* Remove warnings when connector does not use callback arguments */
+#if defined(__cplusplus)
+# define H5VL_DAOS_UNUSED
+#elif defined(__GNUC__) && (__GNUC__ >= 4)
+# define H5VL_DAOS_UNUSED __attribute__((unused))
+#else
+# define H5VL_DAOS_UNUSED
+#endif
+
 /* Min/max macros */
 #ifndef MAX
 # define MAX(a, b) (((a) > (b)) ? (a) : (b))
@@ -109,17 +118,6 @@
 /* Decode a variable-sized buffer into a 64-bit unsigned integer */
 /* (Assumes that the high bits of the integer will be zero) */
 #define UINT64DECODE_VAR(p, n, l)     DECODE_VAR(p, n, l)
-
-/* Macro borrowed from H5private.h for defining the _ATTR_UNUSED macro */
-#ifdef __cplusplus
-#   define DV_ATTR_UNUSED       /*void*/
-#else /* __cplusplus */
-#if defined(H5_HAVE_ATTRIBUTE) && !defined(__SUNPRO_C)
-#   define DV_ATTR_UNUSED       __attribute__((unused))
-#else
-#   define DV_ATTR_UNUSED       /*void*/
-#endif
-#endif /* __cplusplus */
 
 /* FAPL property to tell the VOL connector to open a saved snapshot when opening a
  * file */

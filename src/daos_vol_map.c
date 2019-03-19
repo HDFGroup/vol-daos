@@ -34,9 +34,9 @@
  *-------------------------------------------------------------------------
  */
 void *
-H5_daos_map_create(void *_item, H5VL_loc_params_t DV_ATTR_UNUSED *loc_params,
+H5_daos_map_create(void *_item, H5VL_loc_params_t H5VL_DAOS_UNUSED *loc_params,
     const char *name, hid_t ktype_id, hid_t vtype_id,
-    hid_t DV_ATTR_UNUSED mcpl_id, hid_t mapl_id, hid_t dxpl_id, void **req)
+    hid_t H5VL_DAOS_UNUSED mcpl_id, hid_t mapl_id, hid_t dxpl_id, void **req)
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_map_t *map = NULL;
@@ -509,7 +509,7 @@ done:
  */
 static herr_t
 H5_daos_map_get_size(hid_t type_id, const void *buf,
-    /*out*/uint64_t DV_ATTR_UNUSED *checksum,  /*out*/size_t *size,
+    /*out*/uint64_t H5VL_DAOS_UNUSED *checksum,  /*out*/size_t *size,
     /*out*/H5T_class_t *ret_class)
 {
     size_t buf_size = 0;
@@ -653,8 +653,8 @@ done:
 
 herr_t 
 H5_daos_map_set(void *_map, hid_t key_mem_type_id, const void *key,
-    hid_t val_mem_type_id, const void *value, hid_t DV_ATTR_UNUSED dxpl_id,
-    void DV_ATTR_UNUSED **req)
+    hid_t val_mem_type_id, const void *value, hid_t H5VL_DAOS_UNUSED dxpl_id,
+    void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_map_t *map = (H5_daos_map_t *)_map;
     size_t key_size, val_size;
@@ -718,8 +718,8 @@ done:
 
 herr_t 
 H5_daos_map_get(void *_map, hid_t key_mem_type_id, const void *key,
-    hid_t val_mem_type_id, void *value, hid_t DV_ATTR_UNUSED dxpl_id,
-    void DV_ATTR_UNUSED **req)
+    hid_t val_mem_type_id, void *value, hid_t H5VL_DAOS_UNUSED dxpl_id,
+    void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_map_t *map = (H5_daos_map_t *)_map;
     size_t key_size, val_size;
@@ -815,7 +815,7 @@ done:
 
 herr_t 
 H5_daos_map_get_types(void *_map, hid_t *key_type_id, hid_t *val_type_id,
-    void DV_ATTR_UNUSED **req)
+    void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_map_t *map = (H5_daos_map_t *)_map;
     herr_t ret_value = SUCCEED;
@@ -841,7 +841,7 @@ done:
 
 
 herr_t 
-H5_daos_map_get_count(void *_map, hsize_t *count, void DV_ATTR_UNUSED **req)
+H5_daos_map_get_count(void *_map, hsize_t *count, void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_map_t *map = (H5_daos_map_t *)_map;
     char        *buf;
@@ -892,7 +892,7 @@ done:
 
 herr_t 
 H5_daos_map_exists(void *_map, hid_t key_mem_type_id, const void *key,
-    hbool_t *exists, void DV_ATTR_UNUSED **req)
+    hbool_t *exists, void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_map_t *map = (H5_daos_map_t *)_map;
     size_t key_size;
@@ -952,8 +952,8 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_map_close(void *_map, hid_t DV_ATTR_UNUSED dxpl_id,
-    void DV_ATTR_UNUSED **req)
+H5_daos_map_close(void *_map, hid_t H5VL_DAOS_UNUSED dxpl_id,
+    void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_map_t *map = (H5_daos_map_t *)_map;
     int ret;

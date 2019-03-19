@@ -313,8 +313,8 @@ done:
  */
 void *
 H5_daos_datatype_commit(void *_item,
-    const H5VL_loc_params_t DV_ATTR_UNUSED *loc_params, const char *name,
-    hid_t type_id, hid_t DV_ATTR_UNUSED lcpl_id, hid_t tcpl_id, hid_t tapl_id,
+    const H5VL_loc_params_t H5VL_DAOS_UNUSED *loc_params, const char *name,
+    hid_t type_id, hid_t H5VL_DAOS_UNUSED lcpl_id, hid_t tcpl_id, hid_t tapl_id,
     hid_t dxpl_id, void **req)
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
@@ -553,7 +553,7 @@ done:
  */
 void *
 H5_daos_datatype_open(void *_item,
-    const H5VL_loc_params_t DV_ATTR_UNUSED *loc_params, const char *name,
+    const H5VL_loc_params_t H5VL_DAOS_UNUSED *loc_params, const char *name,
     hid_t tapl_id, hid_t dxpl_id, void **req)
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
@@ -808,7 +808,7 @@ done:
  */
 herr_t
 H5_daos_datatype_get(void *_dtype, H5VL_datatype_get_t get_type,
-    hid_t DV_ATTR_UNUSED dxpl_id, void DV_ATTR_UNUSED **req, va_list arguments)
+    hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req, va_list arguments)
 {
     H5_daos_dtype_t *dtype = (H5_daos_dtype_t *)_dtype;
     herr_t       ret_value = SUCCEED;    /* Return value */
@@ -863,7 +863,7 @@ done:
  */
 herr_t
 H5_daos_datatype_specific(void *_item, H5VL_datatype_specific_t specific_type,
-    hid_t dxpl_id, void **req, va_list arguments)
+    hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req, va_list H5VL_DAOS_UNUSED arguments)
 {
     H5_daos_dtype_t *dtype = (H5_daos_dtype_t *)_item;
     herr_t           ret_value = SUCCEED;
@@ -899,8 +899,8 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_datatype_close(void *_dtype, hid_t DV_ATTR_UNUSED dxpl_id,
-    void DV_ATTR_UNUSED **req)
+H5_daos_datatype_close(void *_dtype, hid_t H5VL_DAOS_UNUSED dxpl_id,
+    void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_dtype_t *dtype = (H5_daos_dtype_t *)_dtype;
     int ret;

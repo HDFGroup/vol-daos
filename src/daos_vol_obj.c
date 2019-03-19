@@ -217,7 +217,8 @@ done:
 herr_t
 H5_daos_object_copy(void *src_obj, const H5VL_loc_params_t *loc_params1,
     const char *src_name, void *dst_obj, const H5VL_loc_params_t *loc_params2,
-    const char *dst_name, hid_t ocpypl_id, hid_t lcpl_id, hid_t dxpl_id, void **req)
+    const char *dst_name, hid_t H5VL_DAOS_UNUSED ocpypl_id, hid_t H5VL_DAOS_UNUSED lcpl_id,
+    hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req)
 {
     herr_t ret_value = SUCCEED;
 
@@ -256,9 +257,10 @@ done:
  */
 herr_t
 H5_daos_object_get(void *_item, const H5VL_loc_params_t *loc_params,
-    H5VL_object_get_t get_type, hid_t dxpl_id, void **req, va_list arguments)
+    H5VL_object_get_t get_type, hid_t H5VL_DAOS_UNUSED dxpl_id,
+    void H5VL_DAOS_UNUSED **req, va_list H5VL_DAOS_UNUSED arguments)
 {
-    H5_daos_item_t *item = (H5_daos_item_t *)_item;
+//    H5_daos_item_t *item = (H5_daos_item_t *)_item;
     herr_t          ret_value = SUCCEED;
 
     if(!_item)
@@ -295,9 +297,10 @@ done:
  */
 herr_t
 H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
-    H5VL_object_specific_t specific_type, hid_t dxpl_id, void **req, va_list arguments)
+    H5VL_object_specific_t specific_type, hid_t H5VL_DAOS_UNUSED dxpl_id,
+    void H5VL_DAOS_UNUSED **req, va_list H5VL_DAOS_UNUSED arguments)
 {
-    H5_daos_item_t *item = (H5_daos_item_t *)_item;
+//    H5_daos_item_t *item = (H5_daos_item_t *)_item;
     herr_t          ret_value = SUCCEED;
 
     if(!_item)

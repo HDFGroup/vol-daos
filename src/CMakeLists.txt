@@ -48,15 +48,15 @@ endif()
 # HDF5
 option(HDF5_VOL_DAOS_USE_SYSTEM_HDF5 "Use system-installed HDF5." ON)
 if(HDF5_VOL_DAOS_USE_SYSTEM_HDF5)
-  find_package(HDF5 NO_MODULE REQUIRED)
+  find_package(HDF5 NO_MODULE REQUIRED NAMES hdf5 COMPONENTS C shared)
   if(HDF5_FOUND)
-    if(NOT TARGET hdf5::hdf5-shared)
+    if(NOT TARGET ${HDF5_C_SHARED_LIBRARY})
         message(FATAL_ERROR "Could not find hdf5 shared target, please make "
         "sure that HDF5 has ben compiled with shared libraries enabled.")
     endif()
     set(HDF5_VOL_DAOS_EXT_PKG_DEPENDENCIES
       ${HDF5_VOL_DAOS_EXT_PKG_DEPENDENCIES}
-      hdf5::hdf5-shared
+      ${HDF5_C_SHARED_LIBRARY}
     )
   else()
     message(FATAL_ERROR "Could not find HDF5, please check HDF5_DIR.")
@@ -67,17 +67,19 @@ else()
   set(HDF5_INSTALL_LIB_DIR ${HDF5_VOL_DAOS_INSTALL_LIB_DIR})
   set(HDF5_INSTALL_INCLUDE_DIR ${HDF5_VOL_DAOS_INSTALL_INCLUDE_DIR})
   set(HDF5_INSTALL_DATA_DIR ${HDF5_VOL_DAOS_INSTALL_DATA_DIR})
+  set(BUILD_STATIC_LIBS "OFF" CACHE BOOL "Build Static Libraries")
   set(HDF5_BUILD_CPP_LIB "OFF" CACHE BOOL "Build HDF5 C++ Library")
   set(HDF5_BUILD_EXAMPLES "OFF" CACHE BOOL "Build HDF5 Library Examples")
   set(HDF5_BUILD_HL_LIB "OFF" CACHE BOOL "Build HIGH Level HDF5 Library")
   set(HDF5_BUILD_TOOLS "OFF" CACHE BOOL "Build HDF5 Tools")
   set(HDF5_ENABLE_PARALLEL "ON" CACHE BOOL "Enable parallel build (requires MPI)")
   # TODO might need to fix HDF5_INSTALL_INCLUDE_INTERFACE from here
-  set(HDF5_EXTERNAL_EXPORTED_TARGETS ${HDF5_VOL_DAOS_EXPORTED_TARGETS})
+  set(HDF5_EXPORTED_TARGETS ${HDF5_VOL_DAOS_EXPORTED_TARGETS})
   add_subdirectory(hdf5)
   include(${HDF5_BINARY_DIR}/hdf5-config.cmake)
-  set(HDF5_VOL_DAOS_EXPORTED_LIBS hdf5::hdf5-shared ${HDF5_VOL_DAOS_EXPORTED_LIBS})
-  get_target_property(HDF5_EXT_LIB_DEPENDENCIES hdf5::hdf5-shared INTERFACE_LINK_LIBRARIES)
+  set(HDF5_C_SHARED_LIBRARY hdf5-shared)
+  set(HDF5_VOL_DAOS_EXPORTED_LIBS ${HDF5_C_SHARED_LIBRARY} ${HDF5_VOL_DAOS_EXPORTED_LIBS})
+  get_target_property(HDF5_EXT_LIB_DEPENDENCIES ${HDF5_C_SHARED_LIBRARY} INTERFACE_LINK_LIBRARIES)
   if(HDF5_EXT_LIB_DEPENDENCIES)
     set(HDF5_VOL_DAOS_EXT_PKG_LIB_DEPENDENCIES
       ${HDF5_VOL_DAOS_EXT_PKG_LIB_DEPENDENCIES}
@@ -240,12 +242,22 @@ install(
 # Export all exported targets to the build tree for use by parent project
 #-----------------------------------------------------------------------------
 if(NOT HDF5_VOL_DAOS_EXTERNALLY_CONFIGURED)
-export(
-  TARGETS
-    ${HDF5_VOL_DAOS_EXPORTED_LIBS}
-  FILE
-    ${HDF5_VOL_DAOS_EXPORTED_TARGETS}.cmake
-)
+  export(
+    TARGETS
+      ${HDF5_VOL_DAOS_EXPORTED_LIBS}
+    FILE
+      ${HDF5_VOL_DAOS_EXPORTED_TARGETS}.cmake
+  )
+# TODO There is a namespace issue with the way HDF5 currently defines targets
+#  if(NOT HDF5_VOL_DAOS_USE_SYSTEM_HDF5)
+#    export(
+#      TARGETS
+#        ...
+#      APPEND FILE
+#        ${HDF5_VOL_DAOS_EXPORTED_TARGETS}.cmake
+#      NAMESPACE hdf5::
+#    )
+#  endif()
 endif()
 
 #------------------------------------------------------------------------------

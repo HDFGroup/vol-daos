@@ -2,3 +2,6 @@
 	path = src/hdf5
 	url = https://bitbucket.hdfgroup.org/scm/hdffv/hdf5.git
 	branch = daos_vol_support
+[submodule "test/vol"]
+	path = test/vol
+	url = https://bitbucket.hdfgroup.org/scm/hdf5vol/vol-tests.git

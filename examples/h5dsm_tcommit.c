@@ -66,7 +66,7 @@ int main(int argc, char *argv[]) {
         printf("Committing datatype \"dtype\"\n");
     if(H5Tcommit2(file, "dtype", type2, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT) < 0)
         ERROR;
-    if(H5Oget_info(type2, &oinfo) < 0)
+    if(H5Oget_info1(type2, &oinfo) < 0)
         ERROR;
 
     /* Create dataset using committed datatype */

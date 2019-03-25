@@ -1,28 +1,19 @@
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  * Copyright by The HDF Group.                                               *
- * Copyright by the Board of Trustees of the University of Illinois.         *
  * All rights reserved.                                                      *
  *                                                                           *
- * This file is part of HDF5.  The full HDF5 copyright notice, including     *
- * terms governing use, modification, and redistribution, is contained in    *
- * the files COPYING and Copyright.html.  COPYING can be found at the root   *
- * of the source code distribution tree; Copyright.html can be found at the  *
- * root level of an installed copy of the electronic HDF5 document set and   *
- * is linked from the top-level documents page.  It can also be found at     *
- * http://hdfgroup.org/HDF5/doc/Copyright.html.  If you do not have          *
- * access to either file, you may request a copy from help@hdfgroup.org.     *
+ * This file is part of the HDF5 DAOS VOL connector. The full copyright      *
+ * notice, including terms governing use, modification, and redistribution,  *
+ * is contained in the COPYING file, which can be found at the root of the   *
+ * source code distribution tree.                                            *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 /*
- * Programmer:  Neil Fortner <nfortne2@hdfgroup.org>
- *              September, 2016
- *
  * Purpose: The DAOS VOL connector where access is forwarded to the DAOS
- * library.  Dataset routines.
+ * library. Dataset routines.
  */
 
 #include "daos_vol.h"           /* DAOS connector                          */
-#include "daos_vol_config.h"    /* DAOS connector configuration header     */
 
 #include "util/daos_vol_err.h"  /* DAOS connector error handling           */
 #include "util/daos_vol_mem.h"  /* DAOS connector memory management        */
@@ -80,7 +71,7 @@ static herr_t H5_daos_dataset_mem_vl_wr_cb(void *_elem, hid_t type_id,
  */
 void *
 H5_daos_dataset_create(void *_item,
-    const H5VL_loc_params_t DV_ATTR_UNUSED *loc_params, const char *name,
+    const H5VL_loc_params_t H5VL_DAOS_UNUSED *loc_params, const char *name,
     hid_t dcpl_id, hid_t dapl_id, hid_t dxpl_id, void **req)
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
@@ -352,7 +343,7 @@ done:
  */
 void *
 H5_daos_dataset_open(void *_item,
-    const H5VL_loc_params_t DV_ATTR_UNUSED *loc_params, const char *name,
+    const H5VL_loc_params_t H5VL_DAOS_UNUSED *loc_params, const char *name,
     hid_t dapl_id, hid_t dxpl_id, void **req)
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
@@ -764,8 +755,8 @@ H5_daos_scatter_cb(const void **src_buf, size_t *src_buf_bytes_used,
  *-------------------------------------------------------------------------
  */
 static herr_t
-H5_daos_dataset_mem_vl_rd_cb(void *_elem, hid_t DV_ATTR_UNUSED type_id,
-    unsigned DV_ATTR_UNUSED ndim, const hsize_t DV_ATTR_UNUSED *point,
+H5_daos_dataset_mem_vl_rd_cb(void *_elem, hid_t H5VL_DAOS_UNUSED type_id,
+    unsigned H5VL_DAOS_UNUSED ndim, const hsize_t H5VL_DAOS_UNUSED *point,
     void *_udata)
 {
     H5_daos_vl_mem_ud_t *udata = (H5_daos_vl_mem_ud_t *)_udata;
@@ -849,8 +840,8 @@ done:
  *-------------------------------------------------------------------------
  */
 static herr_t
-H5_daos_dataset_file_vl_cb(void DV_ATTR_UNUSED *_elem,
-    hid_t DV_ATTR_UNUSED type_id, unsigned ndim, const hsize_t *point,
+H5_daos_dataset_file_vl_cb(void H5VL_DAOS_UNUSED *_elem,
+    hid_t H5VL_DAOS_UNUSED type_id, unsigned ndim, const hsize_t *point,
     void *_udata)
 {
     H5_daos_vl_file_ud_t *udata = (H5_daos_vl_file_ud_t *)_udata;
@@ -899,7 +890,7 @@ done:
  */
 herr_t
 H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
-    hid_t file_space_id, hid_t dxpl_id, void *buf, void DV_ATTR_UNUSED **req)
+    hid_t file_space_id, hid_t dxpl_id, void *buf, void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_dset_t *dset = (H5_daos_dset_t *)_dset;
     H5S_sel_iter_t *sel_iter = NULL;
@@ -1232,8 +1223,8 @@ done:
  *-------------------------------------------------------------------------
  */
 static herr_t
-H5_daos_dataset_mem_vl_wr_cb(void *_elem, hid_t DV_ATTR_UNUSED type_id,
-    unsigned DV_ATTR_UNUSED ndim, const hsize_t DV_ATTR_UNUSED *point,
+H5_daos_dataset_mem_vl_wr_cb(void *_elem, hid_t H5VL_DAOS_UNUSED type_id,
+    unsigned H5VL_DAOS_UNUSED ndim, const hsize_t H5VL_DAOS_UNUSED *point,
     void *_udata)
 {
     H5_daos_vl_mem_ud_t *udata = (H5_daos_vl_mem_ud_t *)_udata;
@@ -1308,8 +1299,8 @@ H5_daos_dataset_mem_vl_wr_cb(void *_elem, hid_t DV_ATTR_UNUSED type_id,
  */
 herr_t
 H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
-    hid_t file_space_id, hid_t DV_ATTR_UNUSED dxpl_id,
-    const void *buf, void DV_ATTR_UNUSED **req)
+    hid_t file_space_id, hid_t H5VL_DAOS_UNUSED dxpl_id,
+    const void *buf, void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_dset_t *dset = (H5_daos_dset_t *)_dset;
     int ndims;
@@ -1585,7 +1576,7 @@ done:
  */
 herr_t
 H5_daos_dataset_get(void *_dset, H5VL_dataset_get_t get_type,
-    hid_t DV_ATTR_UNUSED dxpl_id, void DV_ATTR_UNUSED **req, va_list arguments)
+    hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req, va_list arguments)
 {
     H5_daos_dset_t *dset = (H5_daos_dset_t *)_dset;
     herr_t       ret_value = SUCCEED;    /* Return value */
@@ -1666,7 +1657,7 @@ done:
  */
 herr_t
 H5_daos_dataset_specific(void *_item, H5VL_dataset_specific_t specific_type,
-    hid_t dxpl_id, void **req, va_list arguments)
+    hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req, va_list H5VL_DAOS_UNUSED arguments)
 {
     H5_daos_dset_t *dset = (H5_daos_dset_t *)_item;
     herr_t          ret_value = SUCCEED;
@@ -1703,8 +1694,8 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_dataset_close(void *_dset, hid_t DV_ATTR_UNUSED dxpl_id,
-    void DV_ATTR_UNUSED **req)
+H5_daos_dataset_close(void *_dset, hid_t H5VL_DAOS_UNUSED dxpl_id,
+    void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_dset_t *dset = (H5_daos_dset_t *)_dset;
     int ret;

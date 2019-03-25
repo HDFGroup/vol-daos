@@ -1,9 +1,9 @@
+#include <daos_vol_public.h>
+#include <daos.h>
+
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-#include <mpi.h>
-#include <hdf5.h>
-#include <daos.h>
 
 /* Macros for printing standard messages and issuing errors */
 #define AT()            printf ("        at %s:%d in %s()...\n", __FILE__, __LINE__, __FUNCTION__)

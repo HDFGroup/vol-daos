@@ -1,28 +1,19 @@
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  * Copyright by The HDF Group.                                               *
- * Copyright by the Board of Trustees of the University of Illinois.         *
  * All rights reserved.                                                      *
  *                                                                           *
- * This file is part of HDF5.  The full HDF5 copyright notice, including     *
- * terms governing use, modification, and redistribution, is contained in    *
- * the files COPYING and Copyright.html.  COPYING can be found at the root   *
- * of the source code distribution tree; Copyright.html can be found at the  *
- * root level of an installed copy of the electronic HDF5 document set and   *
- * is linked from the top-level documents page.  It can also be found at     *
- * http://hdfgroup.org/HDF5/doc/Copyright.html.  If you do not have          *
- * access to either file, you may request a copy from help@hdfgroup.org.     *
+ * This file is part of the HDF5 DAOS VOL connector. The full copyright      *
+ * notice, including terms governing use, modification, and redistribution,  *
+ * is contained in the COPYING file, which can be found at the root of the   *
+ * source code distribution tree.                                            *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 /*
- * Programmer:  Neil Fortner <nfortne2@hdfgroup.org>
- *              January, 2019
- *
  * Purpose: The DAOS VOL connector where access is forwarded to the DAOS
  *          library.  Asynchronous request routines.
  */
 
 #include "daos_vol.h"           /* DAOS connector                          */
-#include "daos_vol_config.h"    /* DAOS connector configuration header     */
 
 #include "util/daos_vol_err.h"  /* DAOS connector error handling           */
 #include "util/daos_vol_mem.h"  /* DAOS connector memory management        */

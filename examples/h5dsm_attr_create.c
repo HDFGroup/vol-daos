@@ -42,12 +42,14 @@ int main(int argc, char *argv[]) {
     if((attr = H5Acreate_by_name(file, argv[3], argv[4], H5T_NATIVE_INT, space, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT)) < 0)
         ERROR;
 
+#ifdef DV_HAVE_SNAP_OPEN_ID
     /* Save snapshot if requested */
     if(argc == 6) {
         if(H5daos_snap_create(file, &snap_id) < 0)
             ERROR;
         printf("Saved snapshot: snap_id = %llu\n", (long long unsigned)snap_id);
     } /* end if */
+#endif
 
     /* Close */
     if(H5Aclose(attr) < 0)

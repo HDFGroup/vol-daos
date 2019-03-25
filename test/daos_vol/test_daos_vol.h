@@ -1,7 +1,15 @@
 /*
- * Programmer:  Jordan Henderson
- *              August, 2018
- *
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ * Copyright by The HDF Group.                                               *
+ * All rights reserved.                                                      *
+ *                                                                           *
+ * This file is part of the HDF5 DAOS VOL connector. The full copyright      *
+ * notice, including terms governing use, modification, and redistribution,  *
+ * is contained in the COPYING file, which can be found at the root of the   *
+ * source code distribution tree.                                            *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+/*
  * Purpose: Contains macros to facilitate testing the DAOS VOL plugin.
  */
 

@@ -1,28 +1,19 @@
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  * Copyright by The HDF Group.                                               *
- * Copyright by the Board of Trustees of the University of Illinois.         *
  * All rights reserved.                                                      *
  *                                                                           *
- * This file is part of HDF5.  The full HDF5 copyright notice, including     *
- * terms governing use, modification, and redistribution, is contained in    *
- * the files COPYING and Copyright.html.  COPYING can be found at the root   *
- * of the source code distribution tree; Copyright.html can be found at the  *
- * root level of an installed copy of the electronic HDF5 document set and   *
- * is linked from the top-level documents page.  It can also be found at     *
- * http://hdfgroup.org/HDF5/doc/Copyright.html.  If you do not have          *
- * access to either file, you may request a copy from help@hdfgroup.org.     *
+ * This file is part of the HDF5 DAOS VOL connector. The full copyright      *
+ * notice, including terms governing use, modification, and redistribution,  *
+ * is contained in the COPYING file, which can be found at the root of the   *
+ * source code distribution tree.                                            *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 /*
- * Programmer:  Neil Fortner <nfortne2@hdfgroup.org>
- *              September, 2016
- *
  * Purpose: The DAOS VOL connector where access is forwarded to the DAOS
- * library.  Generic object routines.
+ * library. Generic object routines.
  */
 
 #include "daos_vol.h"           /* DAOS connector                          */
-#include "daos_vol_config.h"    /* DAOS connector configuration header     */
 
 #include "util/daos_vol_err.h"  /* DAOS connector error handling           */
 #include "util/daos_vol_mem.h"  /* DAOS connector memory management        */
@@ -223,7 +214,8 @@ done:
 herr_t
 H5_daos_object_copy(void *src_obj, const H5VL_loc_params_t *loc_params1,
     const char *src_name, void *dst_obj, const H5VL_loc_params_t *loc_params2,
-    const char *dst_name, hid_t ocpypl_id, hid_t lcpl_id, hid_t dxpl_id, void **req)
+    const char *dst_name, hid_t H5VL_DAOS_UNUSED ocpypl_id, hid_t H5VL_DAOS_UNUSED lcpl_id,
+    hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req)
 {
     herr_t ret_value = SUCCEED;
 
@@ -262,9 +254,10 @@ done:
  */
 herr_t
 H5_daos_object_get(void *_item, const H5VL_loc_params_t *loc_params,
-    H5VL_object_get_t get_type, hid_t dxpl_id, void **req, va_list arguments)
+    H5VL_object_get_t get_type, hid_t H5VL_DAOS_UNUSED dxpl_id,
+    void H5VL_DAOS_UNUSED **req, va_list H5VL_DAOS_UNUSED arguments)
 {
-    H5_daos_item_t *item = (H5_daos_item_t *)_item;
+//    H5_daos_item_t *item = (H5_daos_item_t *)_item;
     herr_t          ret_value = SUCCEED;
 
     if(!_item)
@@ -301,9 +294,10 @@ done:
  */
 herr_t
 H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
-    H5VL_object_specific_t specific_type, hid_t dxpl_id, void **req, va_list arguments)
+    H5VL_object_specific_t specific_type, hid_t H5VL_DAOS_UNUSED dxpl_id,
+    void H5VL_DAOS_UNUSED **req, va_list H5VL_DAOS_UNUSED arguments)
 {
-    H5_daos_item_t *item = (H5_daos_item_t *)_item;
+//    H5_daos_item_t *item = (H5_daos_item_t *)_item;
     herr_t          ret_value = SUCCEED;
 
     if(!_item)

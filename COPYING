@@ -1,7 +1,7 @@
 Copyright Notice and License Terms for HDF5 DAOS VOL Connector
 -----------------------------------------------------------------------------
 
-Copyright (c) 2016-2019, The HDF Group. 
+Copyright (c) 2018, The HDF Group. 
 
 All rights reserved.
 
@@ -38,3 +38,6 @@ to install, use, modify, prepare derivative works, incorporate into other
 computer software, distribute, and sublicense such enhancements or derivative 
 works thereof, in binary and source code form.
 
+Acknowledgement: 
+This software was developed with support from the Department of Energy under
+Prime Contract No. DE-AC02-06CH11357.

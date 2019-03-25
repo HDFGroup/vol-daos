@@ -1,0 +1,643 @@
+\documentclass[12pt]{article}
+
+\title{\textbf{HDF5 DAOS VOL Connector User's Guide}}
+\author{Jordan Henderson}
+\date{}
+
+% For including the HDF image in the footer
+\usepackage{graphicx}
+
+% For nicely-formatted tables
+\usepackage{tabularx}
+
+% To represent hyperlinks
+\usepackage[colorlinks=true,linkcolor=blue,urlcolor=blue]{hyperref}
+
+% To control the formatting of page headers
+\usepackage{fancyhdr}
+
+% For coloring headers, footers and other elements according to typical THG document style
+\usepackage{xcolor}
+
+% For correct page-numbering
+\usepackage{lastpage}
+
+% To control the margins of the document
+\usepackage[margin=0.5in, top=0.7in, bottom=0.7in]{geometry}
+
+\pagestyle{fancy}
+\cfoot{}
+\renewcommand{\headrule}{\hbox to\headwidth{\color{blue}\leaders\hrule height \headrulewidth\hfill}}
+\fancyhead[LH]{\raisebox{-.7\baselineskip}[0pt][0pt]{February 28, 2019}}
+\fancyhead[RH]{\raisebox{-.7\baselineskip}[0pt][0pt]{THG 2019-02-28.v1}}
+\renewcommand{\footrule}{{\color{blue}\hrule}}
+\fancyfoot[LF]{\includegraphics{HDF_logo.jpg}}
+\fancyfoot[RF]{Page \thepage\ of \pageref*{LastPage}}
+\setlength{\parskip}{\baselineskip}
+
+\begin{document}
+
+\maketitle
+
+% Ensure header and footer get added to first page
+\thispagestyle{fancy}
+
+{\color{blue}\hrule}
+
+\begin{center}
+
+\begin{minipage}{.95\linewidth}
+
+This document aims to be a helpful guide on how to install the HDF5 DAOS VOL connector and use it to leverage the capabilities of the DAOS object storage system within an HDF5 application.
+
+\end{minipage}
+
+\end{center}
+
+\vspace{0.2in}
+{\color{blue}\hrule}
+
+\newpage
+
+\tableofcontents
+\newpage
+
+\section{Introduction}
+
+The HDF5 DAOS VOL connector is a connector for HDF5 designed with the goal of allowing HDF5 applications to utilize the DAOS object storage system by translating HDF5 API calls into DAOS calls, as defined by the DAOS API. The DAOS VOL connector is currently built as a dynamically-loaded library that is external to HDF5 and is treated similar to dynamically-loaded HDF5 filter plugins.
+
+For the latest instructions on installation and usage of the HDF5 DAOS VOL connector, please refer to the README file in the connector’s source code repository\footnote{\href{https://bitbucket.hdfgroup.org/projects/HDF5VOL/repos/daos-vol/browse/README.md}{DAOS VOL Connector README}}; the instructions are listed here for convenience.
+
+\newpage
+
+\section{Installation}
+
+TBD
+
+\newpage
+
+\section{Usage}
+
+\subsection{Using the DAOS VOL connector with an HDF5 application}
+
+TBD
+
+\subsection{HDF5 API support}
+
+The following sections serve to illustrate the DAOS VOL connector's support for the HDF5 API, as well as to highlight any differences between the expected behavior of an HDF5 API call versus the actual behavior as implemented by the VOL connector.
+
+\subsubsection{H5A interface}
+
+\begin{center}
+
+\textbf{Supported API calls}
+\vspace{.2in} \\
+
+\begin{tabularx}{\linewidth}{| X | X |}
+\hline
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+H5Acreate(1/2) & \\ \hline
+H5Acreate\_by\_name & \\ \hline
+H5Aopen(\_by\_name) & \\ \hline
+H5Aopen\_name & \\ \hline
+H5Awrite & \\ \hline
+H5Aread & \\ \hline
+H5Aclose & \\ \hline
+H5Aiterate(2) & \begin{itemize}
+                    \item Restarting iteration from an index value is currently unsupported
+                    \item Only \texttt{H5\_ITER\_NATIVE} is supported for the iteration order
+                \end{itemize}\\ \hline
+H5Aiterate\_by\_name & \begin{itemize}
+                           \item Restarting iteration from an index value is currently unsupported
+                           \item Only \texttt{H5\_ITER\_NATIVE} is supported for the iteration order
+                       \end{itemize}\\ \hline
+H5Aget\_name & \\ \hline
+H5Aget\_space & \\ \hline
+H5Aget\_type & \\ \hline
+
+\end{tabularx}
+
+\textbf{Currently unsupported API calls}
+\vspace{.2in} \\
+
+\begin{tabularx}{\linewidth}{| X | X |}
+\hline
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+H5Aopen\_by\_idx & Currently no support for attribute creation order \\ \hline
+H5Aopen\_idx & Currently no support for attribute creation order \\ \hline
+H5Aexists(\_by\_name) & \\ \hline
+H5Arename(\_by\_name) & \\ \hline
+H5Adelete(\_by\_name/\_by\_idx) & \\ \hline
+H5Aget\_info(\_by\_name/\_by\_idx) & \\ \hline
+H5Aget\_name\_by\_idx & Currently no support for attribute creation order \\ \hline
+H5Aget\_create\_plist & Default ACPL is currently returned \\ \hline
+H5Aget\_storage\_size & \\ \hline
+
+\end{tabularx}
+
+\end{center}
+
+\subsubsection{H5D interface}
+
+\begin{center}
+
+\textbf{Supported API calls}
+\vspace{.2in} \\
+
+\begin{tabularx}{\linewidth}{| X | X |}
+\hline
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+H5Dcreate(1/2) & \\ \hline
+H5Dcreate\_anon & \\ \hline
+H5Dopen(1/2) & \\ \hline
+H5Dwrite & \\ \hline
+H5Dread & \\ \hline
+H5Dclose & \\ \hline
+H5Diterate & \\ \hline
+H5Dget\_space & \\ \hline
+H5Dget\_type & \\ \hline
+H5Dget\_create\_plist & \\ \hline
+H5Dget\_access\_plist & \\ \hline
+
+\end{tabularx}
+
+\textbf{Currently unsupported API calls}
+\vspace{.2in} \\
+
+\begin{tabularx}{\linewidth}{| X | X |}
+\hline
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+H5Dflush & \\ \hline
+H5Drefresh & \\ \hline
+H5Dextend & \\ \hline
+H5Dset\_extent & \\ \hline
+H5Dget\_storage\_size & \\ \hline
+H5Dget\_space\_status & Space status is currently always set to \texttt{H5D\_SPACE\_STATUS\_NOT\_ALLOCATED}\\ \hline
+H5Dget\_offset & \\ \hline
+H5Dvlen\_reclaim & \\ \hline
+H5Dvlen\_get\_buf\_size & \\ \hline
+H5Dscatter & \\ \hline
+H5Dgather & \\ \hline
+H5Dfill & \\ \hline
+
+\end{tabularx}
+
+\end{center}
+
+\subsubsection{H5F interface}
+
+\begin{center}
+
+\textbf{Supported API calls}
+\vspace{.2in} \\
+
+\begin{tabularx}{\linewidth}{| X | X |}
+\hline
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+H5Fcreate & \begin{itemize}
+                \item \texttt{H5F\_ACC\_EXCL} flag is currently not handled correctly
+            \end{itemize}\\ \hline
+H5Fopen & \\ \hline
+H5Fclose & \\ \hline
+
+\end{tabularx}
+
+\textbf{Currently unsupported API calls}
+\vspace{.2in} \\
+
+\begin{tabularx}{\linewidth}{| X | X |}
+\hline
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+H5Freopen & \\ \hline
+H5Fflush & \\ \hline
+H5Fis\_accessible & \\ \hline
+H5Fis\_hdf5 & \\ \hline
+H5Fmount & \\ \hline
+H5Funmount & \\ \hline
+H5Fget\_create\_plist & \\ \hline
+H5Fget\_access\_plist & \\ \hline
+H5Fget\_intent & \\ \hline
+H5Fget\_name & \\ \hline
+H5Fget\_obj\_count & \\ \hline
+H5Fget\_obj\_ids & \\ \hline
+
+\end{tabularx}
+
+\end{center}
+
+\subsubsection{H5G interface}
+
+\begin{center}
+
+\textbf{Supported API calls}
+\vspace{.2in} \\
+
+\begin{tabularx}{\linewidth}{| X | X |}
+\hline
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+H5Gcreate(1/2) & \\ \hline
+H5Gcreate\_anon & \\ \hline
+H5Gopen(1/2) & \\ \hline
+H5Gclose & \\ \hline
+H5Gget\_create\_plist & \\ \hline
+H5Gget\_info(\_by\_name/\_by\_idx) & Of the four fields in the \texttt{H5G\_info\_t} struct:
+                                     \begin{itemize}
+                                         \item \texttt{storage\_type} is always set to \texttt{H5G\_STORAGE\_TYPE\_UNKNOWN}
+                                         \item \texttt{nlinks} is set appropriately
+                                         \item \texttt{max\_corder} is currently always set to 0
+                                         \item \texttt{mounted} is currently always set to \texttt{FALSE}
+                                     \end{itemize}
+                                     \texttt{H5Gget\_info\_by\_idx} is currently unsupported due to the lack of support for link creation order
+                                     \\ \hline
+H5Gget\_num\_objs & \\ \hline
+H5Glink(2) & Currently only soft link creation is supported\\ \hline
+
+\end{tabularx}
+
+\textbf{Currently unsupported API calls}
+\vspace{.2in} \\
+
+\begin{tabularx}{\linewidth}{| X | X |}
+\hline
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+H5Gflush & \\ \hline
+H5Grefresh & \\ \hline
+H5Gmove(2) & Will be supported once \texttt{H5Lmove} is supported\\ \hline
+H5Gunlink & Will be supported once \texttt{H5Ldelete} is supported\\ \hline
+H5Gget\_linkval & Will be supported once \texttt{H5Lget\_val} is supported\\ \hline
+H5Gget\_objname\_by\_idx & Will be supported once \texttt{H5Lget\_name\_by\_idx} is supported\\ \hline
+
+\end{tabularx}
+
+\end{center}
+
+\subsubsection{H5L interface}
+
+\begin{center}
+
+\textbf{Supported API calls}
+\vspace{.2in} \\
+
+\begin{tabularx}{\linewidth}{| X | X |}
+\hline
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+H5Lcreate\_soft & \\ \hline
+H5Lexists & \\ \hline
+H5Literate(\_by\_name) & \begin{itemize}
+                             \item Restarting iteration from an index value is currently unsupported
+                             \item Only \texttt{H5\_ITER\_NATIVE} is supported for the iteration order
+                         \end{itemize}\\ \hline
+
+\end{tabularx}
+
+\textbf{Currently unsupported API calls}
+\vspace{.2in} \\
+
+\begin{tabularx}{\linewidth}{| X | X |}
+\hline
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+H5Lcopy & \\ \hline
+H5Lmove & \\ \hline
+H5Lcreate\_hard & \\ \hline
+H5Lcreate\_external & \\ \hline
+H5Lcreate\_ud & \\ \hline
+H5Ldelete(\_by\_idx) & \\ \hline
+H5Lget\_info(\_by\_idx) & \\ \hline
+H5Lget\_name\_by\_idx & Currently no support for link creation order\\ \hline
+H5Lget\_val(\_by\_idx) & \\ \hline
+H5Lvisit(\_by\_name) & \\ \hline
+H5Lregister & \\ \hline
+H5Lunregister & \\ \hline
+H5Lis\_registered & \\ \hline
+H5Lunpack\_elink\_val & \\ \hline
+
+\end{tabularx}
+
+\end{center}
+
+\subsubsection{H5O interface}
+
+\begin{center}
+
+\textbf{Supported API calls}
+\vspace{.2in} \\
+
+\begin{tabularx}{\linewidth}{| X | X |}
+\hline
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+H5Oopen & \\ \hline
+H5Oopen\_by\_addr & \\ \hline
+H5Oclose & \\ \hline
+
+\end{tabularx}
+
+\textbf{Currently unsupported API calls}
+\vspace{.2in} \\
+
+\begin{tabularx}{\linewidth}{| X | X |}
+\hline
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+H5Oopen\_by\_idx & \\ \hline
+H5Oexists\_by\_name & \\ \hline
+H5Ovisit(1/2) & \\ \hline
+H5Ovisit\_by\_name(1/2) & \\ \hline
+H5Olink & \\ \hline
+H5Ocopy & \\ \hline
+H5Oflush & \\ \hline
+H5Orefresh & \\ \hline
+H5Oincr\_refcount & \\ \hline
+H5Odecr\_refcount & \\ \hline
+
+\end{tabularx}
+
+\end{center}
+
+\subsubsection{H5R interface}
+
+\begin{center}
+
+\textbf{Supported API calls}
+\vspace{.2in} \\
+
+\begin{tabularx}{\linewidth}{| X | X |}
+\hline
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+ & \\ \hline
+
+\end{tabularx}
+
+\textbf{Currently unsupported API calls}
+\vspace{.2in} \\
+
+\begin{tabularx}{\linewidth}{| X | X |}
+\hline
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+H5Rcreate & \\ \hline
+H5Rdereference(1/2) & Causes an assertion failure\\ \hline
+H5Rget\_name & \\ \hline
+H5Rget\_obj\_type(1/2) & \\ \hline
+H5Rget\_region & \\ \hline
+
+\end{tabularx}
+
+\end{center}
+
+\subsubsection{H5T interface}
+
+\begin{center}
+
+\textbf{Supported API calls}
+\vspace{.2in} \\
+
+\begin{tabularx}{\linewidth}{| X | X |}
+\hline
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+H5Tcommit(1/2) & \\ \hline
+H5Tcommit\_anon & \\ \hline
+H5Topen(1/2) & \\ \hline
+H5Tclose & \\ \hline
+H5Tget\_create\_plist & \\ \hline
+
+\end{tabularx}
+
+\textbf{Currently unsupported API calls}
+\vspace{.2in} \\
+
+\begin{tabularx}{\linewidth}{| X | X |}
+\hline
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+H5Tflush & \\ \hline
+H5Trefresh & \\ \hline
+
+\end{tabularx}
+
+\end{center}
+
+\newpage
+
+\section{Testing}
+
+\subsection{HDF5 and dynamically-loaded VOL connectors}
+
+HDF5 has the capability to dynamically load and use a VOL connector for running tests with. While several HDF5 tests have been updated to take advantage of this capability, please be aware that many of these tests are likely to fail or crash due to their native HDF5-specific nature.
+
+In order to choose a particular VOL connector to use for testing, two initial steps must be taken. First, one must help HDF5 locate the VOL connector by pointing to the directory which contains the built library. This can be accomplished by setting the environment variable \texttt{HDF5\_PLUGIN\_PATH} to this directory. Next, HDF5 needs to know the name of which library to use, which is configured by setting the environment variable \texttt{HDF5\_VOL\_CONNECTOR} to the name of the connector.
+
+In order to use the DAOS VOL connector, the aforementioned environment variables should be set as:
+
+\begin{verbatim}
+HDF5_PLUGIN_PATH=/daos/vol/installation/directory/lib
+HDF5_VOL_CONNECTOR=daos
+\end{verbatim}
+
+Having completed this step, HDF5 will be setup to load the DAOS VOL connector and use it for testing.
+
+\subsection{Generic VOL connector test suite}
+
+In order to test VOL connectors to make sure that they are functioning as expected, a suite of tests which only use the public HDF5 API has been written. If the DAOS VOL connector was built using the HDF5 source code included in the main repository, this suite of tests will be available under the path:
+
+\begin{verbatim}
+src/hdf5/test/VOL/vol_test
+\end{verbatim}
+
+Currently, this test suite does not have the capability to query what kind of functionality a VOL connector supports and therefore a test will fail if it uses an HDF5 API call which is not implemented, or which is specifically unsupported, in a given VOL connector.
+
+\newpage
+
+\section{Appendix}
+
+\subsection{Appendix A - Native VOL connector API calls}
+
+The following HDF5 API calls are specific to the native HDF5 VOL connector and thus are not able to be implemented by the DAOS VOL connector (or other VOL connectors):
+
+\subsubsection{H5A interface}
+
+\begin{tabularx}{\linewidth}{| X | X |}
+\hline
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+H5Aiterate1 & Deprecated in favor of H5Aiterate2 \\ \hline
+H5Aget\_num\_attrs & Deprecated in favor of H5Oget\_info \\ \hline
+
+\end{tabularx}
+
+\subsubsection{H5D interface}
+
+\begin{tabularx}{\linewidth}{| X | X |}
+\hline
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+H5Dformat\_convert & \\ \hline
+H5Dget\_chunk\_index\_type & \\ \hline
+H5Dget\_chunk\_storage\_size & \\ \hline
+H5Dread\_chunk & \\ \hline
+H5Dwrite\_chunk & \\ \hline
+
+\end{tabularx}
+
+\subsubsection{H5F interface}
+
+\begin{tabularx}{\linewidth}{| X | X |}
+\hline
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+H5Fget\_vfd\_handle & \\ \hline
+H5Fget\_freespace & \\ \hline
+H5Fget\_filesize & \\ \hline
+H5Fget\_file\_image & \\ \hline
+H5Fget\_mdc\_config & \\ \hline
+H5Fset\_mdc\_config & \\ \hline
+H5Fget\_mdc\_hit\_rate & \\ \hline
+H5Fget\_mdc\_size & \\ \hline
+H5Freset\_mdc\_hit\_rate\_stats & \\ \hline
+H5Fget\_info(1/2) & \\ \hline
+H5Fget\_metadata\_read\_retry\_info & \\ \hline
+H5Fget\_free\_sections & \\ \hline
+H5Fclear\_elink\_file\_cache & \\ \hline
+H5Fstart\_swmr\_write & \\ \hline
+H5Fstart\_mdc\_logging & \\ \hline
+H5Fstop\_mdc\_logging & \\ \hline
+H5Fget\_mdc\_logging\_status & \\ \hline
+H5Fset\_libver\_bounds & \\ \hline
+H5Fformat\_convert & \\ \hline
+H5Freset\_page\_buffering\_stats & \\ \hline
+H5Fget\_page\_buffering\_stats & \\ \hline
+H5Fget\_mdc\_image\_info & \\ \hline
+H5Fget\_eoa & \\ \hline
+H5Fincrement\_filesize & \\ \hline
+H5Fget\_dset\_no\_attrs\_hint & \\ \hline
+H5Fset\_dset\_no\_attrs\_hint & \\ \hline
+H5Fset\_latest\_format & \\ \hline
+H5Fset\_mpi\_atomicity & \\ \hline
+H5Fget\_mpi\_atomicity & \\ \hline
+
+\end{tabularx}
+
+\subsubsection{H5G interface}
+
+\begin{tabularx}{\linewidth}{| X | X |}
+\hline
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+H5Gset\_comment & Deprecated in favor of H5Oset\_comment/H5Oset\_comment\_by\_name \\ \hline
+H5Gget\_comment & Deprecated in favor of H5Oget\_comment/H5Oget\_comment\_by\_name \\ \hline
+H5Giterate & Deprecated in favor of H5Literate \\ \hline
+H5Gget\_objinfo & Deprecated in favor of H5Lget\_info/H5Oget\_info \\ \hline
+H5Gget\_objtype\_by\_idx & Deprecated in favor of H5Lget\_info/H5Oget\_info \\ \hline
+
+\end{tabularx}
+
+\subsubsection{H5L interface}
+
+\begin{tabularx}{\linewidth}{| X | X |}
+\hline
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+& \\ \hline
+
+\end{tabularx}
+
+\subsubsection{H5O interface}
+
+\begin{tabularx}{\linewidth}{| X | X |}
+\hline
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+H5Oget\_info(1/2) & \\ \hline
+H5Oget\_info\_by\_name(1/2) & \\ \hline
+H5Oget\_info\_by\_idx(1/2) & \\ \hline
+H5Oset\_comment(\_by\_name) & Deprecated in favor of using attributes on objects \\ \hline
+H5Oget\_comment(\_by\_name) & Deprecated in favor of using attributes on objects \\ \hline
+H5Oare\_mdc\_flushes\_disabled & \\ \hline
+H5Oenable\_mdc\_flushes & \\ \hline
+H5Odisable\_mdc\_flushes & \\ \hline
+
+\end{tabularx}
+
+\subsubsection{H5R interface}
+
+\begin{tabularx}{\linewidth}{| X | X |}
+\hline
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+& \\ \hline
+
+\end{tabularx}
+
+\subsubsection{H5T interface}
+
+\begin{tabularx}{\linewidth}{| X | X |}
+\hline
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+& \\ \hline
+
+\end{tabularx}
+
+\newpage
+
+\section{Revision History}
+
+\begin{tabularx}{\linewidth}{| l | X |}
+\hline
+February 28, 2019 & First Draft \\
+\hline
+& \\
+\hline
+& \\
+\hline
+& \\
+\hline
+& \\
+\hline
+& \\
+\hline
+& \\
+\hline
+& \\
+\hline
+& \\
+\hline
+\end{tabularx}
+
+\end{document}

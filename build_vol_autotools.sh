@@ -28,10 +28,6 @@ DAOS_LINK=""
 # building in parallel with Autotools make
 NPROCS=0
 
-# Default is to not build tools due to circular dependency on VOL being
-# already built
-build_tools=false
-
 # Compiler flags for linking with UUID
 UUID_DIR=""
 UUID_LINK="-luuid"
@@ -61,12 +57,6 @@ usage()
     echo "      -d      Enable debugging output in the DAOS VOL."
     echo
     echo "      -m      Enable memory tracking in the DAOS VOL."
-    echo
-    echo "      -t      Build the tools with DAOS VOL support. Note"
-    echo "              that due to a circular build dependency, this"
-    echo "              option should not be chosen until after the"
-    echo "              included HDF5 source distribution and the"
-    echo "              DAOS VOL connector have been built once."
     echo
     echo "      -P DIR  Similar to 'configure --prefix=DIR', specifies"
     echo "              where the DAOS VOL should be installed to. Default"
@@ -101,11 +91,6 @@ while getopts "$optspec" optchar; do
         echo "Enabled DAOS VOL connector memory tracking"
         echo
         ;;
-    t)
-        build_tools=true
-        echo "Building tools with DAOS VOL support"
-        echo
-        ;;
     P)
         if [ "$HDF5_INSTALL_DIR" = "$INSTALL_DIR" ]; then
             HDF5_INSTALL_DIR="$OPTARG"
@@ -136,8 +121,8 @@ while getopts "$optspec" optchar; do
         fi
 
         # Set the directory where the CART includes should be located at
-        if [ -d "${DAOS_INSTALL_DIR}/modules/cart/include" ]; then
-            DAOS_INCLUDES="${DAOS_INCLUDES} -I${DAOS_INSTALL_DIR}/modules/cart/include"
+        if [ -d "${DAOS_INSTALL_DIR}/include" ]; then
+            DAOS_INCLUDES="${DAOS_INCLUDES} -I${DAOS_INSTALL_DIR}/include"
         else
             echo "CART include dir not found; cannot continue"
             exit 1
@@ -153,28 +138,8 @@ while getopts "$optspec" optchar; do
         fi
 
         # Set the directory where the DAOS version of MPI should be located at
-        DAOS_MPI_DIR="${DAOS_INSTALL_DIR}/modules/ompi"
-
-        if [ -d "${DAOS_MPI_DIR}" ]; then
-            # Set the directory where the MPI library should be located at
-            if [ -d "${DAOS_MPI_DIR}/lib" ]; then
-                DAOS_LIB_DIRS="${DAOS_LIB_DIRS}:${DAOS_MPI_DIR}/lib"
-                DAOS_LINK="${DAOS_LINK} -L${DAOS_MPI_DIR}/lib"
-            else
-                echo "DAOS MPI lib not found; cannot continue"
-                exit 1
-            fi
-
-            if [ -f "${DAOS_MPI_DIR}/bin/mpicc" ]; then
-                export CC="${DAOS_MPI_DIR}/bin/mpicc"
-            else
-                echo "mpicc not found; cannot continue"
-                exit 1
-            fi
-        else
-            echo "DAOS MPI dir not found; cannot continue"
-            exit 1
-        fi
+        DAOS_MPI_DIR="${DAOS_INSTALL_DIR}/include"
+        export CC="${DAOS_INSTALL_DIR}/bin/mpicc"
 
         echo "DAOS install dir set to: ${DAOS_INSTALL_DIR}"
         echo

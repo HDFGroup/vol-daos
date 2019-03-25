@@ -1305,9 +1305,11 @@ H5_daos_md_update_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     assert(!udata->req->file->closed);
 
-    /* Handle errors in update task */
-    if(task->dt_result < H5_DAOS_PRE_ERROR) {
-        assert(udata->req->status >= H5_DAOS_INCOMPLETE);
+    /* Handle errors in update task.  Only record error in udata->req_status if
+     * it does not already contain an error (it could contain an error if
+     * another task this task is not dependent on also failed). */
+    if(task->dt_result < H5_DAOS_PRE_ERROR
+            && udata->req->status >= H5_DAOS_INCOMPLETE) {
         udata->req->status = task->dt_result;
         udata->req->failed_task = udata->task_name;
     } /* end if */

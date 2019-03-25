@@ -98,6 +98,7 @@ int main(int argc, char *argv[]) {
     if(H5Dwrite(dset, H5T_NATIVE_INT, mem_space, file_space, H5P_DEFAULT, buf) < 0)
         ERROR;
 
+#ifdef DV_HAVE_SNAP_OPEN_ID
     /* Save snapshot if requested */
     if(argc == 5) {
         if(H5daos_snap_create(file, &snap_id) < 0)
@@ -105,6 +106,7 @@ int main(int argc, char *argv[]) {
         if(rank == 0)
             printf("Saved snapshot: snap_id = %llu\n", (long long unsigned)snap_id);
     } /* end if */
+#endif
 
     /* Close */
     if(H5Dclose(dset) < 0)

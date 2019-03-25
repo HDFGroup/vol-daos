@@ -29,6 +29,7 @@ int main(int argc, char *argv[]) {
     if(H5Pset_all_coll_metadata_ops(fapl, true) < 0)
         ERROR;
 
+#ifdef DV_HAVE_SNAP_OPEN_ID
     /* Open snapshot if specified */
     if(argc == 5) {
         snap_id = (H5_daos_snap_id_t)atoi(argv[4]);
@@ -36,6 +37,7 @@ int main(int argc, char *argv[]) {
         if(H5Pset_daos_snap_open(fapl, snap_id) < 0)
             ERROR;
     } /* end if */
+#endif
 
     /* Open file */
     if((file = H5Fopen(argv[2], H5F_ACC_RDONLY, fapl)) < 0)
@@ -57,8 +59,8 @@ int main(int argc, char *argv[]) {
         obj_str = "dataset";
     else if(obj_type == H5I_DATATYPE)
         obj_str = "datatype";
-    else if(obj_type == H5I_MAP)
-        obj_str = "map";
+//    else if(obj_type == H5I_MAP)
+//        obj_str = "map";
     else
         obj_str = "unknown";
     printf("Object type is %s\n", obj_str);

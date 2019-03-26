@@ -22,6 +22,8 @@
 static void *H5_daos_fapl_copy(const void *_old_fa);
 static herr_t H5_daos_fapl_free(void *_fa);
 static herr_t H5_daos_term(void);
+static herr_t H5_daos_optional(void *item, hid_t dxpl_id, void **req,
+    va_list arguments);
 
 /* Declarations */
 /* The DAOS VOL connector struct */
@@ -113,7 +115,7 @@ static H5VL_class_t H5_daos_g = {
         NULL,                                /* Plugin Request optional */
         H5_daos_req_free                     /* Plugin Request free */
     },
-    NULL                                     /* Plugin optional */
+    H5_daos_optional                         /* Plugin optional */
 };
 
 /* Free list definitions */
@@ -155,11 +157,10 @@ char H5_daos_link_key_g[] = "Link";
 char H5_daos_type_key_g[] = "Datatype";
 char H5_daos_space_key_g[] = "Dataspace";
 char H5_daos_attr_key_g[] = "/Attribute";
-#ifdef DV_HAVE_MAP
 char H5_daos_ktype_g[] = "Key Datatype";
 char H5_daos_vtype_g[] = "Value Datatype";
-char H5_daos_map_key_g[] = "MAP_AKEY";
-#endif
+char H5_daos_map_key_g[] = "Map Record";
+
 daos_size_t H5_daos_int_md_key_size_g = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
 daos_size_t H5_daos_max_oid_key_size_g = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
 daos_size_t H5_daos_cpl_key_size_g = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
@@ -167,11 +168,9 @@ daos_size_t H5_daos_link_key_size_g = (daos_size_t)(sizeof(H5_daos_int_md_key_g)
 daos_size_t H5_daos_type_key_size_g = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
 daos_size_t H5_daos_space_key_size_g = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
 daos_size_t H5_daos_attr_key_size_g = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
-#ifdef DV_HAVE_MAP
 daos_size_t H5_daos_ktype_size_g = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
 daos_size_t H5_daos_vtype_size_g = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
 daos_size_t H5_daos_map_key_size_g = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
-#endif
 
 
 /*-------------------------------------------------------------------------
@@ -785,6 +784,65 @@ H5_daos_fapl_free(void *_fa)
 done:
     D_FUNC_LEAVE_API
 } /* end H5_daos_fapl_free() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_optional
+ *
+ * Purpose:     Optional VOL callbacks.  Thin switchboard to translate map
+ *              object calls to a format analogous to other VOL object
+ *              callbacks.
+ *
+ * Return:      Success:    0
+ *              Failure:    -1
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t H5_daos_optional(void *item, hid_t dxpl_id, void **req,
+    va_list arguments)
+{
+    int             op_type = va_arg(arguments, int);
+    herr_t          ret_value = SUCCEED;
+
+    /* Check operation type */
+    switch(op_type) {
+        /* H5Mcreate/create_anon */
+        case H5VL_MAP_CREATE:
+        {
+            const H5VL_loc_params_t *loc_params = va_arg(arguments, const H5VL_loc_params_t *);
+            const char *name = va_arg(arguments, const char *);
+            hid_t mcpl_id = va_arg(arguments, hid_t);
+            hid_t mapl_id = va_arg(arguments, hid_t);
+            void **map = va_arg(arguments, void **);
+
+            /* Check map argument.  All other arguments will be checked by
+             * H5_daos_map_create. */
+            if(!map)
+                D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map object output parameter is NULL")
+
+            /* Pass the call */
+            if(NULL == (*map = H5_daos_map_create(item, loc_params, name, mcpl_id, mapl_id, dxpl_id, req)))
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create map object")
+
+            break;
+        } /* end block */
+
+        case H5VL_MAP_CLOSE:
+        {
+            /* Pass the call */
+            if((ret_value = H5_daos_map_close(item, dxpl_id, req)) < 0)
+                D_GOTO_ERROR(H5E_MAP, H5E_CLOSEERROR, ret_value, "can't close map object")
+
+            break;
+        } /* end block */
+
+        default:
+            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported optional operation")
+    } /* end switch */
+
+done:
+    D_FUNC_LEAVE_API
+} /* end H5_daos_optional() */
 
 
 /* Create a DAOS OID given the object type and a 64 bit address (with the object

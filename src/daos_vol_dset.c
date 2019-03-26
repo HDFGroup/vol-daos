@@ -104,7 +104,7 @@ H5_daos_dataset_create(void *_item,
         if(H5Pget_all_coll_metadata_ops(dapl_id, &collective) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, NULL, "can't get collective access property")
 
-    /* get creation properties */
+    /* Get creation properties */
     if(H5Pget(dcpl_id, H5VL_PROP_DSET_TYPE_ID, &type_id) < 0)
         D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, NULL, "can't get property value for datatype ID")
     if(H5Pget(dcpl_id, H5VL_PROP_DSET_SPACE_ID, &space_id) < 0)

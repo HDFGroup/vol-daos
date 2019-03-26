@@ -166,6 +166,7 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
         /* Start transaction */
         if(0 != (ret = daos_tx_open(file->coh, &int_req->th, NULL /*event*/)))
             D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't start transaction")
+        int_req->th_open = TRUE;
 
         /* Open global metadata object */
         if(0 != (ret = daos_obj_open(file->coh, gmd_oid, DAOS_OO_RW, &file->glob_md_oh, NULL /*event*/)))

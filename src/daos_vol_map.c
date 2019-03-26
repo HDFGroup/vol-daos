@@ -325,7 +325,6 @@ done:
     D_FUNC_LEAVE_API
 } /* end H5_daos_map_create() */
 
-#ifdef DV_HAVE_MAP
 
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_map_open
@@ -338,19 +337,20 @@ done:
  *-------------------------------------------------------------------------
  */
 void *
-H5_daos_map_open(void *_item, H5VL_loc_params_t *loc_params, const char *name,
-    hid_t mapl_id, hid_t dxpl_id, void **req)
+H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
+    const char *name, hid_t mapl_id, hid_t dxpl_id, void **req)
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_map_t *map = NULL;
     H5_daos_group_t *target_grp = NULL;
     const char *target_name = NULL;
     daos_key_t dkey;
-    daos_iod_t iod[2];
-    daos_sg_list_t sgl[2];
-    daos_iov_t sg_iov[2];
+    daos_iod_t iod[3];
+    daos_sg_list_t sgl[3];
+    daos_iov_t sg_iov[3];
     uint64_t ktype_len = 0;
     uint64_t vtype_len = 0;
+    uint64_t mcpl_len = 0;
     uint64_t tot_len;
     uint8_t minfo_buf_static[H5_DAOS_DINFO_BUF_SIZE];
     uint8_t *minfo_buf_dyn = NULL;
@@ -363,8 +363,6 @@ H5_daos_map_open(void *_item, H5VL_loc_params_t *loc_params, const char *name,
 
     if(!_item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "map parent object is NULL")
-    if(!loc_params)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "location parameters object is NULL")
 
     /* Check for collective access, if not already set by the file */
     collective = item->file->collective;
@@ -382,6 +380,8 @@ H5_daos_map_open(void *_item, H5VL_loc_params_t *loc_params, const char *name,
     map->obj.obj_oh = DAOS_HDL_INVAL;
     map->ktype_id = FAIL;
     map->vtype_id = FAIL;
+    map->mcpl_id = FAIL;
+    map->mapl_id = FAIL;
 
     /* Check if we're actually opening the group or just receiving the map
      * info from the leader */
@@ -390,9 +390,9 @@ H5_daos_map_open(void *_item, H5VL_loc_params_t *loc_params, const char *name,
             must_bcast = TRUE;
 
         /* Check for open by address */
-        if(H5VL_OBJECT_BY_ADDR == loc_params.type) {
+        if(H5VL_OBJECT_BY_ADDR == loc_params->type) {
             /* Generate oid from address */
-            H5_daos_oid_generate(&map->obj.oid, (uint64_t)loc_params.loc_data.loc_by_addr.addr, H5I_MAP);
+            H5_daos_oid_generate(&map->obj.oid, (uint64_t)loc_params->loc_data.loc_by_addr.addr, H5I_MAP);
         } /* end if */
         else {
             /* Open using name parameter */
@@ -414,7 +414,7 @@ H5_daos_map_open(void *_item, H5VL_loc_params_t *loc_params, const char *name,
         if(0 != (ret = daos_obj_open(item->file->coh, map->obj.oid, item->file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &map->obj.obj_oh, NULL /*event*/)))
             D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, NULL, "can't open map: %s", H5_daos_err_to_string(ret))
 
-        /* Set up operation to read datatype sizes from map */
+        /* Set up operation to read datatype and MCPL sizes from map */
         /* Set up dkey */
         daos_iov_set(&dkey, H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
 
@@ -432,29 +432,37 @@ H5_daos_map_open(void *_item, H5VL_loc_params_t *loc_params, const char *name,
         iod[1].iod_size = DAOS_REC_ANY;
         iod[1].iod_type = DAOS_IOD_SINGLE;
 
+        daos_iov_set(&iod[2].iod_name, (void *)H5_daos_cpl_key_g, H5_daos_cpl_key_size_g);
+        daos_csum_set(&iod[2].iod_kcsum, NULL, 0);
+        iod[2].iod_nr = 1u;
+        iod[2].iod_size = DAOS_REC_ANY;
+        iod[2].iod_type = DAOS_IOD_SINGLE;
+
         /* Read internal metadata sizes from map */
-        if(0 != (ret = daos_obj_fetch(map->obj.obj_oh, DAOS_TX_NONE, &dkey, 2, iod, NULL,
+        if(0 != (ret = daos_obj_fetch(map->obj.obj_oh, DAOS_TX_NONE, &dkey, 3, iod, NULL,
                       NULL /*maps*/, NULL /*event*/)))
             D_GOTO_ERROR(H5E_MAP, H5E_CANTDECODE, NULL, "can't read metadata sizes from map: %s", H5_daos_err_to_string(ret))
 
         /* Check for metadata not found */
-        if((iod[0].iod_size == (uint64_t)0) || (iod[1].iod_size == (uint64_t)0))
+        if((iod[0].iod_size == (uint64_t)0) || (iod[1].iod_size == (uint64_t)0)
+                || (iod[2].iod_size == (uint64_t)0))
             D_GOTO_ERROR(H5E_MAP, H5E_NOTFOUND, NULL, "internal metadata not found");
 
         /* Compute map info buffer size */
         ktype_len = iod[0].iod_size;
         vtype_len = iod[1].iod_size;
-        tot_len = ktype_len + vtype_len;
+        mcpl_len = iod[2].iod_size;
+        tot_len = ktype_len + vtype_len + mcpl_len;
 
         /* Allocate map info buffer if necessary */
-        if((tot_len + (4 * sizeof(uint64_t))) > sizeof(minfo_buf_static)) {
-            if(NULL == (minfo_buf_dyn = (uint8_t *)DV_malloc(tot_len + (4 * sizeof(uint64_t)))))
+        if((tot_len + (5 * sizeof(uint64_t))) > sizeof(minfo_buf_static)) {
+            if(NULL == (minfo_buf_dyn = (uint8_t *)DV_malloc(tot_len + (5 * sizeof(uint64_t)))))
                 D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate map info buffer")
             minfo_buf = minfo_buf_dyn;
         } /* end if */
 
         /* Set up sgl */
-        p = minfo_buf + (4 * sizeof(uint64_t));
+        p = minfo_buf + (5 * sizeof(uint64_t));
         daos_iov_set(&sg_iov[0], p, (daos_size_t)ktype_len);
         sgl[0].sg_nr = 1;
         sgl[0].sg_nr_out = 0;
@@ -464,15 +472,20 @@ H5_daos_map_open(void *_item, H5VL_loc_params_t *loc_params, const char *name,
         sgl[1].sg_nr = 1;
         sgl[1].sg_nr_out = 0;
         sgl[1].sg_iovs = &sg_iov[1];
+        p += vtype_len;
+        daos_iov_set(&sg_iov[2], p, (daos_size_t)mcpl_len);
+        sgl[2].sg_nr = 1;
+        sgl[2].sg_nr_out = 0;
+        sgl[2].sg_iovs = &sg_iov[2];
 
         /* Read internal metadata from map */
-        if(0 != (ret = daos_obj_fetch(map->obj.obj_oh, DAOS_TX_NONE, &dkey, 2, iod, sgl, NULL /*maps*/, NULL /*event*/)))
+        if(0 != (ret = daos_obj_fetch(map->obj.obj_oh, DAOS_TX_NONE, &dkey, 3, iod, sgl, NULL /*maps*/, NULL /*event*/)))
             D_GOTO_ERROR(H5E_MAP, H5E_CANTDECODE, NULL, "can't read metadata from map: %s", H5_daos_err_to_string(ret))
 
         /* Broadcast map info if there are other processes that need it */
         if(collective && (item->file->num_procs > 1)) {
             assert(minfo_buf);
-            assert(sizeof(minfo_buf_static) >= 4 * sizeof(uint64_t));
+            assert(sizeof(minfo_buf_static) >= 5 * sizeof(uint64_t));
 
             /* Encode oid */
             p = minfo_buf;
@@ -482,6 +495,7 @@ H5_daos_map_open(void *_item, H5VL_loc_params_t *loc_params, const char *name,
             /* Encode serialized info lengths */
             UINT64ENCODE(p, ktype_len)
             UINT64ENCODE(p, vtype_len)
+            UINT64ENCODE(p, mcpl_len)
 
             /* MPI_Bcast minfo_buf */
             if(MPI_SUCCESS != MPI_Bcast((char *)minfo_buf, sizeof(minfo_buf_static), MPI_BYTE, 0, item->file->comm))
@@ -489,12 +503,12 @@ H5_daos_map_open(void *_item, H5VL_loc_params_t *loc_params, const char *name,
 
             /* Need a second bcast if it did not fit in the receivers' static
              * buffer */
-            if(tot_len + (4 * sizeof(uint64_t)) > sizeof(minfo_buf_static))
+            if(tot_len + (5 * sizeof(uint64_t)) > sizeof(minfo_buf_static))
                 if(MPI_SUCCESS != MPI_Bcast((char *)p, (int)tot_len, MPI_BYTE, 0, item->file->comm))
                     D_GOTO_ERROR(H5E_MAP, H5E_MPI, NULL, "can't broadcast map info (second broadcast)")
         } /* end if */
         else
-            p = minfo_buf + (4 * sizeof(uint64_t));
+            p = minfo_buf + (5 * sizeof(uint64_t));
     } /* end if */
     else {
         /* Receive map info */
@@ -509,14 +523,15 @@ H5_daos_map_open(void *_item, H5VL_loc_params_t *loc_params, const char *name,
         /* Decode serialized info lengths */
         UINT64DECODE(p, ktype_len)
         UINT64DECODE(p, vtype_len)
-        tot_len = ktype_len + vtype_len;
+        UINT64DECODE(p, mcpl_len)
+        tot_len = ktype_len + vtype_len + mcpl_len;
 
-        /* Check for type_len set to 0 - indicates failure */
+        /* Check for ktype_len set to 0 - indicates failure */
         if(ktype_len == 0)
             D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "lead process failed to open map")
 
         /* Check if we need to perform another bcast */
-        if(tot_len + (4 * sizeof(uint64_t)) > sizeof(minfo_buf_static)) {
+        if(tot_len + (5 * sizeof(uint64_t)) > sizeof(minfo_buf_static)) {
             /* Allocate a dynamic buffer if necessary */
             if(tot_len > sizeof(minfo_buf_static)) {
                 if(NULL == (minfo_buf_dyn = (uint8_t *)DV_malloc(tot_len)))
@@ -536,12 +551,19 @@ H5_daos_map_open(void *_item, H5VL_loc_params_t *loc_params, const char *name,
             D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, NULL, "can't open map: %s", H5_daos_err_to_string(ret))
     } /* end else */
 
-    /* Decode datatype, dataspace, and DCPL */
+    /* Decode datatypes and MCPL */
     if((map->ktype_id = H5Tdecode(p)) < 0)
         D_GOTO_ERROR(H5E_ARGS, H5E_CANTDECODE, NULL, "can't deserialize datatype")
     p += ktype_len;
     if((map->vtype_id = H5Tdecode(p)) < 0)
         D_GOTO_ERROR(H5E_ARGS, H5E_CANTDECODE, NULL, "can't deserialize datatype")
+    p += vtype_len;
+    if((map->mcpl_id = H5Pdecode(p)) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_CANTDECODE, NULL, "can't deserialize map creation property list")
+
+    /* Finish setting up map struct */
+    if((map->mapl_id = H5Pcopy(mapl_id)) < 0)
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTCOPY, NULL, "failed to copy mapl");
 
     /* Set return value */
     ret_value = (void *)map;
@@ -572,6 +594,7 @@ done:
     D_FUNC_LEAVE_API
 } /* end H5_daos_map_open() */
 
+#ifdef DV_HAVE_MAP
 
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_map_get_size

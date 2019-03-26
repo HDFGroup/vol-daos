@@ -827,6 +827,26 @@ static herr_t H5_daos_optional(void *item, hid_t dxpl_id, void **req,
             break;
         } /* end block */
 
+        /* H5Mopen */
+        case H5VL_MAP_OPEN:
+        {
+            const H5VL_loc_params_t *loc_params = va_arg(arguments, const H5VL_loc_params_t *);
+            const char *name = va_arg(arguments, const char *);
+            hid_t mapl_id = va_arg(arguments, hid_t);
+            void **map = va_arg(arguments, void **);
+
+            /* Check map argument.  All other arguments will be checked by
+             * H5_daos_map_create. */
+            if(!map)
+                D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map object output parameter is NULL")
+
+            /* Pass the call */
+            if(NULL == (*map = H5_daos_map_open(item, loc_params, name, mapl_id, dxpl_id, req)))
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, FAIL, "can't open map object")
+
+            break;
+        } /* end block */
+
         case H5VL_MAP_CLOSE:
         {
             /* Pass the call */

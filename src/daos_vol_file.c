@@ -646,10 +646,60 @@ H5_daos_file_get(void *_item, H5VL_file_get_t get_type, hid_t H5VL_DAOS_UNUSED d
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a file")
 
     switch (get_type) {
+        /* H5Fget_access_plist */
         case H5VL_FILE_GET_FAPL:
+        {
+            hid_t *ret_id = va_arg(arguments, hid_t *);
+
+            if((*ret_id = H5Pcopy(file->fapl_id)) < 0)
+                D_GOTO_ERROR(H5E_PLIST, H5E_CANTCOPY, FAIL, "can't get file's FAPL")
+
+            break;
+        } /* H5VL_FILE_GET_FAPL */
+
+        /* H5Fget_create_plist */
         case H5VL_FILE_GET_FCPL:
+        {
+            hid_t *ret_id = va_arg(arguments, hid_t *);
+
+            if((*ret_id = H5Pcopy(file->fcpl_id)) < 0)
+                D_GOTO_ERROR(H5E_PLIST, H5E_CANTCOPY, FAIL, "can't get file's FCPL")
+
+            break;
+        } /* H5VL_FILE_GET_FCPL */
+
+        /* H5Fget_intent */
         case H5VL_FILE_GET_INTENT:
+        {
+            unsigned *ret_intent = va_arg(arguments, unsigned *);
+
+            *ret_intent = file->flags;
+
+            break;
+        } /* H5VL_FILE_GET_INTENT */
+
+        /* H5Fget_name */
         case H5VL_FILE_GET_NAME:
+        {
+            H5I_type_t  obj_type = va_arg(arguments, H5I_type_t);
+            size_t      name_buf_size = va_arg(arguments, size_t);
+            char       *name_buf = va_arg(arguments, char *);
+            ssize_t    *ret_size = va_arg(arguments, ssize_t *);
+
+            if(H5I_FILE != obj_type) {
+                /* TODO: */
+            }
+
+            *ret_size = (ssize_t) strlen(file->file_name);
+
+            if(name_buf) {
+                strncpy(name_buf, file->file_name, name_buf_size - 1);
+                name_buf[name_buf_size - 1] = '\0';
+            } /* end if */
+
+            break;
+        } /* H5VL_FILE_GET_NAME */
+
         case H5VL_FILE_GET_OBJ_COUNT:
         case H5VL_FILE_GET_OBJ_IDS:
         default:
@@ -753,10 +803,21 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
     switch (specific_type) {
         /* H5Fflush */
         case H5VL_FILE_FLUSH:
+        {
             if(H5_daos_file_flush(file) < 0)
                 D_GOTO_ERROR(H5E_FILE, H5E_WRITEERROR, FAIL, "can't flush file")
 
             break;
+        } /* H5VL_FILE_FLUSH */
+
+        /* H5Freopen */
+        case H5VL_FILE_REOPEN:
+        {
+            /* TODO: currently broken in HDF5 develop */
+
+            break;
+        } /* H5VL_FILE_REOPEN */
+
         /* H5Fmount */
         case H5VL_FILE_MOUNT:
         /* H5Fmount */

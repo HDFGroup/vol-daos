@@ -70,6 +70,9 @@
 # define H5VL_DAOS_UNUSED
 #endif
 
+/* Remove warnings when arguments passed to a callback by way of va_arg are not used. */
+#define H5_DAOS_UNUSED_VAR(arg) (void) arg;
+
 /* Min/max macros */
 #ifndef MAX
 # define MAX(a, b) (((a) > (b)) ? (a) : (b))

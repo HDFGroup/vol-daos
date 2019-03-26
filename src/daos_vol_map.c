@@ -18,7 +18,6 @@
 #include "util/daos_vol_err.h"  /* DAOS connector error handling           */
 #include "util/daos_vol_mem.h"  /* DAOS connector memory management        */
 
-#ifdef DV_HAVE_MAP
 
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_map_create
@@ -31,16 +30,20 @@
  *-------------------------------------------------------------------------
  */
 void *
-H5_daos_map_create(void *_item, H5VL_loc_params_t H5VL_DAOS_UNUSED *loc_params,
-    const char *name, hid_t ktype_id, hid_t vtype_id,
-    hid_t H5VL_DAOS_UNUSED mcpl_id, hid_t mapl_id, hid_t dxpl_id, void **req)
+H5_daos_map_create(void *_item,
+    const H5VL_loc_params_t H5VL_DAOS_UNUSED *loc_params, const char *name,
+    hid_t mcpl_id, hid_t mapl_id, hid_t dxpl_id, void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_map_t *map = NULL;
+    hid_t ktype_id, vtype_id;
     H5_daos_group_t *target_grp = NULL;
     void *ktype_buf = NULL;
     void *vtype_buf = NULL;
+    void *mcpl_buf = NULL;
     hbool_t collective;
+    H5_daos_md_update_cb_ud_t *update_cb_ud = NULL;
+    hbool_t update_task_scheduled = FALSE;
     tse_task_t *finalize_task;
     int finalize_ndeps = 0;
     tse_task_t *finalize_deps[2];
@@ -49,7 +52,7 @@ H5_daos_map_create(void *_item, H5VL_loc_params_t H5VL_DAOS_UNUSED *loc_params,
     void *ret_value = NULL;
 
     if(!_item)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "datatype parent object is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "map parent object is NULL")
 
     /* Check for write access */
     if(!(item->file->flags & H5F_ACC_RDWR))
@@ -60,6 +63,12 @@ H5_daos_map_create(void *_item, H5VL_loc_params_t H5VL_DAOS_UNUSED *loc_params,
     if(!collective)
         if(H5Pget_all_coll_metadata_ops(mapl_id, &collective) < 0)
             D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, NULL, "can't get collective access property")
+
+    /* Get creation properties */
+    if(H5Pget(mcpl_id, H5VL_PROP_MAP_KEY_TYPE_ID, &ktype_id) < 0)
+        D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, NULL, "can't get property value for key datatype ID")
+    if(H5Pget(mcpl_id, H5VL_PROP_MAP_VAL_TYPE_ID, &vtype_id) < 0)
+        D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, NULL, "can't get property value for value datatype ID")
 
     /* Start H5 operation */
     if(NULL == (int_req = (H5_daos_req_t *)DV_malloc(sizeof(H5_daos_req_t))))
@@ -83,6 +92,8 @@ H5_daos_map_create(void *_item, H5VL_loc_params_t H5VL_DAOS_UNUSED *loc_params,
     map->obj.obj_oh = DAOS_HDL_INVAL;
     map->ktype_id = FAIL;
     map->vtype_id = FAIL;
+    map->mcpl_id = FAIL;
+    map->mapl_id = FAIL;
 
     /* Generate map oid */
     H5_daos_oid_encode(&map->obj.oid, item->file->max_oid + (uint64_t)1, H5I_MAP);
@@ -90,17 +101,20 @@ H5_daos_map_create(void *_item, H5VL_loc_params_t H5VL_DAOS_UNUSED *loc_params,
     /* Create map and write metadata if this process should */
     if(!collective || (item->file->my_rank == 0)) {
         const char *target_name = NULL;
-        daos_key_t dkey;
-        daos_iod_t iod[2];
-        daos_sg_list_t sgl[2];
-        daos_iov_t sg_iov[2];
+        size_t mcpl_size = 0;
         size_t ktype_size = 0;
         size_t vtype_size = 0;
+        tse_task_t *update_task;
+        tse_task_t *link_write_task;
+
+        /* Start transaction */
+        if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, NULL /*event*/)))
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't start transaction")
+        int_req->th_open = TRUE;
 
         /* Traverse the path */
         if(name)
-            if(NULL == (target_grp = H5_daos_group_traverse(item, name, dxpl_id,
-                    req, &target_name, NULL, NULL)))
+            if(NULL == (target_grp = H5_daos_group_traverse(item, name, dxpl_id, NULL, &target_name, NULL, NULL)))
                 D_GOTO_ERROR(H5E_MAP, H5E_BADITER, NULL, "can't traverse path")
 
         /* Create map */
@@ -111,9 +125,14 @@ H5_daos_map_create(void *_item, H5VL_loc_params_t H5VL_DAOS_UNUSED *loc_params,
         if(H5_daos_write_max_oid(item->file) < 0)
             D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't write max OID")
 
+        /* Allocate argument struct */
+        if(NULL == (update_cb_ud = (H5_daos_md_update_cb_ud_t *)DV_calloc(sizeof(H5_daos_md_update_cb_ud_t))))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for update callback arguments")
+
         /* Open map */
         if(0 != (ret = daos_obj_open(item->file->coh, map->obj.oid, DAOS_OO_RW, &map->obj.obj_oh, NULL /*event*/)))
             D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, NULL, "can't open map: %s", H5_daos_err_to_string(ret))
+        map->obj.item.rc++;
 
         /* Encode datatypes */
         if(H5Tencode(ktype_id, NULL, &ktype_size) < 0)
@@ -130,41 +149,83 @@ H5_daos_map_create(void *_item, H5VL_loc_params_t H5VL_DAOS_UNUSED *loc_params,
         if(H5Tencode(vtype_id, vtype_buf, &vtype_size) < 0)
             D_GOTO_ERROR(H5E_MAP, H5E_CANTENCODE, NULL, "can't serialize datatype")
 
-        /* Eventually we will want to store the MCPL in the file, and hold
-         * copies of the MCP and MAPL in memory.  To do this look at the dataset
-         * and group code for examples.  -NAF */
+        /* Encode MCPL */
+        if(H5Pencode(mcpl_id, NULL, &mcpl_size) < 0)
+            D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of mcpl")
+        if(NULL == (mcpl_buf = DV_malloc(mcpl_size)))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized mcpl")
+        if(H5Pencode(mcpl_id, mcpl_buf, &mcpl_size) < 0)
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTENCODE, NULL, "can't serialize mcpl")
 
-        /* Set up operation to write datatypes to map */
-        /* Set up dkey */
-        daos_iov_set(&dkey, H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
+        /* Set up operation to write MCPl and datatypes to map */
+        /* Point to req */
+        update_cb_ud->req = int_req;
+
+        /* Set up dkey.  Point to global name buffer, do not free. */
+        daos_iov_set(&update_cb_ud->dkey, H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
+        update_cb_ud->free_dkey = FALSE;
+
+        /* The elements in iod and sgl */
+        update_cb_ud->nr = 3u;
 
         /* Set up iod */
-        memset(iod, 0, sizeof(iod));
-        daos_iov_set(&iod[0].iod_name, H5_daos_ktype_g, H5_daos_ktype_size_g);
-        daos_csum_set(&iod[0].iod_kcsum, NULL, 0);
-        iod[0].iod_nr = 1u;
-        iod[0].iod_size = (uint64_t)ktype_size;
-        iod[0].iod_type = DAOS_IOD_SINGLE;
+        /* Key datatype.  Point akey to global name buffer, do not free. */
+        daos_iov_set(&update_cb_ud->iod[0].iod_name, (void *)H5_daos_ktype_g, H5_daos_ktype_size_g);
+        daos_csum_set(&update_cb_ud->iod[0].iod_kcsum, NULL, 0);
+        update_cb_ud->iod[0].iod_nr = 1u;
+        update_cb_ud->iod[0].iod_size = (uint64_t)ktype_size;
+        update_cb_ud->iod[0].iod_type = DAOS_IOD_SINGLE;
 
-        daos_iov_set(&iod[1].iod_name, H5_daos_vtype_g, H5_daos_vtype_size_g);
-        daos_csum_set(&iod[1].iod_kcsum, NULL, 0);
-        iod[1].iod_nr = 1u;
-        iod[1].iod_size = (uint64_t)vtype_size;
-        iod[1].iod_type = DAOS_IOD_SINGLE;
+        /* Value datatype */
+        daos_iov_set(&update_cb_ud->iod[1].iod_name, (void *)H5_daos_vtype_g, H5_daos_vtype_size_g);
+        daos_csum_set(&update_cb_ud->iod[1].iod_kcsum, NULL, 0);
+        update_cb_ud->iod[1].iod_nr = 1u;
+        update_cb_ud->iod[1].iod_size = (uint64_t)vtype_size;
+        update_cb_ud->iod[1].iod_type = DAOS_IOD_SINGLE;
+
+        /* MCPL */
+        daos_iov_set(&update_cb_ud->iod[2].iod_name, (void *)H5_daos_cpl_key_g, H5_daos_cpl_key_size_g);
+        daos_csum_set(&update_cb_ud->iod[2].iod_kcsum, NULL, 0);
+        update_cb_ud->iod[2].iod_nr = 1u;
+        update_cb_ud->iod[2].iod_size = (uint64_t)mcpl_size;
+        update_cb_ud->iod[2].iod_type = DAOS_IOD_SINGLE;
+
+        /* Do not free global akey buffers */
+        update_cb_ud->free_akeys = FALSE;
 
         /* Set up sgl */
-        daos_iov_set(&sg_iov[0], ktype_buf, (daos_size_t)ktype_size);
-        sgl[0].sg_nr = 1;
-        sgl[0].sg_nr_out = 0;
-        sgl[0].sg_iovs = &sg_iov[0];
-        daos_iov_set(&sg_iov[1], vtype_buf, (daos_size_t)vtype_size);
-        sgl[1].sg_nr = 1;
-        sgl[1].sg_nr_out = 0;
-        sgl[1].sg_iovs = &sg_iov[1];
+        daos_iov_set(&update_cb_ud->sg_iov[0], ktype_buf, (daos_size_t)ktype_size);
+        update_cb_ud->sgl[0].sg_nr = 1;
+        update_cb_ud->sgl[0].sg_nr_out = 0;
+        update_cb_ud->sgl[0].sg_iovs = &update_cb_ud->sg_iov[0];
+        daos_iov_set(&update_cb_ud->sg_iov[1], vtype_buf, (daos_size_t)vtype_size);
+        update_cb_ud->sgl[1].sg_nr = 1;
+        update_cb_ud->sgl[1].sg_nr_out = 0;
+        update_cb_ud->sgl[1].sg_iovs = &update_cb_ud->sg_iov[1];
+        daos_iov_set(&update_cb_ud->sg_iov[2], mcpl_buf, (daos_size_t)mcpl_size);
+        update_cb_ud->sgl[2].sg_nr = 1;
+        update_cb_ud->sgl[2].sg_nr_out = 0;
+        update_cb_ud->sgl[2].sg_iovs = &update_cb_ud->sg_iov[2];
 
-        /* Write internal metadata to map */
-        if(0 != (ret = daos_obj_update(map->obj.obj_oh, DAOS_TX_NONE, &dkey, 2, iod, sgl, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't write metadata to map: %s", H5_daos_err_to_string(ret))
+        /* Set task name */
+        update_cb_ud->task_name = "map metadata write";
+
+        /* Create task for map metadata write */
+        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_UPDATE, &item->file->sched, 0, NULL, &update_task)))
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create task to write map medadata: %s", H5_daos_err_to_string(ret))
+
+        /* Set private data for group metadata write */
+        (void)tse_task_set_priv(update_task, update_cb_ud);
+
+        /* Schedule map metadata write task and give it a reference to req */
+        if(0 != (ret = tse_task_schedule(update_task, false)))
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't schedule task to write map metadata: %s", H5_daos_err_to_string(ret))
+        update_task_scheduled = TRUE;
+        update_cb_ud->req->rc++;
+
+        /* Add dependency for finalize task */
+        finalize_deps[finalize_ndeps] = update_task;
+        finalize_ndeps++;
 
         /* Create link to map */
         if(target_grp) {
@@ -192,6 +253,10 @@ H5_daos_map_create(void *_item, H5VL_loc_params_t H5VL_DAOS_UNUSED *loc_params,
         D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, NULL, "failed to copy datatype")
     if((map->vtype_id = H5Tcopy(vtype_id)) < 0)
         D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, NULL, "failed to copy datatype")
+    if((map->mcpl_id = H5Pcopy(mcpl_id)) < 0)
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, NULL, "failed to copy gcpl");
+    if((map->mapl_id = H5Pcopy(mapl_id)) < 0)
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, NULL, "failed to copy gapl");
 
     /* Set return value */
     ret_value = (void *)map;
@@ -234,18 +299,33 @@ done:
 
     /* Cleanup on failure */
     /* Destroy DAOS object if created before failure DSINC */
-    if(NULL == ret_value)
+    if(NULL == ret_value) {
         /* Close map */
         if(map && H5_daos_map_close(map, dxpl_id, NULL) < 0)
             D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't close map");
 
+        /* Free memory */
+        if(!update_task_scheduled) {
+            if(update_cb_ud && update_cb_ud->obj && H5_daos_object_close(update_cb_ud->obj, dxpl_id, NULL) < 0)
+                D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, NULL, "can't close object")
+            ktype_buf = DV_free(ktype_buf);
+            vtype_buf = DV_free(vtype_buf);
+            mcpl_buf = DV_free(mcpl_buf);
+            update_cb_ud = DV_free(update_cb_ud);
+        } /* end if */
+    } /* end if */
+    else
+        assert((!ktype_buf && !vtype_buf && !mcpl_buf) || update_task_scheduled);
+
     /* Free memory */
     ktype_buf = DV_free(ktype_buf);
     vtype_buf = DV_free(vtype_buf);
+    mcpl_buf = DV_free(mcpl_buf);
 
     D_FUNC_LEAVE_API
 } /* end H5_daos_map_create() */
 
+#ifdef DV_HAVE_MAP
 
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_map_open
@@ -933,6 +1013,7 @@ H5_daos_map_exists(void *_map, hid_t key_mem_type_id, const void *key,
 done:
     D_FUNC_LEAVE_API
 } /* end H5_daos_map_exists() */
+#endif /* DV_HAVE_MAP */
 
 
 /*-------------------------------------------------------------------------
@@ -966,15 +1047,18 @@ H5_daos_map_close(void *_map, hid_t H5VL_DAOS_UNUSED dxpl_id,
         if(!daos_handle_is_inval(map->obj.obj_oh))
             if(0 != (ret = daos_obj_close(map->obj.obj_oh, NULL /*event*/)))
                 D_DONE_ERROR(H5E_MAP, H5E_CANTCLOSEOBJ, FAIL, "can't close map DAOS object: %s", H5_daos_err_to_string(ret))
-        if(map->ktype_id != FAIL && H5I_dec_app_ref(map->ktype_id) < 0)
+        if(map->ktype_id != FAIL && H5Idec_ref(map->ktype_id) < 0)
             D_DONE_ERROR(H5E_MAP, H5E_CANTDEC, FAIL, "failed to close datatype")
-        if(map->vtype_id != FAIL && H5I_dec_app_ref(map->vtype_id) < 0)
+        if(map->vtype_id != FAIL && H5Idec_ref(map->vtype_id) < 0)
             D_DONE_ERROR(H5E_MAP, H5E_CANTDEC, FAIL, "failed to close datatype")
+        if(map->mcpl_id != FAIL && H5Idec_ref(map->mcpl_id) < 0)
+            D_DONE_ERROR(H5E_MAP, H5E_CANTDEC, FAIL, "failed to close mcpl")
+        if(map->mapl_id != FAIL && H5Idec_ref(map->mapl_id) < 0)
+            D_DONE_ERROR(H5E_MAP, H5E_CANTDEC, FAIL, "failed to close mapl")
         map = H5FL_FREE(H5_daos_map_t, map);
     } /* end if */
 
 done:
     D_FUNC_LEAVE_API
 } /* end H5_daos_map_close() */
-#endif /* DV_HAVE_MAP */
 

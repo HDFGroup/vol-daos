@@ -284,13 +284,13 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
 done:
     /* Create task to finalize H5 operation */
     if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &file->sched, req, &finalize_task)))
-        D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+        D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
     /* Register dependencies (if any) */
     else if(finalize_ndeps > 0 && 0 != (ret = tse_task_register_deps(finalize_task, finalize_ndeps, finalize_deps)))
-        D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+        D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
     /* Schedule finalize task */
     else if(0 != (ret = tse_task_schedule(finalize_task, false)))
-        D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+        D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
     else
         /* finalize_task now owns a reference to req */
         req->rc++;
@@ -374,10 +374,11 @@ H5_daos_group_create(void *_item,
         /* Start transaction */
         if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, NULL /*event*/)))
             D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't start transaction")
+        int_req->th_open = TRUE;
 
         /* Traverse the path */
         if(name)
-            if(NULL == (target_grp = H5_daos_group_traverse(item, name, dxpl_id, req, &target_name, NULL, NULL)))
+            if(NULL == (target_grp = H5_daos_group_traverse(item, name, dxpl_id, NULL, &target_name, NULL, NULL)))
                 D_GOTO_ERROR(H5E_SYM, H5E_BADITER, NULL, "can't traverse path")
     } /* end if */
 
@@ -838,7 +839,7 @@ H5_daos_group_get(void *_item, H5VL_group_get_t get_type, hid_t dxpl_id,
         /* H5Gget_info(_by_name/by_idx) */
         case H5VL_GROUP_GET_INFO:
         {
-            H5VL_loc_params_t *loc_params = va_arg(arguments, H5VL_loc_params_t *);
+            const H5VL_loc_params_t *loc_params = va_arg(arguments, const H5VL_loc_params_t *);
             H5G_info_t        *group_info = va_arg(arguments, H5G_info_t *);
 
             switch (loc_params->type) {

@@ -60,6 +60,9 @@ AC_CONFIG_COMMANDS([pubconf], [
   echo "editing src/daos_vol_config.h"
   sed 's/#define /#define DV_/' < src/daos_vol_config.h |\
     sed 's/#undef /#undef DV_/' > src/pubconf
+  ## Compatibility with CMake changes
+  sed -i 's/DV_H5VL_DAOS_PRIVATE/H5VL_DAOS_PRIVATE/' src/pubconf
+  sed -i 's/DV_H5VL_DAOS_PUBLIC/H5VL_DAOS_PUBLIC/' src/pubconf
   if (diff src/pubconf src/daos_vol_config.h); then
     rm -f src/pubconf
     echo "src/daos_vol_config.h is unchanged"
@@ -281,7 +284,8 @@ AC_SUBST([BUILD_MODE])
 
 case "X-$BUILD_MODE" in
   X-debug)
-    AC_DEFINE([PLUGIN_DEBUG], , [Define to have the DAOS VOL print out debugging information.])
+    AC_DEFINE([PLUGIN_DEBUG], yes, [Define to have the DAOS VOL print out debugging information.])
+    AC_SUBST([PLUGIN_DEBUG])
     H5_CFLAGS="$H5_CFLAGS $DEBUG_CFLAGS"
     H5_CPPFLAGS="$H5_CPPFLAGS $DEBUG_CPPFLAGS"
     AC_MSG_RESULT([debug])
@@ -1099,6 +1103,12 @@ AC_SUBST([STATIC_SHARED])
 AC_SUBST([enable_shared])
 AC_SUBST([enable_static])
 
+## For compatibility with CMake changes
+AC_DEFINE([H5VL_DAOS_PUBLIC], , [Public linkage define for functions.])
+AC_DEFINE([H5VL_DAOS_PRIVATE], , [Private linkage define for functions.])
+AC_SUBST([H5VL_DAOS_PUBLIC])
+AC_SUBST([H5VL_DAOS_PRIVATE])
+
 ## ----------------------------------------------------------------------
 ## Set a macro if shared library is enabled.
 ##
@@ -1108,6 +1118,7 @@ AC_CONFIG_FILES([src/libdaosvol.settings
                  Makefile
                  src/Makefile
                  test/Makefile
+                 test/daos_vol/Makefile
                  examples/Makefile
                  examples/run-c-ex.sh])
 

@@ -121,8 +121,8 @@ while getopts "$optspec" optchar; do
         fi
 
         # Set the directory where the CART includes should be located at
-        if [ -d "${DAOS_INSTALL_DIR}/include" ]; then
-            DAOS_INCLUDES="${DAOS_INCLUDES} -I${DAOS_INSTALL_DIR}/include"
+        if [ -d "${DAOS_INSTALL_DIR}/include/cart" ]; then
+            DAOS_INCLUDES="${DAOS_INCLUDES} -I${DAOS_INSTALL_DIR}/include/cart"
         else
             echo "CART include dir not found; cannot continue"
             exit 1
@@ -224,20 +224,9 @@ if [ "$build_hdf5" = true ]; then
 
     ./autogen.sh || exit 1
 
-    # If we are building the tools with DAOS VOL support, link in the already built
-    # DAOS VOL library, along with UUID.
-    if [ "${build_tools}" = true ]; then
-        ./configure --prefix="${HDF5_INSTALL_DIR}" --enable-parallel CFLAGS="${COMP_OPTS} -L${INSTALL_DIR}/lib ${DAOS_VOL_LINK} ${UUID_LINK}" || exit 1
-    else
-        ./configure --prefix="${HDF5_INSTALL_DIR}" --enable-parallel --disable-static CFLAGS="${COMP_OPTS}" || exit 1
-    fi
+    ./configure --prefix="${HDF5_INSTALL_DIR}" --enable-parallel --disable-static CFLAGS="${COMP_OPTS}" || exit 1
 
     make -j${NPROCS} && make install || exit 1
-
-    # If building the tools with DAOS VOL support, don't rebuild the DAOS VOL
-    if [ "${build_tools}" = true ]; then
-        exit 0
-    fi
 fi
 
 

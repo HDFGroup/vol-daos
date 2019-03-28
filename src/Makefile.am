@@ -21,10 +21,10 @@ endif
 AM_CFLAGS += -luuid
 
 # Our main target, the DAOS VOL connector library
-lib_LTLIBRARIES=libdaosvol.la
+lib_LTLIBRARIES=libhdf5_vol_daos.la
 
 # DAOS VOL's source file and private headers
-libdaosvol_la_SOURCES=daos_vol.c daos_vol_attr.c daos_vol_dset.c \
+libhdf5_vol_daos_la_SOURCES=daos_vol.c daos_vol_attr.c daos_vol_dset.c \
 	daos_vol_file.c daos_vol_group.c daos_vol_link.c daos_vol_map.c \
 	daos_vol_obj.c daos_vol_req.c daos_vol_type.c daos_vol.h \
 	util/daos_vol_err.h util/daos_vol_err.c util/daos_vol_mem.h \
@@ -33,9 +33,9 @@ libdaosvol_la_SOURCES=daos_vol.c daos_vol_attr.c daos_vol_dset.c \
 # Public headers
 include_HEADERS=daos_vol_public.h daos_vol_config.h
 
-# install libdaosvol.settings in lib directory
+# install libhdf5_vol_daos.settings in lib directory
 settingsdir=$(libdir)
-settings_DATA=libdaosvol.settings
+settings_DATA=libhdf5_vol_daos.settings
 
 # Automake needs to be taught how to build lib, progs, and tests targets.
 # These will be filled in automatically for the most part (e.g.,

@@ -13,7 +13,7 @@ AM_LDFLAGS=@AM_LDFLAGS@ @DV_LDFLAGS@
 
 ACLOCAL_AMFLAGS=-I m4
 
-LIBDAOSVOL = $(top_builddir)/src/libdaosvol.la
+LIBDAOSVOL = $(top_builddir)/src/libhdf5_vol_daos.la
 
 # Defines for building the test suite
 test_PROGRAMS = test_daos_vol

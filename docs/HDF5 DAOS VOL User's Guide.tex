@@ -34,6 +34,7 @@
 \fancyfoot[LF]{\includegraphics{HDF_logo.jpg}}
 \fancyfoot[RF]{Page \thepage\ of \pageref*{LastPage}}
 \setlength{\parskip}{\baselineskip}
+\setlength{\parindent}{0ex}
 
 \begin{document}
 
@@ -48,7 +49,7 @@
 
 \begin{minipage}{.95\linewidth}
 
-This document aims to be a helpful guide on how to install the HDF5 DAOS VOL connector and use it to leverage the capabilities of the DAOS object storage system within an HDF5 application.
+This document aims to be a helpful guide on how to use the HDF5 DAOS VOL connector to leverage the capabilities of the DAOS object storage system within an HDF5 application.
 
 \end{minipage}
 
@@ -64,27 +65,126 @@ This document aims to be a helpful guide on how to install the HDF5 DAOS VOL con
 
 \section{Introduction}
 
-The HDF5 DAOS VOL connector is a connector for HDF5 designed with the goal of allowing HDF5 applications to utilize the DAOS object storage system by translating HDF5 API calls into DAOS calls, as defined by the DAOS API. The DAOS VOL connector is currently built as a dynamically-loaded library that is external to HDF5 and is treated similar to dynamically-loaded HDF5 filter plugins.
-
-For the latest instructions on installation and usage of the HDF5 DAOS VOL connector, please refer to the README file in the connector’s source code repository\footnote{\href{https://bitbucket.hdfgroup.org/projects/HDF5VOL/repos/daos-vol/browse/README.md}{DAOS VOL Connector README}}; the instructions are listed here for convenience.
-
-\newpage
-
-\section{Installation}
-
 TBD
 
 \newpage
 
-\section{Usage}
+\section{Using the DAOS VOL connector with an HDF5 application}
 
-\subsection{Using the DAOS VOL connector with an HDF5 application}
+This section outlines the unique aspects of writing, building and running HDF5 applications with the DAOS VOL connector.
+
+\subsection{Writing HDF5 DAOS VOL connector applications}
+
+Any HDF5 application using the DAOS VOL connector must:
+
+\begin{itemize}
+    \item Include \texttt{daos\_vol\_public.h}, found in the \texttt{include} directory of the DAOS VOL connector installation directory.
+    \item Link against \texttt{libhdf5\_vol\_daos.so} (or similar), found in the \texttt{lib} directory of the DAOS VOL connector installation directory.
+\end{itemize}
+
+An HDF5 DAOS VOL connector application also requires three new function calls in addition to those for an equivalent HDF5 application:
+
+\begin{itemize}
+    \item \texttt{H5daos\_init()} - Initializes the DAOS VOL connector
+
+    Called upon application startup, before any file is accessed.
+    
+    \item \texttt{H5Pset\_fapl\_daos()} - Set DAOS VOL connector access on File Access Property List.
+
+    Called to prepare a FAPL to open a file through the DAOS VOL connector. See \href{https://support.hdfgroup.org/HDF5/Tutor/property.html#fa}{HDF5 File Access Property Lists} for more information about File Access Property Lists.
+
+    \item \texttt{H5daos\_term()} - Cleanly shutdown the DAOS VOL connector
+
+    Called on application shutdown, after all files have been closed.
+\end{itemize}
+
+\newpage
+
+\subsubsection{Skeleton Example}
+
+Below is a no-op application that opens and closes a file using the DAOS VOL connector. For clarity, no error-checking is performed.
+
+\begin{verbatim}
+#include "hdf5.h"
+#include "daos_vol_public.h"
+
+int main(void)
+{
+    hid_t fapl_id;
+    hid_t file_id;
+
+    H5daos_init(MPI_COMM_WORLD, pool_uuid, NULL);
+
+    fapl_id = H5Pcreate(H5P_FILE_ACCESS);
+    H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL);
+    file_id = H5Fopen("my/file.h5");
+
+    /* operate on file */
+
+    H5Pclose(fapl_id);
+    H5Fclose(file_id);
+
+    H5daos_term();
+
+    return 0;
+}
+\end{verbatim}
+
+\newpage
+
+\subsection{Building HDF5 DAOS VOL connector applications}
+
+Assuming an HDF5 application has been written following the instructions in the previous section, the application must be built prior to running. In general, the application should be built as normal for any other HDF5 application.
+
+To link in the required libraries, the compiler will likely require the additional linker flags:
+
+\begin{verbatim}
+-lhdf5_vol_daos -luuid
+\end{verbatim}
+
+However, these flags may vary depending on platform, compiler and installation location of the DAOS VOL connector. It is highly recommended that compilation of HDF5 DAOS VOL connector applications be done using the \texttt{h5cc/h5pcc} script, as it will manage linking with the HDF5 library. If HDF5 was built using Autotools, this script will be called \texttt{h5pcc} and may be found in the \texttt{bin} directory of the HDF5 installation. If HDF5 was built with CMake, this script will simply be called \texttt{h5cc} and can be found in the same location. The above notice about additional library linking applies to usage of \texttt{h5cc/h5pcc}. For example:
+
+\begin{verbatim}
+h5cc/h5pcc -lhdf5_vol_daos -luuid my_daosvol_application.c -o my_executable
+\end{verbatim}
+
+\newpage
+
+\subsection{Running HDF5 DAOS VOL connector applications}
+
+Running applications that use the HDF5 DAOS VOL connector requires access to a server which implements the \href{https://github.com/daos-stack/daos/blob/master/src/include/daos_api.h}{DAOS API}. Refer to \href{https://github.com/daos-stack/daos/blob/master/doc/quickstart.md}{DAOS Quick Start Guide} for more information on the setup process for this.
+
+\subsubsection{Starting the DAOS Server}
+\label{sec:daos_serv_start}
 
 TBD
+
+\subsubsection{Runtime Environment}
+\label{sec:runtime_env}
+
+For the DAOS VOL connector to correctly interact with a DAOS API-aware server instance, there are two environment variables which should first be set. These are:
+
+\begin{verbatim}
+DAOS_POOL - The UUID of the DAOS pool to use
+
+DAOS_SVCL - A comma-separated list of MPI ranks used for daos_pool_connect().
+            Currently, for simple 1 MPI rank operations this should simply be
+            specified as DAOS_SVCL=0
+\end{verbatim}
+
+\subsubsection{Example Applications}
+
+The file \texttt{test/daos\_vol/test\_daos\_vol.c} contains several test functions that are examples of applications in miniature, focused on a particular behavior. These mini-applications test a moderate amount of HDF5's public API functionality with the DAOS VOL connector and should be a good indicator of whether the DAOS VOL connector is working correctly in conjunction with a running HDF5 DAOS API-aware instance.
+
+In addition to this file, some of the example C applications included with HDF5 distributions have been adapted to work with the DAOS VOL connector and are included under the top-level \texttt{examples} directory in the DAOS VOL connector source root directory.
+
+\newpage
+
+\section{HDF5 Feature support}
 
 \subsection{HDF5 API support}
 
-The following sections serve to illustrate the DAOS VOL connector's support for the HDF5 API, as well as to highlight any differences between the expected behavior of an HDF5 API call versus the actual behavior as implemented by the VOL connector.
+The following sections serve to illustrate the DAOS VOL connector's support for the HDF5 API, as well as to highlight any differences between the expected behavior of an HDF5 API call versus the actual behavior as implemented by the VOL connector. If a particular HDF5 API call does not appear among these tables, it is most likely a native HDF5-specific API call which cannot be implemented by non-native HDF5 VOL connectors. These types of API calls are listed among the tables in \hyperref[sec:appendix_a]{Appendix A}.
 
 \subsubsection{H5A interface}
 
@@ -119,8 +219,10 @@ H5Aget\_type & \\ \hline
 
 \end{tabularx}
 
+\newpage
+
 \textbf{Currently unsupported API calls}
-\vspace{.2in} \\
+\vspace{.1in} \\
 
 \begin{tabularx}{\linewidth}{| X | X |}
 \hline
@@ -236,6 +338,8 @@ H5Fget\_obj\_ids & \\ \hline
 
 \end{center}
 
+\newpage
+
 \subsubsection{H5G interface}
 
 \begin{center}
@@ -286,6 +390,8 @@ H5Gget\_objname\_by\_idx & Will be supported once \texttt{H5Lget\_name\_by\_idx}
 
 \end{center}
 
+\newpage
+
 \subsubsection{H5L interface}
 
 \begin{center}
@@ -333,6 +439,8 @@ H5Lunpack\_elink\_val & \\ \hline
 \end{tabularx}
 
 \end{center}
+
+\newpage
 
 \subsubsection{H5O interface}
 
@@ -409,6 +517,8 @@ H5Rget\_region & \\ \hline
 
 \end{center}
 
+\newpage
+
 \subsubsection{H5T interface}
 
 \begin{center}
@@ -444,6 +554,10 @@ H5Trefresh & \\ \hline
 
 \end{center}
 
+\subsection{Feature support}
+
+TBD
+
 \newpage
 
 \section{Testing}
@@ -463,21 +577,44 @@ HDF5_VOL_CONNECTOR=daos
 
 Having completed this step, HDF5 will be setup to load the DAOS VOL connector and use it for testing.
 
-\subsection{Generic VOL connector test suite}
+\newpage
 
-In order to test VOL connectors to make sure that they are functioning as expected, a suite of tests which only use the public HDF5 API has been written. If the DAOS VOL connector was built using the HDF5 source code included in the main repository, this suite of tests will be available under the path:
+\subsection{Testing the DAOS VOL connector}
+
+\subsubsection{Generic VOL connector test suite}
+
+In order to test VOL connectors to make sure that they are functioning as expected, a suite of tests which only use the public HDF5 API has been written. This suite of tests is available under the path:
 
 \begin{verbatim}
-src/hdf5/test/VOL/vol_test
+test/vol/vol_test.c
 \end{verbatim}
 
 Currently, this test suite does not have the capability to query what kind of functionality a VOL connector supports and therefore a test will fail if it uses an HDF5 API call which is not implemented, or which is specifically unsupported, in a given VOL connector.
+
+To test the DAOS VOL connector with this test suite, first refer to \hyperref[sec:daos_serv_start]{Starting the DAOS Server} and \hyperref[sec:runtime_env]{Runtime Environment} to make sure that the DAOS Server is up and running and your environment is setup correctly. Once that is done, testing the DAOS VOL connector should be as simple as running:
+
+\begin{verbatim}
+make check
+\end{verbatim}
+
+for Autotools builds, or:
+
+\begin{verbatim}
+ctest .
+\end{verbatim}
+
+for CMake builds.
+
+\subsubsection{DAOS VOL connector-specific test suite}
+
+TBD
 
 \newpage
 
 \section{Appendix}
 
 \subsection{Appendix A - Native VOL connector API calls}
+\label{sec:appendix_a}
 
 The following HDF5 API calls are specific to the native HDF5 VOL connector and thus are not able to be implemented by the DAOS VOL connector (or other VOL connectors):
 

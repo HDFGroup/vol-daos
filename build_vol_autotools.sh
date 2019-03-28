@@ -33,7 +33,7 @@ UUID_DIR=""
 UUID_LINK="-luuid"
 
 # Compiler flag for linking with the built DAOS VOL
-DAOS_VOL_LINK="-ldaosvol"
+DAOS_VOL_LINK="-lhdf5_vol_daos"
 
 # Extra compiler options passed to the various steps, such as -Wall
 COMP_OPTS="-Wall -pedantic -Wunused-macros -I${SCRIPT_DIR}/src"

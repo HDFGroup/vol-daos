@@ -867,6 +867,29 @@ H5_daos_group_get(void *_item, H5VL_group_get_t get_type, hid_t dxpl_id,
                             dxpl_id, req, &target_group_name, NULL, NULL)))
                         D_GOTO_ERROR(H5E_SYM, H5E_BADITER, FAIL, "can't traverse path")
 
+                    /* Check for target_group_name, in which case we have to follow the link
+                     * to the next group; otherwise just retrieve the info of target_group */
+                    if(target_group_name[0] != '\0'
+                            && (target_group_name[0] != '.' || target_group_name[1] != '\0')) {
+                        daos_obj_id_t oid;
+
+                        /* Follow link to group */
+                        if(H5_daos_link_follow(target_group, target_group_name, strlen(target_group_name), dxpl_id, req, &oid) < 0)
+                            D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't follow link to group")
+
+                        /* "Close" the group in order to decrement the group's reference count.
+                         * Note that this will not actually close the group, but is needed due
+                         * to the H5_daos_group_traverse call above having incremented the count.
+                         */
+                        if(H5_daos_group_close(target_group, dxpl_id, req) < 0)
+                            D_GOTO_ERROR(H5E_SYM, H5E_CANTCLOSEOBJ, FAIL, "can't close group")
+
+                        /* Open group */
+                        if(NULL == (target_group = (H5_daos_group_t *)H5_daos_group_open_helper(grp->obj.item.file, oid, target_group->gapl_id,
+                                dxpl_id, NULL, NULL, NULL)))
+                            D_GOTO_ERROR(H5E_SYM, H5E_CANTOPENOBJ, FAIL, "can't open group")
+                    } /* end else */
+
                     if((H5_daos_get_group_info(target_group, group_info)) < 0)
                         D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, FAIL, "can't get group's info")
 
@@ -894,9 +917,8 @@ H5_daos_group_get(void *_item, H5VL_group_get_t get_type, hid_t dxpl_id,
     } /* end switch */
 
 done:
-    if(target_group)
-        if(H5_daos_group_close(target_group, dxpl_id, req) < 0)
-            D_DONE_ERROR(H5E_SYM, H5E_CANTCLOSEOBJ, FAIL, "can't close group")
+    if(target_group && H5_daos_group_close(target_group, dxpl_id, req) < 0)
+        D_DONE_ERROR(H5E_SYM, H5E_CANTCLOSEOBJ, FAIL, "can't close group")
 
     D_FUNC_LEAVE_API
 } /* end H5_daos_group_get() */

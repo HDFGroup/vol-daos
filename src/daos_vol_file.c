@@ -642,14 +642,73 @@ H5_daos_file_get(void *_item, H5VL_file_get_t get_type, hid_t H5VL_DAOS_UNUSED d
 
     if(!_item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL")
-    if(H5I_FILE != file->item.type)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a file")
+    if(get_type == H5VL_FILE_GET_NAME) {
+        if(H5I_FILE != file->item.type && H5I_GROUP != file->item.type &&
+           H5I_DATATYPE != file->item.type && H5I_DATASET != file->item.type &&
+           H5I_ATTR != file->item.type)
+            D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a file, group, datatype, dataset or attribute")
+    }
+    else
+        if(H5I_FILE != file->item.type)
+            D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a file")
 
     switch (get_type) {
+        /* H5Fget_access_plist */
         case H5VL_FILE_GET_FAPL:
+        {
+            hid_t *ret_id = va_arg(arguments, hid_t *);
+
+            if((*ret_id = H5Pcopy(file->fapl_id)) < 0)
+                D_GOTO_ERROR(H5E_PLIST, H5E_CANTCOPY, FAIL, "can't get file's FAPL")
+
+            break;
+        } /* H5VL_FILE_GET_FAPL */
+
+        /* H5Fget_create_plist */
         case H5VL_FILE_GET_FCPL:
+        {
+            hid_t *ret_id = va_arg(arguments, hid_t *);
+
+            if((*ret_id = H5Pcopy(file->fcpl_id)) < 0)
+                D_GOTO_ERROR(H5E_PLIST, H5E_CANTCOPY, FAIL, "can't get file's FCPL")
+
+            break;
+        } /* H5VL_FILE_GET_FCPL */
+
+        /* H5Fget_intent */
         case H5VL_FILE_GET_INTENT:
+        {
+            unsigned *ret_intent = va_arg(arguments, unsigned *);
+
+            if((file->flags & H5F_ACC_RDWR) == H5F_ACC_RDWR)
+                *ret_intent = H5F_ACC_RDWR;
+            else
+                *ret_intent = H5F_ACC_RDONLY;
+
+            break;
+        } /* H5VL_FILE_GET_INTENT */
+
+        /* H5Fget_name */
         case H5VL_FILE_GET_NAME:
+        {
+            H5I_type_t  obj_type = va_arg(arguments, H5I_type_t);
+            size_t      name_buf_size = va_arg(arguments, size_t);
+            char       *name_buf = va_arg(arguments, char *);
+            ssize_t    *ret_size = va_arg(arguments, ssize_t *);
+
+            if(H5I_FILE != obj_type)
+                file = file->item.file;
+
+            *ret_size = (ssize_t) strlen(file->file_name);
+
+            if(name_buf) {
+                strncpy(name_buf, file->file_name, name_buf_size - 1);
+                name_buf[name_buf_size - 1] = '\0';
+            } /* end if */
+
+            break;
+        } /* H5VL_FILE_GET_NAME */
+
         case H5VL_FILE_GET_OBJ_COUNT:
         case H5VL_FILE_GET_OBJ_IDS:
         default:
@@ -736,8 +795,7 @@ done:
  */
 herr_t
 H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
-    hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req,
-    va_list H5VL_DAOS_UNUSED arguments)
+    hid_t dxpl_id, void **req, va_list H5VL_DAOS_UNUSED arguments)
 {
     H5_daos_file_t *file = NULL;
     herr_t          ret_value = SUCCEED;    /* Return value */
@@ -753,16 +811,54 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
     switch (specific_type) {
         /* H5Fflush */
         case H5VL_FILE_FLUSH:
+        {
             if(H5_daos_file_flush(file) < 0)
                 D_GOTO_ERROR(H5E_FILE, H5E_WRITEERROR, FAIL, "can't flush file")
 
             break;
+        } /* H5VL_FILE_FLUSH */
+
+        /* H5Freopen */
+        case H5VL_FILE_REOPEN:
+        {
+            void **ret_file = va_arg(arguments, void **);
+
+            if(NULL == (*ret_file = H5_daos_file_open(file->file_name, file->flags, file->fapl_id, dxpl_id, req)))
+                D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENOBJ, FAIL, "can't reopen file")
+
+            break;
+        } /* H5VL_FILE_REOPEN */
+
         /* H5Fmount */
         case H5VL_FILE_MOUNT:
         /* H5Fmount */
         case H5VL_FILE_UNMOUNT:
+            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported file specific operation")
+
         /* H5Fis_accessible */
         case H5VL_FILE_IS_ACCESSIBLE:
+        {
+            hid_t file_fapl = va_arg(arguments, hid_t);
+            const char *filename = va_arg(arguments, const char *);
+            htri_t *ret_is_accessible = va_arg(arguments, htri_t *);
+            void *opened_file = NULL;
+
+            if(NULL == filename)
+                D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, FAIL, "filename is NULL")
+
+            H5E_BEGIN_TRY {
+                opened_file = H5_daos_file_open(filename, H5F_ACC_RDONLY, file_fapl, dxpl_id, req);
+            } H5E_END_TRY;
+
+            *ret_is_accessible = opened_file ? TRUE : FALSE;
+
+            if(opened_file)
+                if(H5_daos_file_close(opened_file, dxpl_id, req) < 0)
+                    D_GOTO_ERROR(H5E_FILE, H5E_CANTCLOSEOBJ, FAIL, "error occurred while closing file")
+
+            break;
+        } /* H5VL_FILE_IS_ACCESSIBLE */
+
         default:
             D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported file specific operation")
     } /* end switch */

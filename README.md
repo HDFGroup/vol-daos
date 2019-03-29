@@ -1,6 +1,6 @@
 # HDF5 DAOS VOL connector
 
-HDF5 DAOS VOL connector version 1.0.0 - currently under development
+HDF5 DAOS VOL connector - currently under development
 
 
 ### Table of Contents:
@@ -38,7 +38,7 @@ usual HDF5 operations. The HDF5 Virtual Object Layer is an abstraction layer
 that sits directly between HDF5's public API and the underlying storage system.
 In this manner of operation, the mental data model of an HDF5 application can
 be preserved and transparently mapped onto storage systems that differ from a
-native filesystem, such as Amazon's S3.
+native filesystem.
 
 The DAOS VOL connector is under active development, and details given here may
 change.
@@ -61,6 +61,8 @@ Before building and using the HDF5 DAOS VOL connector, a few requirements must b
 To build the DAOS VOL connector, the following libraries are required:
 
 + libdaos - [DAOS](https://github.com/daos-stack/daos) (Distributed Asynchronous Object Storage)
+
++ libcart - DAOS CART dependency
 
 + libuuid - UUID (Universally unique identifier) support
 
@@ -102,7 +104,7 @@ system support:
 
 These scripts are simply convenient wrappers around the necessary build commands
 and they use default options. For example, the default installation directory is
-`daos_vol_build` under the root of the source code tree.
+`daos_vol_install` under the root of the source code tree.
 
 By default, these build scripts will compile and link with the provided HDF5 source
 distribution. However, if you wish to use a manually built version of the HDF5 library,
@@ -113,7 +115,7 @@ Note that if you wish to use a manually built version of the HDF5 library, it mu
 a version which contains the VOL abstraction layer; otherwise, the DAOS VOL connector will
 not function correctly. It is also important to note that the current version of the
 DAOS VOL connector requires a specialized version of [HDF5](https://bitbucket.hdfgroup.org/projects/HDFFV/repos/hdf5/browse?at=refs%2Fheads%2Ffeature%2Fdaos_vol_support) which was modified to
-support the DAOS VOL connector.
+support the DAOS VOL connector. This will not be required in the future.
 
 NOTE: For those who are capable of using both build systems, the autotools build currently
 does not support out-of-tree builds. If the DAOS VOL source directory is used for an autotools
@@ -134,7 +136,7 @@ The following configuration options are available to the build scripts:
             memory errors within the connector.
 
     -P DIR  Specifies where the DAOS VOL connector should be installed. The default
-            installation prefix is `daos_vol_build` inside the DAOS VOL connector source
+            installation prefix is `daos_vol_install` inside the DAOS VOL connector source
             root directory.
 
     -H DIR  Prevents building of the provided HDF5 source. Instead, uses the compiled
@@ -144,22 +146,21 @@ The following configuration options are available to the build scripts:
     -D DIR  Specifies the top-level directory where DAOS is installed. Used if DAOS is
             not installed to a system path or used to override.
 
-    -U DIR  Specifies the top-level directory where cURL is installed. Used if cURL is
+    -C DIR  Specifies the top-level directory where CART is installed. Used if CART is
+            not installed to a system path or used to override.
+
+    -U DIR  Specifies the top-level directory where UUID is installed. Used if UUID is
             not installed to a system path or used to override.
 
 Additionally, the CMake build script has the following configuration option:
 
     -B DIR  Specifies the directory that CMake should use as the build tree location.
-            The default build tree location is `daos_vol_cmake_build_files` inside the
+            The default build tree location is `daos_vol_build` inside the
             DAOS VOL connector source root directory. Note that the DAOS VOL does not
             support in-source CMake builds.
 
     -G DIR  Specifies the CMake Generator to use when generating the build files
-            for the project. On Unix systems, the default is "Unix Makefiles" and if
-            this is not changed, the build script will automatically attempt to build
-            the project after generating the Makefiles. If the generator is changed, the
-            build script will only generate the build files and the build command to
-            build the project will have to be run manually.
+            for the project. On Unix systems, the default is "Unix Makefiles".
 
 ### II.B.iii. Manual Build
 
@@ -197,12 +198,8 @@ CMake
 
     $ mkdir build
     $ cd build
-    $ cmake -DHDF5_VOL_DAOS_USE_SYSTEM_HDF5=OFF -DCMAKE_INSTALL_PREFIX=install_dir [options] daos_vol_src_dir
+    $ cmake -DHDF5_VOL_DAOS_USE_SYSTEM_HDF5=ON -DCMAKE_INSTALL_PREFIX=install_dir [options] daos_vol_src_dir
     $ build command (e.g. `make && make install` for CMake Generator "Unix Makefiles")
-
-and optionally:
-
-    $ cpack
 
 ### II.B.iii.a. Options for `configure`
 

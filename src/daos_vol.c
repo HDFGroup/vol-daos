@@ -836,7 +836,7 @@ static herr_t H5_daos_optional(void *item, hid_t dxpl_id, void **req,
             void **map = va_arg(arguments, void **);
 
             /* Check map argument.  All other arguments will be checked by
-             * H5_daos_map_create. */
+             * H5_daos_map_open. */
             if(!map)
                 D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map object output parameter is NULL")
 
@@ -847,6 +847,41 @@ static herr_t H5_daos_optional(void *item, hid_t dxpl_id, void **req,
             break;
         } /* end block */
 
+        /* H5Mget */
+        case H5VL_MAP_GET_VAL:
+        {
+            hid_t key_mem_type_id = va_arg(arguments, hid_t);
+            const void *key = va_arg(arguments, const void *);
+            hid_t val_mem_type_id = va_arg(arguments, hid_t);
+            void *value = va_arg(arguments, void *);
+
+            /* All arguments will be checked by H5_daos_map_get_val. */
+
+            /* Pass the call */
+            if((ret_value = H5_daos_map_get_val(item, key_mem_type_id, key, val_mem_type_id, value, dxpl_id, req)) < 0)
+                D_GOTO_ERROR(H5E_MAP, H5E_READERROR, ret_value, "can't get value")
+
+            break;
+        } /* end block */
+
+        /* H5Mset */
+        case H5VL_MAP_SET:
+        {
+            hid_t key_mem_type_id = va_arg(arguments, hid_t);
+            const void *key = va_arg(arguments, const void *);
+            hid_t val_mem_type_id = va_arg(arguments, hid_t);
+            const void *value = va_arg(arguments, const void *);
+
+            /* All arguments will be checked by H5_daos_map_set. */
+
+            /* Pass the call */
+            if((ret_value = H5_daos_map_set(item, key_mem_type_id, key, val_mem_type_id, value, dxpl_id, req)) < 0)
+                D_GOTO_ERROR(H5E_MAP, H5E_WRITEERROR, ret_value, "can't set value")
+
+            break;
+        } /* end block */
+
+        /* H5Mclose */
         case H5VL_MAP_CLOSE:
         {
             /* Pass the call */

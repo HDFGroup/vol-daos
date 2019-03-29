@@ -594,7 +594,6 @@ done:
     D_FUNC_LEAVE_API
 } /* end H5_daos_map_open() */
 
-#ifdef DV_HAVE_MAP
 
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_map_get_size
@@ -613,22 +612,23 @@ H5_daos_map_get_size(hid_t type_id, const void *buf,
     /*out*/H5T_class_t *ret_class)
 {
     size_t buf_size = 0;
-    H5T_t *dt = NULL;
     H5T_class_t dt_class;
+    htri_t is_variable_str;
+    hid_t super = -1;
     herr_t ret_value = SUCCEED;
 
     assert(buf);
     assert(size);
 
-    if(NULL == (dt = (H5T_t *)H5Iobject_verify(type_id, H5I_DATATYPE)))
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, H5T_NO_CLASS, "not a datatype")
-
-    dt_class = H5T_get_class(dt, FALSE);
+    if(H5T_NO_CLASS == (dt_class = H5Tget_class(type_id)))
+        D_GOTO_ERROR(H5E_ARGS, H5E_CANTINIT, FAIL, "can't get datatype class")
 
     switch(dt_class) {
         case H5T_STRING:
             /* If this is a variable length string, get the size using strlen(). */
-            if(H5T_is_variable_str(dt)) {
+            if((is_variable_str = H5Tis_variable_str(type_id)) < 0)
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't check for vl string")
+            if(is_variable_str) {
                 buf_size = strlen((const char*)buf) + 1;
 
                 break;
@@ -648,23 +648,24 @@ H5_daos_map_get_size(hid_t type_id, const void *buf,
             /* MSC - This is not correct. Compound/Array can contian
                VL datatypes, but for now we don't support that. Need
                to check for that too */
-            buf_size = H5T_get_size(dt);
+            if(0 == (buf_size = H5Tget_size(type_id)))
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't get size of datatype")
 
             break;
 
             /* If this is a variable length datatype, iterate over it */
         case H5T_VLEN:
             {
-                H5T_t *super = NULL;
                 const hvl_t *vl;
-
                 vl = (const hvl_t *)buf;
 
-                if(NULL == (super = H5T_get_super(dt)))
+                if((super = H5Tget_super(type_id)) < 0)
                     D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "invalid super type of VL type");
 
-                buf_size = H5T_get_size(super) * vl->len;
-                H5T_close(super);
+                if(0 == (buf_size = H5Tget_size(super)))
+                    D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't get size of super datatype")
+                buf_size *= vl->len;
+                H5Tclose(super);
                 break;
             } /* end block */
         default:
@@ -676,6 +677,9 @@ H5_daos_map_get_size(hid_t type_id, const void *buf,
         *ret_class = dt_class;
 
 done:
+    if(super >= 0 && H5Tclose(super) < 0)
+        D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't close super datatype")
+
     D_FUNC_LEAVE
 } /* end H5_daos_map_get_size */
 
@@ -697,21 +701,21 @@ H5_daos_map_dtype_info(hid_t type_id, hbool_t *is_vl, size_t *size,
     H5T_class_t *cls)
 {
     size_t buf_size = 0;
-    H5T_t *dt = NULL;
     H5T_class_t dt_class;
+    htri_t is_variable_str;
     herr_t ret_value = SUCCEED;
 
     assert(is_vl);
 
-    if(NULL == (dt = (H5T_t *)H5Iobject_verify(type_id, H5I_DATATYPE)))
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, H5T_NO_CLASS, "not a datatype")
-
-    dt_class = H5T_get_class(dt, FALSE);
+    if(H5T_NO_CLASS == (dt_class = H5Tget_class(type_id)))
+        D_GOTO_ERROR(H5E_ARGS, H5E_CANTINIT, FAIL, "can't get datatype class")
 
     switch(dt_class) {
         case H5T_STRING:
             /* If this is a variable length string, get the size using strlen(). */
-            if(H5T_is_variable_str(dt)) {
+            if((is_variable_str = H5Tis_variable_str(type_id)) < 0)
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't check for vl string")
+            if(is_variable_str) {
                 *is_vl = TRUE;
                 break;
             }
@@ -730,7 +734,8 @@ H5_daos_map_dtype_info(hid_t type_id, hbool_t *is_vl, size_t *size,
             /* MSC - This is not correct. Compound/Array can contian
                VL datatypes, but for now we don't support that. Need
                to check for that too */
-            buf_size = H5T_get_size(dt);
+            if(0 == (buf_size = H5Tget_size(type_id)))
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't get size of datatype")
             *is_vl = FALSE;
             break;
 
@@ -751,73 +756,28 @@ done:
 } /* end H5_daos_map_dtype_info */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_map_get_val
+ *
+ * Purpose:     Retrieves, from the Map specified by map_id, the value
+ *              associated with the provided key.  key_mem_type_id and
+ *              val_mem_type_id specify the datatypes for the provided key
+ *              and value buffers. If key_mem_type_id is different from
+ *              that used to create the Map object the key will be
+ *              internally converted to the datatype for the map object
+ *              for the query, and if val_mem_type_id is different from
+ *              that used to create the Map object the returned value will
+ *              be converted to val_mem_type_id before the function
+ *              returns. Any further options can be specified through the
+ *              property list dxpl_id.
+ *
+ * Return:      Success:        0
+ *              Failure:        -1, value not retrieved.
+ *
+ *-------------------------------------------------------------------------
+ */
 herr_t 
-H5_daos_map_set(void *_map, hid_t key_mem_type_id, const void *key,
-    hid_t val_mem_type_id, const void *value, hid_t H5VL_DAOS_UNUSED dxpl_id,
-    void H5VL_DAOS_UNUSED **req)
-{
-    H5_daos_map_t *map = (H5_daos_map_t *)_map;
-    size_t key_size, val_size;
-    daos_key_t dkey;
-    daos_iod_t iod;
-    daos_sg_list_t sgl;
-    daos_iov_t sg_iov;
-    H5T_class_t cls;
-    int ret;
-    herr_t ret_value = SUCCEED;
-
-    if(!_map)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map object is NULL")
-    if(!key)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map key is NULL")
-    if(!value)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map value is NULL")
-
-    /* get the key size and checksum from the provdied key datatype & buffer */
-    if(H5_daos_map_get_size(key_mem_type_id, key, NULL, &key_size, NULL) < 0)
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get key size");
-
-    /* get the val size and checksum from the provdied val datatype & buffer */
-    if(H5_daos_map_get_size(val_mem_type_id, value, NULL, &val_size, &cls) < 0)
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get val size");
-
-    /* Set up dkey */
-    daos_iov_set(&dkey, (void *)key, (daos_size_t)key_size);
-
-    /* Set up iod */
-    memset(&iod, 0, sizeof(iod));
-    daos_iov_set(&iod.iod_name, H5_daos_map_key_g, H5_daos_map_key_size_g);
-    daos_csum_set(&iod.iod_kcsum, NULL, 0);
-    iod.iod_nr = 1u;
-    iod.iod_size = (daos_size_t)val_size;
-    iod.iod_type = DAOS_IOD_SINGLE;
-
-    /* Set up sgl */
-    if (H5T_VLEN == cls) {
-        hvl_t *vl_buf = (hvl_t *)value;
-
-        daos_iov_set(&sg_iov, (void *)vl_buf->p, (daos_size_t)val_size);
-    }
-    else {
-        daos_iov_set(&sg_iov, (void *)value, (daos_size_t)val_size);
-    }
-
-    sgl.sg_nr = 1;
-    sgl.sg_nr_out = 0;
-    sgl.sg_iovs = &sg_iov;
-
-    if(0 != (ret = daos_obj_update(map->obj.obj_oh,
-                   DAOS_TX_NONE, &dkey,
-                   1, &iod, &sgl, NULL)))
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTSET, FAIL, "Map set failed: %s", H5_daos_err_to_string(ret));
-
-done:
-    D_FUNC_LEAVE_API
-} /* end H5_daos_map_set() */
-
-
-herr_t 
-H5_daos_map_get(void *_map, hid_t key_mem_type_id, const void *key,
+H5_daos_map_get_val(void *_map, hid_t key_mem_type_id, const void *key,
     hid_t val_mem_type_id, void *value, hid_t H5VL_DAOS_UNUSED dxpl_id,
     void H5VL_DAOS_UNUSED **req)
 {
@@ -910,8 +870,88 @@ H5_daos_map_get(void *_map, hid_t key_mem_type_id, const void *key,
 
 done:
     D_FUNC_LEAVE_API
-} /* end H5_daos_map_get() */
+} /* end H5_daos_map_get_val() */
 
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_map_set
+ *
+ * Purpose:     Adds a key-value pair to the Map specified by map_id, or
+ *              updates the value for the specified key if one was set
+ *              previously. key_mem_type_id and val_mem_type_id specify
+ *              the datatypes for the provided key and value buffers, and
+ *              if different from those used to create the Map object, the
+ *              key and value will be internally converted to the
+ *              datatypes for the map object. Any further options can be
+ *              specified through the property list dxpl_id.
+ *
+ * Return:      Success:        0
+ *              Failure:        -1, value not set.
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t 
+H5_daos_map_set(void *_map, hid_t key_mem_type_id, const void *key,
+    hid_t val_mem_type_id, const void *value, hid_t H5VL_DAOS_UNUSED dxpl_id,
+    void H5VL_DAOS_UNUSED **req)
+{
+    H5_daos_map_t *map = (H5_daos_map_t *)_map;
+    size_t key_size, val_size;
+    daos_key_t dkey;
+    daos_iod_t iod;
+    daos_sg_list_t sgl;
+    daos_iov_t sg_iov;
+    H5T_class_t key_cls, val_cls;
+    int ret;
+    herr_t ret_value = SUCCEED;
+
+    if(!_map)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map object is NULL")
+    if(!key)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map key is NULL")
+    if(!value)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map value is NULL")
+
+    /* Check for write access */
+    if(!(map->obj.item.file->flags & H5F_ACC_RDWR))
+        D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, FAIL, "no write intent on file")
+
+    /* get the key size and checksum from the provdied key datatype & buffer */
+    if(H5_daos_map_get_size(key_mem_type_id, key, NULL, &key_size, &key_cls) < 0)
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get key size");
+
+    /* get the val size and checksum from the provdied val datatype & buffer */
+    if(H5_daos_map_get_size(val_mem_type_id, value, NULL, &val_size, &val_cls) < 0)
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get val size");
+
+    /* Set up dkey */
+    daos_iov_set(&dkey, (void *)(H5T_VLEN == key_cls ? ((const hvl_t *)key)->p : key), (daos_size_t)key_size);
+
+    /* Set up iod */
+    memset(&iod, 0, sizeof(iod));
+    daos_iov_set(&iod.iod_name, H5_daos_map_key_g, H5_daos_map_key_size_g);
+    daos_csum_set(&iod.iod_kcsum, NULL, 0);
+    iod.iod_nr = 1u;
+    iod.iod_size = (daos_size_t)val_size;
+    iod.iod_type = DAOS_IOD_SINGLE;
+
+    /* Set up sgl */
+    daos_iov_set(&sg_iov, (void *)(H5T_VLEN == val_cls ? ((const hvl_t *)value)->p : value), (daos_size_t)val_size);
+    sgl.sg_nr = 1;
+    sgl.sg_nr_out = 0;
+    sgl.sg_iovs = &sg_iov;
+
+    /* Write key/value pair to map */
+    if(0 != (ret = daos_obj_update(map->obj.obj_oh,
+                   DAOS_TX_NONE, &dkey,
+                   1, &iod, &sgl, NULL)))
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTSET, FAIL, "map set failed: %s", H5_daos_err_to_string(ret));
+
+done:
+    D_FUNC_LEAVE_API
+} /* end H5_daos_map_set() */
+
+#if DV_HAVE_MAP
 
 herr_t 
 H5_daos_map_get_types(void *_map, hid_t *key_type_id, hid_t *val_type_id,

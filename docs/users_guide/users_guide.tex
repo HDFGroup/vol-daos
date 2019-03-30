@@ -1,11 +1,11 @@
-\documentclass[12pt]{article}
+\documentclass[12pt]{THG_Guide}
 
 \title{\textbf{HDF5 DAOS VOL Connector User's Guide}}
-\author{Jordan Henderson}
-\date{}
+\author{Jordan Henderson, Neil Fortner, Jerome Soumagne}
+\date{March 29, 2019}
 
 % For including the HDF image in the footer
-\usepackage{graphicx}
+%\usepackage{graphicx}
 
 % For nicely-formatted tables
 \usepackage{tabularx}
@@ -14,60 +14,63 @@
 \usepackage[colorlinks=true,linkcolor=blue,urlcolor=blue]{hyperref}
 
 % To control the formatting of page headers
-\usepackage{fancyhdr}
+%\usepackage{fancyhdr}
 
 % For coloring headers, footers and other elements according to typical THG document style
-\usepackage{xcolor}
+%\usepackage{xcolor}
 
 % For correct page-numbering
-\usepackage{lastpage}
+%\usepackage{lastpage}
 
 % To control the margins of the document
-\usepackage[margin=0.5in, top=0.7in, bottom=0.7in]{geometry}
+%\usepackage[margin=0.5in, top=0.7in, bottom=0.7in]{geometry}
 
-\pagestyle{fancy}
-\cfoot{}
-\renewcommand{\headrule}{\hbox to\headwidth{\color{blue}\leaders\hrule height \headrulewidth\hfill}}
-\fancyhead[LH]{\raisebox{-.7\baselineskip}[0pt][0pt]{February 28, 2019}}
-\fancyhead[RH]{\raisebox{-.7\baselineskip}[0pt][0pt]{THG 2019-02-28.v1}}
-\renewcommand{\footrule}{{\color{blue}\hrule}}
-\fancyfoot[LF]{\includegraphics{HDF_logo.jpg}}
-\fancyfoot[RF]{Page \thepage\ of \pageref*{LastPage}}
-\setlength{\parskip}{\baselineskip}
-\setlength{\parindent}{0ex}
+%\pagestyle{fancy}
+%\cfoot{}
+%\renewcommand{\headrule}{\hbox to\headwidth{\color{blue}\leaders\hrule height \headrulewidth\hfill}}
+%\fancyhead[LH]{\raisebox{-.7\baselineskip}[0pt][0pt]{February 28, 2019}}
+%\fancyhead[RH]{\raisebox{-.7\baselineskip}[0pt][0pt]{THG 2019-02-28.v1}}
+%\renewcommand{\footrule}{{\color{blue}\hrule}}
+%\fancyfoot[LF]{\includegraphics{HDF_logo.jpg}}
+%\fancyfoot[RF]{Page \thepage\ of \pageref*{LastPage}}
+%\setlength{\parskip}{\baselineskip}
+%\setlength{\parindent}{0ex}
+\rfcversion{2019-03-29.v1}
 
 \begin{document}
 
 \maketitle
 
 % Ensure header and footer get added to first page
-\thispagestyle{fancy}
+%\thispagestyle{fancy}
 
-{\color{blue}\hrule}
+%{\color{blue}\hrule}
 
-\begin{center}
+%\begin{center}
 
-\begin{minipage}{.95\linewidth}
-
+%\begin{minipage}{.95\linewidth}
+%% Abstract
+\begin{abstract}
 This document aims to be a helpful guide on how to use the HDF5 DAOS VOL connector to leverage the capabilities of the DAOS object storage system within an HDF5 application.
+\end{abstract}
 
-\end{minipage}
+%\end{minipage}
 
-\end{center}
+%\end{center}
 
-\vspace{0.2in}
-{\color{blue}\hrule}
+%\vspace{0.2in}
+%{\color{blue}\hrule}
 
-\newpage
+%\newpage
+
+%\newpage
 
 \tableofcontents
 \newpage
 
-\section{Introduction}
-
-TBD
-
-\newpage
+%\section{Introduction}
+%TBD
+%\newpage
 
 \section{Using the DAOS VOL connector with an HDF5 application}
 
@@ -77,12 +80,12 @@ This section outlines the unique aspects of writing, building and running HDF5 a
 
 Any HDF5 application using the DAOS VOL connector must:
 
-\begin{itemize}
+\begin{enumerate}
     \item Include \texttt{daos\_vol\_public.h}, found in the \texttt{include} directory of the DAOS VOL connector installation directory.
     \item Link against \texttt{libhdf5\_vol\_daos.so} (or similar), found in the \texttt{lib} directory of the DAOS VOL connector installation directory.
-\end{itemize}
+\end{enumerate}
 
-An HDF5 DAOS VOL connector application also requires three new function calls in addition to those for an equivalent HDF5 application:
+An HDF5 DAOS VOL connector application also requires three new function calls in addition to those for an equivalent HDF5 application (see Appendix~\ref{apdx:ref_manual} for more details):
 
 \begin{itemize}
     \item \texttt{H5daos\_init()} - Initializes the DAOS VOL connector
@@ -154,10 +157,9 @@ h5cc/h5pcc -lhdf5_vol_daos -luuid my_daosvol_application.c -o my_executable
 
 Running applications that use the HDF5 DAOS VOL connector requires access to a server which implements the \href{https://github.com/daos-stack/daos/blob/master/src/include/daos_api.h}{DAOS API}. Refer to \href{https://github.com/daos-stack/daos/blob/master/doc/quickstart.md}{DAOS Quick Start Guide} for more information on the setup process for this.
 
-\subsubsection{Starting the DAOS Server}
-\label{sec:daos_serv_start}
-
-TBD
+%\subsubsection{Starting the DAOS Server}
+%\label{sec:daos_serv_start}
+%TBD
 
 \subsubsection{Runtime Environment}
 \label{sec:runtime_env}
@@ -184,7 +186,7 @@ In addition to this file, some of the example C applications included with HDF5 
 
 \subsection{HDF5 API support}
 
-The following sections serve to illustrate the DAOS VOL connector's support for the HDF5 API, as well as to highlight any differences between the expected behavior of an HDF5 API call versus the actual behavior as implemented by the VOL connector. If a particular HDF5 API call does not appear among these tables, it is most likely a native HDF5-specific API call which cannot be implemented by non-native HDF5 VOL connectors. These types of API calls are listed among the tables in \hyperref[sec:appendix_a]{Appendix A}.
+The following sections serve to illustrate the DAOS VOL connector's support for the HDF5 API, as well as to highlight any differences between the expected behavior of an HDF5 API call versus the actual behavior as implemented by the VOL connector. If a particular HDF5 API call does not appear among these tables, it is most likely a native HDF5-specific API call which cannot be implemented by non-native HDF5 VOL connectors. These types of API calls are listed among the tables in Appendix~\ref{apdx:native_calls}.
 
 \subsubsection{H5A interface}
 
@@ -554,9 +556,9 @@ H5Trefresh & \\ \hline
 
 \end{center}
 
-\subsection{Feature support}
+%\subsection{Feature support}
 
-TBD
+%TBD
 
 \newpage
 
@@ -591,7 +593,8 @@ test/vol/vol_test.c
 
 Currently, this test suite does not have the capability to query what kind of functionality a VOL connector supports and therefore a test will fail if it uses an HDF5 API call which is not implemented, or which is specifically unsupported, in a given VOL connector.
 
-To test the DAOS VOL connector with this test suite, first refer to \hyperref[sec:daos_serv_start]{Starting the DAOS Server} and \hyperref[sec:runtime_env]{Runtime Environment} to make sure that the DAOS Server is up and running and your environment is setup correctly. Once that is done, testing the DAOS VOL connector should be as simple as running:
+To test the DAOS VOL connector with this test suite, first refer to \hyperref[sec:daos_serv_start]{Starting the DAOS Server} and \hyperref[sec:runtime_env]{Runtime Environment} to make sure that the DAOS Server is up and running and your environment is setup correctly. Once that is done, tests can be run against the DAOS VOL connector
+and it should be as simple as running:
 
 \begin{verbatim}
 make check
@@ -603,22 +606,26 @@ for Autotools builds, or:
 ctest .
 \end{verbatim}
 
-for CMake builds.
+for CMake builds\footnote{Automated testing is still under development for CMake builds.}.
 
 \subsubsection{DAOS VOL connector-specific test suite}
 
-TBD
+There is no DAOS specific test as of this writing.
 
 \newpage
+\appendix
 
-\section{Appendix}
+\section{Reference Manual}
+\label{apdx:ref_manual}
+\input{ref_manual}
 
-\subsection{Appendix A - Native VOL connector API calls}
-\label{sec:appendix_a}
+\newpage
+\section{Native VOL connector API calls}
+\label{apdx:native_calls}
 
 The following HDF5 API calls are specific to the native HDF5 VOL connector and thus are not able to be implemented by the DAOS VOL connector (or other VOL connectors):
 
-\subsubsection{H5A interface}
+\subsection{H5A interface}
 
 \begin{tabularx}{\linewidth}{| X | X |}
 \hline
@@ -630,7 +637,7 @@ H5Aget\_num\_attrs & Deprecated in favor of H5Oget\_info \\ \hline
 
 \end{tabularx}
 
-\subsubsection{H5D interface}
+\subsection{H5D interface}
 
 \begin{tabularx}{\linewidth}{| X | X |}
 \hline
@@ -645,7 +652,7 @@ H5Dwrite\_chunk & \\ \hline
 
 \end{tabularx}
 
-\subsubsection{H5F interface}
+\subsection{H5F interface}
 
 \begin{tabularx}{\linewidth}{| X | X |}
 \hline
@@ -685,7 +692,7 @@ H5Fget\_mpi\_atomicity & \\ \hline
 
 \end{tabularx}
 
-\subsubsection{H5G interface}
+\subsection{H5G interface}
 
 \begin{tabularx}{\linewidth}{| X | X |}
 \hline
@@ -700,7 +707,7 @@ H5Gget\_objtype\_by\_idx & Deprecated in favor of H5Lget\_info/H5Oget\_info \\ \
 
 \end{tabularx}
 
-\subsubsection{H5L interface}
+\subsection{H5L interface}
 
 \begin{tabularx}{\linewidth}{| X | X |}
 \hline
@@ -711,7 +718,7 @@ H5Gget\_objtype\_by\_idx & Deprecated in favor of H5Lget\_info/H5Oget\_info \\ \
 
 \end{tabularx}
 
-\subsubsection{H5O interface}
+\subsection{H5O interface}
 
 \begin{tabularx}{\linewidth}{| X | X |}
 \hline
@@ -729,7 +736,7 @@ H5Odisable\_mdc\_flushes & \\ \hline
 
 \end{tabularx}
 
-\subsubsection{H5R interface}
+\subsection{H5R interface}
 
 \begin{tabularx}{\linewidth}{| X | X |}
 \hline
@@ -740,7 +747,7 @@ H5Odisable\_mdc\_flushes & \\ \hline
 
 \end{tabularx}
 
-\subsubsection{H5T interface}
+\subsection{H5T interface}
 
 \begin{tabularx}{\linewidth}{| X | X |}
 \hline
@@ -752,12 +759,11 @@ H5Odisable\_mdc\_flushes & \\ \hline
 \end{tabularx}
 
 \newpage
-
-\section{Revision History}
+\section*{Revision History}
 
 \begin{tabularx}{\linewidth}{| l | X |}
 \hline
-February 28, 2019 & First Draft \\
+March 29, 2019 & First Draft \\
 \hline
 & \\
 \hline

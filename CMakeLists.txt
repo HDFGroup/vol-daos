@@ -20,20 +20,6 @@ endforeach()
 project(HDF5_VOL_DAOS C)
 
 #------------------------------------------------------------------------------
-# Version information 
-#------------------------------------------------------------------------------
-set(HDF5_VOL_DAOS_VERSION_MAJOR "0")
-set(HDF5_VOL_DAOS_VERSION_MINOR "1")
-set(HDF5_VOL_DAOS_VERSION_PATCH "0")
-set(HDF5_VOL_DAOS_PACKAGE "hdf5_vol_daos")
-set(HDF5_VOL_DAOS_PACKAGE_NAME "HDF5_VOL_DAOS")
-set(HDF5_VOL_DAOS_PACKAGE_VERSION "${HDF5_VOL_DAOS_VERSION_MAJOR}.${HDF5_VOL_DAOS_VERSION_MINOR}.${HDF5_VOL_DAOS_VERSION_PATCH}")
-set(HDF5_VOL_DAOS_PACKAGE_VERSION_MAJOR "${HDF5_VOL_DAOS_VERSION_MAJOR}.${HDF5_VOL_DAOS_VERSION_MINOR}")
-set(HDF5_VOL_DAOS_PACKAGE_VERSION_MINOR "${HDF5_VOL_DAOS_VERSION_PATCH}")
-set(HDF5_VOL_DAOS_PACKAGE_STRING "${HDF5_VOL_DAOS_PACKAGE_NAME} ${HDF5_VOL_DAOS_PACKAGE_VERSION}")
-set(HDF5_VOL_DAOS_PACKAGE_TARNAME "${HDF5_VOL_DAOS_PACKAGE}")
-
-#------------------------------------------------------------------------------
 # Setup install and output Directories
 #------------------------------------------------------------------------------
 if(NOT HDF5_VOL_DAOS_INSTALL_BIN_DIR)
@@ -64,6 +50,31 @@ if(NOT CMAKE_INSTALL_RPATH_USE_LINK_PATH)
 endif()
 
 #------------------------------------------------------------------------------
+# Set module path
+#------------------------------------------------------------------------------
+set(HDF5_VOL_DAOS_CMAKE_MODULE_PATH "${HDF5_VOL_DAOS_SOURCE_DIR}/CMake")
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${HDF5_VOL_DAOS_CMAKE_MODULE_PATH})
+
+#------------------------------------------------------------------------------
+# Version information
+#------------------------------------------------------------------------------
+include(${HDF5_VOL_DAOS_CMAKE_MODULE_PATH}/Git/Git.cmake)
+include(Hdf5VolDaosDetermineVersion)
+# Hardcoded version variables are readin from a separate file. This makes it
+# easier to have a script to update version numbers automatically.
+file(STRINGS version.txt version_txt)
+extract_version_components("${version_txt}" "HDF5_VOL_DAOS")
+determine_version(${HDF5_VOL_DAOS_SOURCE_DIR} ${GIT_EXECUTABLE} "HDF5_VOL_DAOS")
+set(HDF5_VOL_DAOS_PACKAGE "hdf5_vol_daos")
+set(HDF5_VOL_DAOS_PACKAGE_NAME "HDF5_VOL_DAOS")
+set(HDF5_VOL_DAOS_PACKAGE_VERSION "${HDF5_VOL_DAOS_VERSION_FULL}")
+set(HDF5_VOL_DAOS_PACKAGE_VERSION_MAJOR "${HDF5_VOL_DAOS_VERSION}")
+set(HDF5_VOL_DAOS_PACKAGE_VERSION_MINOR "${HDF5_VOL_DAOS_VERSION_PATCH}")
+set(HDF5_VOL_DAOS_PACKAGE_STRING "${HDF5_VOL_DAOS_PACKAGE_NAME} ${HDF5_VOL_DAOS_PACKAGE_VERSION}")
+set(HDF5_VOL_DAOS_PACKAGE_TARNAME "${HDF5_VOL_DAOS_PACKAGE}")
+message(STATUS "Configuring ${HDF5_VOL_DAOS_PACKAGE_NAME} v${HDF5_VOL_DAOS_PACKAGE_VERSION}")
+
+#------------------------------------------------------------------------------
 # Setup CMake Environment
 #------------------------------------------------------------------------------
 if(APPLE OR WIN32)
@@ -83,8 +94,6 @@ if(NOT HDF5_VOL_DAOS_EXTERNALLY_CONFIGURED)
       ${PROJECT_BINARY_DIR}/bin CACHE PATH "Single Directory for all static libraries."
   )
 endif()
-set(HDF5_VOL_DAOS_CMAKE_DIR "${HDF5_VOL_DAOS_SOURCE_DIR}/CMake")
-set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${HDF5_VOL_DAOS_CMAKE_DIR})
 
 #------------------------------------------------------------------------------
 # Disallow in-source build

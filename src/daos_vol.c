@@ -181,7 +181,7 @@ size_t daos_vol_curr_alloc_bytes;
 daos_handle_t H5_daos_poh_g = DAOS_HDL_INVAL;
 
 /* Global variables used to open the pool */
-MPI_Comm pool_comm_g = MPI_COMM_NULL;               /* Pool communicator */
+MPI_Comm H5_daos_pool_comm_g = MPI_COMM_NULL;       /* Pool communicator */
 static hbool_t H5_daos_pool_globals_set_g = FALSE;  /* Pool config set */
 static hbool_t H5_daos_pool_is_mine_g = FALSE;      /* Pool created internally */
 static uuid_t  H5_daos_pool_uuid_g;                 /* Pool UUID */
@@ -270,7 +270,7 @@ H5daos_init(MPI_Comm pool_comm, uuid_t pool_uuid, const char *pool_grp, const ch
             uint32_t i;
 
             /* Save arguments to globals */
-            pool_comm_g = pool_comm;
+            H5_daos_pool_comm_g = pool_comm;
             memcpy(H5_daos_pool_uuid_g, pool_uuid, sizeof(uuid_t));
             strcpy(H5_daos_pool_grp_g, pool_grp);
 
@@ -565,15 +565,15 @@ H5_daos_init(hid_t H5VL_DAOS_UNUSED vipl_id)
 
     /* Set pool globals to default values if they were not already set */
     if(!H5_daos_pool_globals_set_g) {
-        pool_comm_g = MPI_COMM_WORLD;
+        H5_daos_pool_comm_g = MPI_COMM_WORLD;
         memset(H5_daos_pool_uuid_g, 0, sizeof(H5_daos_pool_uuid_g));
         memset(H5_daos_pool_grp_g, '\0', sizeof(H5_daos_pool_grp_g));
     } /* end if */
 
     /* Obtain the process rank and size from the communicator attached to the
      * fapl ID */
-    MPI_Comm_rank(pool_comm_g, &pool_rank);
-    MPI_Comm_size(pool_comm_g, &pool_num_procs);
+    MPI_Comm_rank(H5_daos_pool_comm_g, &pool_rank);
+    MPI_Comm_size(H5_daos_pool_comm_g, &pool_num_procs);
 
     if(pool_rank == 0) {
         /* First connect to the pool */
@@ -889,12 +889,12 @@ H5_daos_pool_local2global(void)
     must_bcast = FALSE;
 
     /* MPI_Bcast gh_buf */
-    if(MPI_SUCCESS != MPI_Bcast(gh_buf, (int)sizeof(gh_buf_static), MPI_BYTE, 0, pool_comm_g))
+    if(MPI_SUCCESS != MPI_Bcast(gh_buf, (int)sizeof(gh_buf_static), MPI_BYTE, 0, H5_daos_pool_comm_g))
         D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't broadcast global pool handle")
 
     /* Need a second bcast if we had to allocate a dynamic buffer */
     if(gh_buf == gh_buf_dyn)
-        if(MPI_SUCCESS != MPI_Bcast((char *)p, (int)gh_buf_size, MPI_BYTE, 0, pool_comm_g))
+        if(MPI_SUCCESS != MPI_Bcast((char *)p, (int)gh_buf_size, MPI_BYTE, 0, H5_daos_pool_comm_g))
             D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't broadcast global pool handle (second broadcast)")
 
 done:
@@ -902,7 +902,7 @@ done:
      * other processes so we do not need to do the second bcast. */
     if(must_bcast) {
         memset(gh_buf_static, 0, sizeof(gh_buf_static));
-        if(MPI_SUCCESS != MPI_Bcast(gh_buf_static, sizeof(gh_buf_static), MPI_BYTE, 0, pool_comm_g))
+        if(MPI_SUCCESS != MPI_Bcast(gh_buf_static, sizeof(gh_buf_static), MPI_BYTE, 0, H5_daos_pool_comm_g))
             D_DONE_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't broadcast empty global handle")
     } /* end if */
 
@@ -932,7 +932,7 @@ H5_daos_pool_global2local(void)
     herr_t ret_value = SUCCEED;             /* Return value */
 
     /* Receive global handle */
-    if(MPI_SUCCESS != MPI_Bcast(gh_buf, (int)sizeof(gh_buf_static), MPI_BYTE, 0, pool_comm_g))
+    if(MPI_SUCCESS != MPI_Bcast(gh_buf, (int)sizeof(gh_buf_static), MPI_BYTE, 0, H5_daos_pool_comm_g))
         D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't receive broadcasted global pool handle")
 
     /* Decode handle length */
@@ -954,7 +954,7 @@ H5_daos_pool_global2local(void)
         } /* end if */
 
         /* Receive global handle */
-        if(MPI_SUCCESS != MPI_Bcast(gh_buf, (int)gh_buf_size, MPI_BYTE, 0, pool_comm_g))
+        if(MPI_SUCCESS != MPI_Bcast(gh_buf, (int)gh_buf_size, MPI_BYTE, 0, H5_daos_pool_comm_g))
             D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't receive broadcasted global pool handle (second broadcast)")
 
         p = (uint8_t *)gh_buf;

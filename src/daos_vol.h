@@ -360,7 +360,7 @@ extern size_t daos_vol_curr_alloc_bytes;
 extern H5VL_DAOS_PRIVATE daos_handle_t H5_daos_poh_g;
 
 /* Global variables used to open the pool */
-extern H5VL_DAOS_PRIVATE MPI_Comm pool_comm_g;
+extern H5VL_DAOS_PRIVATE MPI_Comm H5_daos_pool_comm_g;
 
 /* Constant Keys */
 extern H5VL_DAOS_PRIVATE char H5_daos_int_md_key_g[];

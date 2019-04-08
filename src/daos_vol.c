@@ -194,27 +194,27 @@ static const daos_size_t    H5_daos_pool_default_nvme_size_g     = (1ULL << 33);
 static const unsigned int   H5_daos_pool_default_svc_nreplicas_g = 1;            /* Number of replicas */
 
 /* Constant Keys */
-char H5_daos_int_md_key_g[] = "/Internal Metadata";
-char H5_daos_max_oid_key_g[] = "Max OID";
-char H5_daos_cpl_key_g[] = "Creation Property List";
-char H5_daos_link_key_g[] = "Link";
-char H5_daos_type_key_g[] = "Datatype";
-char H5_daos_space_key_g[] = "Dataspace";
-char H5_daos_attr_key_g[] = "/Attribute";
-char H5_daos_ktype_g[] = "Key Datatype";
-char H5_daos_vtype_g[] = "Value Datatype";
-char H5_daos_map_key_g[] = "Map Record";
+const char H5_daos_int_md_key_g[]   = "/Internal Metadata";
+const char H5_daos_max_oid_key_g[]  = "Max OID";
+const char H5_daos_cpl_key_g[]      = "Creation Property List";
+const char H5_daos_link_key_g[]     = "Link";
+const char H5_daos_type_key_g[]     = "Datatype";
+const char H5_daos_space_key_g[]    = "Dataspace";
+const char H5_daos_attr_key_g[]     = "/Attribute";
+const char H5_daos_ktype_g[]        = "Key Datatype";
+const char H5_daos_vtype_g[]        = "Value Datatype";
+const char H5_daos_map_key_g[]      = "Map Record";
 
-daos_size_t H5_daos_int_md_key_size_g = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
-daos_size_t H5_daos_max_oid_key_size_g = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
-daos_size_t H5_daos_cpl_key_size_g = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
-daos_size_t H5_daos_link_key_size_g = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
-daos_size_t H5_daos_type_key_size_g = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
-daos_size_t H5_daos_space_key_size_g = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
-daos_size_t H5_daos_attr_key_size_g = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
-daos_size_t H5_daos_ktype_size_g = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
-daos_size_t H5_daos_vtype_size_g = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
-daos_size_t H5_daos_map_key_size_g = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
+const daos_size_t H5_daos_int_md_key_size_g  = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
+const daos_size_t H5_daos_max_oid_key_size_g = (daos_size_t)(sizeof(H5_daos_max_oid_key_g) - 1);
+const daos_size_t H5_daos_cpl_key_size_g     = (daos_size_t)(sizeof(H5_daos_cpl_key_g) - 1);
+const daos_size_t H5_daos_link_key_size_g    = (daos_size_t)(sizeof(H5_daos_link_key_g) - 1);
+const daos_size_t H5_daos_type_key_size_g    = (daos_size_t)(sizeof(H5_daos_type_key_g) - 1);
+const daos_size_t H5_daos_space_key_size_g   = (daos_size_t)(sizeof(H5_daos_space_key_g) - 1);
+const daos_size_t H5_daos_attr_key_size_g    = (daos_size_t)(sizeof(H5_daos_attr_key_g) - 1);
+const daos_size_t H5_daos_ktype_size_g       = (daos_size_t)(sizeof(H5_daos_ktype_g) - 1);
+const daos_size_t H5_daos_vtype_size_g       = (daos_size_t)(sizeof(H5_daos_vtype_g) - 1);
+const daos_size_t H5_daos_map_key_size_g     = (daos_size_t)(sizeof(H5_daos_map_key_g) - 1);
 
 
 /*-------------------------------------------------------------------------

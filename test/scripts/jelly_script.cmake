@@ -43,18 +43,18 @@ endif()
 
 set(CTEST_CMAKE_GENERATOR "Unix Makefiles")
 # Must point to the root where we can checkout/build/run the tests
-set(CTEST_DASHBOARD_ROOT "$ENV{TRAVIS_BUILD_DIR}/..")
+set(CTEST_DASHBOARD_ROOT "$ENV{HDF5_VOL_DAOS_ROOT}")
 # Must specify existing source directory
-set(CTEST_SOURCE_DIRECTORY "$ENV{TRAVIS_BUILD_DIR}")
+set(CTEST_SOURCE_DIRECTORY "$ENV{HDF5_VOL_DAOS_ROOT}/source")
 # Give a site name
-set(CTEST_SITE "worker.travis-ci.org")
+set(CTEST_SITE "jelly.ad.hdfgroup.org")
 set(CTEST_TEST_TIMEOUT 180) # 180s timeout
 
 # Optional coverage options
 set(HDF5_VOL_DAOS_DO_COVERAGE $ENV{HDF5_VOL_DAOS_DO_COVERAGE})
 if(HDF5_VOL_DAOS_DO_COVERAGE)
   message("Enabling Coverage")
-  set(CTEST_COVERAGE_COMMAND "/usr/bin/gcov-8")
+  set(CTEST_COVERAGE_COMMAND "$ENV{GCOV}")
   # don't run parallel coverage tests, no matter what.
   set(CTEST_TEST_ARGS PARALLEL_LEVEL 1)
 
@@ -105,7 +105,7 @@ if(HDF5_VOL_DAOS_DO_MEMCHECK OR HDF5_VOL_DAOS_MEMORYCHECK_TYPE)
 endif()
 
 # Build name referenced in cdash
-set(CTEST_BUILD_NAME "travis-ci-$ENV{TRAVIS_OS_NAME}-x64-$ENV{CC}-${lower_hdf5_vol_daos_build_configuration}${lower_hdf5_vol_daos_memorycheck_type}${coverage_suffix}-$ENV{TRAVIS_BUILD_NUMBER}")
+set(CTEST_BUILD_NAME "develop-x64-gcc-${lower_hdf5_vol_daos_build_configuration}${lower_hdf5_vol_daos_memorycheck_type}${coverage_suffix}")
 
 set(dashboard_binary_name hdf5_vol_daos-${lower_hdf5_vol_daos_build_configuration})
 if(NOT hdf5_vol_daos_build_shared)
@@ -113,7 +113,7 @@ if(NOT hdf5_vol_daos_build_shared)
 endif()
 
 # OS specific options
-set(CMAKE_FIND_ROOT_PATH $ENV{HOME}/install ${CMAKE_FIND_ROOT_PATH})
+# set(CMAKE_FIND_ROOT_PATH $ENV{HOME}/install ${CMAKE_FIND_ROOT_PATH})
 
 if($ENV{CC} MATCHES "^gcc.*")
   set(HDF5_VOL_DAOS_C_FLAGS "-Wall -Wextra -Wshadow -Winline -Wundef -Wcast-qual -Wconversion -Wmissing-prototypes -pedantic -Wpointer-arith -Wformat=2 -std=gnu99 ${HDF5_VOL_DAOS_MEMCHECK_FLAGS}")
@@ -131,15 +131,15 @@ MEMORYCHECK_COMMAND:FILEPATH=${CTEST_MEMORYCHECK_COMMAND}
 MEMORYCHECK_SUPPRESSIONS_FILE:FILEPATH=${CTEST_MEMORYCHECK_SUPPRESSIONS_FILE}
 COVERAGE_COMMAND:FILEPATH=${CTEST_COVERAGE_COMMAND}
 
+DAOS_SERVER_IFACE:STRING=em1
 HDF5_VOL_DAOS_ENABLE_COVERAGE:BOOL=${dashboard_do_coverage}
 HDF5_VOL_DAOS_USE_SYSTEM_HDF5:BOOL=ON
-HDF5_DIR:FILEPATH=$ENV{HDF5_ROOT}/share/cmake/hdf5
-MPIEXEC_MAX_NUMPROCS:STRING=4
+HDF5_VOL_TEST_ENABLE_PARALLEL:BOOL=ON
 ")
 
 #set(ENV{CC}  /usr/bin/gcc)
 #set(ENV{CXX} /usr/bin/g++)
 
-include(${CTEST_SOURCE_DIRECTORY}/Testing/script/hdf5_vol_daos_common.cmake)
+include(${CTEST_SOURCE_DIRECTORY}/test/scripts/hdf5_vol_daos_common.cmake)
 
 #######################################################################

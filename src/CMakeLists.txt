@@ -49,7 +49,7 @@ endif()
 option(HDF5_VOL_DAOS_USE_SYSTEM_HDF5 "Use system-installed HDF5." ON)
 if(HDF5_VOL_DAOS_USE_SYSTEM_HDF5)
   # We will require 1.12 once it is released
-  find_package(HDF5 1.11 NO_MODULE REQUIRED NAMES hdf5 COMPONENTS C shared)
+  find_package(HDF5 1.11 NO_MODULE NAMES hdf5 COMPONENTS C shared)
   if(HDF5_FOUND)
     if(NOT TARGET ${HDF5_C_SHARED_LIBRARY})
         message(FATAL_ERROR "Could not find hdf5 shared target, please make "
@@ -60,7 +60,20 @@ if(HDF5_VOL_DAOS_USE_SYSTEM_HDF5)
       ${HDF5_C_SHARED_LIBRARY}
     )
   else()
-    message(FATAL_ERROR "Could not find HDF5, please check HDF5_DIR.")
+    # Allow for HDF5 autotools builds
+    find_package(HDF5 1.11 MODULE REQUIRED)
+    if(HDF5_FOUND)
+      set(HDF5_VOL_DAOS_EXT_INCLUDE_DEPENDENCIES
+        ${HDF5_VOL_DAOS_EXT_INCLUDE_DEPENDENCIES}
+        ${HDF5_INCLUDE_DIRS}
+      )
+      set(HDF5_VOL_DAOS_EXT_LIB_DEPENDENCIES
+        ${HDF5_VOL_DAOS_EXT_LIB_DEPENDENCIES}
+        ${HDF5_LIBRARIES}
+      )
+    else()
+      message(FATAL_ERROR "Could not find HDF5, please check HDF5_DIR.")
+    endif()
   endif()
 else()
   set(HDF5_EXTERNALLY_CONFIGURED 1)

@@ -46,7 +46,7 @@ typedef uint64_t H5_daos_snap_id_t;
 extern "C" {
 #endif
 
-H5VL_DAOS_PUBLIC herr_t H5daos_init(MPI_Comm pool_comm, uuid_t pool_uuid, char *pool_grp);
+H5VL_DAOS_PUBLIC herr_t H5daos_init(MPI_Comm pool_comm, uuid_t pool_uuid, const char *pool_grp, const char *pool_svcl);
 H5VL_DAOS_PUBLIC herr_t H5daos_term(void);
 H5VL_DAOS_PUBLIC herr_t H5Pset_fapl_daos(hid_t fapl_id, MPI_Comm comm, MPI_Info info);
 #ifdef DSINC

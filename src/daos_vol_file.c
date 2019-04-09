@@ -113,13 +113,13 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     /*
      * XXX: DSINC - Need to pass in MPI Info to VOL connector as well.
      */
-    if(FAIL == H5FDmpi_comm_info_dup(fa ? fa->comm : pool_comm_g, fa ? fa->info : MPI_INFO_NULL, &file->comm, &file->info))
+    if(FAIL == H5FDmpi_comm_info_dup(fa ? fa->comm : H5_daos_pool_comm_g, fa ? fa->info : MPI_INFO_NULL, &file->comm, &file->info))
         D_GOTO_ERROR(H5E_INTERNAL, H5E_CANTCOPY, NULL, "failed to duplicate MPI communicator and info")
 
     /* Obtain the process rank and size from the communicator attached to the
      * fapl ID */
-    MPI_Comm_rank(fa ? fa->comm : pool_comm_g, &file->my_rank);
-    MPI_Comm_size(fa ? fa->comm : pool_comm_g, &file->num_procs);
+    MPI_Comm_rank(fa ? fa->comm : H5_daos_pool_comm_g, &file->my_rank);
+    MPI_Comm_size(fa ? fa->comm : H5_daos_pool_comm_g, &file->num_procs);
 
     /* Hash file name to create uuid */
     H5_daos_hash128(name, &file->uuid);
@@ -209,18 +209,18 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
             must_bcast = FALSE;
 
             /* MPI_Bcast gh_buf */
-            if(MPI_SUCCESS != MPI_Bcast(gh_buf, (int)sizeof(gh_buf_static), MPI_BYTE, 0, fa ? fa->comm : pool_comm_g))
+            if(MPI_SUCCESS != MPI_Bcast(gh_buf, (int)sizeof(gh_buf_static), MPI_BYTE, 0, fa ? fa->comm : H5_daos_pool_comm_g))
                 D_GOTO_ERROR(H5E_FILE, H5E_MPI, NULL, "can't broadcast global container handle")
 
             /* Need a second bcast if we had to allocate a dynamic buffer */
             if(gh_buf == gh_buf_dyn)
-                if(MPI_SUCCESS != MPI_Bcast((char *)p, (int)gh_buf_size, MPI_BYTE, 0, fa ? fa->comm : pool_comm_g))
+                if(MPI_SUCCESS != MPI_Bcast((char *)p, (int)gh_buf_size, MPI_BYTE, 0, fa ? fa->comm : H5_daos_pool_comm_g))
                     D_GOTO_ERROR(H5E_FILE, H5E_MPI, NULL, "can't broadcast global container handle (second broadcast)")
         } /* end if */
     } /* end if */
     else {
         /* Receive global handle */
-        if(MPI_SUCCESS != MPI_Bcast(gh_buf, (int)sizeof(gh_buf_static), MPI_BYTE, 0, fa ? fa->comm : pool_comm_g))
+        if(MPI_SUCCESS != MPI_Bcast(gh_buf, (int)sizeof(gh_buf_static), MPI_BYTE, 0, fa ? fa->comm : H5_daos_pool_comm_g))
             D_GOTO_ERROR(H5E_FILE, H5E_MPI, NULL, "can't receive broadcasted global container handle")
 
         /* Decode handle length */
@@ -242,7 +242,7 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
             } /* end if */
 
             /* Receive global handle */
-            if(MPI_SUCCESS != MPI_Bcast(gh_buf_dyn, (int)gh_buf_size, MPI_BYTE, 0, fa ? fa->comm : pool_comm_g))
+            if(MPI_SUCCESS != MPI_Bcast(gh_buf_dyn, (int)gh_buf_size, MPI_BYTE, 0, fa ? fa->comm : H5_daos_pool_comm_g))
                 D_GOTO_ERROR(H5E_FILE, H5E_MPI, NULL, "can't receive broadcasted global container handle (second broadcast)")
 
             p = (uint8_t *)gh_buf;
@@ -292,7 +292,7 @@ done:
          * in the other processes so we do not need to do the second bcast. */
         if(must_bcast) {
             memset(gh_buf_static, 0, sizeof(gh_buf_static));
-            if(MPI_SUCCESS != MPI_Bcast(gh_buf_static, sizeof(gh_buf_static), MPI_BYTE, 0, fa ? fa->comm : pool_comm_g))
+            if(MPI_SUCCESS != MPI_Bcast(gh_buf_static, sizeof(gh_buf_static), MPI_BYTE, 0, fa ? fa->comm : H5_daos_pool_comm_g))
                 D_DONE_ERROR(H5E_FILE, H5E_MPI, NULL, "can't broadcast empty global container handle")
         } /* end if */
 
@@ -399,13 +399,13 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     /*
      * XXX: DSINC - Need to pass in MPI Info to VOL connector as well.
      */
-    if(FAIL == H5FDmpi_comm_info_dup(fa ? fa->comm : pool_comm_g, fa ? fa->info : MPI_INFO_NULL, &file->comm, &file->info))
+    if(FAIL == H5FDmpi_comm_info_dup(fa ? fa->comm : H5_daos_pool_comm_g, fa ? fa->info : MPI_INFO_NULL, &file->comm, &file->info))
         D_GOTO_ERROR(H5E_INTERNAL, H5E_CANTCOPY, NULL, "failed to duplicate MPI communicator and info")
 
     /* Obtain the process rank and size from the communicator attached to the
      * fapl ID */
-    MPI_Comm_rank(fa ? fa->comm : pool_comm_g, &file->my_rank);
-    MPI_Comm_size(fa ? fa->comm : pool_comm_g, &file->num_procs);
+    MPI_Comm_rank(fa ? fa->comm : H5_daos_pool_comm_g, &file->my_rank);
+    MPI_Comm_size(fa ? fa->comm : H5_daos_pool_comm_g, &file->num_procs);
 
     /* Hash file name to create uuid */
     H5_daos_hash128(name, &file->uuid);
@@ -524,18 +524,18 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
             must_bcast = FALSE;
 
             /* MPI_Bcast foi_buf */
-            if(MPI_SUCCESS != MPI_Bcast(foi_buf, (int)sizeof(foi_buf_static), MPI_BYTE, 0, fa ? fa->comm : pool_comm_g))
+            if(MPI_SUCCESS != MPI_Bcast(foi_buf, (int)sizeof(foi_buf_static), MPI_BYTE, 0, fa ? fa->comm : H5_daos_pool_comm_g))
                 D_GOTO_ERROR(H5E_FILE, H5E_MPI, NULL, "can't broadcast global container handle")
 
             /* Need a second bcast if we had to allocate a dynamic buffer */
             if(foi_buf == foi_buf_dyn)
-                if(MPI_SUCCESS != MPI_Bcast((char *)p, (int)(gh_len + gcpl_len), MPI_BYTE, 0, fa ? fa->comm : pool_comm_g))
+                if(MPI_SUCCESS != MPI_Bcast((char *)p, (int)(gh_len + gcpl_len), MPI_BYTE, 0, fa ? fa->comm : H5_daos_pool_comm_g))
                     D_GOTO_ERROR(H5E_FILE, H5E_MPI, NULL, "can't broadcast file open info (second broadcast)")
         } /* end if */
     } /* end if */
     else {
         /* Receive file open info */
-        if(MPI_SUCCESS != MPI_Bcast(foi_buf, (int)sizeof(foi_buf_static), MPI_BYTE, 0, fa ? fa->comm : pool_comm_g))
+        if(MPI_SUCCESS != MPI_Bcast(foi_buf, (int)sizeof(foi_buf_static), MPI_BYTE, 0, fa ? fa->comm : H5_daos_pool_comm_g))
             D_GOTO_ERROR(H5E_FILE, H5E_MPI, NULL, "can't receive broadcasted global container handle")
 
         /* Decode handle length */
@@ -563,7 +563,7 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
             } /* end if */
 
             /* Receive global handle */
-            if(MPI_SUCCESS != MPI_Bcast(foi_buf_dyn, (int)(gh_len + gcpl_len), MPI_BYTE, 0, fa ? fa->comm : pool_comm_g))
+            if(MPI_SUCCESS != MPI_Bcast(foi_buf_dyn, (int)(gh_len + gcpl_len), MPI_BYTE, 0, fa ? fa->comm : H5_daos_pool_comm_g))
                 D_GOTO_ERROR(H5E_FILE, H5E_MPI, NULL, "can't receive broadcasted global container handle (second broadcast)")
 
             p = (uint8_t *)foi_buf;
@@ -600,7 +600,7 @@ done:
          * in the other processes so we do not need to do the second bcast. */
         if(must_bcast) {
             memset(foi_buf_static, 0, sizeof(foi_buf_static));
-            if(MPI_SUCCESS != MPI_Bcast(foi_buf_static, sizeof(foi_buf_static), MPI_BYTE, 0, fa ? fa->comm : pool_comm_g))
+            if(MPI_SUCCESS != MPI_Bcast(foi_buf_static, sizeof(foi_buf_static), MPI_BYTE, 0, fa ? fa->comm : H5_daos_pool_comm_g))
                 D_DONE_ERROR(H5E_FILE, H5E_MPI, NULL, "can't broadcast empty global container handle")
         } /* end if */
 

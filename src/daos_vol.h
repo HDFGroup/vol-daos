@@ -360,30 +360,30 @@ extern size_t daos_vol_curr_alloc_bytes;
 extern H5VL_DAOS_PRIVATE daos_handle_t H5_daos_poh_g;
 
 /* Global variables used to open the pool */
-extern H5VL_DAOS_PRIVATE MPI_Comm pool_comm_g;
+extern H5VL_DAOS_PRIVATE MPI_Comm H5_daos_pool_comm_g;
 
 /* Constant Keys */
-extern H5VL_DAOS_PRIVATE char H5_daos_int_md_key_g[];
-extern H5VL_DAOS_PRIVATE char H5_daos_max_oid_key_g[];
-extern H5VL_DAOS_PRIVATE char H5_daos_cpl_key_g[];
-extern H5VL_DAOS_PRIVATE char H5_daos_link_key_g[];
-extern H5VL_DAOS_PRIVATE char H5_daos_type_key_g[];
-extern H5VL_DAOS_PRIVATE char H5_daos_space_key_g[];
-extern H5VL_DAOS_PRIVATE char H5_daos_attr_key_g[];
-extern H5VL_DAOS_PRIVATE char H5_daos_ktype_g[];
-extern H5VL_DAOS_PRIVATE char H5_daos_vtype_g[];
-extern H5VL_DAOS_PRIVATE char H5_daos_map_key_g[];
+extern H5VL_DAOS_PRIVATE const char H5_daos_int_md_key_g[];
+extern H5VL_DAOS_PRIVATE const char H5_daos_max_oid_key_g[];
+extern H5VL_DAOS_PRIVATE const char H5_daos_cpl_key_g[];
+extern H5VL_DAOS_PRIVATE const char H5_daos_link_key_g[];
+extern H5VL_DAOS_PRIVATE const char H5_daos_type_key_g[];
+extern H5VL_DAOS_PRIVATE const char H5_daos_space_key_g[];
+extern H5VL_DAOS_PRIVATE const char H5_daos_attr_key_g[];
+extern H5VL_DAOS_PRIVATE const char H5_daos_ktype_g[];
+extern H5VL_DAOS_PRIVATE const char H5_daos_vtype_g[];
+extern H5VL_DAOS_PRIVATE const char H5_daos_map_key_g[];
 
-extern H5VL_DAOS_PRIVATE daos_size_t H5_daos_int_md_key_size_g;
-extern H5VL_DAOS_PRIVATE daos_size_t H5_daos_max_oid_key_size_g;
-extern H5VL_DAOS_PRIVATE daos_size_t H5_daos_cpl_key_size_g;
-extern H5VL_DAOS_PRIVATE daos_size_t H5_daos_link_key_size_g;
-extern H5VL_DAOS_PRIVATE daos_size_t H5_daos_type_key_size_g;
-extern H5VL_DAOS_PRIVATE daos_size_t H5_daos_space_key_size_g;
-extern H5VL_DAOS_PRIVATE daos_size_t H5_daos_attr_key_size_g;
-extern H5VL_DAOS_PRIVATE daos_size_t H5_daos_ktype_size_g;
-extern H5VL_DAOS_PRIVATE daos_size_t H5_daos_vtype_size_g;
-extern H5VL_DAOS_PRIVATE daos_size_t H5_daos_map_key_size_g;
+extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_int_md_key_size_g;
+extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_max_oid_key_size_g;
+extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_cpl_key_size_g;
+extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_link_key_size_g;
+extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_type_key_size_g;
+extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_space_key_size_g;
+extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_attr_key_size_g;
+extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_ktype_size_g;
+extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_vtype_size_g;
+extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_map_key_size_g;
 
 /*********************/
 /* Public Prototypes */
@@ -394,7 +394,6 @@ extern "C" {
 #endif
 
 /* General routines */
-H5VL_DAOS_PRIVATE herr_t H5_daos_init(hid_t vipl_id);
 H5VL_DAOS_PRIVATE void H5_daos_oid_generate(daos_obj_id_t *oid, uint64_t addr,
     H5I_type_t obj_type);
 H5VL_DAOS_PRIVATE void H5_daos_oid_encode(daos_obj_id_t *oid, uint64_t idx, H5I_type_t obj_type);

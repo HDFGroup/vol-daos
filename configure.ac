@@ -13,7 +13,7 @@ AC_PREREQ([2.69])
 ## NOTE: Do not forget to change the version number here when we do a
 ## release!!!
 ##
-AC_INIT([DAOS VOL], [1.0.0], [help@hdfgroup.org])
+AC_INIT([DAOS VOL], [0.1.0], [help@hdfgroup.org])
 
 AC_CONFIG_SRCDIR([src/daos_vol.c])
 AC_CONFIG_HEADERS([src/daos_vol_config.h])
@@ -974,8 +974,8 @@ AC_CACHE_SAVE
 ## and installed with the libraries (used to generate libhdf5_vol_daos.settings).
 ##
 
-## DAOS VOL version from the README.md file.
-DV_VERSION="`cut -d' ' -f6 $(pwd)/README.md | head -3 | tail -1`"
+## DAOS VOL version from the version.txt file.
+DV_VERSION="`cut -d' ' -f6 $(pwd)/version.txt | head -3 | tail -1`"
 AC_SUBST([DV_VERSION])
 
 ## Configuration date

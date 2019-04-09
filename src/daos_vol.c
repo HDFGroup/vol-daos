@@ -18,16 +18,52 @@
 #include "util/daos_vol_err.h"  /* DAOS connector error handling           */
 #include "util/daos_vol_mem.h"  /* DAOS connector memory management        */
 
-/* Prototypes */
+#include <daos_mgmt.h>          /* For pool creation */
+
+/****************/
+/* Local Macros */
+/****************/
+
+/* Default DAOS group ID used for creating pools */
+#ifndef DAOS_DEFAULT_GROUP_ID
+# define DAOS_DEFAULT_GROUP_ID "daos_server"
+#endif
+#define H5_DAOS_MAX_GRP_NAME     64
+#define H5_DAOS_MAX_SVC_REPLICAS 13
+
+#define H5_DAOS_PRINT_UUID(uuid) do {       \
+    char uuid_buf[37];                      \
+    uuid_unparse(uuid, uuid_buf);           \
+    printf("POOL UUID = %s\n", uuid_buf);   \
+} while (0)
+
+/************************************/
+/* Local Type and Struct Definition */
+/************************************/
+
+/********************/
+/* Local Prototypes */
+/********************/
+
+static herr_t H5_daos_init(hid_t vipl_id);
+static herr_t H5_daos_term(void);
+static herr_t H5_daos_pool_create(uuid_t uuid, const char **pool_grp, d_rank_list_t **svcl);
+static herr_t H5_daos_pool_destroy(uuid_t uuid);
+static herr_t H5_daos_pool_connect(void);
+static herr_t H5_daos_pool_disconnect(void);
+static herr_t H5_daos_pool_local2global(void);
+static herr_t H5_daos_pool_global2local(void);
 static void *H5_daos_fapl_copy(const void *_old_fa);
 static herr_t H5_daos_fapl_free(void *_fa);
-static herr_t H5_daos_term(void);
 static herr_t H5_daos_optional(void *item, hid_t dxpl_id, void **req,
     va_list arguments);
 
-/* Declarations */
+/*******************/
+/* Local Variables */
+/*******************/
+
 /* The DAOS VOL connector struct */
-static H5VL_class_t H5_daos_g = {
+static const H5VL_class_t H5_daos_g = {
     HDF5_VOL_DAOS_VERSION_1,                 /* Plugin Version number */
     H5_VOL_DAOS_CLS_VAL,                     /* Plugin Value */
     H5_DAOS_VOL_NAME,                        /* Plugin Name */
@@ -128,6 +164,7 @@ H5FL_DEFINE(H5_daos_map_t);
 H5FL_DEFINE(H5_daos_attr_t);*/
 
 hid_t H5_DAOS_g = -1;
+static hbool_t H5_daos_initialized_g = FALSE;
 
 /* Identifiers for HDF5's error API */
 hid_t dv_err_stack_g = -1;
@@ -141,36 +178,43 @@ size_t daos_vol_curr_alloc_bytes;
 #endif
 
 /* Pool handle for use with all files */
-daos_handle_t H5_daos_poh_g = {0}; /* Hack! use a DAOS macro if a usable one is created DSINC */
+daos_handle_t H5_daos_poh_g = DAOS_HDL_INVAL;
 
 /* Global variables used to open the pool */
-hbool_t pool_globals_set_g = FALSE;
-MPI_Comm pool_comm_g;
-uuid_t pool_uuid_g;
-char *pool_grp_g = NULL;
+MPI_Comm H5_daos_pool_comm_g = MPI_COMM_NULL;       /* Pool communicator */
+static hbool_t H5_daos_pool_globals_set_g = FALSE;  /* Pool config set */
+static hbool_t H5_daos_pool_is_mine_g = FALSE;      /* Pool created internally */
+static uuid_t  H5_daos_pool_uuid_g;                 /* Pool UUID */
+static char H5_daos_pool_grp_g[H5_DAOS_MAX_GRP_NAME + 1] = {'\0'}; /* Pool Group */
+static d_rank_t H5_daos_pool_ranks_g[H5_DAOS_MAX_SVC_REPLICAS]; /* Pool ranks */
+static d_rank_list_t H5_daos_pool_svcl_g = {};                  /* Pool svc list */
+static const unsigned int   H5_daos_pool_default_mode_g          = 0731;         /* Default Mode */
+static const daos_size_t    H5_daos_pool_default_scm_size_g      = (1ULL << 28); /* 256MB */
+static const daos_size_t    H5_daos_pool_default_nvme_size_g     = (1ULL << 33); /*   8GB */
+static const unsigned int   H5_daos_pool_default_svc_nreplicas_g = 1;            /* Number of replicas */
 
 /* Constant Keys */
-char H5_daos_int_md_key_g[] = "/Internal Metadata";
-char H5_daos_max_oid_key_g[] = "Max OID";
-char H5_daos_cpl_key_g[] = "Creation Property List";
-char H5_daos_link_key_g[] = "Link";
-char H5_daos_type_key_g[] = "Datatype";
-char H5_daos_space_key_g[] = "Dataspace";
-char H5_daos_attr_key_g[] = "/Attribute";
-char H5_daos_ktype_g[] = "Key Datatype";
-char H5_daos_vtype_g[] = "Value Datatype";
-char H5_daos_map_key_g[] = "Map Record";
+const char H5_daos_int_md_key_g[]   = "/Internal Metadata";
+const char H5_daos_max_oid_key_g[]  = "Max OID";
+const char H5_daos_cpl_key_g[]      = "Creation Property List";
+const char H5_daos_link_key_g[]     = "Link";
+const char H5_daos_type_key_g[]     = "Datatype";
+const char H5_daos_space_key_g[]    = "Dataspace";
+const char H5_daos_attr_key_g[]     = "/Attribute";
+const char H5_daos_ktype_g[]        = "Key Datatype";
+const char H5_daos_vtype_g[]        = "Value Datatype";
+const char H5_daos_map_key_g[]      = "Map Record";
 
-daos_size_t H5_daos_int_md_key_size_g = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
-daos_size_t H5_daos_max_oid_key_size_g = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
-daos_size_t H5_daos_cpl_key_size_g = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
-daos_size_t H5_daos_link_key_size_g = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
-daos_size_t H5_daos_type_key_size_g = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
-daos_size_t H5_daos_space_key_size_g = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
-daos_size_t H5_daos_attr_key_size_g = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
-daos_size_t H5_daos_ktype_size_g = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
-daos_size_t H5_daos_vtype_size_g = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
-daos_size_t H5_daos_map_key_size_g = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
+const daos_size_t H5_daos_int_md_key_size_g  = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
+const daos_size_t H5_daos_max_oid_key_size_g = (daos_size_t)(sizeof(H5_daos_max_oid_key_g) - 1);
+const daos_size_t H5_daos_cpl_key_size_g     = (daos_size_t)(sizeof(H5_daos_cpl_key_g) - 1);
+const daos_size_t H5_daos_link_key_size_g    = (daos_size_t)(sizeof(H5_daos_link_key_g) - 1);
+const daos_size_t H5_daos_type_key_size_g    = (daos_size_t)(sizeof(H5_daos_type_key_g) - 1);
+const daos_size_t H5_daos_space_key_size_g   = (daos_size_t)(sizeof(H5_daos_space_key_g) - 1);
+const daos_size_t H5_daos_attr_key_size_g    = (daos_size_t)(sizeof(H5_daos_attr_key_g) - 1);
+const daos_size_t H5_daos_ktype_size_g       = (daos_size_t)(sizeof(H5_daos_ktype_g) - 1);
+const daos_size_t H5_daos_vtype_size_g       = (daos_size_t)(sizeof(H5_daos_vtype_g) - 1);
+const daos_size_t H5_daos_map_key_size_g     = (daos_size_t)(sizeof(H5_daos_map_key_g) - 1);
 
 
 /*-------------------------------------------------------------------------
@@ -191,13 +235,21 @@ daos_size_t H5_daos_map_key_size_g = (daos_size_t)(sizeof(H5_daos_int_md_key_g) 
  *-------------------------------------------------------------------------
  */
 herr_t
-H5daos_init(MPI_Comm pool_comm, uuid_t pool_uuid, char *pool_grp)
+H5daos_init(MPI_Comm pool_comm, uuid_t pool_uuid, const char *pool_grp, const char *pool_svcl)
 {
     H5I_type_t idType = H5I_UNINIT;
     herr_t     ret_value = SUCCEED;            /* Return value */
 
     if(MPI_COMM_NULL == pool_comm)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "not a valid MPI communicator")
+    if(uuid_is_null(pool_uuid))
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "not a valid UUID")
+    if(NULL == pool_grp)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "not a valid service group")
+    if(strlen(pool_grp) > H5_DAOS_MAX_GRP_NAME)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "not a valid service group")
+    if(NULL == pool_svcl)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "not a valid service list")
 
     /* Initialize HDF5 */
     if(H5open() < 0)
@@ -214,11 +266,28 @@ H5daos_init(MPI_Comm pool_comm, uuid_t pool_uuid, char *pool_grp)
             D_GOTO_ERROR(H5E_ATOM, H5E_CANTINIT, FAIL, "can't determine if DAOS VOL connector is registered")
 
         if(!is_registered) {
+            d_rank_list_t *svcl;
+            uint32_t i;
+
             /* Save arguments to globals */
-            pool_comm_g = pool_comm;
-            memcpy(pool_uuid_g, pool_uuid, sizeof(uuid_t));
-            pool_grp_g = pool_grp;
-            pool_globals_set_g = TRUE;
+            H5_daos_pool_comm_g = pool_comm;
+            memcpy(H5_daos_pool_uuid_g, pool_uuid, sizeof(uuid_t));
+            strcpy(H5_daos_pool_grp_g, pool_grp);
+
+            /* Parse rank list */
+            if(NULL == (svcl = daos_rank_list_parse(pool_svcl, ":")))
+                D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "failed to parse service rank list")
+            if(svcl->rl_nr == 0 || svcl->rl_nr > H5_DAOS_MAX_SVC_REPLICAS) {
+                daos_rank_list_free(svcl);
+                D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "not a valid service list")
+            }
+            H5_daos_pool_svcl_g.rl_nr = svcl->rl_nr;
+            memset(H5_daos_pool_ranks_g, 0, sizeof(H5_daos_pool_ranks_g));
+            H5_daos_pool_svcl_g.rl_ranks = H5_daos_pool_ranks_g;
+            for(i = 0; i < svcl->rl_nr; i++)
+                H5_daos_pool_ranks_g[i] = svcl->rl_ranks[i];
+            daos_rank_list_free(svcl);
+            H5_daos_pool_globals_set_g = TRUE;
 
             /* Register connector */
             if((H5_DAOS_g = H5VLregister_connector((const H5VL_class_t *)&H5_daos_g, H5P_DEFAULT)) < 0)
@@ -233,232 +302,6 @@ H5daos_init(MPI_Comm pool_comm, uuid_t pool_uuid, char *pool_grp)
 done:
     D_FUNC_LEAVE_API
 } /* end H5daos_init() */
-
-
-/*-------------------------------------------------------------------------
- * Function:    H5_daos_init
- *
- * Purpose:     Initialize this VOL connector by registering the connector
- *              with the library.
- *
- * Return:      Non-negative on success/Negative on failure
- *
- * Programmer:  Neil Fortner
- *              October, 2016
- *
- *-------------------------------------------------------------------------
- */
-herr_t
-H5_daos_init(hid_t H5VL_DAOS_UNUSED vipl_id)
-{
-#ifdef DV_HAVE_SNAP_OPEN_ID
-    H5_daos_snap_id_t snap_id_default;
-#endif
-    int pool_rank;
-    int pool_num_procs;
-    daos_iov_t glob;
-    uint64_t gh_buf_size;
-    char gh_buf_static[H5_DAOS_GH_BUF_SIZE];
-    char *gh_buf_dyn = NULL;
-    char *gh_buf = gh_buf_static;
-    uint8_t *p;
-    hbool_t must_bcast = FALSE;
-    int ret;
-    herr_t ret_value = SUCCEED;            /* Return value */
-
-    /* Register interfaces that might not be initialized in time (for example if
-     * we open an object without knowing its type first, H5Oopen will not
-     * initialize that type) */
-    /* if(H5G_init() < 0)
-        D_GOTO_ERROR(H5E_FUNC, H5E_CANTINIT, FAIL, "unable to initialize group interface")
-    if(H5M_init() < 0)
-        D_GOTO_ERROR(H5E_FUNC, H5E_CANTINIT, FAIL, "unable to initialize map interface")
-    if(H5D_init() < 0)
-        D_GOTO_ERROR(H5E_FUNC, H5E_CANTINIT, FAIL, "unable to initialize dataset interface")
-    if(H5T_init() < 0)
-        D_GOTO_ERROR(H5E_FUNC, H5E_CANTINIT, FAIL, "unable to initialize datatype interface") */
-
-    if((dv_err_stack_g = H5Ecreate_stack()) < 0)
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create HDF5 error stack")
-
-    /* Register the connector with HDF5's error reporting API */
-    if((dv_err_class_g = H5Eregister_class(DAOS_VOL_ERR_CLS_NAME, DAOS_VOL_ERR_LIB_NAME, DAOS_VOL_ERR_VER)) < 0)
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't register error class with HDF5 error API")
-
-#ifdef DV_HAVE_SNAP_OPEN_ID
-    /* Register the DAOS SNAP_OPEN_ID property with HDF5 */
-    snap_id_default = H5_DAOS_SNAP_ID_INVAL;
-    if(H5Pregister2(H5P_FILE_ACCESS, H5_DAOS_SNAP_OPEN_ID, sizeof(H5_daos_snap_id_t), (H5_daos_snap_id_t *) &snap_id_default,
-            NULL, NULL, NULL, NULL, NULL, NULL, NULL) < 0)
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "unable to register DAOS SNAP_OPEN_ID property")
-#endif
-
-    /* Initialize daos */
-    if((0 != (ret = daos_init())) && (ret != -DER_ALREADY))
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "DAOS failed to initialize: %s", H5_daos_err_to_string(ret))
-
-#ifdef DV_TRACK_MEM_USAGE
-    /* Initialize allocated memory counter */
-    daos_vol_curr_alloc_bytes = 0;
-#endif
-
-    /* Set pool globals to default values if they were not already set */
-    if(!pool_globals_set_g) {
-        pool_comm_g = MPI_COMM_WORLD;
-        memset(pool_uuid_g, 0, sizeof(pool_uuid_g));
-        assert(!pool_grp_g);
-    } /* end if */
-
-    /* Obtain the process rank and size from the communicator attached to the
-     * fapl ID */
-    MPI_Comm_rank(pool_comm_g, &pool_rank);
-    MPI_Comm_size(pool_comm_g, &pool_num_procs);
-
-    if(pool_rank == 0) {
-        char *svcl_str = NULL;
-        daos_pool_info_t pool_info;
-        d_rank_list_t *svcl = NULL;
-        char *uuid_str = NULL;
-        uuid_t pool_uuid;
-
-        /* If there are other processes and we fail we must bcast anyways so they
-         * don't hang */
-        if(pool_num_procs > 1)
-            must_bcast = TRUE;
-
-        if(NULL != (uuid_str = getenv("DAOS_POOL"))) {
-            if(uuid_parse(uuid_str, pool_uuid) < 0)
-                D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "failed to parse pool UUID from environment")
-#ifdef DV_PLUGIN_DEBUG
-            printf("POOL UUID = %s\n", uuid_str);
-#endif
-        }
-        else {
-            char uuid_buf[37];
-
-            memcpy(pool_uuid, pool_uuid_g, sizeof(uuid_t));
-            uuid_unparse(pool_uuid, uuid_buf);
-#ifdef DV_PLUGIN_DEBUG
-            printf("POOL UUID = %s\n", uuid_buf);
-#endif
-        }
-
-        if(NULL != (svcl_str = getenv("DAOS_SVCL"))) {
-            /* DSINC - this function creates an unavoidable memory leak, as the function
-             * to free the memory it allocates is not currently exposed for use.
-             */
-            if(NULL == (svcl = daos_rank_list_parse(svcl_str, ":")))
-                D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "failed to parse SVC list from environment")
-        }
-#ifdef DV_PLUGIN_DEBUG
-        printf("SVC LIST = %s\n", svcl_str);
-#endif
-
-        /* Connect to the pool */
-        if(0 != (ret = daos_pool_connect(pool_uuid, pool_grp_g, svcl, DAOS_PC_RW, &H5_daos_poh_g, &pool_info, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't connect to pool: %s", H5_daos_err_to_string(ret))
-
-        /* Bcast pool handle if there are other processes */
-        if(pool_num_procs > 1) {
-            /* Calculate size of global pool handle */
-            glob.iov_buf = NULL;
-            glob.iov_buf_len = 0;
-            glob.iov_len = 0;
-            if(0 != (ret = daos_pool_local2global(H5_daos_poh_g, &glob)))
-                D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't get global pool handle size: %s", H5_daos_err_to_string(ret))
-            gh_buf_size = (uint64_t)glob.iov_buf_len;
-
-            /* Check if the global handle won't fit into the static buffer */
-            assert(sizeof(gh_buf_static) >= sizeof(uint64_t));
-            if(gh_buf_size + sizeof(uint64_t) > sizeof(gh_buf_static)) {
-                /* Allocate dynamic buffer */
-                if(NULL == (gh_buf_dyn = (char *)DV_malloc(gh_buf_size + sizeof(uint64_t))))
-                    D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate space for global pool handle")
-
-                /* Use dynamic buffer */
-                gh_buf = gh_buf_dyn;
-            } /* end if */
-
-            /* Encode handle length */
-            p = (uint8_t *)gh_buf;
-            UINT64ENCODE(p, gh_buf_size)
-
-            /* Get global pool handle */
-            glob.iov_buf = (char *)p;
-            glob.iov_buf_len = gh_buf_size;
-            glob.iov_len = 0;
-            if(0 != (ret = daos_pool_local2global(H5_daos_poh_g, &glob)))
-                D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't get global pool handle: %s", H5_daos_err_to_string(ret))
-            assert(glob.iov_len == glob.iov_buf_len);
-
-            /* We are about to bcast so we no longer need to bcast on failure */
-            must_bcast = FALSE;
-
-            /* MPI_Bcast gh_buf */
-            if(MPI_SUCCESS != MPI_Bcast(gh_buf, (int)sizeof(gh_buf_static), MPI_BYTE, 0, pool_comm_g))
-                D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't broadcast global pool handle")
-
-            /* Need a second bcast if we had to allocate a dynamic buffer */
-            if(gh_buf == gh_buf_dyn)
-                if(MPI_SUCCESS != MPI_Bcast((char *)p, (int)gh_buf_size, MPI_BYTE, 0, pool_comm_g))
-                    D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't broadcast global pool handle (second broadcast)")
-        } /* end if */
-    } /* end if */
-    else {
-        /* Receive global handle */
-        if(MPI_SUCCESS != MPI_Bcast(gh_buf, (int)sizeof(gh_buf_static), MPI_BYTE, 0, pool_comm_g))
-            D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't receive broadcasted global pool handle")
-
-        /* Decode handle length */
-        p = (uint8_t *)gh_buf;
-        UINT64DECODE(p, gh_buf_size)
-
-        /* Check for gh_buf_size set to 0 - indicates failure */
-        if(gh_buf_size == 0)
-            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "lead process failed to initialize")
-
-        /* Check if we need to perform another bcast */
-        if(gh_buf_size + sizeof(uint64_t) > sizeof(gh_buf_static)) {
-            /* Check if we need to allocate a dynamic buffer */
-            if(gh_buf_size > sizeof(gh_buf_static)) {
-                /* Allocate dynamic buffer */
-                if(NULL == (gh_buf_dyn = (char *)DV_malloc(gh_buf_size)))
-                    D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate space for global pool handle")
-                gh_buf = gh_buf_dyn;
-            } /* end if */
-
-            /* Receive global handle */
-            if(MPI_SUCCESS != MPI_Bcast(gh_buf, (int)gh_buf_size, MPI_BYTE, 0, pool_comm_g))
-                D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't receive broadcasted global pool handle (second broadcast)")
-
-            p = (uint8_t *)gh_buf;
-        } /* end if */
-
-        /* Create local pool handle */
-        glob.iov_buf = (char *)p;
-        glob.iov_buf_len = gh_buf_size;
-        glob.iov_len = gh_buf_size;
-        if(0 != (ret = daos_pool_global2local(glob, &H5_daos_poh_g)))
-            D_GOTO_ERROR(H5E_VOL, H5E_CANTOPENOBJ, FAIL, "can't get local pool handle: %s", H5_daos_err_to_string(ret))
-    } /* end else */
-
-done:
-    if(ret_value < 0) {
-        /* Bcast gh_buf as '0' if necessary - this will trigger failures in the
-         * other processes so we do not need to do the second bcast. */
-        if(must_bcast) {
-            memset(gh_buf_static, 0, sizeof(gh_buf_static));
-            if(MPI_SUCCESS != MPI_Bcast(gh_buf_static, sizeof(gh_buf_static), MPI_BYTE, 0, pool_comm_g))
-                D_DONE_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't broadcast empty global handle")
-        } /* end if */
-
-        H5daos_term();
-    } /* end if */
-
-    DV_free(gh_buf_dyn);
-
-    D_FUNC_LEAVE
-} /* end H5_daos_init() */
 
 
 /*-------------------------------------------------------------------------
@@ -513,49 +356,6 @@ done:
 
     D_FUNC_LEAVE_API
 } /* end H5daos_term() */
-
-
-/*---------------------------------------------------------------------------
- * Function:    H5_daos_term
- *
- * Purpose:     Shut down the DAOS VOL
- *
- * Returns:     Non-negative on success/Negative on failure
- *
- *---------------------------------------------------------------------------
- */
-static herr_t
-H5_daos_term(void)
-{
-    int ret;
-    herr_t ret_value = SUCCEED;
-
-    if(H5_DAOS_g >= 0) {
-        /* Disconnect from pool */
-        if(!daos_handle_is_inval(H5_daos_poh_g)) {
-            if(0 != (ret = daos_pool_disconnect(H5_daos_poh_g, NULL /*event*/)))
-                D_GOTO_ERROR(H5E_VOL, H5E_CLOSEERROR, FAIL, "can't disconnect from pool: %s", H5_daos_err_to_string(ret))
-            H5_daos_poh_g = DAOS_HDL_INVAL;
-        } /* end if */
-
-        /* Terminate DAOS */
-        if(daos_fini() < 0)
-            D_GOTO_ERROR(H5E_VOL, H5E_CLOSEERROR, FAIL, "DAOS failed to terminate")
-
-#ifdef DV_HAVE_SNAP_OPEN_ID
-        /* Unregister the DAOS SNAP_OPEN_ID property from HDF5 */
-        if(H5Punregister(H5P_FILE_ACCESS, H5_DAOS_SNAP_OPEN_ID) < 0)
-            D_GOTO_ERROR(H5E_VOL, H5E_CLOSEERROR, FAIL, "can't unregister DAOS SNAP_OPEN_ID property")
-#endif
-    } /* end if */
-
-done:
-    /* "Forget" connector id.  This should normally be called by the library
-     * when it is closing the id, so no need to close it here. */
-    H5_DAOS_g = -1;
-
-    D_FUNC_LEAVE
-} /* end H5_daos_term() */
 
 
 /*-------------------------------------------------------------------------
@@ -699,6 +499,478 @@ done:
     D_FUNC_LEAVE_API
 } /* end H5Pset_daos_snap_open() */
 #endif
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_init
+ *
+ * Purpose:     Initialize this VOL connector by registering the connector
+ *              with the library.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ * Programmer:  Neil Fortner
+ *              October, 2016
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_init(hid_t H5VL_DAOS_UNUSED vipl_id)
+{
+#ifdef DV_HAVE_SNAP_OPEN_ID
+    H5_daos_snap_id_t snap_id_default;
+#endif
+    int pool_rank, pool_num_procs;
+    int ret;
+    herr_t ret_value = SUCCEED;            /* Return value */
+
+    if(H5_daos_initialized_g)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "attempting to initialize connector twice")
+
+    /* Register interfaces that might not be initialized in time (for example if
+     * we open an object without knowing its type first, H5Oopen will not
+     * initialize that type) */
+    /* if(H5G_init() < 0)
+        D_GOTO_ERROR(H5E_FUNC, H5E_CANTINIT, FAIL, "unable to initialize group interface")
+    if(H5M_init() < 0)
+        D_GOTO_ERROR(H5E_FUNC, H5E_CANTINIT, FAIL, "unable to initialize map interface")
+    if(H5D_init() < 0)
+        D_GOTO_ERROR(H5E_FUNC, H5E_CANTINIT, FAIL, "unable to initialize dataset interface")
+    if(H5T_init() < 0)
+        D_GOTO_ERROR(H5E_FUNC, H5E_CANTINIT, FAIL, "unable to initialize datatype interface") */
+
+    if((dv_err_stack_g = H5Ecreate_stack()) < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create HDF5 error stack")
+
+    /* Register the connector with HDF5's error reporting API */
+    if((dv_err_class_g = H5Eregister_class(DAOS_VOL_ERR_CLS_NAME, DAOS_VOL_ERR_LIB_NAME, DAOS_VOL_ERR_VER)) < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't register error class with HDF5 error API")
+
+#ifdef DV_HAVE_SNAP_OPEN_ID
+    /* Register the DAOS SNAP_OPEN_ID property with HDF5 */
+    snap_id_default = H5_DAOS_SNAP_ID_INVAL;
+    if(H5Pregister2(H5P_FILE_ACCESS, H5_DAOS_SNAP_OPEN_ID, sizeof(H5_daos_snap_id_t), (H5_daos_snap_id_t *) &snap_id_default,
+            NULL, NULL, NULL, NULL, NULL, NULL, NULL) < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "unable to register DAOS SNAP_OPEN_ID property")
+#endif
+
+    /* Initialize daos */
+    if((0 != (ret = daos_init())) && (ret != -DER_ALREADY))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "DAOS failed to initialize: %s", H5_daos_err_to_string(ret))
+
+#ifdef DV_TRACK_MEM_USAGE
+    /* Initialize allocated memory counter */
+    daos_vol_curr_alloc_bytes = 0;
+#endif
+
+    /* Set pool globals to default values if they were not already set */
+    if(!H5_daos_pool_globals_set_g) {
+        H5_daos_pool_comm_g = MPI_COMM_WORLD;
+        memset(H5_daos_pool_uuid_g, 0, sizeof(H5_daos_pool_uuid_g));
+        memset(H5_daos_pool_grp_g, '\0', sizeof(H5_daos_pool_grp_g));
+    } /* end if */
+
+    /* Obtain the process rank and size from the communicator attached to the
+     * fapl ID */
+    MPI_Comm_rank(H5_daos_pool_comm_g, &pool_rank);
+    MPI_Comm_size(H5_daos_pool_comm_g, &pool_num_procs);
+
+    if(pool_rank == 0) {
+        /* First connect to the pool */
+        if(H5_daos_pool_connect() < 0)
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't connect to DAOS pool")
+
+        /* Broadcast pool handle to other procs if any */
+        if((pool_num_procs > 1) && (H5_daos_pool_local2global() < 0))
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTSET, FAIL, "can't broadcast DAOS pool handle")
+    } /* end if */
+    else if(H5_daos_pool_global2local() < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTRECV, FAIL, "can't receive DAOS pool handle")
+
+    /* Initialized */
+    H5_daos_initialized_g = TRUE;
+
+done:
+    if(ret_value < 0) {
+        H5daos_term();
+    } /* end if */
+
+    D_FUNC_LEAVE
+} /* end H5_daos_init() */
+
+
+/*---------------------------------------------------------------------------
+ * Function:    H5_daos_term
+ *
+ * Purpose:     Shut down the DAOS VOL
+ *
+ * Returns:     Non-negative on success/Negative on failure
+ *
+ *---------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_term(void)
+{
+    herr_t ret_value = SUCCEED;
+
+    /**
+     * H5_DAOS_g is only set if the connector is manually initialized,
+     * therefore we must check for proper DAOS initialization.
+     */
+    if(!H5_daos_initialized_g)
+        D_GOTO_DONE(ret_value);
+
+    /* Disconnect from pool */
+    if(H5_daos_pool_disconnect() < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CLOSEERROR, FAIL, "can't disconnect from DAOS pool")
+
+    /* Terminate DAOS */
+    if(daos_fini() < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CLOSEERROR, FAIL, "DAOS failed to terminate")
+
+#ifdef DV_HAVE_SNAP_OPEN_ID
+    /* Unregister the DAOS SNAP_OPEN_ID property from HDF5 */
+    if(H5Punregister(H5P_FILE_ACCESS, H5_DAOS_SNAP_OPEN_ID) < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CLOSEERROR, FAIL, "can't unregister DAOS SNAP_OPEN_ID property")
+#endif
+
+    /* "Forget" connector id.  This should normally be called by the library
+     * when it is closing the id, so no need to close it here. */
+    H5_DAOS_g = -1;
+
+    /* No longer initialized */
+    H5_daos_initialized_g = FALSE;
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_term() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_pool_create
+ *
+ * Purpose:     Create a pool using default values.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_pool_create(uuid_t uuid, const char **pool_grp, d_rank_list_t **svcl)
+{
+    unsigned int mode = H5_daos_pool_default_mode_g;
+    unsigned int uid = geteuid();
+    unsigned int gid = getegid();
+    const char *group = DAOS_DEFAULT_GROUP_ID;
+    d_rank_list_t *targets = NULL;
+    const char *dev= "pmem";
+    daos_size_t  scm_size = H5_daos_pool_default_scm_size_g;
+    daos_size_t  nvme_size = H5_daos_pool_default_nvme_size_g;
+    int ret;
+    herr_t ret_value = SUCCEED; /* Return value */
+
+    memset(H5_daos_pool_ranks_g, 0, sizeof(H5_daos_pool_ranks_g));
+    H5_daos_pool_svcl_g.rl_ranks = H5_daos_pool_ranks_g;
+    H5_daos_pool_svcl_g.rl_nr = H5_daos_pool_default_svc_nreplicas_g;
+    strcpy(H5_daos_pool_grp_g, group);
+
+    /* Create a pool using default values */
+    if(0 != (ret = daos_pool_create(mode, uid, gid, group, targets, dev, scm_size, nvme_size, NULL, &H5_daos_pool_svcl_g, H5_daos_pool_uuid_g, NULL /* event */)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTCREATE, FAIL, "can't create pool: %s", H5_daos_err_to_string(ret))
+
+    memcpy(uuid, H5_daos_pool_uuid_g, sizeof(uuid_t));
+    *pool_grp = H5_daos_pool_grp_g;
+    *svcl = &H5_daos_pool_svcl_g;
+
+done:
+    D_FUNC_LEAVE_API
+}
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_pool_destroy
+ *
+ * Purpose:     Destroy the pool.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_pool_destroy(uuid_t uuid)
+{
+    const char *group = DAOS_DEFAULT_GROUP_ID;
+    int ret;
+    herr_t ret_value = SUCCEED; /* Return value */
+
+    /* Destroy the pool using default values */
+    if(0 != (ret = daos_pool_destroy(uuid, group, 0 /* force */, NULL /* event */)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTDELETE, FAIL, "can't destroy pool: %s", H5_daos_err_to_string(ret))
+
+    memset(H5_daos_pool_uuid_g, 0, sizeof(H5_daos_pool_uuid_g));
+    memset(H5_daos_pool_ranks_g, 0, sizeof(H5_daos_pool_ranks_g));
+    H5_daos_pool_svcl_g.rl_nr = 0;
+
+done:
+    D_FUNC_LEAVE_API
+}
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_pool_connect
+ *
+ * Purpose:     Connect to the pool.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_pool_connect(void)
+{
+    char *uuid_str = NULL;
+    uuid_t pool_uuid;
+    const char *pool_grp = NULL;
+    char *svcl_str = NULL;
+    d_rank_list_t *svcl = NULL;
+    daos_pool_info_t pool_info;
+    int ret;
+    herr_t ret_value = SUCCEED;            /* Return value */
+
+    /* Retrieve pool UUID */
+    if(NULL != (uuid_str = getenv("DAOS_POOL"))) {
+        if(uuid_parse(uuid_str, pool_uuid) < 0)
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "failed to parse pool UUID from environment")
+#ifdef DV_PLUGIN_DEBUG
+        printf("POOL UUID = %s\n", uuid_str);
+#endif
+        /* Must also retrieve pool service replica ranks */
+        if(NULL == (svcl_str = getenv("DAOS_SVCL")))
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "DAOS_SVCL must be set to pool service replica rank list")
+
+        /* Parse rank list */
+        if(NULL == (svcl = daos_rank_list_parse(svcl_str, ":")))
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "failed to parse SVC list from environment")
+    #ifdef DV_PLUGIN_DEBUG
+        printf("SVC LIST = %s\n", svcl_str);
+    #endif
+    } else if (H5_daos_pool_globals_set_g) {
+        memcpy(pool_uuid, H5_daos_pool_uuid_g, sizeof(uuid_t));
+        pool_grp = H5_daos_pool_grp_g;
+        svcl = &H5_daos_pool_svcl_g;
+#ifdef DV_PLUGIN_DEBUG
+        H5_DAOS_PRINT_UUID(pool_uuid);
+#endif
+    } else {
+        /* If neither the pool environment variable nor the pool UUID have been
+         * explicitly set, attempt to create a default pool.
+         */
+        if(H5_daos_pool_create(pool_uuid, &pool_grp, &svcl) < 0)
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTCREATE, FAIL, "failed to create pool")
+        H5_daos_pool_is_mine_g = TRUE;
+        H5_daos_pool_globals_set_g = TRUE;
+#ifdef DV_PLUGIN_DEBUG
+        H5_DAOS_PRINT_UUID(pool_uuid);
+#endif
+    }
+    if(!pool_grp)
+        pool_grp = DAOS_DEFAULT_GROUP_ID; /* Attempt to use default group */
+    if(svcl->rl_nr == 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "service rank number cannot be null")
+
+    /* Connect to the pool */
+    if(0 != (ret = daos_pool_connect(pool_uuid, pool_grp, svcl, DAOS_PC_RW, &H5_daos_poh_g, &pool_info, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't connect to pool: %s", H5_daos_err_to_string(ret))
+
+done:
+    if(svcl_str && svcl)
+        daos_rank_list_free(svcl);
+    D_FUNC_LEAVE_API
+} /* end H5_daos_pool_connect() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_pool_disconnect
+ *
+ * Purpose:     Disconnect from the pool.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_pool_disconnect(void)
+{
+    hbool_t destroy_pool = FALSE; /* DSINC Do not attempt to destroy pool for now */
+    int ret;
+    herr_t ret_value = SUCCEED;            /* Return value */
+
+    if(daos_handle_is_inval(H5_daos_poh_g))
+        D_GOTO_DONE(ret_value);
+
+    if(0 != (ret = daos_pool_disconnect(H5_daos_poh_g, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CLOSEERROR, FAIL, "can't disconnect from pool: %s", H5_daos_err_to_string(ret))
+    H5_daos_poh_g = DAOS_HDL_INVAL;
+
+    if (destroy_pool && H5_daos_pool_is_mine_g) {
+#ifdef DV_PLUGIN_DEBUG
+        {
+            char uuid_buf[37];
+            uuid_unparse(H5_daos_pool_uuid_g, uuid_buf);
+            printf("\n **** Destroy POOL UUID = %s\n", uuid_buf);
+        }
+#endif
+
+        /* DSINC destroy pool ? */
+        if(H5_daos_pool_destroy(H5_daos_pool_uuid_g) < 0)
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTCREATE, FAIL, "failed to create pool")
+        H5_daos_pool_is_mine_g = FALSE;
+    }
+
+done:
+    D_FUNC_LEAVE_API
+} /* end H5_daos_pool_disconnect() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_pool_local2global
+ *
+ * Purpose:     Broadcast the pool handle.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_pool_local2global(void)
+{
+    daos_iov_t glob;
+    uint64_t gh_buf_size;
+    char gh_buf_static[H5_DAOS_GH_BUF_SIZE];
+    char *gh_buf_dyn = NULL;
+    char *gh_buf = gh_buf_static;
+    uint8_t *p;
+    hbool_t must_bcast = TRUE; /* Force bcast in case of failure to prevent hang */
+    int ret;
+    herr_t ret_value = SUCCEED;            /* Return value */
+
+    /* Calculate size of global pool handle */
+    glob.iov_buf = NULL;
+    glob.iov_buf_len = 0;
+    glob.iov_len = 0;
+    if(0 != (ret = daos_pool_local2global(H5_daos_poh_g, &glob)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't get global pool handle size: %s", H5_daos_err_to_string(ret))
+    gh_buf_size = (uint64_t)glob.iov_buf_len;
+
+    /* Check if the global handle won't fit into the static buffer */
+    assert(sizeof(gh_buf_static) >= sizeof(uint64_t));
+    if(gh_buf_size + sizeof(uint64_t) > sizeof(gh_buf_static)) {
+        /* Allocate dynamic buffer */
+        if(NULL == (gh_buf_dyn = (char *)DV_malloc(gh_buf_size + sizeof(uint64_t))))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate space for global pool handle")
+
+        /* Use dynamic buffer */
+        gh_buf = gh_buf_dyn;
+    } /* end if */
+
+    /* Encode handle length */
+    p = (uint8_t *)gh_buf;
+    UINT64ENCODE(p, gh_buf_size)
+
+    /* Get global pool handle */
+    glob.iov_buf = (char *)p;
+    glob.iov_buf_len = gh_buf_size;
+    glob.iov_len = 0;
+    if(0 != (ret = daos_pool_local2global(H5_daos_poh_g, &glob)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't get global pool handle: %s", H5_daos_err_to_string(ret))
+    assert(glob.iov_len == glob.iov_buf_len);
+
+    /* We are about to bcast so we no longer need to bcast on failure */
+    must_bcast = FALSE;
+
+    /* MPI_Bcast gh_buf */
+    if(MPI_SUCCESS != MPI_Bcast(gh_buf, (int)sizeof(gh_buf_static), MPI_BYTE, 0, H5_daos_pool_comm_g))
+        D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't broadcast global pool handle")
+
+    /* Need a second bcast if we had to allocate a dynamic buffer */
+    if(gh_buf == gh_buf_dyn)
+        if(MPI_SUCCESS != MPI_Bcast((char *)p, (int)gh_buf_size, MPI_BYTE, 0, H5_daos_pool_comm_g))
+            D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't broadcast global pool handle (second broadcast)")
+
+done:
+    /* Bcast gh_buf as '0' if necessary - this will trigger failures in the
+     * other processes so we do not need to do the second bcast. */
+    if(must_bcast) {
+        memset(gh_buf_static, 0, sizeof(gh_buf_static));
+        if(MPI_SUCCESS != MPI_Bcast(gh_buf_static, sizeof(gh_buf_static), MPI_BYTE, 0, H5_daos_pool_comm_g))
+            D_DONE_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't broadcast empty global handle")
+    } /* end if */
+
+    D_FUNC_LEAVE_API
+} /* end H5_daos_pool_local2global() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_pool_global2local
+ *
+ * Purpose:     Receive the broadcasted pool handle.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_pool_global2local(void)
+{
+    daos_iov_t glob;
+    uint64_t gh_buf_size;
+    char gh_buf_static[H5_DAOS_GH_BUF_SIZE];
+    char *gh_buf_dyn = NULL;
+    char *gh_buf = gh_buf_static;
+    uint8_t *p;
+    int ret;
+    herr_t ret_value = SUCCEED;             /* Return value */
+
+    /* Receive global handle */
+    if(MPI_SUCCESS != MPI_Bcast(gh_buf, (int)sizeof(gh_buf_static), MPI_BYTE, 0, H5_daos_pool_comm_g))
+        D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't receive broadcasted global pool handle")
+
+    /* Decode handle length */
+    p = (uint8_t *)gh_buf;
+    UINT64DECODE(p, gh_buf_size)
+
+    /* Check for gh_buf_size set to 0 - indicates failure */
+    if(gh_buf_size == 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "lead process failed to initialize")
+
+    /* Check if we need to perform another bcast */
+    if(gh_buf_size + sizeof(uint64_t) > sizeof(gh_buf_static)) {
+        /* Check if we need to allocate a dynamic buffer */
+        if(gh_buf_size > sizeof(gh_buf_static)) {
+            /* Allocate dynamic buffer */
+            if(NULL == (gh_buf_dyn = (char *)DV_malloc(gh_buf_size)))
+                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate space for global pool handle")
+            gh_buf = gh_buf_dyn;
+        } /* end if */
+
+        /* Receive global handle */
+        if(MPI_SUCCESS != MPI_Bcast(gh_buf, (int)gh_buf_size, MPI_BYTE, 0, H5_daos_pool_comm_g))
+            D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't receive broadcasted global pool handle (second broadcast)")
+
+        p = (uint8_t *)gh_buf;
+    } /* end if */
+
+    /* Create local pool handle */
+    glob.iov_buf = (char *)p;
+    glob.iov_buf_len = gh_buf_size;
+    glob.iov_len = gh_buf_size;
+    if(0 != (ret = daos_pool_global2local(glob, &H5_daos_poh_g)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTOPENOBJ, FAIL, "can't get local pool handle: %s", H5_daos_err_to_string(ret))
+
+done:
+    DV_free(gh_buf_dyn);
+    D_FUNC_LEAVE_API
+} /* end H5_daos_pool_global2local */
 
 
 /*-------------------------------------------------------------------------

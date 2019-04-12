@@ -1136,6 +1136,22 @@ static herr_t H5_daos_optional(void *item, hid_t dxpl_id, void **req,
             break;
         } /* end block */
 
+        /* H5Mexists */
+        case H5VL_MAP_EXISTS:
+        {
+            hid_t key_mem_type_id = va_arg(arguments, hid_t);
+            const void *key = va_arg(arguments, const void *);
+            hbool_t *exists = va_arg(arguments, hbool_t *);
+
+            /* All arguments will be checked by H5_daos_map_exists. */
+
+            /* Pass the call */
+            if((ret_value = H5_daos_map_exists(item, key_mem_type_id, key, exists, dxpl_id, req)) < 0)
+                D_GOTO_ERROR(H5E_MAP, H5E_READERROR, ret_value, "can't get value")
+
+            break;
+        } /* end block */
+
         /* H5Mset */
         case H5VL_MAP_SET:
         {

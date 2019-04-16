@@ -148,9 +148,13 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
         if(file->num_procs > 1)
             must_bcast = TRUE;
 
+        /* If the H5F_ACC_EXCL flag was specified, ensure that the container does not exist. */
+        if(flags & H5F_ACC_EXCL)
+            if(0 == daos_cont_open(H5_daos_poh_g, file->uuid, DAOS_COO_RW, &file->coh, NULL /*&file->co_info*/, NULL /*event*/))
+                D_GOTO_ERROR(H5E_FILE, H5E_FILEEXISTS, NULL, "container already existed and H5F_ACC_EXCL flag was used!")
+
         /* Delete the container if H5F_ACC_TRUNC is set.  This shouldn't cause a
          * problem even if the container doesn't exist. */
-        /* Need to handle EXCL correctly DSINC */
         if(flags & H5F_ACC_TRUNC)
             if(0 != (ret = daos_cont_destroy(H5_daos_poh_g, file->uuid, 1, NULL /*event*/)))
                 D_GOTO_ERROR(H5E_FILE, H5E_CANTCREATE, NULL, "can't destroy container: %s", H5_daos_err_to_string(ret))

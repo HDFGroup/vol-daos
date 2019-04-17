@@ -12,7 +12,7 @@ find_path(DAOS_INCLUDE_DIR daos.h
   PATHS /usr/local/include /usr/include)
 
 find_library(DAOS_LIBRARY NAMES daos
-  HINTS ${PC_DRC_LIBDIR} ${PC_DRC_LIBRARY_DIRS}
+  HINTS ${PC_DAOS_LIBDIR} ${PC_DAOS_LIBRARY_DIRS}
   PATHS /usr/local/lib64 /usr/local/lib /usr/lib64 /usr/lib)
 
 set(DAOS_INCLUDE_DIRS ${DAOS_INCLUDE_DIR})

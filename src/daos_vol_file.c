@@ -22,6 +22,12 @@
 static herr_t H5_daos_file_flush(H5_daos_file_t *file);
 static herr_t H5_daos_file_close_helper(H5_daos_file_t *file,
     hid_t dxpl_id, void **req);
+static herr_t H5_daos_get_obj_count_callback(hid_t id, void *udata);
+
+typedef struct get_obj_count_udata {
+    uuid_t file_id;
+    ssize_t obj_count;
+} get_obj_count_udata;
 
 
 /*-------------------------------------------------------------------------
@@ -713,7 +719,39 @@ H5_daos_file_get(void *_item, H5VL_file_get_t get_type, hid_t H5VL_DAOS_UNUSED d
             break;
         } /* H5VL_FILE_GET_NAME */
 
+        /* H5Fget_obj_count */
         case H5VL_FILE_GET_OBJ_COUNT:
+        {
+            hid_t file_id = va_arg(arguments, hid_t);
+            unsigned obj_types = va_arg(arguments, unsigned);
+            ssize_t *ret_val = va_arg(arguments, ssize_t *);
+            get_obj_count_udata udata;
+
+            udata.obj_count = 0;
+
+            uuid_copy(udata.file_id, file->uuid);
+
+            if(obj_types & H5F_OBJ_FILE)
+                if(H5Iiterate(H5I_FILE, H5_daos_get_obj_count_callback, &udata) < 0)
+                    D_GOTO_ERROR(H5E_FILE, H5E_BADITER, FAIL, "failed to iterate over file's open object identifiers")
+            if(obj_types & H5F_OBJ_DATASET)
+                if(H5Iiterate(H5I_DATASET, H5_daos_get_obj_count_callback, &udata) < 0)
+                    D_GOTO_ERROR(H5E_FILE, H5E_BADITER, FAIL, "failed to iterate over file's open dataset IDs")
+            if(obj_types & H5F_OBJ_GROUP)
+                if(H5Iiterate(H5I_GROUP, H5_daos_get_obj_count_callback, &udata) < 0)
+                    D_GOTO_ERROR(H5E_FILE, H5E_BADITER, FAIL, "failed to iterate over file's open group IDs")
+            if(obj_types & H5F_OBJ_DATATYPE)
+                if(H5Iiterate(H5I_DATATYPE, H5_daos_get_obj_count_callback, &udata) < 0)
+                    D_GOTO_ERROR(H5E_FILE, H5E_BADITER, FAIL, "failed to iterate over file's open datatype IDs")
+            if(obj_types & H5F_OBJ_ATTR)
+                if(H5Iiterate(H5I_ATTR, H5_daos_get_obj_count_callback, &udata) < 0)
+                    D_GOTO_ERROR(H5E_FILE, H5E_BADITER, FAIL, "failed to iterate over file's open attribute IDs")
+
+            *ret_val = udata.obj_count;
+
+            break;
+        } /* H5VL_FILE_GET_OBJ_COUNT */
+
         case H5VL_FILE_GET_OBJ_IDS:
         default:
             D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported file get operation")
@@ -1012,4 +1050,37 @@ H5_daos_file_close(void *_file, hid_t dxpl_id, void **req)
 done:
     D_FUNC_LEAVE_API
 } /* end H5_daos_file_close() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_get_obj_count_callback
+ *
+ * Purpose:     A callback for H5Iiterate which increments the passed in
+ *              object count only if the current object's file ID matches
+ *              the file ID passed in.
+ *
+ * Return:      Success:        SUCCEED
+ *              Failure:        FAIL
+ *
+ * Programmer:  Jordan Henderson
+ *              April, 2019
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_get_obj_count_callback(hid_t id, void *udata)
+{
+    get_obj_count_udata *count_udata = (get_obj_count_udata *)udata;
+    H5_daos_obj_t *cur_obj = NULL;
+    herr_t ret_value = SUCCEED;
+
+    if(NULL == (cur_obj = (H5_daos_obj_t *) H5VLobject(id)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "can't retrieve VOL object for ID")
+
+    if(!uuid_compare(cur_obj->item.file->uuid, count_udata->file_id))
+        count_udata->obj_count++;
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_get_obj_count_callback() */
 

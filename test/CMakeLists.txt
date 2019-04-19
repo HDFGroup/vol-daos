@@ -109,4 +109,5 @@ set(H5VL_TEST_INIT_COMMAND "killall -9 daos_io_server")
 # VOL tests
 #------------------------------------------------------------------------------
 set(HDF5_VOL_TEST_EXTERNALLY_CONFIGURED TRUE)
+set(HDF5_VOL_TEST_ENABLE_PARALLEL "ON" CACHE BOOL "Enable testing in parallel (requires MPI).")
 add_subdirectory(vol)

@@ -557,6 +557,9 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_map_exists(void *_map, hid_t key_mem_type_id,
 H5VL_DAOS_PRIVATE herr_t H5_daos_map_set(void *_map, hid_t key_mem_type_id,
     const void *key,  hid_t val_mem_type_id, const void *value, hid_t dxpl_id,
     void **req);
+H5VL_DAOS_PRIVATE herr_t H5_daos_map_specific(void *_item,
+    const H5VL_loc_params_t *loc_params, H5VL_map_specific_t specific_type,
+    hid_t dxpl_id, void **req, va_list arguments);
 #ifdef DV_HAVE_MAP
 H5PLUGIN_DLL herr_t H5_daos_map_get_types(void *_map, hid_t *key_type_id, hid_t *val_type_id, void **req);
 H5PLUGIN_DLL herr_t H5_daos_map_get_count(void *_map, hsize_t *count, void **req);

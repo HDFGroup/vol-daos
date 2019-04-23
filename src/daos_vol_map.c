@@ -18,6 +18,11 @@
 #include "util/daos_vol_err.h"  /* DAOS connector error handling           */
 #include "util/daos_vol_mem.h"  /* DAOS connector memory management        */
 
+/* Prototypes */
+static herr_t H5_daos_map_iterate(H5_daos_map_t *map, hid_t map_id,
+    hsize_t *idx, hid_t key_mem_type_id, H5M_iterate_t op, void *op_data,
+    hid_t dxpl_id, void **req);
+
 
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_map_create
@@ -1031,6 +1036,17 @@ done:
 #endif /* DV_HAVE_MAP */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_map_exists
+ *
+ * Purpose:     Check if the specified key exists in the map. The result
+ *              will be returned via the "exists" parameter.
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ *-------------------------------------------------------------------------
+ */
 herr_t 
 H5_daos_map_exists(void *_map, hid_t key_mem_type_id, const void *key,
     hbool_t *exists, hid_t H5VL_DAOS_UNUSED dxpl_id,
@@ -1078,6 +1094,273 @@ H5_daos_map_exists(void *_map, hid_t key_mem_type_id, const void *key,
 done:
     D_FUNC_LEAVE_API
 } /* end H5_daos_map_exists() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_map_specific
+ *
+ * Purpose:     Performs a map "specific" operation
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_map_specific(void *_item, const H5VL_loc_params_t *loc_params,
+    H5VL_map_specific_t specific_type, hid_t H5VL_DAOS_UNUSED dxpl_id,
+    void H5VL_DAOS_UNUSED **req, va_list arguments)
+{
+    H5_daos_item_t *item = (H5_daos_item_t *)_item;
+    H5_daos_map_t *map = NULL;
+    hid_t map_id = -1;
+    herr_t ret_value = SUCCEED;
+
+    if(!_item)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL")
+    if(!loc_params)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "location parameters object is NULL")
+
+    switch (specific_type) {
+        /* H5Miterate(_by_name) */
+        case H5VL_MAP_ITER:
+        {
+            hsize_t *idx = va_arg(arguments, hsize_t *);
+            hid_t key_mem_type_id = va_arg(arguments, hid_t);
+            H5M_iterate_t op = va_arg(arguments, H5M_iterate_t);
+            void *op_data = va_arg(arguments, void *);
+
+            switch (loc_params->type) {
+                /* H5Miterate */
+                case H5VL_OBJECT_BY_SELF:
+                {
+                    /* Use item as the map for iteration */
+                    if(item->type != H5I_MAP)
+                        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "item not a map")
+
+                    map = (H5_daos_map_t *)item;
+                    map->obj.item.rc++;
+                    break;
+                } /* H5VL_OBJECT_BY_SELF */
+
+                /* H5Miterate_by_name */
+                case H5VL_OBJECT_BY_NAME:
+                {
+                    H5VL_loc_params_t sub_loc_params;
+
+                    /* Open target_map */
+                    sub_loc_params.obj_type = item->type;
+                    sub_loc_params.type = H5VL_OBJECT_BY_SELF;
+                    if(NULL == (map = (H5_daos_map_t *)H5_daos_map_open(item, &sub_loc_params, loc_params->loc_data.loc_by_name.name, loc_params->loc_data.loc_by_name.lapl_id, dxpl_id, req)))
+                        D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, FAIL, "can't open map for operation")
+
+                    break;
+                } /* H5VL_OBJECT_BY_NAME */
+
+                case H5VL_OBJECT_BY_IDX:
+                case H5VL_OBJECT_BY_ADDR:
+                case H5VL_OBJECT_BY_REF:
+                default:
+                    D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, FAIL, "invalid loc_params type")
+            } /* end switch */
+
+            /* Register id for target_map */
+            if((map_id = H5VLwrap_register(map, H5I_MAP)) < 0)
+                D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, FAIL, "unable to atomize object handle")
+
+            /* Perform map iteration */
+            if((ret_value = H5_daos_map_iterate(map, map_id, idx, key_mem_type_id, op, op_data, dxpl_id, req)) < 0)
+                D_GOTO_ERROR(H5E_MAP, H5E_BADITER, FAIL, "map iteration failed")
+
+            break;
+        } /* H5VL_MAP_ITER */
+
+        default:
+            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported map specific operation")
+    } /* end switch */
+
+done:
+    if(map_id >= 0) {
+        if(H5Idec_ref(map_id) < 0)
+            D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't close map ID")
+        map_id = -1;
+        map = NULL;
+    } /* end if */
+    else if(map) {
+        if(H5_daos_map_close(map, dxpl_id, req) < 0)
+            D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't close map")
+        map = NULL;
+    } /* end else */
+
+    D_FUNC_LEAVE_API
+} /* end H5_daos_map_specific() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_map_iterate
+ *
+ * Purpose:     Iterates over all key-value pairs stored in the Map
+ *              specified by map_id, making the callback specified by op
+ *              for each. The idx parameter is an in/out parameter that
+ *              may be used to restart a previously interrupted iteration.
+ *              At the start of iteration idx should be set to 0, and to
+ *              restart iteration at the same location on a subsequent
+ *              call to H5Miterate, idx should be the same value as
+ *              returned by the previous call.
+ *
+ * Return:      Success:        Last value returned by op (non-negative)
+ *              Failure:        Last value returned by op (negative), or
+ *                              -1 (
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t 
+H5_daos_map_iterate(H5_daos_map_t *map, hid_t map_id, hsize_t *idx,
+    hid_t key_mem_type_id, H5M_iterate_t op, void *op_data,
+    hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req)
+{
+    daos_anchor_t anchor;
+    uint32_t nr;
+    daos_key_desc_t kds[H5_DAOS_ITER_LEN];
+    daos_key_t dkey;
+    daos_iod_t iod;
+    daos_sg_list_t sgl;
+    daos_iov_t sg_iov;
+    size_t key_size;
+    hbool_t key_is_vl;
+    H5T_class_t key_cls;
+    herr_t op_ret;
+    char *dkey_buf = NULL;
+    size_t dkey_buf_len = 0;
+    const void *key;
+    hvl_t vl_key;
+    char *p;
+    int ret;
+    uint32_t i;
+    herr_t ret_value = SUCCEED;
+
+    assert(map);
+    assert(map_id >= 0);
+    if(!op)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "operator is NULL")
+
+    /* Iteration restart not supported */
+    if(idx && (*idx != 0))
+        D_GOTO_ERROR(H5E_SYM, H5E_UNSUPPORTED, FAIL, "iteration restart not supported (must start from 0)")
+
+    /* get information about the datatype of the key. Get the key's
+       size if it is not VL. vkey_size will be 0 if it is VL */
+    if(H5_daos_map_dtype_info(key_mem_type_id, &key_is_vl, &key_size, &key_cls) < 0)
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get key size");
+
+    /* Set key to point to vl_key if key is a non-string vlen */
+    if(key_is_vl && (key_cls != H5T_STRING))
+        key = &vl_key;
+
+    /* Initialize anchor */
+    memset(&anchor, 0, sizeof(anchor));
+
+    /* Allocate dkey_buf */
+    if(NULL == (dkey_buf = (char *)DV_malloc(H5_DAOS_ITER_SIZE_INIT)))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for dkeys")
+    dkey_buf_len = H5_DAOS_ITER_SIZE_INIT;
+
+    /* Set up list_sgl */
+    daos_iov_set(&sg_iov, dkey_buf, (daos_size_t)dkey_buf_len);
+    sgl.sg_nr = 1;
+    sgl.sg_nr_out = 0;
+    sgl.sg_iovs = &sg_iov;
+
+    /* Loop to retrieve keys and make callbacks */
+    do {
+        /* Loop to retrieve keys (exit as soon as we get at least 1
+         * key) */
+        do {
+            /* Reset nr */
+            nr = H5_DAOS_ITER_LEN;
+
+            /* Ask daos for a list of dkeys, break out if we succeed
+             */
+            if(0 == (ret = daos_obj_list_dkey(map->obj.obj_oh, DAOS_TX_NONE, &nr, kds, &sgl, &anchor, NULL /*event*/)))
+                break;
+
+            /* Call failed, if the buffer is too small double it and
+             * try again, otherwise fail */
+            if(ret == -DER_KEY2BIG) {
+                /* Allocate larger buffer */
+                DV_free(dkey_buf);
+                dkey_buf_len *= 2;
+                if(NULL == (dkey_buf = (char *)DV_malloc(dkey_buf_len)))
+                    D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for dkeys")
+
+                /* Update sgl */
+                daos_iov_set(&sg_iov, dkey_buf, (daos_size_t)(dkey_buf_len - 1));
+            } /* end if */
+            else
+                D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, FAIL, "can't retrieve attributes: %s", H5_daos_err_to_string(ret))
+        } while(1);
+
+        /* Loop over returned dkeys */
+        p = dkey_buf;
+        op_ret = 0;
+        for(i = 0; (i < nr) && (op_ret == 0); i++) {
+            /* Check for key sharing dkey with other metadata */
+            if(((kds[i].kd_key_len == H5_daos_int_md_key_size_g)
+                    && !memcmp(p, H5_daos_int_md_key_g, H5_daos_attr_key_size_g))
+                    || ((kds[i].kd_key_len == H5_daos_int_md_key_size_g)
+                    && !memcmp(p, H5_daos_attr_key_g, H5_daos_attr_key_size_g))) {
+                /* Set up iod */
+                memset(&iod, 0, sizeof(iod));
+                daos_iov_set(&iod.iod_name, (void *)p, kds[i].kd_key_len);
+                daos_csum_set(&iod.iod_kcsum, NULL, 0);
+                iod.iod_nr = 1u;
+                iod.iod_type = DAOS_IOD_SINGLE;
+                iod.iod_size = DAOS_REC_ANY;
+
+                /* Query map record in dkey */
+                if(0 != (ret = daos_obj_fetch(map->obj.obj_oh, DAOS_TX_NONE,
+                        &dkey, 1, &iod, NULL, NULL , NULL)))
+                    D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't check for value in map: %s", H5_daos_err_to_string(ret));
+
+                /* If there is no value, skip this dkey */
+                if(iod.iod_size == 0)
+                    continue;
+            } /* end if */
+
+            /* Set key pointer for callback */
+            if(key_is_vl) {
+                if(key_cls == H5T_STRING)
+                    /* VL string */
+                    key = &p;
+                else {
+                    /* VL array */
+                    vl_key.len = kds[i].kd_key_len;
+                    vl_key.p = p;
+                } /* end else */
+            } /* end if */
+            else
+                key = p;
+
+            /* Make callback */
+            if((op_ret = op(map_id, key, op_data)) < 0)
+                D_GOTO_ERROR(H5E_MAP, H5E_BADITER, op_ret, "operator function returned failure")
+
+            /* Advance idx */
+            if(idx)
+                (*idx)++;
+
+            /* Advance to next dkey */
+            p += kds[i].kd_key_len + kds[i].kd_csum_len;
+        } /* end for */
+    } while(!daos_anchor_is_eof(&anchor) && (op_ret == 0));
+
+    ret_value = op_ret;
+
+done:
+    dkey_buf = (char *)DV_free(dkey_buf);
+
+    D_FUNC_LEAVE_API
+} /* end H5_daos_map_iterate() */
 
 
 /*-------------------------------------------------------------------------

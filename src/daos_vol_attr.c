@@ -44,13 +44,16 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
     daos_key_t dkey;
     char *type_key = NULL;
     char *space_key = NULL;
-    daos_iod_t iod[2];
-    daos_sg_list_t sgl[2];
-    daos_iov_t sg_iov[2];
+    char *acpl_key = NULL;
+    daos_iod_t iod[3];
+    daos_sg_list_t sgl[3];
+    daos_iov_t sg_iov[3];
     size_t type_size = 0;
     size_t space_size = 0;
+    size_t acpl_size = 0;
     void *type_buf = NULL;
     void *space_buf = NULL;
+    void *acpl_buf = NULL;
     int ret;
     void *ret_value = NULL;
 
@@ -80,6 +83,7 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
     attr->item.rc = 1;
     attr->type_id = FAIL;
     attr->space_id = FAIL;
+    attr->acpl_id = FAIL;
 
     /* Determine attribute object */
     if(loc_params->type == H5VL_OBJECT_BY_SELF) {
@@ -114,22 +118,35 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
     if(H5Sencode(space_id, space_buf, &space_size) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTENCODE, NULL, "can't serialize dataspace")
 
-    /* Set up operation to write datatype and dataspace to attribute */
+    /* Encode ACPL */
+    if(H5Pencode(acpl_id, NULL, &acpl_size) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of acpl")
+    if(NULL == (acpl_buf = DV_malloc(acpl_size)))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized acpl")
+    if(H5Pencode(acpl_id, acpl_buf, &acpl_size) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTENCODE, NULL, "can't serialize acpl")
+
+    /* Set up operation to write datatype, dataspace and ACPL to attribute */
     /* Set up dkey */
     daos_iov_set(&dkey, H5_daos_attr_key_g, H5_daos_attr_key_size_g);
 
-    /* Create akey strings (prefix "S-", "T-") */
+    /* Create akey strings (prefix "S-", "T-", "P-") */
     akey_len = strlen(name) + 2;
     if(NULL == (type_key = (char *)DV_malloc(akey_len + 1)))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for akey")
     if(NULL == (space_key = (char *)DV_malloc(akey_len + 1)))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for akey")
+    if(NULL == (acpl_key = (char *)DV_malloc(akey_len + 1)))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for akey")
     type_key[0] = 'T';
     type_key[1] = '-';
     space_key[0] = 'S';
     space_key[1] = '-';
+    acpl_key[0] = 'P';
+    acpl_key[1] = '-';
     (void)strcpy(type_key + 2, name);
     (void)strcpy(space_key + 2, name);
+    (void)strcpy(acpl_key + 2, name);
 
     /* Set up iod */
     memset(iod, 0, sizeof(iod));
@@ -145,6 +162,12 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
     iod[1].iod_size = (uint64_t)space_size;
     iod[1].iod_type = DAOS_IOD_SINGLE;
 
+    daos_iov_set(&iod[2].iod_name, (void *)acpl_key, (daos_size_t)akey_len);
+    daos_csum_set(&iod[2].iod_kcsum, NULL, 0);
+    iod[2].iod_nr = 1u;
+    iod[2].iod_size = (uint64_t)acpl_size;
+    iod[2].iod_type = DAOS_IOD_SINGLE;
+
     /* Set up sgl */
     daos_iov_set(&sg_iov[0], type_buf, (daos_size_t)type_size);
     sgl[0].sg_nr = 1;
@@ -154,9 +177,13 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
     sgl[1].sg_nr = 1;
     sgl[1].sg_nr_out = 0;
     sgl[1].sg_iovs = &sg_iov[1];
+    daos_iov_set(&sg_iov[2], acpl_buf, (daos_size_t)acpl_size);
+    sgl[2].sg_nr = 1;
+    sgl[2].sg_nr_out = 0;
+    sgl[2].sg_iovs = &sg_iov[2];
 
     /* Write attribute metadata to parent object */
-    if(0 != (ret = daos_obj_update(attr->parent->obj_oh, DAOS_TX_NONE, &dkey, 2, iod, sgl, NULL /*event*/)))
+    if(0 != (ret = daos_obj_update(attr->parent->obj_oh, DAOS_TX_NONE, &dkey, 3, iod, sgl, NULL /*event*/)))
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't write attribute metadata: %s", H5_daos_err_to_string(ret))
 
     /* Finish setting up attribute struct */
@@ -166,6 +193,8 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
         D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, NULL, "failed to copy datatype")
     if((attr->space_id = H5Scopy(space_id)) < 0)
         D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, NULL, "failed to copy dataspace")
+    if((attr->acpl_id = H5Pcopy(acpl_id)) < 0)
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTCOPY, NULL, "failed to copy acpl")
     if(H5Sselect_all(attr->space_id) < 0)
         D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTDELETE, NULL, "can't change selection")
 
@@ -175,8 +204,10 @@ done:
     /* Free memory */
     type_buf = DV_free(type_buf);
     space_buf = DV_free(space_buf);
+    acpl_buf = DV_free(acpl_buf);
     type_key = (char *)DV_free(type_key);
     space_key = (char *)DV_free(space_key);
+    acpl_key = (char *)DV_free(acpl_key);
 
     /* Cleanup on failure */
     /* Destroy DAOS object if created before failure DSINC */
@@ -212,11 +243,13 @@ H5_daos_attribute_open(void *_item, const H5VL_loc_params_t *loc_params,
     daos_key_t dkey;
     char *type_key = NULL;
     char *space_key = NULL;
-    daos_iod_t iod[2];
-    daos_sg_list_t sgl[2];
-    daos_iov_t sg_iov[2];
+    char *acpl_key = NULL;
+    daos_iod_t iod[3];
+    daos_sg_list_t sgl[3];
+    daos_iov_t sg_iov[3];
     void *type_buf = NULL;
     void *space_buf = NULL;
+    void *acpl_buf = NULL;
     int ret;
     void *ret_value = NULL;
 
@@ -236,6 +269,7 @@ H5_daos_attribute_open(void *_item, const H5VL_loc_params_t *loc_params,
     attr->item.rc = 1;
     attr->type_id = FAIL;
     attr->space_id = FAIL;
+    attr->acpl_id = FAIL;
 
     /* Determine attribute object */
     if(loc_params->type == H5VL_OBJECT_BY_SELF) {
@@ -258,18 +292,23 @@ H5_daos_attribute_open(void *_item, const H5VL_loc_params_t *loc_params,
     /* Set up dkey */
     daos_iov_set(&dkey, H5_daos_attr_key_g, H5_daos_attr_key_size_g);
 
-    /* Create akey strings (prefix "S-", "T-") */
+    /* Create akey strings (prefix "S-", "T-", "P-") */
     akey_len = strlen(name) + 2;
     if(NULL == (type_key = (char *)DV_malloc(akey_len + 1)))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for akey")
     if(NULL == (space_key = (char *)DV_malloc(akey_len + 1)))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for akey")
+    if(NULL == (acpl_key = (char *)DV_malloc(akey_len + 1)))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for akey")
     type_key[0] = 'T';
     type_key[1] = '-';
     space_key[0] = 'S';
     space_key[1] = '-';
+    acpl_key[0] = 'P';
+    acpl_key[1] = '-';
     (void)strcpy(type_key + 2, name);
     (void)strcpy(space_key + 2, name);
+    (void)strcpy(acpl_key + 2, name);
 
     /* Set up iod */
     memset(iod, 0, sizeof(iod));
@@ -285,18 +324,26 @@ H5_daos_attribute_open(void *_item, const H5VL_loc_params_t *loc_params,
     iod[1].iod_size = DAOS_REC_ANY;
     iod[1].iod_type = DAOS_IOD_SINGLE;
 
+    daos_iov_set(&iod[2].iod_name, (void *)acpl_key, (daos_size_t)akey_len);
+    daos_csum_set(&iod[2].iod_kcsum, NULL, 0);
+    iod[2].iod_nr = 1u;
+    iod[2].iod_size = DAOS_REC_ANY;
+    iod[2].iod_type = DAOS_IOD_SINGLE;
+
     /* Read attribute metadata sizes from parent object */
-    if(0 != (ret = daos_obj_fetch(attr->parent->obj_oh, DAOS_TX_NONE, &dkey, 2, iod, NULL, NULL /*maps*/, NULL /*event*/)))
+    if(0 != (ret = daos_obj_fetch(attr->parent->obj_oh, DAOS_TX_NONE, &dkey, 3, iod, NULL, NULL /*maps*/, NULL /*event*/)))
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTDECODE, NULL, "can't read attribute metadata sizes: %s", H5_daos_err_to_string(ret))
 
-    if(iod[0].iod_size == (uint64_t)0 || iod[1].iod_size == (uint64_t)0)
+    if(iod[0].iod_size == (uint64_t)0 || iod[1].iod_size == (uint64_t)0 || iod[2].iod_size == (uint64_t)0)
         D_GOTO_ERROR(H5E_ATTR, H5E_NOTFOUND, NULL, "attribute not found")
 
-    /* Allocate buffers for datatype and dataspace */
+    /* Allocate buffers for datatype, dataspace and ACPL */
     if(NULL == (type_buf = DV_malloc(iod[0].iod_size)))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized datatype")
     if(NULL == (space_buf = DV_malloc(iod[1].iod_size)))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized dataspace")
+    if(NULL == (acpl_buf = DV_malloc(iod[2].iod_size)))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized acpl")
 
     /* Set up sgl */
     daos_iov_set(&sg_iov[0], type_buf, (daos_size_t)iod[0].iod_size);
@@ -307,9 +354,13 @@ H5_daos_attribute_open(void *_item, const H5VL_loc_params_t *loc_params,
     sgl[1].sg_nr = 1;
     sgl[1].sg_nr_out = 0;
     sgl[1].sg_iovs = &sg_iov[1];
+    daos_iov_set(&sg_iov[2], acpl_buf, (daos_size_t)iod[2].iod_size);
+    sgl[2].sg_nr = 1;
+    sgl[2].sg_nr_out = 0;
+    sgl[2].sg_iovs = &sg_iov[2];
 
     /* Read attribute metadata from parent object */
-    if(0 != (ret = daos_obj_fetch(attr->parent->obj_oh, DAOS_TX_NONE, &dkey, 2, iod, sgl, NULL /*maps*/, NULL /*event*/)))
+    if(0 != (ret = daos_obj_fetch(attr->parent->obj_oh, DAOS_TX_NONE, &dkey, 3, iod, sgl, NULL /*maps*/, NULL /*event*/)))
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTDECODE, NULL, "can't read attribute metadata: %s", H5_daos_err_to_string(ret))
 
     /* Decode datatype and dataspace */
@@ -317,6 +368,8 @@ H5_daos_attribute_open(void *_item, const H5VL_loc_params_t *loc_params,
         D_GOTO_ERROR(H5E_ARGS, H5E_CANTDECODE, NULL, "can't deserialize datatype")
     if((attr->space_id = H5Sdecode(space_buf)) < 0)
         D_GOTO_ERROR(H5E_ARGS, H5E_CANTDECODE, NULL, "can't deserialize datatype")
+    if((attr->acpl_id = H5Pdecode(acpl_buf)) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_CANTDECODE, NULL, "can't deserialize acpl")
     if(H5Sselect_all(attr->space_id) < 0)
         D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTDELETE, NULL, "can't change selection")
 
@@ -330,8 +383,10 @@ done:
     /* Free memory */
     type_buf = DV_free(type_buf);
     space_buf = DV_free(space_buf);
+    acpl_buf = DV_free(acpl_buf);
     type_key = (char *)DV_free(type_key);
     space_key = (char *)DV_free(space_key);
+    acpl_key = (char *)DV_free(acpl_key);
 
     /* Cleanup on failure */
     /* Destroy DAOS object if created before failure DSINC */
@@ -952,10 +1007,10 @@ H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
         case H5VL_ATTR_GET_ACPL:
             {
                 hid_t *ret_id = va_arg(arguments, hid_t *);
-                /*H5_daos_attr_t *attr = (H5_daos_attr_t *)_item;*/
+                H5_daos_attr_t *attr = (H5_daos_attr_t *)_item;
 
-                /* Retrieve the file's access property list */
-                if((*ret_id = H5Pcopy(H5P_ATTRIBUTE_CREATE_DEFAULT)) < 0)
+                /* Retrieve the attribute's creation property list */
+                if((*ret_id = H5Pcopy(attr->acpl_id)) < 0)
                     D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute creation property list");
                 break;
             } /* end block */
@@ -1272,6 +1327,8 @@ H5_daos_attribute_close(void *_attr, hid_t dxpl_id, void **req)
             D_DONE_ERROR(H5E_ATTR, H5E_CANTDEC, FAIL, "failed to close attribute's datatype")
         if(attr->space_id != FAIL && H5Idec_ref(attr->space_id) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CANTDEC, FAIL, "failed to close attribute's dataspace")
+        if(attr->acpl_id != FAIL && H5Idec_ref(attr->acpl_id) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTDEC, FAIL, "failed to close acpl")
         attr = H5FL_FREE(H5_daos_attr_t, attr);
     } /* end if */
 

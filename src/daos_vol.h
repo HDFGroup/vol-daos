@@ -227,6 +227,7 @@ typedef struct H5_daos_attr_t {
     char *name;
     hid_t type_id;
     hid_t space_id;
+    hid_t acpl_id;
 } H5_daos_attr_t;
 
 /* The link value struct */

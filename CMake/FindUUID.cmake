@@ -12,7 +12,7 @@ find_path(UUID_INCLUDE_DIR uuid/uuid.h
   PATHS /usr/local/include /usr/include)
 
 find_library(UUID_LIBRARY NAMES uuid
-  HINTS ${PC_DRC_LIBDIR} ${PC_DRC_LIBRARY_DIRS}
+  HINTS ${PC_UUID_LIBDIR} ${PC_UUID_LIBRARY_DIRS}
   PATHS /usr/local/lib64 /usr/local/lib /usr/lib64 /usr/lib)
 
 set(UUID_INCLUDE_DIRS ${UUID_INCLUDE_DIR})

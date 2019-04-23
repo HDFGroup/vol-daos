@@ -331,7 +331,7 @@ while(NOT dashboard_done)
  
   # get newest submodule info
   execute_process(
-    COMMAND "${CTEST_GIT_COMMAND}" submodule update --init
+    COMMAND "${CTEST_GIT_COMMAND}" submodule update --init --recursive
     WORKING_DIRECTORY "${CTEST_SOURCE_DIRECTORY}"
     )
  

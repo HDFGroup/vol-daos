@@ -317,3 +317,4 @@ User's Guide under `docs/HDF5 DAOS VOL User's Guide.pdf`.
 
 # IV. More Information
 
+https://wiki.hpdd.intel.com/display/DC/DAOS+Community+Home

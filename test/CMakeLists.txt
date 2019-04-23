@@ -109,4 +109,15 @@ set(H5VL_TEST_INIT_COMMAND "killall -9 daos_io_server")
 # VOL tests
 #------------------------------------------------------------------------------
 set(HDF5_VOL_TEST_EXTERNALLY_CONFIGURED TRUE)
+set(HDF5_VOL_TEST_ENABLE_PARALLEL "ON" CACHE BOOL "Enable testing in parallel (requires MPI).")
+if(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/vol/CMakeLists.txt)
+  message(STATUS "VOL test submodule not found, checking it out")
+  # get newest submodule info
+  execute_process(
+    COMMAND "${GIT_EXECUTABLE}" submodule update --init --recursive
+    WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+    OUTPUT_VARIABLE GIT_SUBMODULE_UPDATE_OUTPUT
+  )
+  message(STATUS ${GIT_SUBMODULE_UPDATE_OUTPUT})
+endif()
 add_subdirectory(vol)

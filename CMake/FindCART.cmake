@@ -12,7 +12,7 @@ find_path(CART_INCLUDE_DIR cart/types.h
   PATHS /usr/local/include /usr/include)
 
 find_library(CART_LIBRARY NAMES cart
-  HINTS ${PC_DRC_LIBDIR} ${PC_DRC_LIBRARY_DIRS}
+  HINTS ${PC_CART_LIBDIR} ${PC_CART_LIBRARY_DIRS}
   PATHS /usr/local/lib64 /usr/local/lib /usr/lib64 /usr/lib)
 
 set(CART_INCLUDE_DIRS ${CART_INCLUDE_DIR})

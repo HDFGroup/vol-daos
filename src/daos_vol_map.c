@@ -995,7 +995,7 @@ H5_daos_map_get_count(void *_map, hsize_t *count, void H5VL_DAOS_UNUSED **req)
     uint32_t     number;
     hsize_t      key_nr;
     daos_sg_list_t   sgl;
-    daos_iov_t   sg_iov; 
+    daos_iov_t   sg_iov;
     int ret;
     herr_t       ret_value = SUCCEED;
 

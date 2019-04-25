@@ -1148,7 +1148,7 @@ static herr_t H5_daos_optional(void *item, hid_t dxpl_id, void **req,
 
             /* Pass the call */
             if((ret_value = H5_daos_map_exists(item, key_mem_type_id, key, exists, dxpl_id, req)) < 0)
-                D_GOTO_ERROR(H5E_MAP, H5E_READERROR, ret_value, "can't get value")
+                D_GOTO_ERROR(H5E_MAP, H5E_READERROR, ret_value, "can't check if value exists")
 
             break;
         } /* end block */
@@ -1166,6 +1166,21 @@ static herr_t H5_daos_optional(void *item, hid_t dxpl_id, void **req,
             /* Pass the call */
             if((ret_value = H5_daos_map_set(item, key_mem_type_id, key, val_mem_type_id, value, dxpl_id, req)) < 0)
                 D_GOTO_ERROR(H5E_MAP, H5E_WRITEERROR, ret_value, "can't set value")
+
+            break;
+        } /* end block */
+
+        /* Specific operations (currently only H5Miterate) */
+        case H5VL_MAP_SPECIFIC:
+        {
+            const H5VL_loc_params_t *loc_params = va_arg(arguments, const H5VL_loc_params_t *);
+            H5VL_map_specific_t specific_type = va_arg(arguments, H5VL_map_specific_t);
+
+            /* All arguments will be checked by H5_daos_map_specific. */
+
+            /* Pass the call */
+            if((ret_value = H5_daos_map_specific(item, loc_params, specific_type, dxpl_id, req, arguments)) < 0)
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, ret_value, "can't perform specific map operation")
 
             break;
         } /* end block */

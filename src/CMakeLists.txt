@@ -51,6 +51,7 @@ if(HDF5_VOL_DAOS_USE_SYSTEM_HDF5)
   # We will require 1.12 once it is released
   find_package(HDF5 1.11 NO_MODULE NAMES hdf5 COMPONENTS C shared)
   if(HDF5_FOUND)
+    set(HDF5_C_SHARED_LIBRARY hdf5-shared)
     if(NOT TARGET ${HDF5_C_SHARED_LIBRARY})
         message(FATAL_ERROR "Could not find hdf5 shared target, please make "
         "sure that HDF5 has ben compiled with shared libraries enabled.")

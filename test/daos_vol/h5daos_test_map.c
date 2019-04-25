@@ -246,6 +246,93 @@ error:
 
 
 /*
+ * Tests checking if keys exist in a map object
+ */
+static int
+test_map_exists_int_int(void)
+{
+    hid_t file_id = -1, fapl_id = -1;
+    hid_t map_id = -1;
+    hbool_t exists;
+    int nonexist_key;
+    int i;
+
+    TESTING("map exists with integer keys and values")
+
+    if((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
+        TEST_ERROR
+    if(H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
+        TEST_ERROR
+
+    if((file_id = H5Fopen(FILENAME, H5F_ACC_RDONLY, fapl_id)) < 0)
+        TEST_ERROR
+
+    if((map_id = H5Mopen(file_id, MAP_INT_INT_NAME, H5P_DEFAULT)) < 0)
+        TEST_ERROR
+
+    /* Check if the existing keys exist (should all be TRUE) */
+    for(i = 0; i < INT_INT_NKEYS; i++) {
+        if(H5Mexists(map_id, H5T_NATIVE_INT, &int_int_keys[i], &exists, H5P_DEFAULT) < 0) {
+            H5_FAILED();
+            printf("failed to check if key exists\n");
+            goto error;
+        } /* end if */
+
+        if(!exists) {
+            H5_FAILED();
+            printf("incorrect value returned\n");
+            goto error;
+        } /* end if */
+    } /* end for */
+
+    /* Look for key that does not exist */
+    nonexist_key = -1;
+    do {
+        nonexist_key++;
+        exists = 0;
+        for(i = 0; i < INT_INT_NKEYS; i++)
+            if(int_int_keys[i] == nonexist_key) {
+                exists = 1;
+                break;
+            } /* end if */
+    } while(exists);
+
+    /* Check if the nonexisting key exists (should be FALSE) */
+    if(H5Mexists(map_id, H5T_NATIVE_INT, &nonexist_key, &exists, H5P_DEFAULT) < 0) {
+        H5_FAILED();
+        printf("failed to check if key exists\n");
+        goto error;
+    } /* end if */
+
+    if(exists) {
+        H5_FAILED();
+        printf("incorrect value returned\n");
+        goto error;
+    } /* end if */
+
+    if(H5Mclose(map_id) < 0)
+        TEST_ERROR
+    if(H5Pclose(fapl_id) < 0)
+        TEST_ERROR
+    if(H5Fclose(file_id) < 0)
+        TEST_ERROR
+
+    PASSED();
+
+    return 0;
+
+error:
+    H5E_BEGIN_TRY {
+        H5Mclose(map_id);
+        H5Pclose(fapl_id);
+        H5Fclose(file_id);
+    } H5E_END_TRY;
+
+    return 1;
+} /* end test_map_exists_int_int() */
+
+
+/*
  * main function
  */
 int
@@ -269,6 +356,7 @@ main( int argc, char** argv )
     nerrors += test_open_map();
     nerrors += test_map_set_int_int();
     nerrors += test_map_get_int_int();
+    nerrors += test_map_exists_int_int();
 
     if (nerrors) goto error;
 

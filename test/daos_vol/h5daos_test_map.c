@@ -130,6 +130,7 @@ error:
     return 1;
 } /* end test_create_map() */
 
+
 /*
  * Tests setting keys in a map object
  */
@@ -184,6 +185,67 @@ error:
 
 
 /*
+ * Tests getting keys from a map object
+ */
+static int
+test_map_get_int_int(void)
+{
+    hid_t file_id = -1, fapl_id = -1;
+    hid_t map_id = -1;
+    int vals_out[INT_INT_NKEYS];
+    int i;
+
+    TESTING("map get with integer keys and values")
+
+    if((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
+        TEST_ERROR
+    if(H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
+        TEST_ERROR
+
+    if((file_id = H5Fopen(FILENAME, H5F_ACC_RDONLY, fapl_id)) < 0)
+        TEST_ERROR
+
+    if((map_id = H5Mopen(file_id, MAP_INT_INT_NAME, H5P_DEFAULT)) < 0)
+        TEST_ERROR
+
+    /* Get the values and check that they are correct */
+    for(i = 0; i < INT_INT_NKEYS; i++) {
+        if(H5Mget(map_id, H5T_NATIVE_INT, &int_int_keys[i], H5T_NATIVE_INT, &vals_out[i], H5P_DEFAULT) < 0) {
+            H5_FAILED();
+            printf("failed to get key-value pair\n");
+            goto error;
+        } /* end if */
+
+        if(vals_out[i] != int_int_vals[i]) {
+            H5_FAILED();
+            printf("incorrect value returned\n");
+            goto error;
+        } /* end if */
+    } /* end for */
+
+    if(H5Mclose(map_id) < 0)
+        TEST_ERROR
+    if(H5Pclose(fapl_id) < 0)
+        TEST_ERROR
+    if(H5Fclose(file_id) < 0)
+        TEST_ERROR
+
+    PASSED();
+
+    return 0;
+
+error:
+    H5E_BEGIN_TRY {
+        H5Mclose(map_id);
+        H5Pclose(fapl_id);
+        H5Fclose(file_id);
+    } H5E_END_TRY;
+
+    return 1;
+} /* end test_map_get_int_int() */
+
+
+/*
  * main function
  */
 int
@@ -206,6 +268,7 @@ main( int argc, char** argv )
     nerrors += test_create_map();
     nerrors += test_open_map();
     nerrors += test_map_set_int_int();
+    nerrors += test_map_get_int_int();
 
     if (nerrors) goto error;
 

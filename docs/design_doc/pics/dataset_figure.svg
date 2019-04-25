@@ -1,0 +1,331 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   xmlns:dc="http://purl.org/dc/elements/1.1/"
+   xmlns:cc="http://creativecommons.org/ns#"
+   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+   xmlns:svg="http://www.w3.org/2000/svg"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   width="206.02463mm"
+   height="117.47502mm"
+   viewBox="0 0 206.02463 117.47502"
+   version="1.1"
+   id="svg8"
+   inkscape:version="0.92.4 (unknown)"
+   sodipodi:docname="dataset_figure.svg"
+   inkscape:export-filename="/home/nfortne2/Documents/FF2/final report/dataset_figure.png"
+   inkscape:export-xdpi="96"
+   inkscape:export-ydpi="96">
+  <defs
+     id="defs2" />
+  <sodipodi:namedview
+     id="base"
+     pagecolor="#ffffff"
+     bordercolor="#666666"
+     borderopacity="1.0"
+     inkscape:pageopacity="0.0"
+     inkscape:pageshadow="2"
+     inkscape:zoom="1"
+     inkscape:cx="314.06243"
+     inkscape:cy="5.5000683"
+     inkscape:document-units="mm"
+     inkscape:current-layer="layer1"
+     showgrid="false"
+     inkscape:window-width="3840"
+     inkscape:window-height="1965"
+     inkscape:window-x="0"
+     inkscape:window-y="55"
+     inkscape:window-maximized="1"
+     fit-margin-top="0"
+     fit-margin-left="0"
+     fit-margin-right="0"
+     fit-margin-bottom="0" />
+  <metadata
+     id="metadata5">
+    <rdf:RDF>
+      <cc:Work
+         rdf:about="">
+        <dc:format>image/svg+xml</dc:format>
+        <dc:type
+           rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
+        <dc:title></dc:title>
+      </cc:Work>
+    </rdf:RDF>
+  </metadata>
+  <g
+     inkscape:label="Layer 1"
+     inkscape:groupmode="layer"
+     id="layer1"
+     transform="translate(-3.8364597,-22.759374)">
+    <rect
+       id="rect3680"
+       width="203.77817"
+       height="116.99485"
+       x="4.0765443"
+       y="22.999458"
+       style="fill:none;stroke:#000000;stroke-width:0.48016918;stroke-opacity:1" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-weight:normal;font-size:10.58333302px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="52.916649"
+       y="33.474998"
+       id="text4489"><tspan
+         sodipodi:role="line"
+         id="tspan4487"
+         x="52.916649"
+         y="33.474998"
+         style="font-size:9.87777805px;stroke-width:0.26458332">Fixed Length Dataset</tspan></text>
+    <rect
+       style="fill:none;stroke:#000000;stroke-width:0.2550365;stroke-opacity:1"
+       id="rect4491"
+       width="93.672043"
+       height="93.407455"
+       x="8.1973085"
+       y="40.878559" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-weight:normal;font-size:7.05555534px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="15.875001"
+       y="48.556248"
+       id="text4495"><tspan
+         sodipodi:role="line"
+         id="tspan4493"
+         x="15.875001"
+         y="48.556248"
+         style="font-size:5.64444444px;stroke-width:0.26458332">dkey: &quot;/Internal Metadata&quot;</tspan></text>
+    <rect
+       style="fill:none;stroke:#000000;stroke-width:0.26458332;stroke-opacity:1"
+       id="rect4497"
+       width="83.60833"
+       height="16.139584"
+       x="13.493749"
+       y="54.377083" />
+    <rect
+       style="fill:none;stroke:#000000;stroke-width:0.27012813;stroke-opacity:1"
+       id="rect4497-3"
+       width="87.16275"
+       height="16.137108"
+       x="11.261004"
+       y="74.618942" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-weight:normal;font-size:6.3499999px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="14.816667"
+       y="60.727081"
+       id="text4516"><tspan
+         sodipodi:role="line"
+         id="tspan4514"
+         x="14.816667"
+         y="60.727081"
+         style="font-size:5.64444444px;stroke-width:0.26458332">akey: &quot;Creation Property List&quot;</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-weight:normal;font-size:6.3499999px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="33.866665"
+       y="67.606247"
+       id="text4520"><tspan
+         sodipodi:role="line"
+         id="tspan4518"
+         x="33.866665"
+         y="67.606247"
+         style="font-size:5.64444444px;stroke-width:0.26458332">Record data: DCPL</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-weight:normal;font-size:6.3499999px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="22.754166"
+       y="80.570831"
+       id="text4524"><tspan
+         sodipodi:role="line"
+         id="tspan4522"
+         x="22.754166"
+         y="80.570831"
+         style="font-size:5.64444444px;stroke-width:0.26458332">akey: &quot;Reference Count&quot;</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-weight:normal;font-size:6.3499999px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="12.964585"
+       y="88.772911"
+       id="text4528"><tspan
+         sodipodi:role="line"
+         id="tspan4526"
+         x="12.964585"
+         y="88.772911"
+         style="font-size:5.64444444px;stroke-width:0.26458332">Record data: Reference Count</tspan></text>
+    <rect
+       style="fill:none;stroke:#000000;stroke-width:0.26458332;stroke-opacity:1"
+       id="rect4497-1"
+       width="83.60833"
+       height="16.139584"
+       x="13.758336"
+       y="94.196877" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-weight:normal;font-size:6.3499999px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="35.45417"
+       y="100.01772"
+       id="text4516-2"><tspan
+         sodipodi:role="line"
+         id="tspan4514-7"
+         x="35.45417"
+         y="100.01772"
+         style="font-size:5.64444444px;stroke-width:0.26458332">akey: &quot;Datatype&quot;</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-weight:normal;font-size:6.3499999px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="25.929169"
+       y="107.42604"
+       id="text4520-0"><tspan
+         sodipodi:role="line"
+         id="tspan4518-9"
+         x="25.929169"
+         y="107.42604"
+         style="font-size:5.64444444px;stroke-width:0.26458332">Record data: Datatype</tspan></text>
+    <rect
+       style="fill:none;stroke:#000000;stroke-width:0.26458332;stroke-opacity:1"
+       id="rect4497-1-3"
+       width="83.60833"
+       height="16.139584"
+       x="13.758336"
+       y="113.77604" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-weight:normal;font-size:6.3499999px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="33.072922"
+       y="119.59689"
+       id="text4516-2-6"><tspan
+         sodipodi:role="line"
+         id="tspan4514-7-0"
+         x="33.072922"
+         y="119.59689"
+         style="font-size:5.64444444px;stroke-width:0.26458332">akey: &quot;Dataspace&quot;</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-weight:normal;font-size:6.3499999px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="22.754169"
+       y="126.74065"
+       id="text4520-0-6"><tspan
+         sodipodi:role="line"
+         id="tspan4518-9-2"
+         x="22.754169"
+         y="126.74065"
+         style="font-size:5.64444444px;stroke-width:0.26458332">Record data: Dataspace</tspan></text>
+    <rect
+       style="fill:none;stroke:#000000;stroke-width:0.23998256;stroke-opacity:1"
+       id="rect4680"
+       width="97.328949"
+       height="29.306383"
+       x="106.94167"
+       y="40.957996" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-weight:normal;font-size:7.05555534px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="119.32708"
+       y="47.762497"
+       id="text4684"><tspan
+         sodipodi:role="line"
+         id="tspan4682"
+         x="119.32708"
+         y="47.762497"
+         style="font-size:5.64444444px;stroke-width:0.26458332">dkey: 0&lt;chunk 1 coords&gt;</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-weight:normal;font-size:6.3499999px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="145.78543"
+       y="57.287498"
+       id="text4688"><tspan
+         sodipodi:role="line"
+         id="tspan4686"
+         x="145.78543"
+         y="57.287498"
+         style="font-size:5.64444444px;stroke-width:0.26458332">akey: 0</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-weight:normal;font-size:6.3499999px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="111.38958"
+       y="64.431252"
+       id="text4692"><tspan
+         sodipodi:role="line"
+         id="tspan4690"
+         x="111.38958"
+         y="64.431252"
+         style="font-size:5.64444444px;stroke-width:0.26458332">Record data: array of elements</tspan></text>
+    <rect
+       style="fill:none;stroke:#000000;stroke-width:0.2516332;stroke-opacity:1"
+       id="rect4694"
+       width="91.045845"
+       height="16.029093"
+       x="109.78751"
+       y="51.062576" />
+    <rect
+       style="fill:none;stroke:#000000;stroke-width:0.23998256;stroke-opacity:1"
+       id="rect4680-3"
+       width="97.328949"
+       height="29.306383"
+       x="106.64595"
+       y="74.384308" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-weight:normal;font-size:7.05555534px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="118.76675"
+       y="81.453392"
+       id="text4684-7"><tspan
+         sodipodi:role="line"
+         id="tspan4682-5"
+         x="118.76675"
+         y="81.453392"
+         style="font-size:5.64444444px;stroke-width:0.26458332">dkey: 0&lt;chunk 2 coords&gt;</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-weight:normal;font-size:6.3499999px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="145.4897"
+       y="90.713814"
+       id="text4688-9"><tspan
+         sodipodi:role="line"
+         id="tspan4686-2"
+         x="145.4897"
+         y="90.713814"
+         style="font-size:5.64444444px;stroke-width:0.26458332">akey: 0</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-weight:normal;font-size:6.3499999px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="111.09385"
+       y="97.857567"
+       id="text4692-2"><tspan
+         sodipodi:role="line"
+         id="tspan4690-8"
+         x="111.09385"
+         y="97.857567"
+         style="font-size:5.64444444px;stroke-width:0.26458332">Record data: array of elements</tspan></text>
+    <rect
+       style="fill:none;stroke:#000000;stroke-width:0.2516332;stroke-opacity:1"
+       id="rect4694-9"
+       width="91.045845"
+       height="16.029093"
+       x="109.49178"
+       y="84.488892" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-weight:normal;font-size:10.58333302px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="152.13542"
+       y="111.79167"
+       id="text4754"><tspan
+         sodipodi:role="line"
+         id="tspan4752"
+         x="152.13542"
+         y="111.79167"
+         style="stroke-width:0.26458332">...</tspan></text>
+    <flowRoot
+       xml:space="preserve"
+       id="flowRoot3754"
+       style="fill:black;fill-opacity:1;stroke:none;font-family:sans-serif;font-style:normal;font-weight:normal;font-size:40px;line-height:1.25;letter-spacing:0px;word-spacing:0px"><flowRegion
+         id="flowRegion3756"><rect
+           id="rect3758"
+           width="1835"
+           height="1004"
+           x="-758"
+           y="-181.99991" /></flowRegion><flowPara
+         id="flowPara3760"></flowPara></flowRoot>  </g>
+</svg>

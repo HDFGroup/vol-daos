@@ -1,0 +1,76 @@
+\documentclass[letterpaper,hyper]{THG_Guide}
+
+%%% todo notes, idea from
+%%% http://midtiby.blogspot.com/2007/09/todo-notes-in-latex.html
+%%% ... and further modified by Phil Carns from
+%%% http://usefreetools.blogspot.com/2008_04_01_archive.html
+%%%
+\newcommand{\todo}[1]{
+      \addcontentsline{tdo}{todo}{\protect{#1}}
+      \marginpar{\colorbox{white!90!black}{\textcolor{red}{
+      \parbox{1.7cm}{\scriptsize\bfseries\raggedright #1}
+      }}}
+}
+
+% Path to figures, plots
+\graphicspath{{./pics/}{./plots/}}
+
+% Code snippets
+\usepackage{listings}
+\def\lstsetc{\lstset{
+  language=C,
+  %numbers=left,
+  xleftmargin=\parindent,
+  %frame=leftline,
+  framexleftmargin=0pt,
+  rulecolor=\color{rulecolor},
+  numberstyle=\tiny\color{gray},
+  stepnumber=1,
+  showspaces=false, 
+  showstringspaces=false,
+  breaklines=true,
+  basicstyle=\small\ttfamily,
+  stringstyle=\itshape,
+  commentstyle=\itshape\bfseries,
+  morekeywords={main, size_t, malloc, free,
+    haddr_t, hsize_t, hid_t, herr_t,
+    }
+  }
+}
+
+% Title, author, etc
+\title{HDF5 DAOS VOL Connector Design}
+\author{Neil Fortner, Jordan Henderson, Jerome Soumagne}
+\date{April 24, 2019}
+\rfcversion{2019-04-24.v1}
+\revision{v1}{Apr. 24, 2019}{First draft.}
+
+%% Start the document
+\begin{document}
+
+%% Title
+\maketitle
+
+%% Abstract
+\begin{abstract}
+%This document aims to be a helpful guide on the design of the HDF5 DAOS VOL connector.
+This document is an on-going draft design document of the DAOS VOL connector.
+
+It aims at providing a detailed description of the mapping between HDF5 objects and DAOS
+objects. It also includes the design notes of the new HDF5 Map objects.
+\end{abstract}
+
+
+\makerevisions
+
+\tableofcontents
+\newpage
+
+\input{design_doc-body}
+
+
+%% References
+%\bibliographystyle{abbrv}
+%\bibliography{rfc}
+
+\end{document}

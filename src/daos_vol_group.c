@@ -182,7 +182,6 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
         /* Open group */
         if(0 != (ret = daos_obj_open(file->coh, grp->obj.oid, DAOS_OO_RW, &grp->obj.obj_oh, NULL /*event*/)))
             D_GOTO_ERROR(H5E_SYM, H5E_CANTOPENOBJ, NULL, "can't open group: %s", H5_daos_err_to_string(ret))
-        update_cb_ud->obj = &grp->obj;
         grp->obj.item.rc++;
 
         /* Encode GCPL */
@@ -194,6 +193,9 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
             D_GOTO_ERROR(H5E_SYM, H5E_CANTENCODE, NULL, "can't serialize gcpl")
 
         /* Set up operation to write GCPL to group */
+        /* Point to grp */
+        update_cb_ud->obj = &grp->obj;
+
         /* Point to req */
         update_cb_ud->req = req;
 

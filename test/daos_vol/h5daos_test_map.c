@@ -49,7 +49,7 @@ test_create_map(void)
 
     if((file_id = H5Fcreate(FILENAME, H5F_ACC_TRUNC, H5P_DEFAULT, fapl_id)) < 0) {
         H5_FAILED();
-        printf("    couldn't open file\n");
+        printf("    couldn't create file\n");
         goto error;
     }
 
@@ -65,10 +65,6 @@ test_create_map(void)
         TEST_ERROR
     if(H5Fclose(file_id) < 0)
         TEST_ERROR
-#ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-    if(H5daos_term() < 0)
-        TEST_ERROR
-#endif
 
     PASSED();
 
@@ -79,13 +75,61 @@ error:
         H5Mclose(map_id);
         H5Pclose(fapl_id);
         H5Fclose(file_id);
-#ifndef DAOS_INIT_FINI_BUG_WORKAROUND
-        H5daos_term();
-#endif
     } H5E_END_TRY;
 
     return 1;
-}
+} /* end test_create_map() */
+
+
+/*
+ * Tests opening a map object
+ */
+static int
+test_open_map(void)
+{
+    hid_t file_id = -1, fapl_id = -1;
+    hid_t map_id = -1;
+
+    TESTING("open of map object")
+
+    if((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0)
+        TEST_ERROR
+    if(H5Pset_all_coll_metadata_ops(fapl_id, true) < 0)
+        TEST_ERROR
+
+    if((file_id = H5Fopen(FILENAME, H5F_ACC_RDONLY, fapl_id)) < 0) {
+        H5_FAILED();
+        printf("    couldn't open file\n");
+        goto error;
+    }
+
+    if((map_id = H5Mopen(file_id, MAP_INT_INT_NAME, H5P_DEFAULT)) < 0) {
+        H5_FAILED();
+        printf("    couldn't open map\n");
+        goto error;
+    }
+
+    if(H5Mclose(map_id) < 0)
+        TEST_ERROR
+    if(H5Pclose(fapl_id) < 0)
+        TEST_ERROR
+    if(H5Fclose(file_id) < 0)
+        TEST_ERROR
+
+    PASSED();
+
+    return 0;
+
+error:
+    H5E_BEGIN_TRY {
+        H5Mclose(map_id);
+        H5Pclose(fapl_id);
+        H5Fclose(file_id);
+    } H5E_END_TRY;
+
+    return 1;
+} /* end test_create_map() */
+
 
 /*
  * main function
@@ -99,6 +143,7 @@ main( int argc, char** argv )
     MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
 
     nerrors += test_create_map();
+    nerrors += test_open_map();
 
     if (nerrors) goto error;
 
@@ -114,5 +159,5 @@ error:
     MPI_Finalize();
 
     return 1;
-}
+} /* end main() */
 

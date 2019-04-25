@@ -163,6 +163,9 @@ H5_daos_map_create(void *_item,
             D_GOTO_ERROR(H5E_MAP, H5E_CANTENCODE, NULL, "can't serialize mcpl")
 
         /* Set up operation to write MCPl and datatypes to map */
+        /* Point to map */
+        update_cb_ud->obj = &map->obj;
+
         /* Point to req */
         update_cb_ud->req = int_req;
 
@@ -219,6 +222,10 @@ H5_daos_map_create(void *_item,
         if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_UPDATE, &item->file->sched, 0, NULL, &update_task)))
             D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create task to write map medadata: %s", H5_daos_err_to_string(ret))
 
+        /* Set callback functions for group metadata write */
+        if(0 != (ret = tse_task_register_cbs(update_task, H5_daos_md_update_prep_cb, NULL, 0, H5_daos_md_update_comp_cb, NULL, 0)))
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't register callbacks for task to write map medadata: %s", H5_daos_err_to_string(ret))
+
         /* Set private data for group metadata write */
         (void)tse_task_set_priv(update_task, update_cb_ud);
 
@@ -251,6 +258,8 @@ H5_daos_map_create(void *_item,
         /* Open map */
         if(0 != (ret = daos_obj_open(item->file->coh, map->obj.oid, DAOS_OO_RW, &map->obj.obj_oh, NULL /*event*/)))
             D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, NULL, "can't open map: %s", H5_daos_err_to_string(ret))
+
+        /* Check for failure of process 0 DSINC */
     } /* end else */
 
     /* Finish setting up map struct */
@@ -321,11 +330,6 @@ done:
     } /* end if */
     else
         assert((!ktype_buf && !vtype_buf && !mcpl_buf) || update_task_scheduled);
-
-    /* Free memory */
-    ktype_buf = DV_free(ktype_buf);
-    vtype_buf = DV_free(vtype_buf);
-    mcpl_buf = DV_free(mcpl_buf);
 
     D_FUNC_LEAVE_API
 } /* end H5_daos_map_create() */

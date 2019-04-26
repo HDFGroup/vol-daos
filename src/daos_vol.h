@@ -33,6 +33,7 @@
 /* Class value of the DAOS VOL connector as defined in H5VLpublic.h DSINC */
 #define H5_VOL_DAOS_CLS_VAL (H5VL_class_value_t) (H5_VOL_RESERVED + 2)
 #define H5_DAOS_VOL_NAME "daos"
+#define H5_DAOS_VOL_NAME_LEN 4
 
 /* Constant keys */
 #define H5_DAOS_CHUNK_KEY 0u

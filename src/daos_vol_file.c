@@ -1116,13 +1116,20 @@ H5_daos_get_obj_count_callback(hid_t id, void *udata)
 {
     get_obj_count_udata_t *count_udata = (get_obj_count_udata_t *)udata;
     H5_daos_obj_t *cur_obj = NULL;
+    char connector_name[H5_DAOS_VOL_NAME_LEN + 1];
     herr_t ret_value = H5_ITER_CONT;
 
-    if(NULL == (cur_obj = (H5_daos_obj_t *) H5VLobject(id)))
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, H5_ITER_ERROR, "can't retrieve VOL object for ID")
+    /* Ensure that the ID represents a DAOS VOL object */
+    if(H5VLget_connector_name(id, connector_name, H5_DAOS_VOL_NAME_LEN + 1) < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, H5_ITER_ERROR, "can't retrieve name of object's VOL connector")
 
-    if(!uuid_compare(cur_obj->item.file->uuid, count_udata->file_id))
-        count_udata->obj_count++;
+    if(!strncmp(H5_DAOS_VOL_NAME, connector_name, H5_DAOS_VOL_NAME_LEN)) {
+        if(NULL == (cur_obj = (H5_daos_obj_t *) H5VLobject(id)))
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, H5_ITER_ERROR, "can't retrieve VOL object for ID")
+
+        if(!uuid_compare(cur_obj->item.file->uuid, count_udata->file_id))
+            count_udata->obj_count++;
+    } /* end if */
 
 done:
     D_FUNC_LEAVE
@@ -1148,16 +1155,23 @@ H5_daos_get_obj_ids_callback(hid_t id, void *udata)
 {
     get_obj_ids_udata_t *id_udata = (get_obj_ids_udata_t *)udata;
     H5_daos_obj_t *cur_obj = NULL;
+    char connector_name[H5_DAOS_VOL_NAME_LEN + 1];
     herr_t ret_value = H5_ITER_CONT;
 
-    if(NULL == (cur_obj = (H5_daos_obj_t *) H5VLobject(id)))
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, H5_ITER_ERROR, "can't retrieve VOL object for ID")
+    /* Ensure that the ID represents a DAOS VOL object */
+    if(H5VLget_connector_name(id, connector_name, H5_DAOS_VOL_NAME_LEN + 1) < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, H5_ITER_ERROR, "can't retrieve name of object's VOL connector")
 
-    if(!uuid_compare(cur_obj->item.file->uuid, id_udata->file_id))
-        id_udata->oid_list[id_udata->obj_count++] = id;
+    if(!strncmp(H5_DAOS_VOL_NAME, connector_name, H5_DAOS_VOL_NAME_LEN)) {
+        if(NULL == (cur_obj = (H5_daos_obj_t *) H5VLobject(id)))
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, H5_ITER_ERROR, "can't retrieve VOL object for ID")
 
-    if(id_udata->obj_count >= id_udata->max_objs)
-        ret_value = H5_ITER_STOP;
+        if(!uuid_compare(cur_obj->item.file->uuid, id_udata->file_id))
+            id_udata->oid_list[id_udata->obj_count++] = id;
+
+        if(id_udata->obj_count >= id_udata->max_objs)
+            ret_value = H5_ITER_STOP;
+    } /* end if */
 
 done:
     D_FUNC_LEAVE

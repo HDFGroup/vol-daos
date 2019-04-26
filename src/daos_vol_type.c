@@ -406,11 +406,11 @@ H5_daos_datatype_commit(void *_item,
             D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTENCODE, NULL, "can't serialize datatype")
 
         /* Encode TCPL */
-        if(H5Pencode(tcpl_id, NULL, &tcpl_size) < 0)
+        if(H5Pencode2(tcpl_id, NULL, &tcpl_size, item->file->fapl_id) < 0)
             D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of tcpl")
         if(NULL == (tcpl_buf = DV_malloc(tcpl_size)))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized tcpl")
-        if(H5Pencode(tcpl_id, tcpl_buf, &tcpl_size) < 0)
+        if(H5Pencode2(tcpl_id, tcpl_buf, &tcpl_size, item->file->fapl_id) < 0)
             D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTENCODE, NULL, "can't serialize tcpl")
 
         /* Set up operation to write datatype and TCPL to datatype */

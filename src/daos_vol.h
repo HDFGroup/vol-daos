@@ -33,6 +33,7 @@
 /* Class value of the DAOS VOL connector as defined in H5VLpublic.h DSINC */
 #define H5_VOL_DAOS_CLS_VAL (H5VL_class_value_t) (H5_VOL_RESERVED + 2)
 #define H5_DAOS_VOL_NAME "daos"
+#define H5_DAOS_VOL_NAME_LEN 4
 
 /* Constant keys */
 #define H5_DAOS_CHUNK_KEY 0u
@@ -227,6 +228,7 @@ typedef struct H5_daos_attr_t {
     char *name;
     hid_t type_id;
     hid_t space_id;
+    hid_t acpl_id;
 } H5_daos_attr_t;
 
 /* The link value struct */

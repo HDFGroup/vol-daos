@@ -155,11 +155,11 @@ H5_daos_map_create(void *_item,
             D_GOTO_ERROR(H5E_MAP, H5E_CANTENCODE, NULL, "can't serialize datatype")
 
         /* Encode MCPL */
-        if(H5Pencode(mcpl_id, NULL, &mcpl_size) < 0)
+        if(H5Pencode2(mcpl_id, NULL, &mcpl_size, item->file->fapl_id) < 0)
             D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of mcpl")
         if(NULL == (mcpl_buf = DV_malloc(mcpl_size)))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized mcpl")
-        if(H5Pencode(mcpl_id, mcpl_buf, &mcpl_size) < 0)
+        if(H5Pencode2(mcpl_id, mcpl_buf, &mcpl_size, item->file->fapl_id) < 0)
             D_GOTO_ERROR(H5E_MAP, H5E_CANTENCODE, NULL, "can't serialize mcpl")
 
         /* Set up operation to write MCPl and datatypes to map */

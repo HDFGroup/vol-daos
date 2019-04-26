@@ -82,6 +82,7 @@ static const H5VL_class_t H5_daos_g = {
     NULL,                                    /* Plugin Get Object */
     NULL,                                    /* Plugin Get Wrap Ctx */
     NULL,                                    /* Plugin Wrap Object */
+    NULL,                                    /* Plugin Unwrap Object */
     NULL,                                    /* Plugin Free Wrap Ctx */
     },
     {                                        /* Plugin Attribute cls */

@@ -176,19 +176,19 @@ H5_daos_dataset_create(void *_item,
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTENCODE, NULL, "can't serialize datatype")
 
         /* Encode dataspace */
-        if(H5Sencode(space_id, NULL, &space_size) < 0)
+        if(H5Sencode2(space_id, NULL, &space_size, item->file->fapl_id) < 0)
             D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of dataspace")
         if(NULL == (space_buf = DV_malloc(space_size)))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized dataspace")
-        if(H5Sencode(space_id, space_buf, &space_size) < 0)
+        if(H5Sencode2(space_id, space_buf, &space_size, item->file->fapl_id) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTENCODE, NULL, "can't serialize dataspace")
 
         /* Encode DCPL */
-        if(H5Pencode(dcpl_id, NULL, &dcpl_size) < 0)
+        if(H5Pencode2(dcpl_id, NULL, &dcpl_size, item->file->fapl_id) < 0)
             D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of dcpl")
         if(NULL == (dcpl_buf = DV_malloc(dcpl_size)))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized dcpl")
-        if(H5Pencode(dcpl_id, dcpl_buf, &dcpl_size) < 0)
+        if(H5Pencode2(dcpl_id, dcpl_buf, &dcpl_size, item->file->fapl_id) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTENCODE, NULL, "can't serialize dcpl")
 
         /* Set up operation to write datatype, dataspace, and DCPL to dataset */

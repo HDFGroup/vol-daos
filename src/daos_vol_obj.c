@@ -78,7 +78,8 @@ H5_daos_object_open(void *_item, const H5VL_loc_params_t *loc_params,
 
         /* Check for collective access, if not already set by the file */
         if(!collective)
-            if(H5Pget_all_coll_metadata_ops(loc_params->loc_data.loc_by_name.lapl_id, &collective) < 0)
+            if(H5Pget_all_coll_metadata_ops((H5P_DEFAULT != loc_params->loc_data.loc_by_name.lapl_id) ? loc_params->loc_data.loc_by_name.lapl_id : H5P_LINK_ACCESS_DEFAULT,
+                    &collective) < 0)
                 D_GOTO_ERROR(H5E_OHDR, H5E_CANTGET, NULL, "can't get collective access property")
 
         /* Check if we're actually opening the group or just receiving the group

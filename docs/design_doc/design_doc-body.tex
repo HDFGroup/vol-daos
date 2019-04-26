@@ -131,7 +131,7 @@ H5Mget_count(hid_t map_id, hsize_t *count);
 
 {\lstsetc
 \begin{lstlisting}
-H5Miterate(hid_t map_id, hsize_t *idx, hid_t key_mem_type_id, hid_t val_mem_type_id, H5M_iterate_t op, void *op_data, hid_t dxpl_id);
+H5Miterate(hid_t map_id, hsize_t *idx, hid_t key_mem_type_id, H5M_iterate_t op, void *op_data, hid_t dxpl_id);
 \end{lstlisting}
 }
 
@@ -139,11 +139,11 @@ H5Miterate(hid_t map_id, hsize_t *idx, hid_t key_mem_type_id, hid_t val_mem_type
 \verb+H5M_iterate_t+ is defined as:
 {\lstsetc
 \begin{lstlisting}
-herr_t (*H5M_iterate_t)(hid_t map_id, const void *key, const void *value, void *op_data)
+herr_t (*H5M_iterate_t)(hid_t map_id, const void *key, void *op_data)
 \end{lstlisting}
 }
 
-The key and value parameters are the buffers for the key for this iteration and its associated value, converted to the datatypes specified by \verb+key_mem_type_id+ and \verb+val_mem_type_id+, respectively. The \verb+op_data+ parameter is a simple pass through of the value passed to \verb+H5Miterate()+, which can be used to store application-defined data for iteration. A negative return value from this function will cause \verb+H5Miterate()+ to issue an error, while a positive return value will cause \verb+H5Miterate()+ to stop iterating and return this value without issuing an error. A return value of zero allows iteration to continue.
+The key parameter is the buffer for the key for this iteration, converted to the datatype specified by \verb+key_mem_type_id+. The \verb+op_data+ parameter is a simple pass through of the value passed to \verb+H5Miterate()+, which can be used to store application-defined data for iteration. A negative return value from this function will cause \verb+H5Miterate()+ to issue an error, while a positive return value will cause \verb+H5Miterate()+ to stop iterating and return this value without issuing an error. A return value of zero allows iteration to continue.
 
 To implement this function, in order to reduce the number of calls to DAOS that may cause network access, we will fetch more than one key at a time from DAOS. However, since we do not know the size of the keys or the memory usage limitations of the application, it is difficult to know the number of keys we should prefetch in this manner. Currently we plan to add a Map access property to control the number of keys prefetched for iteration, and this function is described below as \verb+H5Pset_map_iterate_hints()+. We could alternatively keep track of the average key size in the file and add a property list setting to control the average memory usage for iteration.
 

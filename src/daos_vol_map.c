@@ -163,6 +163,9 @@ H5_daos_map_create(void *_item,
             D_GOTO_ERROR(H5E_MAP, H5E_CANTENCODE, NULL, "can't serialize mcpl")
 
         /* Set up operation to write MCPl and datatypes to map */
+        /* Point to map */
+        update_cb_ud->obj = &map->obj;
+
         /* Point to req */
         update_cb_ud->req = int_req;
 
@@ -219,6 +222,10 @@ H5_daos_map_create(void *_item,
         if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_UPDATE, &item->file->sched, 0, NULL, &update_task)))
             D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create task to write map medadata: %s", H5_daos_err_to_string(ret))
 
+        /* Set callback functions for group metadata write */
+        if(0 != (ret = tse_task_register_cbs(update_task, H5_daos_md_update_prep_cb, NULL, 0, H5_daos_md_update_comp_cb, NULL, 0)))
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't register callbacks for task to write map medadata: %s", H5_daos_err_to_string(ret))
+
         /* Set private data for group metadata write */
         (void)tse_task_set_priv(update_task, update_cb_ud);
 
@@ -251,6 +258,8 @@ H5_daos_map_create(void *_item,
         /* Open map */
         if(0 != (ret = daos_obj_open(item->file->coh, map->obj.oid, DAOS_OO_RW, &map->obj.obj_oh, NULL /*event*/)))
             D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, NULL, "can't open map: %s", H5_daos_err_to_string(ret))
+
+        /* Check for failure of process 0 DSINC */
     } /* end else */
 
     /* Finish setting up map struct */
@@ -321,11 +330,6 @@ done:
     } /* end if */
     else
         assert((!ktype_buf && !vtype_buf && !mcpl_buf) || update_task_scheduled);
-
-    /* Free memory */
-    ktype_buf = DV_free(ktype_buf);
-    vtype_buf = DV_free(vtype_buf);
-    mcpl_buf = DV_free(mcpl_buf);
 
     D_FUNC_LEAVE_API
 } /* end H5_daos_map_create() */
@@ -1230,6 +1234,7 @@ H5_daos_map_iterate(H5_daos_map_t *map, hid_t map_id, hsize_t *idx,
     hbool_t key_is_vl;
     H5T_class_t key_cls;
     herr_t op_ret;
+    char tmp_char;
     char *dkey_buf = NULL;
     size_t dkey_buf_len = 0;
     const void *key;
@@ -1265,8 +1270,9 @@ H5_daos_map_iterate(H5_daos_map_t *map, hid_t map_id, hsize_t *idx,
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for dkeys")
     dkey_buf_len = H5_DAOS_ITER_SIZE_INIT;
 
-    /* Set up list_sgl */
-    daos_iov_set(&sg_iov, dkey_buf, (daos_size_t)dkey_buf_len);
+    /* Set up list_sgl.  Report size as 1 less than buffer size so we
+     * always have room for a null terminator. */
+    daos_iov_set(&sg_iov, dkey_buf, (daos_size_t)(dkey_buf_len - 1));
     sgl.sg_nr = 1;
     sgl.sg_nr_out = 0;
     sgl.sg_iovs = &sg_iov;
@@ -1309,9 +1315,12 @@ H5_daos_map_iterate(H5_daos_map_t *map, hid_t map_id, hsize_t *idx,
                     && !memcmp(p, H5_daos_int_md_key_g, H5_daos_attr_key_size_g))
                     || ((kds[i].kd_key_len == H5_daos_int_md_key_size_g)
                     && !memcmp(p, H5_daos_attr_key_g, H5_daos_attr_key_size_g))) {
+                /* Set up dkey */
+                daos_iov_set(&dkey, (void *)p, kds[i].kd_key_len);
+
                 /* Set up iod */
                 memset(&iod, 0, sizeof(iod));
-                daos_iov_set(&iod.iod_name, (void *)p, kds[i].kd_key_len);
+                daos_iov_set(&iod.iod_name, (void *)H5_daos_map_key_g, H5_daos_map_key_size_g);
                 daos_csum_set(&iod.iod_kcsum, NULL, 0);
                 iod.iod_nr = 1u;
                 iod.iod_type = DAOS_IOD_SINGLE;
@@ -1326,6 +1335,13 @@ H5_daos_map_iterate(H5_daos_map_t *map, hid_t map_id, hsize_t *idx,
                 if(iod.iod_size == 0)
                     continue;
             } /* end if */
+
+            /* Add null terminator temporarily.  Only necessary for VL strings
+             * but it would take about as much time to check for VL string again
+             * after the callback as it does to just always swap in the null
+             * terminator so just do this for simplicity. */
+            tmp_char = p[kds[i].kd_key_len];
+            p[kds[i].kd_key_len] = '\0';
 
             /* Set key pointer for callback */
             if(key_is_vl) {
@@ -1344,6 +1360,9 @@ H5_daos_map_iterate(H5_daos_map_t *map, hid_t map_id, hsize_t *idx,
             /* Make callback */
             if((op_ret = op(map_id, key, op_data)) < 0)
                 D_GOTO_ERROR(H5E_MAP, H5E_BADITER, op_ret, "operator function returned failure")
+
+            /* Replace null terminator */
+            p[kds[i].kd_key_len] = tmp_char;
 
             /* Advance idx */
             if(idx)

@@ -1676,6 +1676,10 @@ H5_daos_md_update_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     /* Get private data */
     udata = tse_task_get_priv(task);
 
+    assert(udata);
+    assert(udata->obj);
+    assert(udata->req);
+    assert(udata->req->file);
     assert(!udata->req->file->closed);
 
     /* Handle errors */

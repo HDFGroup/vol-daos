@@ -551,12 +551,10 @@ H5_daos_object_close(void *_obj, hid_t dxpl_id, void **req)
         if(H5_daos_datatype_close(obj, dxpl_id, req))
             D_GOTO_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, FAIL, "can't close datatype")
     } /* end if */
-#ifdef DV_HAVE_MAP
     else if(obj->item.type == H5I_MAP) {
         if(H5_daos_map_close(obj, dxpl_id, req))
             D_GOTO_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't close map")
     } /* end if */
-#endif
     else
         assert(0 && "Invalid object type");
 

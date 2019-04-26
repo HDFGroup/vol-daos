@@ -14,7 +14,7 @@ include_directories(
 # Define Sources and tests
 #-----------------------------------------------------------------------------
 set(daos_vol_tests
-#  map
+  map
   example
 )
 # will expect h5daos_test_map.c etc

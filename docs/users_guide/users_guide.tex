@@ -215,9 +215,11 @@ H5Aiterate\_by\_name & \begin{itemize}
                            \item Restarting iteration from an index value is currently unsupported
                            \item Only \texttt{H5\_ITER\_NATIVE} is supported for the iteration order
                        \end{itemize}\\ \hline
+H5Aexists(\_by\_name) & \\ \hline
 H5Aget\_name & \\ \hline
 H5Aget\_space & \\ \hline
 H5Aget\_type & \\ \hline
+H5Aget\_create\_plist & \\ \hline
 
 \end{tabularx}
 
@@ -233,12 +235,10 @@ H5Aget\_type & \\ \hline
 
 H5Aopen\_by\_idx & Currently no support for attribute creation order \\ \hline
 H5Aopen\_idx & Currently no support for attribute creation order \\ \hline
-H5Aexists(\_by\_name) & \\ \hline
 H5Arename(\_by\_name) & \\ \hline
 H5Adelete(\_by\_name/\_by\_idx) & \\ \hline
 H5Aget\_info(\_by\_name/\_by\_idx) & \\ \hline
 H5Aget\_name\_by\_idx & Currently no support for attribute creation order \\ \hline
-H5Aget\_create\_plist & Default ACPL is currently returned \\ \hline
 H5Aget\_storage\_size & \\ \hline
 
 \end{tabularx}
@@ -308,9 +308,7 @@ H5Dfill & \\ \hline
 % Center just the header row
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
-H5Fcreate & \begin{itemize}
-                \item \texttt{H5F\_ACC\_EXCL} flag is currently not handled correctly
-            \end{itemize}\\ \hline
+H5Fcreate & \\ \hline
 H5Fopen & \\ \hline
 H5Freopen & \\ \hline
 H5Fis\_accessible & \\ \hline

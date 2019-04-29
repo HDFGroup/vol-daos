@@ -18,6 +18,10 @@
 #include "util/daos_vol_err.h"  /* DAOS connector error handling           */
 #include "util/daos_vol_mem.h"  /* DAOS connector memory management        */
 
+static herr_t H5_daos_attribute_delete(H5_daos_obj_t *attr_container_obj, const char *attr_name);
+static herr_t H5_daos_attribute_get_akey_strings(const char *attr_name, char **datatype_key_out,
+    char **dataspace_key_out, char **acpl_key_out, size_t *akey_len_out);
+
 
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_attribute_create
@@ -130,23 +134,9 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
     /* Set up dkey */
     daos_iov_set(&dkey, H5_daos_attr_key_g, H5_daos_attr_key_size_g);
 
-    /* Create akey strings (prefix "S-", "T-", "P-") */
-    akey_len = strlen(name) + 2;
-    if(NULL == (type_key = (char *)DV_malloc(akey_len + 1)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for akey")
-    if(NULL == (space_key = (char *)DV_malloc(akey_len + 1)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for akey")
-    if(NULL == (acpl_key = (char *)DV_malloc(akey_len + 1)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for akey")
-    type_key[0] = 'T';
-    type_key[1] = '-';
-    space_key[0] = 'S';
-    space_key[1] = '-';
-    acpl_key[0] = 'P';
-    acpl_key[1] = '-';
-    (void)strcpy(type_key + 2, name);
-    (void)strcpy(space_key + 2, name);
-    (void)strcpy(acpl_key + 2, name);
+    /* Set up akey strings (attribute name prefixed with 'T-', 'S-' and 'P-' for datatype, dataspace and ACPL, respectively) */
+    if(H5_daos_attribute_get_akey_strings(name, &type_key, &space_key, &acpl_key, &akey_len) < 0)
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTALLOC, NULL, "can't generate akey strings")
 
     /* Set up iod */
     memset(iod, 0, sizeof(iod));
@@ -292,23 +282,9 @@ H5_daos_attribute_open(void *_item, const H5VL_loc_params_t *loc_params,
     /* Set up dkey */
     daos_iov_set(&dkey, H5_daos_attr_key_g, H5_daos_attr_key_size_g);
 
-    /* Create akey strings (prefix "S-", "T-", "P-") */
-    akey_len = strlen(name) + 2;
-    if(NULL == (type_key = (char *)DV_malloc(akey_len + 1)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for akey")
-    if(NULL == (space_key = (char *)DV_malloc(akey_len + 1)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for akey")
-    if(NULL == (acpl_key = (char *)DV_malloc(akey_len + 1)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for akey")
-    type_key[0] = 'T';
-    type_key[1] = '-';
-    space_key[0] = 'S';
-    space_key[1] = '-';
-    acpl_key[0] = 'P';
-    acpl_key[1] = '-';
-    (void)strcpy(type_key + 2, name);
-    (void)strcpy(space_key + 2, name);
-    (void)strcpy(acpl_key + 2, name);
+    /* Set up akey strings (attribute name prefixed with 'T-', 'S-' and 'P-' for datatype, dataspace and ACPL, respectively) */
+    if(H5_daos_attribute_get_akey_strings(name, &type_key, &space_key, &acpl_key, &akey_len) < 0)
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTALLOC, NULL, "can't generate akey strings")
 
     /* Set up iod */
     memset(iod, 0, sizeof(iod));
@@ -1112,8 +1088,16 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
         D_GOTO_ERROR(H5E_ATTR, H5E_UNSUPPORTED, FAIL, "unsupported attribute operation location parameters type")
 
     switch (specific_type) {
+        /* H5Adelete(_by_name/_by_idx) */
         case H5VL_ATTR_DELETE:
-            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "unsupported specific operation")
+        {
+            const char *attr_name = va_arg(arguments, const char *);
+
+            if(H5_daos_attribute_delete(target_obj, attr_name) < 0)
+                D_GOTO_ERROR(H5E_ATTR, H5E_CANTDELETE, FAIL, "unable to delete attribute")
+
+            break;
+        } /* H5VL_ATTR_DELETE */
 
         /* H5Aexists(_by_name) */
         case H5VL_ATTR_EXISTS:
@@ -1433,3 +1417,116 @@ done:
     D_FUNC_LEAVE_API
 } /* end H5_daos_attribute_close() */
 
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_attribute_delete
+ *
+ * Purpose:     Helper routine to delete an HDF5 attribute stored on a DAOS
+ *              server.
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ * Programmer:  Jordan Henderson
+ *              April, 2019
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_attribute_delete(H5_daos_obj_t *attr_container_obj, const char *attr_name)
+{
+    unsigned int nr = 3;
+    daos_key_t dkey;
+    daos_key_t akeys[3];
+    size_t akey_len;
+    char *type_key = NULL;
+    char *space_key = NULL;
+    char *acpl_key = NULL;
+    int ret;
+    herr_t ret_value = SUCCEED;
+
+    /* Set up dkey */
+    daos_iov_set(&dkey, H5_daos_attr_key_g, H5_daos_attr_key_size_g);
+
+    /* Set up akey strings (attribute name prefixed with 'T-', 'S-' and 'P-' for datatype, dataspace and ACPL, respectively) */
+    if(H5_daos_attribute_get_akey_strings(attr_name, &type_key, &space_key, &acpl_key, &akey_len) < 0)
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTALLOC, FAIL, "can't generate akey strings")
+
+    /* Set up akeys */
+    memset(akeys, 0, sizeof(akeys));
+    daos_iov_set(&akeys[0], (void *)type_key, (daos_size_t)akey_len);
+    daos_iov_set(&akeys[1], (void *)space_key, (daos_size_t)akey_len);
+    daos_iov_set(&akeys[2], (void *)acpl_key, (daos_size_t)akey_len);
+
+    if(0 != (ret = daos_obj_punch_akeys(attr_container_obj->obj_oh, DAOS_TX_NONE, &dkey,
+            nr, akeys, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTDELETE, FAIL, "unable to delete attribute")
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_attribute_delete() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_attribute_get_akey_strings
+ *
+ * Purpose:     Helper routine to generate the DAOS akey strings for an
+ *              HDF5 attribute. The caller is responsible for freeing the
+ *              memory allocated for each akey string.
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ * Programmer:  Neil Fortner/Jordan Henderson
+ *              February, 2017
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_attribute_get_akey_strings(const char *attr_name, char **datatype_key_out, char **dataspace_key_out,
+    char **acpl_key_out, size_t *akey_len_out)
+{
+    size_t akey_len;
+    char *type_key = NULL;
+    char *space_key = NULL;
+    char *acpl_key = NULL;
+    herr_t ret_value = SUCCEED;
+
+    assert(attr_name);
+    assert(datatype_key_out);
+    assert(dataspace_key_out);
+    assert(acpl_key_out);
+
+    akey_len = strlen(attr_name) + 2;
+    if(NULL == (type_key = (char *)DV_malloc(akey_len + 1)))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akey")
+    if(NULL == (space_key = (char *)DV_malloc(akey_len + 1)))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akey")
+    if(NULL == (acpl_key = (char *)DV_malloc(akey_len + 1)))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akey")
+
+    /* Create akey strings (prefix "S-", "T-", "P-") */
+    type_key[0] = 'T';
+    type_key[1] = '-';
+    space_key[0] = 'S';
+    space_key[1] = '-';
+    acpl_key[0] = 'P';
+    acpl_key[1] = '-';
+    (void)strcpy(type_key + 2, attr_name);
+    (void)strcpy(space_key + 2, attr_name);
+    (void)strcpy(acpl_key + 2, attr_name);
+
+    *datatype_key_out = type_key;
+    *dataspace_key_out = space_key;
+    *acpl_key_out = acpl_key;
+    *akey_len_out = akey_len;
+
+done:
+    if(ret_value < 0) {
+        type_key = (char *)DV_free(type_key);
+        space_key = (char *)DV_free(space_key);
+        acpl_key = (char *)DV_free(acpl_key);
+    } /* end if */
+
+    D_FUNC_LEAVE
+} /* end H5_daos_attribute_get_akey_strings() */

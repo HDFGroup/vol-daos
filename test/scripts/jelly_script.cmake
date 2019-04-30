@@ -48,7 +48,7 @@ set(CTEST_DASHBOARD_ROOT "$ENV{HDF5_VOL_DAOS_ROOT}")
 set(CTEST_SOURCE_DIRECTORY "$ENV{HDF5_VOL_DAOS_ROOT}/source")
 # Give a site name
 set(CTEST_SITE "jelly.ad.hdfgroup.org")
-set(CTEST_TEST_TIMEOUT 180) # 180s timeout
+set(CTEST_TEST_TIMEOUT 300) # 5m timeout
 
 # Optional coverage options
 set(HDF5_VOL_DAOS_DO_COVERAGE $ENV{HDF5_VOL_DAOS_DO_COVERAGE})

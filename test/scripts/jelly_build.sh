@@ -12,7 +12,7 @@ source <(spack module tcl loads --dependencies daos)
 source <(spack module tcl loads --dependencies hdf5@daos-develop)
 
 # store the current directory in a local variable to get back to it later
-export HDF5_VOL_DAOS_ROOT=/mnt/hdf/jsoumagne/daos_vol_test
+export HDF5_VOL_DAOS_ROOT=/scr/jsoumagne/daos
 
 # set up testing configuration
 export HDF5_VOL_DAOS_BUILD_CONFIGURATION="Debug"

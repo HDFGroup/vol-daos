@@ -15,14 +15,18 @@ find_library(DAOS_LIBRARY NAMES daos
   HINTS ${PC_DAOS_LIBDIR} ${PC_DAOS_LIBRARY_DIRS}
   PATHS /usr/local/lib64 /usr/local/lib /usr/lib64 /usr/lib)
 
+find_library(DAOS_COMMON_LIBRARY NAMES daos_common
+  HINTS ${PC_DAOS_LIBDIR} ${PC_DAOS_LIBRARY_DIRS}
+  PATHS /usr/local/lib64 /usr/local/lib /usr/lib64 /usr/lib)
+
 set(DAOS_INCLUDE_DIRS ${DAOS_INCLUDE_DIR})
-set(DAOS_LIBRARIES ${DAOS_LIBRARY})
+set(DAOS_LIBRARIES ${DAOS_LIBRARY} ${DAOS_COMMON_LIBRARY})
 
 include(FindPackageHandleStandardArgs)
 # handle the QUIETLY and REQUIRED arguments and set DAOS_FOUND to TRUE
 # if all listed variables are TRUE
 find_package_handle_standard_args(DAOS DEFAULT_MSG
-                                  DAOS_INCLUDE_DIR DAOS_LIBRARY)
+                                  DAOS_INCLUDE_DIR DAOS_LIBRARY DAOS_COMMON_LIBRARY)
 
-mark_as_advanced(DAOS_INCLUDE_DIR DAOS_LIBRARY)
+mark_as_advanced(DAOS_INCLUDE_DIR DAOS_LIBRARY DAOS_COMMON_LIBRARY)
 

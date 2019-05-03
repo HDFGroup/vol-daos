@@ -118,6 +118,8 @@ In addition to this file, some of the example C applications included with HDF5 
 
 The following sections serve to illustrate the DAOS VOL connector's support for the HDF5 API, as well as to highlight any differences between the expected behavior of an HDF5 API call versus the actual behavior as implemented by the VOL connector. If a particular HDF5 API call does not appear among these tables, it is most likely a native HDF5-specific API call which cannot be implemented by non-native HDF5 VOL connectors. These types of API calls are listed among the tables in Appendix~\ref{apdx:native_calls}.
 
+\newpage
+
 \subsubsection{H5A interface}
 
 \begin{center}
@@ -146,14 +148,28 @@ H5Aiterate\_by\_name & \begin{itemize}
                            \item Only \texttt{H5\_ITER\_NATIVE} is supported for the iteration order
                        \end{itemize}\\ \hline
 H5Aexists(\_by\_name) & \\ \hline
+H5Arename(\_by\_name) & \\ \hline
+H5Adelete(\_by\_name/\_by\_idx) & \\ \hline
 H5Aget\_name & \\ \hline
 H5Aget\_space & \\ \hline
 H5Aget\_type & \\ \hline
+\end{tabularx}
+
+\begin{tabularx}{\linewidth}{| X | X |}
+\hline
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+H5Aget\_info(\_by\_name/\_by\_idx) & Of the four fields in the \texttt{H5A\_info\_t} struct:
+                                     \begin{itemize}
+                                         \item \texttt{corder\_valid} is currently always set to \texttt{FALSE}
+                                         \item \texttt{corder} is currently always set to 0 (no support for creation order yet)
+                                         \item \texttt{cset} is currently always set to \texttt{H5T\_CSET\_ASCII}
+                                         \item \texttt{data\_size} is set appropriately
+                                     \end{itemize}\\ \hline
 H5Aget\_create\_plist & \\ \hline
 
 \end{tabularx}
-
-\newpage
 
 \textbf{Currently unsupported API calls}
 \vspace{.1in} \\
@@ -165,15 +181,14 @@ H5Aget\_create\_plist & \\ \hline
 
 H5Aopen\_by\_idx & Currently no support for attribute creation order \\ \hline
 H5Aopen\_idx & Currently no support for attribute creation order \\ \hline
-H5Arename(\_by\_name) & \\ \hline
-H5Adelete(\_by\_name/\_by\_idx) & \\ \hline
-H5Aget\_info(\_by\_name/\_by\_idx) & \\ \hline
 H5Aget\_name\_by\_idx & Currently no support for attribute creation order \\ \hline
 H5Aget\_storage\_size & \\ \hline
 
 \end{tabularx}
 
 \end{center}
+
+\newpage
 
 \subsubsection{H5D interface}
 
@@ -226,6 +241,8 @@ H5Dfill & \\ \hline
 
 \end{center}
 
+\newpage
+
 \subsubsection{H5F interface}
 
 \begin{center}
@@ -251,8 +268,6 @@ H5Fget\_obj\_ids & \\ \hline
 H5Fclose & \\ \hline
 
 \end{tabularx}
-
-\newpage
 
 \textbf{Currently unsupported API calls}
 \vspace{.2in} \\

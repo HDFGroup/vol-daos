@@ -25,7 +25,7 @@ static herr_t H5_daos_attribute_iterate(H5_daos_obj_t *attr_container_obj, iter_
 static herr_t H5_daos_attribute_rename(H5_daos_obj_t *attr_container_obj, const char *cur_attr_name,
     const char *new_attr_name);
 static herr_t H5_daos_attribute_get_akey_strings(const char *attr_name, char **datatype_key_out,
-    char **dataspace_key_out, char **acpl_key_out, size_t *akey_len_out);
+    char **dataspace_key_out, char **acpl_key_out, char **raw_data_key_out, size_t *akey_len_out);
 
 
 /*-------------------------------------------------------------------------
@@ -140,7 +140,7 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
     daos_iov_set(&dkey, H5_daos_attr_key_g, H5_daos_attr_key_size_g);
 
     /* Set up akey strings (attribute name prefixed with 'T-', 'S-' and 'P-' for datatype, dataspace and ACPL, respectively) */
-    if(H5_daos_attribute_get_akey_strings(name, &type_key, &space_key, &acpl_key, &akey_len) < 0)
+    if(H5_daos_attribute_get_akey_strings(name, &type_key, &space_key, &acpl_key, NULL, &akey_len) < 0)
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTALLOC, NULL, "can't generate akey strings")
 
     /* Set up iod */
@@ -288,7 +288,7 @@ H5_daos_attribute_open(void *_item, const H5VL_loc_params_t *loc_params,
     daos_iov_set(&dkey, H5_daos_attr_key_g, H5_daos_attr_key_size_g);
 
     /* Set up akey strings (attribute name prefixed with 'T-', 'S-' and 'P-' for datatype, dataspace and ACPL, respectively) */
-    if(H5_daos_attribute_get_akey_strings(name, &type_key, &space_key, &acpl_key, &akey_len) < 0)
+    if(H5_daos_attribute_get_akey_strings(name, &type_key, &space_key, &acpl_key, NULL, &akey_len) < 0)
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTALLOC, NULL, "can't generate akey strings")
 
     /* Set up iod */
@@ -956,6 +956,7 @@ herr_t
 H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
     hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req, va_list arguments)
 {
+    H5_daos_attr_t *target_attr = NULL;
     herr_t ret_value = SUCCEED;    /* Return value */
 
     if(!_item)
@@ -1031,12 +1032,57 @@ H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
             } /* end block */
         /* H5Aget_info */
         case H5VL_ATTR_GET_INFO:
+            {
+                H5VL_loc_params_t *loc_params = va_arg(arguments, H5VL_loc_params_t *);
+                H5A_info_t *attr_info = va_arg(arguments, H5A_info_t *);
+                H5A_info_t local_attr_info;
+                hssize_t dataspace_nelmts = 0;
+                size_t datatype_size = 0;
+
+                if(loc_params->type == H5VL_OBJECT_BY_SELF) {
+                    target_attr = (H5_daos_attr_t *)_item;
+                    target_attr->item.rc++;
+                }
+                else if(loc_params->type == H5VL_OBJECT_BY_NAME) {
+                    const char *attr_name = va_arg(arguments, const char *);
+
+                    /* Open the target attribute */
+                    if(NULL == (target_attr = (H5_daos_attr_t *)H5_daos_attribute_open(_item, loc_params,
+                            attr_name, H5P_DEFAULT, dxpl_id, req)))
+                        D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, FAIL, "can't open target attribute")
+                }
+                else
+                    D_GOTO_ERROR(H5E_ATTR, H5E_UNSUPPORTED, FAIL, "get attribute info by index is unsupported")
+
+                memset(&local_attr_info, 0, sizeof(local_attr_info));
+
+                if(0 == (datatype_size = H5Tget_size(target_attr->type_id)))
+                    D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't retrieve attribute's datatype size")
+
+                if((dataspace_nelmts = H5Sget_simple_extent_npoints(target_attr->space_id)) < 0)
+                    D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't retrieve number of elements in attribute's dataspace")
+
+                local_attr_info.corder_valid = FALSE;
+                local_attr_info.corder = 0;
+                local_attr_info.cset = H5T_CSET_ASCII;
+                local_attr_info.data_size = datatype_size * dataspace_nelmts;
+
+                *attr_info = local_attr_info;
+
+                break;
+            } /* H5VL_ATTR_GET_INFO */
         case H5VL_ATTR_GET_STORAGE_SIZE:
         default:
             D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "can't get this type of information from attribute")
     } /* end switch */
 
 done:
+    if(target_attr) {
+        if(H5_daos_attribute_close(target_attr, dxpl_id, req) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close attribute")
+        target_attr = NULL;
+    } /* end else */
+
     D_FUNC_LEAVE_API
 } /* end H5_daos_attribute_get() */
 
@@ -1237,13 +1283,14 @@ done:
 static herr_t
 H5_daos_attribute_delete(H5_daos_obj_t *attr_container_obj, const char *attr_name)
 {
-    unsigned int nr = 3;
+    unsigned int nr = 4;
     daos_key_t dkey;
-    daos_key_t akeys[3];
+    daos_key_t akeys[4];
     size_t akey_len;
     char *type_key = NULL;
     char *space_key = NULL;
     char *acpl_key = NULL;
+    char *data_key = NULL;
     int ret;
     herr_t ret_value = SUCCEED;
 
@@ -1254,7 +1301,7 @@ H5_daos_attribute_delete(H5_daos_obj_t *attr_container_obj, const char *attr_nam
     daos_iov_set(&dkey, H5_daos_attr_key_g, H5_daos_attr_key_size_g);
 
     /* Set up akey strings (attribute name prefixed with 'T-', 'S-' and 'P-' for datatype, dataspace and ACPL, respectively) */
-    if(H5_daos_attribute_get_akey_strings(attr_name, &type_key, &space_key, &acpl_key, &akey_len) < 0)
+    if(H5_daos_attribute_get_akey_strings(attr_name, &type_key, &space_key, &acpl_key, &data_key, &akey_len) < 0)
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTALLOC, FAIL, "can't generate akey strings")
 
     /* Set up akeys */
@@ -1262,7 +1309,9 @@ H5_daos_attribute_delete(H5_daos_obj_t *attr_container_obj, const char *attr_nam
     daos_iov_set(&akeys[0], (void *)type_key, (daos_size_t)akey_len);
     daos_iov_set(&akeys[1], (void *)space_key, (daos_size_t)akey_len);
     daos_iov_set(&akeys[2], (void *)acpl_key, (daos_size_t)akey_len);
+    daos_iov_set(&akeys[3], (void *)data_key, (daos_size_t)akey_len);
 
+    /* DSINC - currently no support for deleting vlen data akeys */
     if(0 != (ret = daos_obj_punch_akeys(attr_container_obj->obj_oh, DAOS_TX_NONE, &dkey,
             nr, akeys, NULL /*event*/)))
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTDELETE, FAIL, "unable to delete attribute")
@@ -1271,6 +1320,7 @@ done:
     type_key = (char *)DV_free(type_key);
     space_key = (char *)DV_free(space_key);
     acpl_key = (char *)DV_free(acpl_key);
+    data_key = (char *)DV_free(data_key);
 
     D_FUNC_LEAVE
 } /* end H5_daos_attribute_delete() */
@@ -1562,8 +1612,8 @@ done:
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_attribute_rename
  *
- * Purpose:     Helper routine to rename an HDF5 attribute by modifying its
- *              DAOS akey strings.
+ * Purpose:     Helper routine to rename an HDF5 attribute by recreating it
+ *              under different akeys and deleting the old attribute.
  *
  * Return:      Success:        0
  *              Failure:        -1
@@ -1576,16 +1626,68 @@ done:
 static herr_t
 H5_daos_attribute_rename(H5_daos_obj_t *attr_container_obj, const char *cur_attr_name, const char *new_attr_name)
 {
+    H5VL_loc_params_t sub_loc_params;
+    H5_daos_attr_t *cur_attr = NULL;
+    H5_daos_attr_t *new_attr = NULL;
+    hssize_t attr_space_nelmts;
+    size_t attr_type_size;
+    void *attr_data_buf = NULL;
     herr_t ret_value = SUCCEED;
 
     assert(attr_container_obj);
     assert(cur_attr_name);
     assert(new_attr_name);
 
-    /* Not supported yet - DSINC */
-    D_GOTO_DONE(FAIL);
+    /* Open the existing attribute */
+    sub_loc_params.type = H5VL_OBJECT_BY_SELF;
+    sub_loc_params.obj_type = H5I_ATTR;
+    if(NULL == (cur_attr = (H5_daos_attr_t *)H5_daos_attribute_open(attr_container_obj, &sub_loc_params,
+            cur_attr_name, H5P_DEFAULT, H5P_DEFAULT, NULL)))
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, FAIL, "can't open attribute")
+
+    /* Create the new attribute */
+    if(H5Pset(cur_attr->acpl_id, H5VL_PROP_ATTR_TYPE_ID, &cur_attr->type_id) < 0)
+        D_GOTO_ERROR(H5E_PLIST, H5E_CANTSET, FAIL, "can't set property value for attribute datatype ID")
+    if(H5Pset(cur_attr->acpl_id, H5VL_PROP_ATTR_SPACE_ID, &cur_attr->space_id) < 0)
+        D_GOTO_ERROR(H5E_PLIST, H5E_CANTSET, FAIL, "can't set property value for attribute dataspace ID")
+    if(NULL == (new_attr = (H5_daos_attr_t *)H5_daos_attribute_create(attr_container_obj, &sub_loc_params,
+            new_attr_name, cur_attr->acpl_id, H5P_DEFAULT, H5P_DEFAULT, NULL)))
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTCREATE, FAIL, "can't create new attribute")
+
+    /* Transfer data from the old attribute to the new attribute */
+    if(0 == (attr_type_size = H5Tget_size(cur_attr->type_id)))
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't retrieve attribute's datatype size")
+
+    if((attr_space_nelmts = H5Sget_simple_extent_npoints(cur_attr->space_id)) < 0)
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't retrieve number of elements in attribute's dataspace")
+
+    if(NULL == (attr_data_buf = DV_malloc(attr_type_size * (size_t)attr_space_nelmts)))
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTALLOC, FAIL, "can't allocate buffer for attribute data")
+
+    if(H5_daos_attribute_read(cur_attr, cur_attr->type_id, attr_data_buf, H5P_DEFAULT, NULL) < 0)
+        D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, FAIL, "can't read data from attribute")
+
+    if(H5_daos_attribute_write(new_attr, new_attr->type_id, attr_data_buf, H5P_DEFAULT, NULL) < 0)
+        D_GOTO_ERROR(H5E_ATTR, H5E_WRITEERROR, FAIL, "can't write data to attribute")
+
+    /* Delete the old attribute */
+    if(H5_daos_attribute_delete(attr_container_obj, cur_attr_name) < 0)
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTDELETE, FAIL, "can't delete old attribute")
 
 done:
+    attr_data_buf = DV_free(attr_data_buf);
+
+    if(new_attr) {
+        if(H5_daos_attribute_close(new_attr, H5P_DEFAULT, NULL) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close attribute")
+            new_attr = NULL;
+    }
+    if(cur_attr) {
+        if(H5_daos_attribute_close(cur_attr, H5P_DEFAULT, NULL) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close attribute")
+        cur_attr = NULL;
+    }
+
     D_FUNC_LEAVE
 } /* end H5_daos_attribute_rename() */
 
@@ -1607,48 +1709,65 @@ done:
  */
 static herr_t
 H5_daos_attribute_get_akey_strings(const char *attr_name, char **datatype_key_out, char **dataspace_key_out,
-    char **acpl_key_out, size_t *akey_len_out)
+    char **acpl_key_out, char **raw_data_key_out, size_t *akey_len_out)
 {
     size_t akey_len;
     char *type_key = NULL;
     char *space_key = NULL;
     char *acpl_key = NULL;
+    char *data_key = NULL;
     herr_t ret_value = SUCCEED;
 
     assert(attr_name);
-    assert(datatype_key_out);
-    assert(dataspace_key_out);
-    assert(acpl_key_out);
 
     akey_len = strlen(attr_name) + 2;
-    if(NULL == (type_key = (char *)DV_malloc(akey_len + 1)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akey")
-    if(NULL == (space_key = (char *)DV_malloc(akey_len + 1)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akey")
-    if(NULL == (acpl_key = (char *)DV_malloc(akey_len + 1)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akey")
 
-    /* Create akey strings (prefix "S-", "T-", "P-") */
-    type_key[0] = 'T';
-    type_key[1] = '-';
-    space_key[0] = 'S';
-    space_key[1] = '-';
-    acpl_key[0] = 'P';
-    acpl_key[1] = '-';
-    (void)strcpy(type_key + 2, attr_name);
-    (void)strcpy(space_key + 2, attr_name);
-    (void)strcpy(acpl_key + 2, attr_name);
+    if(datatype_key_out) {
+        if(NULL == (type_key = (char *)DV_malloc(akey_len + 1)))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akey")
+        type_key[0] = 'T';
+        type_key[1] = '-';
+        (void)strcpy(type_key + 2, attr_name);
+    }
+    if(dataspace_key_out) {
+        if(NULL == (space_key = (char *)DV_malloc(akey_len + 1)))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akey")
+        space_key[0] = 'S';
+        space_key[1] = '-';
+        (void)strcpy(space_key + 2, attr_name);
+    }
+    if(acpl_key_out) {
+        if(NULL == (acpl_key = (char *)DV_malloc(akey_len + 1)))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akey")
+        acpl_key[0] = 'P';
+        acpl_key[1] = '-';
+        (void)strcpy(acpl_key + 2, attr_name);
+    }
+    if(raw_data_key_out) {
+        if(NULL == (data_key = (char *)DV_malloc(akey_len + 1)))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akey")
+        data_key[0] = 'V';
+        data_key[1] = '-';
+        (void)strcpy(data_key + 2, attr_name);
+    }
 
-    *datatype_key_out = type_key;
-    *dataspace_key_out = space_key;
-    *acpl_key_out = acpl_key;
-    *akey_len_out = akey_len;
+    if(datatype_key_out)
+        *datatype_key_out = type_key;
+    if(dataspace_key_out)
+        *dataspace_key_out = space_key;
+    if(acpl_key_out)
+        *acpl_key_out = acpl_key;
+    if(raw_data_key_out)
+        *raw_data_key_out = data_key;
+    if(akey_len_out)
+        *akey_len_out = akey_len;
 
 done:
     if(ret_value < 0) {
         type_key = (char *)DV_free(type_key);
         space_key = (char *)DV_free(space_key);
         acpl_key = (char *)DV_free(acpl_key);
+        data_key = (char *)DV_free(data_key);
     } /* end if */
 
     D_FUNC_LEAVE

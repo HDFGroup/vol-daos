@@ -3,13 +3,12 @@
 echo "Running build script from repository"
 echo "(current dir is: $PWD)"
 
-module load GCC/7.2.0-2.29
-
 # Spack
-export SPACK_ROOT=/mnt/hdf/jsoumagne/spack
+export SPACK_ROOT=/mnt/wrk/jsoumagne/spack
 source $SPACK_ROOT/share/spack/setup-env.sh
 source <(spack module tcl loads --dependencies daos)
 source <(spack module tcl loads --dependencies hdf5@daos-develop)
+source <(spack module tcl loads --dependencies gcc@8.3.0)
 
 # store the current directory in a local variable to get back to it later
 export HDF5_VOL_DAOS_ROOT=/scr/jsoumagne/daos

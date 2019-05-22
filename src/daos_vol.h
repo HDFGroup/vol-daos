@@ -48,6 +48,7 @@
 #define H5_DAOS_SEQ_LIST_LEN 128
 #define H5_DAOS_ITER_LEN 128
 #define H5_DAOS_ITER_SIZE_INIT (4 * 1024)
+#define H5_DAOS_ATTR_NUM_AKEYS 4
 
 /* Definitions for building oids */
 #define H5_DAOS_IDX_MASK   0x3fffffffffffffffull

@@ -147,6 +147,16 @@ The key parameter is the buffer for the key for this iteration, converted to the
 
 To implement this function, in order to reduce the number of calls to DAOS that may cause network access, we will fetch more than one key at a time from DAOS. However, since we do not know the size of the keys or the memory usage limitations of the application, it is difficult to know the number of keys we should prefetch in this manner. Currently we plan to add a Map access property to control the number of keys prefetched for iteration, and this function is described below as \verb+H5Pset_map_iterate_hints()+. We could alternatively keep track of the average key size in the file and add a property list setting to control the average memory usage for iteration.
 
+\subsubsection{H5Mdelete\_key}
+
+{\lstsetc
+\begin{lstlisting}
+H5Mdelete_key(hid_t map_id, hid_t key_mem_type_id, const void *key, hid_t dxpl_id);
+\end{lstlisting}
+}
+
+\verb+H5Mdelete_key()+ deletes a key-value pair from the Map specified by \verb+map_id+. \verb+key_mem_type_id+ specifies the datatype for the provided \verb+key+ buffer, and if different from that used to create the Map object, the key will be internally converted to the datatype for the map object. Any further options can be specified through the property list \verb+dxpl_id+.
+
 \subsubsection{H5Pset\_map\_iterate\_hints}
 
 {\lstsetc

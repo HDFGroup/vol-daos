@@ -25,11 +25,14 @@
  * Definitions
  */
 #define FILENAME                "h5daos_test_map.h5"
-#define NUMB_KEYS               4   /* Don't set this too high because this test uses linear search */
+#define NUMB_KEYS               4
+#define LARGE_NUMB_KEYS         16   /* Don't set this too high because this test uses linear search */
 
 #define MAP_INT_INT_NAME        "map_int_int"
 #define MAP_ENUM_ENUM_NAME      "map_enum_enum"
 #define MAP_VL_VL_NAME          "map_vl_vl"
+#define MAP_COMP_COMP_NAME      "map_comp_comp"
+#define MAP_LARGE_NAME          "map_large"
 
 #define CPTR(VAR,CONST) ((VAR)=(CONST),&(VAR))
 
@@ -43,6 +46,11 @@ int    mpi_rank;
 int int_int_keys[NUMB_KEYS];
 int int_int_vals[NUMB_KEYS];
 int int_vals_out[NUMB_KEYS];
+
+int large_int_int_keys[LARGE_NUMB_KEYS];
+int large_int_int_vals[LARGE_NUMB_KEYS];
+int large_int_vals_out[LARGE_NUMB_KEYS];
+
 int random_base;
 
 /* Keys and values for enum-enum map */
@@ -70,6 +78,16 @@ enum_value_t enum_vals_out[NUMB_KEYS];
 hvl_t vl_vl_keys[NUMB_KEYS];
 hvl_t vl_vl_vals[NUMB_KEYS];
 hvl_t vl_vals_out[NUMB_KEYS];
+
+/* Keys and values for compound-compound map */
+typedef struct compound_t {
+    int    a;
+    float  b;
+} compound_t;
+
+compound_t comp_comp_keys[NUMB_KEYS];
+compound_t comp_comp_vals[NUMB_KEYS];
+compound_t comp_vals_out[NUMB_KEYS];
 
 /*
  * Tests creating and closing a map object
@@ -173,6 +191,22 @@ test_map_set(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t value_d
                 printf("failed to set key-value pair\n");
                 goto error;
             } /* end if */
+    } else if(!strcmp(map_name, MAP_COMP_COMP_NAME)) {
+        /* Set the values */
+        for(i = 0; i < NUMB_KEYS; i++)
+            if(H5Mset(map_id, key_dtype, &comp_comp_keys[i], value_dtype, &comp_comp_vals[i], H5P_DEFAULT) < 0) {
+                H5_FAILED(); AT();
+                printf("failed to set key-value pair\n");
+                goto error;
+            } /* end if */
+    } else if(!strcmp(map_name, MAP_LARGE_NAME)) {
+        /* Set the values */
+        for(i = 0; i < LARGE_NUMB_KEYS; i++)
+            if(H5Mset(map_id, key_dtype, &large_int_int_keys[i], value_dtype, &large_int_int_vals[i], H5P_DEFAULT) < 0) {
+                H5_FAILED(); AT();
+                printf("failed to set key-value pair\n");
+                goto error;
+            } /* end if */
     }
 
     if(H5Mclose(map_id) < 0)
@@ -197,7 +231,7 @@ static int
 test_map_get(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t value_dtype)
 {
     hid_t map_id = -1;
-    int i, j;
+    int i;
 
     TESTING_2("map get with keys and values")
 
@@ -244,22 +278,39 @@ test_map_get(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t value_d
             if(vl_vl_vals[i].len != vl_vals_out[i].len || memcmp(vl_vl_vals[i].p, vl_vals_out[i].p, vl_vl_vals[i].len)) {
                     H5_FAILED(); AT();
                     printf("incorrect value returned\n");
-                    /*printf("incorrect value returned - index is [%d, %d], vl_vl_vals.len = %d, vl_vl_vals = %d, vl_vals_out[i].len = %d, vl_vals_out = %d\n", i, j, 
-                        vl_vl_vals[i].len, ((short *)vl_vl_vals[i].p)[j], vl_vals_out[i].len, ((short *)vl_vals_out[i].p)[j]); */
                     goto error;
                 }
-/*
-            for(j = 0; j < vl_vl_vals[i].len; j++)
-                if(((short *)vl_vl_vals[i].p)[j] != ((short *)vl_vals_out[i].p)[j]) {
-                    H5_FAILED(); AT();
-                    printf("incorrect value returned - index is [%d, %d], vl_vl_vals.len = %d, vl_vl_vals = %d, vl_vals_out[i].len = %d, vl_vals_out = %d\n", i, j, 
-                        vl_vl_vals[i].len, ((short *)vl_vl_vals[i].p)[j], vl_vals_out[i].len, ((short *)vl_vals_out[i].p)[j]);
-                    goto error;
-                }
- */
         } /* end for */
-    }
+    } else if(!strcmp(map_name, MAP_COMP_COMP_NAME)) {
+        for(i = 0; i < NUMB_KEYS; i++) {
+            if(H5Mget(map_id, key_dtype, &comp_comp_keys[i], value_dtype, &comp_vals_out[i], H5P_DEFAULT) < 0) {
+                H5_FAILED(); AT();
+                printf("failed to get key-value pair\n");
+                goto error;
+            } /* end if */
 
+            if(comp_vals_out[i].a != comp_comp_vals[i].a || comp_vals_out[i].b != comp_comp_vals[i].b) {
+                H5_FAILED(); AT();
+                printf("incorrect value returned - index is %d\n", i);
+                goto error;
+            } /* end if */
+        }
+    } else if(!strcmp(map_name, MAP_LARGE_NAME)) {
+        for(i = 0; i < LARGE_NUMB_KEYS; i++) {
+            if(H5Mget(map_id, key_dtype, &large_int_int_keys[i], value_dtype, &large_int_vals_out[i], H5P_DEFAULT) < 0) {
+                H5_FAILED(); AT();
+                printf("failed to get key-value pair\n");
+                goto error;
+            } /* end if */
+
+            if(large_int_vals_out[i] != large_int_int_vals[i]) {
+                H5_FAILED(); AT();
+                printf("incorrect value returned - index is %d\n", i);
+                goto error;
+            } /* end if */
+        }
+    }
+ 
     if(H5Mclose(map_id) < 0)
         TEST_ERROR
 
@@ -286,6 +337,7 @@ test_map_exists(hid_t file_id, const char *map_name, hid_t key_dtype)
     hbool_t exists;
     int nonexist_key_int;
     enum_key_t nonexist_key_enum;
+    compound_t nonexist_key_comp;
     hvl_t nonexist_key_vl;
     int i;
 
@@ -294,9 +346,9 @@ test_map_exists(hid_t file_id, const char *map_name, hid_t key_dtype)
     if((map_id = H5Mopen(file_id, map_name, H5P_DEFAULT)) < 0)
         TEST_ERROR
 
-    /* Check if the existing keys exist (should all be TRUE) */
     if(!strcmp(map_name, MAP_INT_INT_NAME)) {
         for(i = 0; i < NUMB_KEYS; i++) {
+            /* Check if the existing keys exist (should all be TRUE) */
             if(H5Mexists(map_id, key_dtype, &int_int_keys[i], &exists, H5P_DEFAULT) < 0) {
                 H5_FAILED(); AT();
                 printf("failed to check if key exists\n");
@@ -305,7 +357,7 @@ test_map_exists(hid_t file_id, const char *map_name, hid_t key_dtype)
 
             if(!exists) {
                 H5_FAILED(); AT();
-                printf("incorrect value returned\n");
+                printf("incorrect value returned: index %d\n", i);
                 goto error;
             } /* end if */
         } /* end for */
@@ -386,8 +438,67 @@ test_map_exists(hid_t file_id, const char *map_name, hid_t key_dtype)
             printf("incorrect value returned\n");
             goto error;
         } /* end if */
-    }
+    } else if(!strcmp(map_name, MAP_COMP_COMP_NAME)) {
+        for(i = 0; i < NUMB_KEYS; i++) {
+            if(H5Mexists(map_id, key_dtype, &comp_comp_keys[i], &exists, H5P_DEFAULT) < 0) {
+                H5_FAILED(); AT();
+                printf("failed to check if key exists\n");
+                goto error;
+            } /* end if */
 
+            if(!exists) {
+                H5_FAILED(); AT();
+                printf("incorrect value returned\n");
+                goto error;
+            } /* end if */
+        } /* end for */
+
+        nonexist_key_comp.a = random_base - 1;
+        nonexist_key_comp.b = (float)(random_base - 1);
+
+        /* Check if the nonexisting key exists (should be FALSE) */
+        if(H5Mexists(map_id, key_dtype, &nonexist_key_comp, &exists, H5P_DEFAULT) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to check if key exists\n");
+            goto error;
+        } /* end if */
+
+        if(exists) {
+            H5_FAILED(); AT();
+            printf("incorrect value returned\n");
+            goto error;
+        } /* end if */
+    } else if(!strcmp(map_name, MAP_LARGE_NAME)) {
+        for(i = 0; i < LARGE_NUMB_KEYS; i++) {
+            /* Check if the existing keys exist (should all be TRUE) */
+            if(H5Mexists(map_id, key_dtype, &large_int_int_keys[i], &exists, H5P_DEFAULT) < 0) {
+                H5_FAILED(); AT();
+                printf("failed to check if key exists\n");
+                goto error;
+            } /* end if */
+
+            if(!exists) {
+                H5_FAILED(); AT();
+                printf("incorrect value returned\n");
+                goto error;
+            } /* end if */
+        } /* end for */
+
+        nonexist_key_int = random_base - 1;
+
+        /* Check if the nonexisting key exists (should be FALSE) */
+        if(H5Mexists(map_id, key_dtype, &nonexist_key_int, &exists, H5P_DEFAULT) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to check if key exists\n");
+            goto error;
+        } /* end if */
+
+        if(exists) {
+            H5_FAILED(); AT();
+            printf("incorrect value returned\n");
+            goto error;
+        } /* end if */
+    } 
     if(H5Mclose(map_id) < 0)
         TEST_ERROR
 
@@ -408,17 +519,17 @@ error:
  * Tests iterating over all keys in a map object 
  */
 typedef struct {
-    int keys_visited[NUMB_KEYS];
+    int *keys_visited;
     int ncalls;
     int stop_at;
-    H5T_class_t key_dtype_class;
+    char *map_name;
 } iterate_ud_t;
 
 static herr_t
 map_iterate_cb(hid_t map_id, const void *_key, void *_iterate_ud)
 {
     iterate_ud_t *iterate_ud = (iterate_ud_t *)_iterate_ud;
-    int i, j;
+    int i;
 
     /* Check parameters */
     if(!_key) {
@@ -431,33 +542,82 @@ map_iterate_cb(hid_t map_id, const void *_key, void *_iterate_ud)
         printf("op_data is NULL\n");
         goto error;
     } /* end if */
+    if(!iterate_ud->map_name) {
+        H5_FAILED(); AT();
+        printf("op_data is NULL\n");
+        goto error;
+    } /* end if */
 
     /* Mark key visited */
-    for(i = 0; i < NUMB_KEYS; i++) {
-        if(iterate_ud->key_dtype_class == H5T_INTEGER) {
+    if(!strcmp(iterate_ud->map_name, MAP_INT_INT_NAME)) {
+        for(i = 0; i < NUMB_KEYS; i++) {
             if(int_int_keys[i] == *((const int *)_key)) {
                 iterate_ud->keys_visited[i]++;
                 break;
             } /* end if */
-        } else if(iterate_ud->key_dtype_class == H5T_ENUM) {
+        }
+
+        if(i == NUMB_KEYS) {
+            H5_FAILED(); AT();
+            printf("key not found: %d among ", *((const int *)_key));
+            for(i = 0; i < NUMB_KEYS; i++)
+                printf("%d, ", int_int_keys[i]);
+            printf("\n");
+            goto error;
+        } /* end if */
+    } else if(!strcmp(iterate_ud->map_name, MAP_ENUM_ENUM_NAME)) {
+        for(i = 0; i < NUMB_KEYS; i++) {
             if(enum_enum_keys[i] == *((const enum_key_t *)_key)) {
                 iterate_ud->keys_visited[i]++;
                 break;
             } /* end if */
-        } else if(iterate_ud->key_dtype_class == H5T_VLEN) {
+        }
+
+        if(i == NUMB_KEYS) {
+            H5_FAILED(); AT();
+            printf("key not found\n");
+            goto error;
+        } /* end if */
+    } else if(!strcmp(iterate_ud->map_name, MAP_VL_VL_NAME)) {
+        for(i = 0; i < NUMB_KEYS; i++) {
             if(vl_vl_keys[i].len == ((const hvl_t *)_key)->len && !memcmp(vl_vl_keys[i].p, ((const hvl_t *)_key)->p, vl_vl_keys[i].len)) {
                 iterate_ud->keys_visited[i]++;
                 break;
             } /* end if */
         }
-    }
 
-    if(i == NUMB_KEYS) {
-        H5_FAILED(); AT();
-        //printf("key not found: %u\n", *((const enum_key_t *)_key));
-        printf("key not found\n");
-        goto error;
-    } /* end if */
+        if(i == NUMB_KEYS) {
+            H5_FAILED(); AT();
+            printf("key not found\n");
+            goto error;
+        } /* end if */
+    } else if(!strcmp(iterate_ud->map_name, MAP_COMP_COMP_NAME)) {
+        for(i = 0; i < NUMB_KEYS; i++) {
+            if(comp_comp_keys[i].a == ((const compound_t *)_key)->a && comp_comp_keys[i].b == ((const compound_t *)_key)->b) {
+                iterate_ud->keys_visited[i]++;
+                break;
+            } /* end if */
+        }
+
+        if(i == NUMB_KEYS) {
+            H5_FAILED(); AT();
+            printf("key not found\n");
+            goto error;
+        } /* end if */
+    } else if(!strcmp(iterate_ud->map_name, MAP_LARGE_NAME)) {
+        for(i = 0; i < LARGE_NUMB_KEYS; i++) {
+            if(large_int_int_keys[i] == *((const int *)_key)) {
+                iterate_ud->keys_visited[i]++;
+                break;
+            } /* end if */
+        }
+
+        if(i == LARGE_NUMB_KEYS) {
+            H5_FAILED(); AT();
+            printf("key not found\n");
+            goto error;
+        } /* end if */
+    }
 
     /* Check for short circuit */
     if(++iterate_ud->ncalls == iterate_ud->stop_at)
@@ -487,13 +647,13 @@ test_map_iterate(hid_t file_id, const char *map_name, hid_t key_dtype)
     /* Reset iterate_cb */
     memset(&iterate_ud, 0, sizeof(iterate_ud));
 
-    /* Pass in the datatype class of the key */
-    if(!strcmp(map_name, MAP_INT_INT_NAME))
-        iterate_ud.key_dtype_class = H5T_INTEGER;
-    else if(!strcmp(map_name, MAP_ENUM_ENUM_NAME))
-        iterate_ud.key_dtype_class = H5T_ENUM;
-    else if(!strcmp(map_name, MAP_VL_VL_NAME))
-        iterate_ud.key_dtype_class = H5T_VLEN;
+    /* Copy the map name to the struct */
+    iterate_ud.map_name = strdup(map_name);
+
+    if(!strcmp(map_name, MAP_LARGE_NAME))
+        iterate_ud.keys_visited = calloc(LARGE_NUMB_KEYS, sizeof(int));
+    else
+        iterate_ud.keys_visited = calloc(NUMB_KEYS, sizeof(int));
 
     /* Iterate over all keys */
     iterate_ud.stop_at = -1;
@@ -508,30 +668,56 @@ test_map_iterate(hid_t file_id, const char *map_name, hid_t key_dtype)
         printf("incorrect return code from H5Miterate\n");
         goto error;
     } /* end if */
-    if(idx != (hsize_t)NUMB_KEYS){
-        H5_FAILED(); AT();
-        printf("incorrect value of idx after H5Miterate\n");
-        goto error;
-    } /* end if */
 
     /* Check that all keys were visited exactly once */
-    for(i = 0; i < NUMB_KEYS; i++)
-        if(iterate_ud.keys_visited[i] != 1) {
+    if(!strcmp(map_name, MAP_LARGE_NAME)) {
+        if(idx != (hsize_t)LARGE_NUMB_KEYS){
             H5_FAILED(); AT();
-            printf("key visited an incorrect number of times\n");
+            printf("incorrect value of idx after H5Miterate\n");
             goto error;
         } /* end if */
 
+        for(i = 0; i < LARGE_NUMB_KEYS; i++)
+            if(iterate_ud.keys_visited[i] != 1) {
+                H5_FAILED(); AT();
+                printf("key visited an incorrect number of times\n");
+                goto error;
+            } /* end if */
+    } else {
+        if(idx != (hsize_t)NUMB_KEYS){
+            H5_FAILED(); AT();
+            printf("incorrect value of idx after H5Miterate\n");
+            goto error;
+        } /* end if */
+
+        for(i = 0; i < NUMB_KEYS; i++)
+            if(iterate_ud.keys_visited[i] != 1) {
+                H5_FAILED(); AT();
+                printf("key visited an incorrect number of times\n");
+                goto error;
+            } /* end if */
+    }
+
     /* Reset iterate_cb */
+    if(iterate_ud.map_name) {
+        free(iterate_ud.map_name);
+        iterate_ud.map_name = NULL;
+    }
+
+    if(iterate_ud.keys_visited) {
+        free(iterate_ud.keys_visited);
+        iterate_ud.keys_visited = NULL;
+    }
+
     memset(&iterate_ud, 0, sizeof(iterate_ud));
 
-    /* Pass in the datatype class of the key */
-    if(!strcmp(map_name, MAP_INT_INT_NAME))
-        iterate_ud.key_dtype_class = H5T_INTEGER;
-    else if(!strcmp(map_name, MAP_ENUM_ENUM_NAME))
-        iterate_ud.key_dtype_class = H5T_ENUM;
-    else if(!strcmp(map_name, MAP_VL_VL_NAME))
-        iterate_ud.key_dtype_class = H5T_VLEN;
+    /* Copy the map name to the struct */
+    iterate_ud.map_name = strdup(map_name);
+
+    if(!strcmp(map_name, MAP_LARGE_NAME))
+        iterate_ud.keys_visited = calloc(LARGE_NUMB_KEYS, sizeof(int));
+    else
+        iterate_ud.keys_visited = calloc(NUMB_KEYS, sizeof(int));
 
     /* Iterate but stop after the second key */
     iterate_ud.stop_at = 2;
@@ -555,20 +741,272 @@ test_map_iterate(hid_t file_id, const char *map_name, hid_t key_dtype)
     /* Check that all keys were visited zero or one times, and that exactly two
      * keys were visited in total. */
     nkeys = 0;
-    for(i = 0; i < NUMB_KEYS; i++) {
-        if((iterate_ud.keys_visited[i] != 0)
-                && (iterate_ud.keys_visited[i] != 1)) {
-            H5_FAILED(); AT();
-            printf("key visited an incorrect number of times\n");
-            goto error;
-        } /* end if */
-        nkeys += iterate_ud.keys_visited[i];
-    } /* end for */
+    if(!strcmp(map_name, MAP_LARGE_NAME)) {
+        for(i = 0; i < LARGE_NUMB_KEYS; i++) {
+            if(iterate_ud.keys_visited[i] > 1) {
+                H5_FAILED(); AT();
+                printf("key visited an incorrect number of times\n");
+                goto error;
+            } /* end if */
+            nkeys += iterate_ud.keys_visited[i];
+        }
+    } else {
+        for(i = 0; i < NUMB_KEYS; i++) {
+            if(iterate_ud.keys_visited[i] > 1) {
+                H5_FAILED(); AT();
+                printf("key visited an incorrect number of times\n");
+                goto error;
+            } /* end if */
+            nkeys += iterate_ud.keys_visited[i];
+        }
+    }
+
     if(nkeys != 2) {
         H5_FAILED(); AT();
         printf("incorrect number of keys visited\n");
         goto error;
     } /* end if */
+
+    if(iterate_ud.map_name) {
+        free(iterate_ud.map_name);
+        iterate_ud.map_name = NULL;
+    }
+
+    if(iterate_ud.keys_visited) {
+        free(iterate_ud.keys_visited);
+        iterate_ud.keys_visited = NULL;
+    }
+    if(H5Mclose(map_id) < 0)
+        TEST_ERROR
+
+    PASSED();
+
+    return 0;
+
+error:
+    H5E_BEGIN_TRY {
+        H5Mclose(map_id);
+    } H5E_END_TRY;
+
+    if(iterate_ud.map_name)
+        free(iterate_ud.map_name);
+
+    if(iterate_ud.keys_visited)
+        free(iterate_ud.keys_visited);
+
+    return 1;
+} /* end test_map_iterate() */
+
+/*
+ * Tests checking if an entry can be removed in a map object
+ */
+static int
+test_map_delete_key(hid_t file_id, const char *map_name, hid_t key_dtype)
+{
+    hid_t map_id = -1;
+    hbool_t exists;
+    int nonexist_key_int;
+    enum_key_t nonexist_key_enum;
+    compound_t nonexist_key_comp;
+    hvl_t nonexist_key_vl;
+    int i;
+
+    TESTING_2("removing an entry by the key")
+
+    if((map_id = H5Mopen(file_id, map_name, H5P_DEFAULT)) < 0)
+        TEST_ERROR
+
+    /* Check if the existing keys exist (should all be TRUE) */
+    if(!strcmp(map_name, MAP_INT_INT_NAME)) {
+        /* Delete the first entry */
+        if(H5Mdelete_key(map_id, key_dtype, &int_int_keys[0], H5P_DEFAULT) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to remove an entry by the key\n");
+            goto error;
+        } /* end if */
+
+        nonexist_key_int = random_base;
+
+        /* Check if the nonexisting key exists (should be FALSE) */
+        if(H5Mexists(map_id, key_dtype, &nonexist_key_int, &exists, H5P_DEFAULT) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to check if key exists\n");
+            goto error;
+        } /* end if */
+
+        if(exists) {
+            H5_FAILED(); AT();
+            printf("incorrect value returned\n");
+            goto error;
+        } /* end if */
+
+        /* Check the rest of entries still exist */
+        for(i = 1; i < NUMB_KEYS; i++) {
+            if(H5Mexists(map_id, key_dtype, &int_int_keys[i], &exists, H5P_DEFAULT) < 0) {
+                H5_FAILED(); AT();
+                printf("failed to check if key exists\n");
+                goto error;
+            } /* end if */
+
+            if(!exists) {
+                H5_FAILED(); AT();
+                printf("incorrect value returned\n");
+                goto error;
+            } /* end if */
+        } /* end for */
+    } else if(!strcmp(map_name, MAP_ENUM_ENUM_NAME)) {
+        /* Delete the first entry */
+        if(H5Mdelete_key(map_id, key_dtype, &enum_enum_keys[0], H5P_DEFAULT) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to remove an entry by the key\n");
+            goto error;
+        } /* end if */
+
+        nonexist_key_enum = 0;
+
+        /* Check if the nonexisting key exists (should be FALSE) */
+        if(H5Mexists(map_id, key_dtype, &nonexist_key_enum, &exists, H5P_DEFAULT) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to check if key exists\n");
+            goto error;
+        } /* end if */
+
+        if(exists) {
+            H5_FAILED(); AT();
+            printf("incorrect value returned\n");
+            goto error;
+        } /* end if */
+
+        /* Check the rest of entries still exist */
+        for(i = 1; i < NUMB_KEYS; i++) {
+            if(H5Mexists(map_id, key_dtype, &enum_enum_keys[i], &exists, H5P_DEFAULT) < 0) {
+                H5_FAILED(); AT();
+                printf("failed to check if key exists\n");
+                goto error;
+            } /* end if */
+
+            if(!exists) {
+                H5_FAILED(); AT();
+                printf("incorrect value returned\n");
+                goto error;
+            } /* end if */
+        } /* end for */
+    } else if(!strcmp(map_name, MAP_VL_VL_NAME)) {
+        /* Delete the first entry */
+        if(H5Mdelete_key(map_id, key_dtype, &(vl_vl_keys[0]), H5P_DEFAULT) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to remove an entry by the key\n");
+            goto error;
+        } /* end if */
+
+        /* Initialize non-existent key */
+        nonexist_key_vl.p = malloc(1*sizeof(short));
+        nonexist_key_vl.len = 1;
+        ((short *)nonexist_key_vl.p)[0] = 7;
+
+        /* Check if the nonexisting key exists (should be FALSE) */
+        if(H5Mexists(map_id, key_dtype, &nonexist_key_vl, &exists, H5P_DEFAULT) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to check if key exists\n");
+            goto error;
+        } /* end if */
+
+        if(exists) {
+            H5_FAILED(); AT();
+            printf("incorrect value returned\n");
+            goto error;
+        } /* end if */
+
+        /* Check the rest of entries still exist */
+        for(i = 1; i < NUMB_KEYS; i++) {
+            if(H5Mexists(map_id, key_dtype, &(vl_vl_keys[i]), &exists, H5P_DEFAULT) < 0) {
+                H5_FAILED(); AT();
+                printf("failed to check if key exists\n");
+                goto error;
+            } /* end if */
+
+            if(!exists) {
+                H5_FAILED(); AT();
+                printf("incorrect value returned: %d\n", i);
+                goto error;
+            } /* end if */
+        } /* end for */
+    } else if(!strcmp(map_name, MAP_COMP_COMP_NAME)) {
+        /* Delete the first entry */
+        if(H5Mdelete_key(map_id, key_dtype, &comp_comp_keys[0], H5P_DEFAULT) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to remove an entry by the key\n");
+            goto error;
+        } /* end if */
+
+        nonexist_key_comp.a = random_base;
+        nonexist_key_comp.b = (float)random_base;
+
+        /* Check if the nonexisting key exists (should be FALSE) */
+        if(H5Mexists(map_id, key_dtype, &nonexist_key_comp, &exists, H5P_DEFAULT) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to check if key exists\n");
+            goto error;
+        } /* end if */
+
+        if(exists) {
+            H5_FAILED(); AT();
+            printf("incorrect value returned\n");
+            goto error;
+        } /* end if */
+
+        /* Check the rest of entries still exist */
+        for(i = 1; i < NUMB_KEYS; i++) {
+            if(H5Mexists(map_id, key_dtype, &comp_comp_keys[i], &exists, H5P_DEFAULT) < 0) {
+                H5_FAILED(); AT();
+                printf("failed to check if key exists\n");
+                goto error;
+            } /* end if */
+
+            if(!exists) {
+                H5_FAILED(); AT();
+                printf("incorrect value returned\n");
+                goto error;
+            } /* end if */
+        } /* end for */
+    } else if(!strcmp(map_name, MAP_LARGE_NAME)) {
+        /* Delete the first entry */
+        if(H5Mdelete_key(map_id, key_dtype, &large_int_int_keys[0], H5P_DEFAULT) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to remove an entry by the key\n");
+            goto error;
+        } /* end if */
+
+        nonexist_key_int = random_base;
+
+        /* Check if the nonexisting key exists (should be FALSE) */
+        if(H5Mexists(map_id, key_dtype, &nonexist_key_int, &exists, H5P_DEFAULT) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to check if key exists\n");
+            goto error;
+        } /* end if */
+
+        if(exists) {
+            H5_FAILED(); AT();
+            printf("incorrect value returned\n");
+            goto error;
+        } /* end if */
+
+        /* Check the rest of entries still exist */
+        for(i = 1; i < LARGE_NUMB_KEYS; i++) {
+            if(H5Mexists(map_id, key_dtype, &large_int_int_keys[i], &exists, H5P_DEFAULT) < 0) {
+                H5_FAILED(); AT();
+                printf("failed to check if key exists\n");
+                goto error;
+            } /* end if */
+
+            if(!exists) {
+                H5_FAILED(); AT();
+                printf("incorrect value returned\n");
+                goto error;
+            } /* end if */
+        } /* end for */
+    }
 
     if(H5Mclose(map_id) < 0)
         TEST_ERROR
@@ -583,7 +1021,8 @@ error:
     } H5E_END_TRY;
 
     return 1;
-} /* end test_map_iterate() */
+} /* end test_map_exists() */
+
 
 static int 
 test_integer(hid_t file_id)
@@ -605,6 +1044,7 @@ test_integer(hid_t file_id)
     nerrors += test_map_get(file_id, MAP_INT_INT_NAME, H5T_NATIVE_INT, H5T_NATIVE_INT);
     nerrors += test_map_exists(file_id, MAP_INT_INT_NAME, H5T_NATIVE_INT);
     nerrors += test_map_iterate(file_id, MAP_INT_INT_NAME, H5T_NATIVE_INT);
+    nerrors += test_map_delete_key(file_id, MAP_INT_INT_NAME, H5T_NATIVE_INT);
 
     return nerrors;
 }
@@ -648,6 +1088,7 @@ test_enum(hid_t file_id)
     nerrors += test_map_get(file_id, MAP_ENUM_ENUM_NAME, key_dtype_id, value_dtype_id);
     nerrors += test_map_exists(file_id, MAP_ENUM_ENUM_NAME, key_dtype_id);
     nerrors += test_map_iterate(file_id, MAP_ENUM_ENUM_NAME, key_dtype_id);
+    nerrors += test_map_delete_key(file_id, MAP_ENUM_ENUM_NAME, key_dtype_id);
 
     if(H5Tclose(key_dtype_id) < 0) goto error;
     if(H5Tclose(value_dtype_id) < 0) goto error;
@@ -699,6 +1140,68 @@ error:
     return 1;
 }
 
+static int
+test_compound(hid_t file_id)
+{
+    hid_t   dtype_id = -1;
+    int     i;
+    int     nerrors = 0;
+
+    TESTING("compound as the datatype of keys and values"); HDputs("");
+
+    dtype_id = H5Tcreate (H5T_COMPOUND, sizeof(compound_t));
+    H5Tinsert(dtype_id, "a_name", HOFFSET(compound_t, a), H5T_NATIVE_INT);
+    H5Tinsert(dtype_id, "b_name", HOFFSET(compound_t, b), H5T_NATIVE_FLOAT);
+
+    /* Generate random keys and values */
+    for(i = 0; i < NUMB_KEYS; i++) {
+        comp_comp_keys[i].a = random_base + i;
+        comp_comp_keys[i].b = (float)(random_base + i*i);
+        comp_comp_vals[i].a = rand();
+        comp_comp_vals[i].b = (float)rand();
+    } /* end for */
+
+    nerrors += test_create_map(file_id, MAP_COMP_COMP_NAME, dtype_id, dtype_id);
+    nerrors += test_open_map(file_id, MAP_COMP_COMP_NAME);
+    nerrors += test_map_set(file_id, MAP_COMP_COMP_NAME, dtype_id, dtype_id);
+    nerrors += test_map_get(file_id, MAP_COMP_COMP_NAME, dtype_id, dtype_id);
+    nerrors += test_map_exists(file_id, MAP_COMP_COMP_NAME, dtype_id);
+    nerrors += test_map_iterate(file_id, MAP_COMP_COMP_NAME, dtype_id);
+    nerrors += test_map_delete_key(file_id, MAP_COMP_COMP_NAME, dtype_id);
+
+    if(H5Tclose(dtype_id) < 0) goto error;
+
+    return nerrors;
+
+error:
+    return 1;
+}
+
+static int
+test_large(hid_t file_id)
+{
+    int     i;
+    int     nerrors = 0;
+
+    TESTING("large number of entries of keys and values"); HDputs("");
+
+    /* Generate random keys and values */
+    for(i = 0; i < LARGE_NUMB_KEYS; i++) {
+        large_int_int_keys[i] = random_base + i;
+        large_int_int_vals[i] = rand();
+    } /* end for */
+
+    nerrors += test_create_map(file_id, MAP_LARGE_NAME, H5T_NATIVE_INT, H5T_NATIVE_INT);
+    nerrors += test_open_map(file_id, MAP_LARGE_NAME);
+    nerrors += test_map_set(file_id, MAP_LARGE_NAME, H5T_NATIVE_INT, H5T_NATIVE_INT);
+    nerrors += test_map_get(file_id, MAP_LARGE_NAME, H5T_NATIVE_INT, H5T_NATIVE_INT);
+    nerrors += test_map_exists(file_id, MAP_LARGE_NAME, H5T_NATIVE_INT);
+    nerrors += test_map_iterate(file_id, MAP_LARGE_NAME, H5T_NATIVE_INT);
+    nerrors += test_map_delete_key(file_id, MAP_LARGE_NAME, H5T_NATIVE_INT);
+
+    return nerrors;
+}
+
 /*
  * main function
  */
@@ -731,7 +1234,11 @@ main( int argc, char** argv )
 
     nerrors += test_integer(file_id);
     nerrors += test_enum(file_id);
+#ifdef TMP
     nerrors += test_vl(file_id);
+#endif
+    nerrors += test_compound(file_id);
+    nerrors += test_large(file_id);
 
     if(H5Pclose(fapl_id) < 0) {
         nerrors++;

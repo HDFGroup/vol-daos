@@ -44,10 +44,11 @@
  * spaces.
  */
 #define TESTING(S)  {if (MAINPROCESS) printf("Testing %-66s", S); fflush(stdout);}
+#define TESTING_2(S)  {if (MAINPROCESS) printf("    Testing %-62s", S); fflush(stdout);}
 #define PASSED()    {if (MAINPROCESS) puts("PASSED"); fflush(stdout);}
 #define H5_FAILED() {if (MAINPROCESS) puts("*FAILED*"); fflush(stdout);}
 #define SKIPPED()   {if (MAINPROCESS) puts("- SKIPPED -"); fflush(stdout);}
-
+#define HDputs(S)   puts(S)
 #define TEST_ERROR  {H5_FAILED(); AT(); goto error;}
 
 /*

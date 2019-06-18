@@ -677,6 +677,7 @@ H5_daos_map_get_size(hid_t type_id, const void *buf,
                     D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't get size of super datatype")
                 buf_size *= vl->len;
                 H5Tclose(super);
+                super = -1;
                 break;
             } /* end block */
         default:

@@ -26,7 +26,7 @@
  */
 #define FILENAME                "h5daos_test_map.h5"
 #define NUMB_KEYS               4
-#define LARGE_NUMB_KEYS         16   /* Don't set this too high because this test uses linear search */
+#define LARGE_NUMB_KEYS         1024   /* Don't set this too high because this test uses linear search */
 
 #define MAP_INT_INT_NAME        "map_int_int"
 #define MAP_ENUM_ENUM_NAME      "map_enum_enum"
@@ -1027,14 +1027,19 @@ error:
 static int 
 test_integer(hid_t file_id)
 {
-    int     i;
+    int     i, j;
     int     nerrors = 0;
 
     TESTING("integer as the datatype of keys and values"); HDputs("");
 
     /* Generate random keys and values */
     for(i = 0; i < NUMB_KEYS; i++) {
-        int_int_keys[i] = random_base + i;
+        do {
+            int_int_keys[i] = rand();
+            for(j = 0; j < i; j++)
+                if(int_int_keys[i] == int_int_keys[j])
+                    break;
+        } while(j < i);
         int_int_vals[i] = rand();
     } /* end for */
 
@@ -1187,7 +1192,7 @@ test_large(hid_t file_id)
 
     /* Generate random keys and values */
     for(i = 0; i < LARGE_NUMB_KEYS; i++) {
-        large_int_int_keys[i] = random_base + i;
+        large_int_int_keys[i] = (rand() % (256 * 256 * 256 * 32 / LARGE_NUMB_KEYS)) * LARGE_NUMB_KEYS + i;
         large_int_int_vals[i] = rand();
     } /* end for */
 

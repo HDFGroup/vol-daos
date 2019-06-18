@@ -1334,8 +1334,8 @@ H5_daos_map_iterate(H5_daos_map_t *map, hid_t map_id, hsize_t *idx,
         for(i = 0; (i < nr) && (op_ret == 0); i++) {
             /* Check for key sharing dkey with other metadata */
             if(((kds[i].kd_key_len == H5_daos_int_md_key_size_g)
-                    && !memcmp(p, H5_daos_int_md_key_g, H5_daos_attr_key_size_g))
-                    || ((kds[i].kd_key_len == H5_daos_int_md_key_size_g)
+                    && !memcmp(p, H5_daos_int_md_key_g, H5_daos_int_md_key_size_g))
+                    || ((kds[i].kd_key_len == H5_daos_attr_key_size_g)
                     && !memcmp(p, H5_daos_attr_key_g, H5_daos_attr_key_size_g))) {
                 /* Set up dkey */
                 daos_iov_set(&dkey, (void *)p, kds[i].kd_key_len);
@@ -1354,8 +1354,12 @@ H5_daos_map_iterate(H5_daos_map_t *map, hid_t map_id, hsize_t *idx,
                     D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't check for value in map: %s", H5_daos_err_to_string(ret));
 
                 /* If there is no value, skip this dkey */
-                if(iod.iod_size == 0)
+                if(iod.iod_size == 0) {
+                    /* Advance to next dkey */
+                    p += kds[i].kd_key_len + kds[i].kd_csum_len;
+
                     continue;
+                } /* end if */
             } /* end if */
 
             /* Add null terminator temporarily.  Only necessary for VL strings

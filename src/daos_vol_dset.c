@@ -925,8 +925,6 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
 
     if(!_dset)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "dataset object is NULL")
-    if(!buf)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "read buffer is NULL")
     if(H5I_DATASET != dset->obj.item.type)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a dataset")
 
@@ -986,6 +984,8 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
         /* Get number of elements in selection */
         if((num_elem = H5Sget_select_npoints(real_mem_space_id)) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get number of points in selection")
+        if(num_elem && !buf)
+            D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "read buffer is NULL but selection has >0 elements")
 
         /* Allocate array of akey pointers */
         if(NULL == (akeys = (uint8_t **)DV_calloc((size_t)num_elem * sizeof(uint8_t *))))
@@ -1109,6 +1109,8 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
             /* Get number of elements in selection */
             if((num_elem = H5Sget_select_npoints(real_mem_space_id)) < 0)
                 D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get number of points in selection")
+            if(num_elem && !buf)
+                D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "read buffer is NULL but selection has >0 elements")
 
             /* Calculate recxs from file space */
             if(H5_daos_sel_to_recx_iov(real_file_space_id, file_type_size, buf, &recxs, NULL, &tot_nseq) < 0)
@@ -1332,8 +1334,6 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
 
     if(!_dset)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "dataset object is NULL")
-    if(!buf)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "write buffer is NULL")
     if(H5I_DATASET != dset->obj.item.type)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a dataset")
 
@@ -1360,6 +1360,8 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
     /* Get number of elements in selection */
     if((num_elem = H5Sget_select_npoints(real_mem_space_id)) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get number of points in selection")
+    if(num_elem && !buf)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "write buffer is NULL but selection has >0 elements")
 
     /* Encode dkey (chunk coordinates).  Prefix with '\0' to avoid accidental
      * collisions with other d-keys in this object.  For now just 1 chunk,

@@ -72,11 +72,11 @@ static herr_t H5_daos_dataset_mem_vl_wr_cb(void *_elem, hid_t type_id,
 void *
 H5_daos_dataset_create(void *_item,
     const H5VL_loc_params_t H5VL_DAOS_UNUSED *loc_params, const char *name,
-    hid_t dcpl_id, hid_t dapl_id, hid_t dxpl_id, void **req)
+    hid_t H5VL_DAOS_UNUSED lcpl_id, hid_t type_id, hid_t space_id, hid_t dcpl_id,
+    hid_t dapl_id, hid_t dxpl_id, void **req)
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_dset_t *dset = NULL;
-    hid_t type_id, space_id;
     H5_daos_group_t *target_grp = NULL;
     void *type_buf = NULL;
     void *space_buf = NULL;
@@ -103,12 +103,6 @@ H5_daos_dataset_create(void *_item,
     if(!collective)
         if(H5Pget_all_coll_metadata_ops(dapl_id, &collective) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, NULL, "can't get collective access property")
-
-    /* Get creation properties */
-    if(H5Pget(dcpl_id, H5VL_PROP_DSET_TYPE_ID, &type_id) < 0)
-        D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, NULL, "can't get property value for datatype ID")
-    if(H5Pget(dcpl_id, H5VL_PROP_DSET_SPACE_ID, &space_id) < 0)
-        D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, NULL, "can't get property value for dataspace ID")
 
     /* Start H5 operation */
     if(NULL == (int_req = (H5_daos_req_t *)DV_malloc(sizeof(H5_daos_req_t))))
@@ -628,8 +622,6 @@ static herr_t
 H5_daos_sel_to_recx_iov(hid_t space_id, size_t type_size, void *buf,
     daos_recx_t **recxs, daos_iov_t **sg_iovs, size_t *list_nused)
 {
-    H5S_sel_iter_t *sel_iter = NULL;
-    hbool_t sel_iter_init = FALSE;      /* Selection iteration info has been initialized */
     size_t nseq;
     size_t nelem;
     hsize_t off[H5_DAOS_SEQ_LIST_LEN];
@@ -637,6 +629,7 @@ H5_daos_sel_to_recx_iov(hid_t space_id, size_t type_size, void *buf,
     size_t buf_len = 1;
     void *vp_ret;
     size_t szi;
+    hid_t sel_iter = H5I_INVALID_HID;
     herr_t ret_value = SUCCEED;
 
     assert(recxs || sg_iovs);
@@ -647,15 +640,19 @@ H5_daos_sel_to_recx_iov(hid_t space_id, size_t type_size, void *buf,
     /* Initialize list_nused */
     *list_nused = 0;
 
-    /* Initialize selection iterator  */
-    if(NULL == (sel_iter = H5Sselect_iter_init(space_id, (size_t)1)))
-        D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTINIT, FAIL, "unable to initialize selection iterator")
-    sel_iter_init = TRUE;       /* Selection iteration info has been initialized */
+    /* Initialize selection iterator */
+    /*
+     * DSINC - 1 for the element size doesn't seem right here, but using the datatype
+     * size causes daos_obj_fetch to write outside of allocated memory buffers on a
+     * dataset read. Need to investigate this further.
+     */
+    if((sel_iter = H5Ssel_iter_create(space_id, 1, 0)) < 0)
+        D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTINIT, FAIL, "unable to create selection iterator")
 
     /* Generate sequences from the file space until finished */
     do {
         /* Get the sequences of bytes */
-        if(H5Sselect_get_seq_list(space_id, 0, sel_iter, (size_t)H5_DAOS_SEQ_LIST_LEN, (size_t)-1, &nseq, &nelem, off, len) < 0)
+        if(H5Ssel_iter_get_seq_list(sel_iter, (size_t)H5_DAOS_SEQ_LIST_LEN, (size_t)-1, &nseq, &nelem, off, len) < 0)
             D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, FAIL, "sequence length generation failed")
 
         /* Make room for sequences in recxs */
@@ -699,8 +696,8 @@ H5_daos_sel_to_recx_iov(hid_t space_id, size_t type_size, void *buf,
 
 done:
     /* Release selection iterator */
-    if(sel_iter_init && H5Sselect_iter_release(sel_iter) < 0)
-        D_DONE_ERROR(H5E_DATASPACE, H5E_CANTRELEASE, FAIL, "unable to release selection iterator")
+    if(sel_iter >= 0 && H5Ssel_iter_close(sel_iter) < 0)
+        D_DONE_ERROR(H5E_DATASPACE, H5E_CANTRELEASE, FAIL, "unable to close selection iterator")
 
     D_FUNC_LEAVE
 } /* end H5_daos_sel_to_recx_iov() */
@@ -893,12 +890,11 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
     hid_t file_space_id, hid_t dxpl_id, void *buf, void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_dset_t *dset = (H5_daos_dset_t *)_dset;
-    H5S_sel_iter_t *sel_iter = NULL;
-    hbool_t sel_iter_init = FALSE;      /* Selection iteration info has been initialized */
     int ndims;
     hsize_t dim[H5S_MAX_RANK];
     hid_t real_file_space_id;
     hid_t real_mem_space_id;
+    hid_t sel_iter = H5I_INVALID_HID;
     hssize_t num_elem = -1;
     uint64_t chunk_coords[H5S_MAX_RANK];
     daos_key_t dkey;
@@ -944,6 +940,12 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
     else
         real_mem_space_id = mem_space_id;
 
+    /* Get number of elements in selection */
+    if((num_elem = H5Sget_select_npoints(real_mem_space_id)) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get number of points in selection")
+    if(num_elem && !buf)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "read buffer is NULL but selection has >0 elements")
+
     /* Encode dkey (chunk coordinates).  Prefix with '\0' to avoid accidental
      * collisions with other d-keys in this object.  For now just 1 chunk,
      * starting at 0. */
@@ -980,12 +982,6 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
     if(is_vl) {
         H5_daos_vl_mem_ud_t mem_ud;
         H5_daos_vl_file_ud_t file_ud;
-
-        /* Get number of elements in selection */
-        if((num_elem = H5Sget_select_npoints(real_mem_space_id)) < 0)
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get number of points in selection")
-        if(num_elem && !buf)
-            D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "read buffer is NULL but selection has >0 elements")
 
         /* Allocate array of akey pointers */
         if(NULL == (akeys = (uint8_t **)DV_calloc((size_t)num_elem * sizeof(uint8_t *))))
@@ -1106,11 +1102,6 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
             hbool_t contig;
 
             /* Type conversion necessary */
-            /* Get number of elements in selection */
-            if((num_elem = H5Sget_select_npoints(real_mem_space_id)) < 0)
-                D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get number of points in selection")
-            if(num_elem && !buf)
-                D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "read buffer is NULL but selection has >0 elements")
 
             /* Calculate recxs from file space */
             if(H5_daos_sel_to_recx_iov(real_file_space_id, file_type_size, buf, &recxs, NULL, &tot_nseq) < 0)
@@ -1125,15 +1116,14 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
 
             /* Check for contiguous memory buffer */
 
-            /* Initialize selection iterator  */
-            if(NULL == (sel_iter = H5Sselect_iter_init(real_mem_space_id, (size_t)1)))
-                D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTINIT, FAIL, "unable to initialize selection iterator")
-            sel_iter_init = TRUE;       /* Selection iteration info has been initialized */
+            /* Initialize selection iterator */
+            if((sel_iter = H5Ssel_iter_create(real_mem_space_id, file_type_size, 0)) < 0)
+                D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTINIT, FAIL, "unable to create selection iterator")
 
             /* Get the sequence list - only check the first sequence because we only
              * care if it is contiguous and if so where the contiguous selection
              * begins */
-            if(H5Sselect_get_seq_list(real_mem_space_id, 0, sel_iter, (size_t)1, (size_t)-1, &nseq_tmp, &nelem_tmp, &sel_off, &sel_len) < 0)
+            if(H5Ssel_iter_get_seq_list(sel_iter, (size_t)1, (size_t)-1, &nseq_tmp, &nelem_tmp, &sel_off, &sel_len) < 0)
                 D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, FAIL, "sequence length generation failed")
             contig = (sel_len == (size_t)num_elem);
 
@@ -1202,8 +1192,8 @@ done:
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close base type ID")
 
     /* Release selection iterator */
-    if(sel_iter_init && H5Sselect_iter_release(sel_iter) < 0)
-        D_DONE_ERROR(H5E_DATASPACE, H5E_CANTRELEASE, FAIL, "unable to release selection iterator")
+    if(sel_iter >= 0 && H5Ssel_iter_close(sel_iter) < 0)
+        D_DONE_ERROR(H5E_DATASPACE, H5E_CANTRELEASE, FAIL, "unable to close selection iterator")
 
     D_FUNC_LEAVE_API
 } /* end H5_daos_dataset_read() */

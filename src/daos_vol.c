@@ -1084,6 +1084,9 @@ static herr_t H5_daos_optional(void *item, hid_t dxpl_id, void **req,
         {
             const H5VL_loc_params_t *loc_params = va_arg(arguments, const H5VL_loc_params_t *);
             const char *name = va_arg(arguments, const char *);
+            hid_t lcpl_id = va_arg(arguments, hid_t);
+            hid_t ktype_id = va_arg(arguments, hid_t);
+            hid_t vtype_id = va_arg(arguments, hid_t);
             hid_t mcpl_id = va_arg(arguments, hid_t);
             hid_t mapl_id = va_arg(arguments, hid_t);
             void **map = va_arg(arguments, void **);
@@ -1094,7 +1097,8 @@ static herr_t H5_daos_optional(void *item, hid_t dxpl_id, void **req,
                 D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map object output parameter is NULL")
 
             /* Pass the call */
-            if(NULL == (*map = H5_daos_map_create(item, loc_params, name, mcpl_id, mapl_id, dxpl_id, req)))
+            if(NULL == (*map = H5_daos_map_create(item, loc_params, name, lcpl_id, ktype_id, vtype_id,
+                    mcpl_id, mapl_id, dxpl_id, req)))
                 D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create map object")
 
             break;

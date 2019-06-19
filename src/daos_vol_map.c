@@ -22,6 +22,8 @@
 static herr_t H5_daos_map_iterate(H5_daos_map_t *map, hid_t map_id,
     hsize_t *idx, hid_t key_mem_type_id, H5M_iterate_t op, void *op_data,
     hid_t dxpl_id, void **req);
+static herr_t  H5_daos_map_delete_key(H5_daos_map_t *map, hid_t key_mem_type_id,
+    const void *key, hid_t dxpl_id, void **req);
 
 
 /*-------------------------------------------------------------------------
@@ -675,6 +677,7 @@ H5_daos_map_get_size(hid_t type_id, const void *buf,
                     D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't get size of super datatype")
                 buf_size *= vl->len;
                 H5Tclose(super);
+                super = -1;
                 break;
             } /* end block */
         default:
@@ -1112,8 +1115,8 @@ done:
  */
 herr_t
 H5_daos_map_specific(void *_item, const H5VL_loc_params_t *loc_params,
-    H5VL_map_specific_t specific_type, hid_t H5VL_DAOS_UNUSED dxpl_id,
-    void H5VL_DAOS_UNUSED **req, va_list arguments)
+    H5VL_map_specific_t specific_type, hid_t dxpl_id, void **req,
+    va_list arguments)
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_map_t *map = NULL;
@@ -1179,6 +1182,25 @@ H5_daos_map_specific(void *_item, const H5VL_loc_params_t *loc_params,
             break;
         } /* H5VL_MAP_ITER */
 
+        case H5VL_MAP_DELETE_KEY:
+        {
+            hid_t key_mem_type_id = va_arg(arguments, hid_t);
+            const void *key = va_arg(arguments, const void *);
+
+            /* Verify loc_params */
+            if(H5VL_OBJECT_BY_SELF != loc_params->type)
+                D_GOTO_ERROR(H5E_ARGS, H5E_UNSUPPORTED, FAIL, "unsupported map key delete location parameters type")
+            map = (H5_daos_map_t *)item;
+            map->obj.item.rc++;
+
+            /* Perform key delete */
+            if((ret_value = H5_daos_map_delete_key(map, key_mem_type_id, key,
+                    dxpl_id, req)) < 0)
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTREMOVE, FAIL, "map key delete failed")
+
+            break;
+        } /* H5VL_MAP_DELETE_KEY */
+
         default:
             D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported map specific operation")
     } /* end switch */
@@ -1218,7 +1240,7 @@ done:
  *
  *-------------------------------------------------------------------------
  */
-herr_t 
+static herr_t 
 H5_daos_map_iterate(H5_daos_map_t *map, hid_t map_id, hsize_t *idx,
     hid_t key_mem_type_id, H5M_iterate_t op, void *op_data,
     hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req)
@@ -1312,8 +1334,8 @@ H5_daos_map_iterate(H5_daos_map_t *map, hid_t map_id, hsize_t *idx,
         for(i = 0; (i < nr) && (op_ret == 0); i++) {
             /* Check for key sharing dkey with other metadata */
             if(((kds[i].kd_key_len == H5_daos_int_md_key_size_g)
-                    && !memcmp(p, H5_daos_int_md_key_g, H5_daos_attr_key_size_g))
-                    || ((kds[i].kd_key_len == H5_daos_int_md_key_size_g)
+                    && !memcmp(p, H5_daos_int_md_key_g, H5_daos_int_md_key_size_g))
+                    || ((kds[i].kd_key_len == H5_daos_attr_key_size_g)
                     && !memcmp(p, H5_daos_attr_key_g, H5_daos_attr_key_size_g))) {
                 /* Set up dkey */
                 daos_iov_set(&dkey, (void *)p, kds[i].kd_key_len);
@@ -1332,8 +1354,12 @@ H5_daos_map_iterate(H5_daos_map_t *map, hid_t map_id, hsize_t *idx,
                     D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't check for value in map: %s", H5_daos_err_to_string(ret));
 
                 /* If there is no value, skip this dkey */
-                if(iod.iod_size == 0)
+                if(iod.iod_size == 0) {
+                    /* Advance to next dkey */
+                    p += kds[i].kd_key_len + kds[i].kd_csum_len;
+
                     continue;
+                } /* end if */
             } /* end if */
 
             /* Add null terminator temporarily.  Only necessary for VL strings
@@ -1380,6 +1406,62 @@ done:
 
     D_FUNC_LEAVE_API
 } /* end H5_daos_map_iterate() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_map_delete_key
+ *
+ * Purpose:     Deletes a key-value pair from the Map specified by map_id.
+ *              key_mem_type_id specifies the datatype for the provided
+ *              key buffers, and if different from that used to create the
+ *              Map object, the key will be internally converted to the
+ *              datatype for the map object. Any further options can be
+ *              specified through the property list dxpl_id.
+ *
+ * Return:      Success:        0
+ *              Failure:        -1, key/value pair not deleted.
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t 
+H5_daos_map_delete_key(H5_daos_map_t *map, hid_t key_mem_type_id,
+    const void *key, hid_t H5VL_DAOS_UNUSED dxpl_id,
+    void H5VL_DAOS_UNUSED **req)
+{
+    size_t key_size;
+    daos_key_t dkey;
+    daos_key_t akey;
+    H5T_class_t key_cls;
+    int ret;
+    herr_t ret_value = SUCCEED;
+
+    if(!map)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map object is NULL")
+    if(!key)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map key is NULL")
+
+    /* Check for write access */
+    if(!(map->obj.item.file->flags & H5F_ACC_RDWR))
+        D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, FAIL, "no write intent on file")
+
+    /* get the key size and checksum from the provdied key datatype & buffer */
+    if(H5_daos_map_get_size(key_mem_type_id, key, NULL, &key_size, &key_cls) < 0)
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get key size");
+
+    /* Set up dkey */
+    daos_iov_set(&dkey, (void *)(H5T_VLEN == key_cls ? ((const hvl_t *)key)->p : key), (daos_size_t)key_size);
+
+    /* Set up akey */
+    daos_iov_set(&akey, (void *)H5_daos_map_key_g, H5_daos_map_key_size_g);
+
+    /* Delete key/value pair from map */
+    if(0 != (ret = daos_obj_punch_akeys(map->obj.obj_oh, DAOS_TX_NONE, &dkey,
+           1, &akey, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTSET, FAIL, "map key delete failed: %s", H5_daos_err_to_string(ret));
+
+done:
+    D_FUNC_LEAVE_API
+} /* end H5_daos_map_delete_key() */
 
 
 /*-------------------------------------------------------------------------

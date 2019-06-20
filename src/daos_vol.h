@@ -408,6 +408,9 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_write_max_oid(H5_daos_file_t *file);
 H5VL_DAOS_PRIVATE int H5_daos_h5op_finalize(tse_task_t *task);
 H5VL_DAOS_PRIVATE int H5_daos_md_update_prep_cb(tse_task_t *task, void *args);
 H5VL_DAOS_PRIVATE int H5_daos_md_update_comp_cb(tse_task_t *task, void *args);
+H5VL_DAOS_PRIVATE herr_t H5_daos_comm_info_dup(MPI_Comm comm, MPI_Info info,
+        MPI_Comm *comm_new, MPI_Info *info_new);
+H5VL_DAOS_PRIVATE herr_t H5_daos_comm_info_free(MPI_Comm *comm, MPI_Info *info);
 
 /* File callbacks */
 H5VL_DAOS_PRIVATE void *H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,

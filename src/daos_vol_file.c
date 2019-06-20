@@ -67,6 +67,7 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     hbool_t must_bcast = FALSE;
     hbool_t sched_init = FALSE;
     H5_daos_req_t *int_req = NULL;
+    int mpi_initialized;
     int ret;
     void *ret_value = NULL;
 
@@ -123,17 +124,25 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create task scheduler: %s", H5_daos_err_to_string(ret))
     sched_init = TRUE;
 
-    /* Duplicate communicator and Info object. */
-    /*
-     * XXX: DSINC - Need to pass in MPI Info to VOL connector as well.
-     */
-    if(FAIL == H5FDmpi_comm_info_dup(fa ? fa->comm : H5_daos_pool_comm_g, fa ? fa->info : MPI_INFO_NULL, &file->comm, &file->info))
-        D_GOTO_ERROR(H5E_INTERNAL, H5E_CANTCOPY, NULL, "failed to duplicate MPI communicator and info")
+    if (MPI_SUCCESS != MPI_Initialized(&mpi_initialized))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, NULL, "can't determine if MPI has been initialized")
+    if (mpi_initialized) {
+        /* Duplicate communicator and Info object. */
+        /*
+         * XXX: DSINC - Need to pass in MPI Info to VOL connector as well.
+         */
+        if(FAIL == H5_daos_comm_info_dup(fa ? fa->comm : H5_daos_pool_comm_g, fa ? fa->info : MPI_INFO_NULL, &file->comm, &file->info))
+            D_GOTO_ERROR(H5E_INTERNAL, H5E_CANTCOPY, NULL, "failed to duplicate MPI communicator and info")
 
-    /* Obtain the process rank and size from the communicator attached to the
-     * fapl ID */
-    MPI_Comm_rank(fa ? fa->comm : H5_daos_pool_comm_g, &file->my_rank);
-    MPI_Comm_size(fa ? fa->comm : H5_daos_pool_comm_g, &file->num_procs);
+        /* Obtain the process rank and size from the communicator attached to the
+         * fapl ID */
+        MPI_Comm_rank(fa ? fa->comm : H5_daos_pool_comm_g, &file->my_rank);
+        MPI_Comm_size(fa ? fa->comm : H5_daos_pool_comm_g, &file->num_procs);
+    }
+    else {
+        file->my_rank = 0;
+        file->num_procs = 1;
+    }
 
     /* Hash file name to create uuid */
     H5_daos_hash128(name, &file->uuid);
@@ -362,6 +371,7 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     daos_obj_id_t root_grp_oid = {0, 0};
     uint8_t *p;
     hbool_t must_bcast = FALSE;
+    int mpi_initialized;
     int ret;
     void *ret_value = NULL;
 
@@ -413,17 +423,25 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     if(0 != (ret = tse_sched_init(&file->sched, NULL, file->crt_ctx)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create task scheduler: %s", H5_daos_err_to_string(ret))
 
-    /* Duplicate communicator and Info object. */
-    /*
-     * XXX: DSINC - Need to pass in MPI Info to VOL connector as well.
-     */
-    if(FAIL == H5FDmpi_comm_info_dup(fa ? fa->comm : H5_daos_pool_comm_g, fa ? fa->info : MPI_INFO_NULL, &file->comm, &file->info))
-        D_GOTO_ERROR(H5E_INTERNAL, H5E_CANTCOPY, NULL, "failed to duplicate MPI communicator and info")
+    if (MPI_SUCCESS != MPI_Initialized(&mpi_initialized))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, NULL, "can't determine if MPI has been initialized")
+    if (mpi_initialized) {
+        /* Duplicate communicator and Info object. */
+        /*
+         * XXX: DSINC - Need to pass in MPI Info to VOL connector as well.
+         */
+        if(FAIL == H5_daos_comm_info_dup(fa ? fa->comm : H5_daos_pool_comm_g, fa ? fa->info : MPI_INFO_NULL, &file->comm, &file->info))
+            D_GOTO_ERROR(H5E_INTERNAL, H5E_CANTCOPY, NULL, "failed to duplicate MPI communicator and info")
 
-    /* Obtain the process rank and size from the communicator attached to the
-     * fapl ID */
-    MPI_Comm_rank(fa ? fa->comm : H5_daos_pool_comm_g, &file->my_rank);
-    MPI_Comm_size(fa ? fa->comm : H5_daos_pool_comm_g, &file->num_procs);
+        /* Obtain the process rank and size from the communicator attached to the
+         * fapl ID */
+        MPI_Comm_rank(fa ? fa->comm : H5_daos_pool_comm_g, &file->my_rank);
+        MPI_Comm_size(fa ? fa->comm : H5_daos_pool_comm_g, &file->num_procs);
+    }
+    else {
+        file->my_rank = 0;
+        file->num_procs = 1;
+    }
 
     /* Hash file name to create uuid */
     H5_daos_hash128(name, &file->uuid);
@@ -1011,7 +1029,7 @@ H5_daos_file_close_helper(H5_daos_file_t *file, hid_t dxpl_id, void **req)
     if(file->file_name)
         file->file_name = DV_free(file->file_name);
     if(file->comm || file->info)
-        if(H5FDmpi_comm_info_free(&file->comm, &file->info) < 0)
+        if(H5_daos_comm_info_free(&file->comm, &file->info) < 0)
             D_DONE_ERROR(H5E_INTERNAL, H5E_CANTFREE, FAIL, "failed to free copy of MPI communicator and info")
     if(file->fapl_id != FAIL && H5Idec_ref(file->fapl_id) < 0)
         D_DONE_ERROR(H5E_SYM, H5E_CANTDEC, FAIL, "failed to close fapl")

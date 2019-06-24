@@ -385,6 +385,17 @@ test_map_nonexistent_key(hid_t file_id, const char *map_name, hid_t key_dtype, h
             goto error;
         } /* end if */
 
+        /* Verify that things are still good */
+        H5E_BEGIN_TRY {
+            error = H5Mget(map_id, key_dtype, &non_existent_key, value_dtype, &non_existent_value, H5P_DEFAULT);
+        } H5E_END_TRY;
+
+        if(error >= 0) {
+            H5_FAILED(); AT();
+            printf("succeeded to get non-existent key\n");
+            goto error;
+        } /* end if */
+
         non_existent_value = rand();
 
         /* Try to set the non-existent key and value to make sure it works as expected */
@@ -425,6 +436,17 @@ test_map_nonexistent_key(hid_t file_id, const char *map_name, hid_t key_dtype, h
         if(H5Mdelete_key(map_id, key_dtype, &non_existent_key, H5P_DEFAULT) < 0) {
             H5_FAILED(); AT();
             printf("failed with a non-existent key\n");
+            goto error;
+        } /* end if */
+
+        /* Verify that things are still good */
+        H5E_BEGIN_TRY {
+            error = H5Mget(map_id, key_dtype, &non_existent_key, value_dtype, &non_existent_value, H5P_DEFAULT);
+        } H5E_END_TRY;
+
+        if(error >= 0) {
+            H5_FAILED(); AT();
+            printf("succeeded to get non-existent key\n");
             goto error;
         } /* end if */
 
@@ -476,6 +498,17 @@ test_map_nonexistent_key(hid_t file_id, const char *map_name, hid_t key_dtype, h
             goto error;
         } /* end if */
 
+        /* Verify that things are still good */
+        H5E_BEGIN_TRY {
+            error = H5Mget(map_id, key_dtype, &non_existent_key, value_dtype, &non_existent_value, H5P_DEFAULT);
+        } H5E_END_TRY;
+
+        if(error >= 0) {
+            H5_FAILED(); AT();
+            printf("succeeded to get non-existent key\n");
+            goto error;
+        } /* end if */
+
         /* Initialize non-existent value */
         non_existent_value.p = malloc(NUMB_KEYS*sizeof(int));
         non_existent_value.len = NUMB_KEYS;
@@ -521,6 +554,17 @@ test_map_nonexistent_key(hid_t file_id, const char *map_name, hid_t key_dtype, h
         if(H5Mdelete_key(map_id, key_dtype, &non_existent_key, H5P_DEFAULT) < 0) {
             H5_FAILED(); AT();
             printf("failed with a non-existent key\n");
+            goto error;
+        } /* end if */
+
+        /* Verify that things are still good */
+        H5E_BEGIN_TRY {
+            error = H5Mget(map_id, key_dtype, &non_existent_key, value_dtype, &non_existent_value, H5P_DEFAULT);
+        } H5E_END_TRY;
+
+        if(error >= 0) {
+            H5_FAILED(); AT();
+            printf("succeeded to get non-existent key\n");
             goto error;
         } /* end if */
 

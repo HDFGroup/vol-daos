@@ -43,13 +43,12 @@ static herr_t H5_daos_attribute_get_akey_strings(const char *attr_name, char **d
  */
 void *
 H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
-    const char *name, hid_t acpl_id, hid_t H5VL_DAOS_UNUSED aapl_id,
-    hid_t dxpl_id, void **req)
+    const char *name, hid_t type_id, hid_t space_id, hid_t acpl_id,
+    hid_t H5VL_DAOS_UNUSED aapl_id, hid_t dxpl_id, void **req)
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_attr_t *attr = NULL;
     size_t akey_len;
-    hid_t type_id, space_id;
     daos_key_t dkey;
     char *type_key = NULL;
     char *space_key = NULL;
@@ -76,12 +75,6 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
     /* Check for write access */
     if(!(item->file->flags & H5F_ACC_RDWR))
         D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, NULL, "no write intent on file")
-
-    /* get creation properties */
-    if(H5Pget(acpl_id, H5VL_PROP_ATTR_TYPE_ID, &type_id) < 0)
-        D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, NULL, "can't get property value for datatype ID")
-    if(H5Pget(acpl_id, H5VL_PROP_ATTR_SPACE_ID, &space_id) < 0)
-        D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, NULL, "can't get property value for dataspace ID")
 
     /* Allocate the attribute object that is returned to the user */
     if(NULL == (attr = H5FL_CALLOC(H5_daos_attr_t)))
@@ -1605,12 +1598,9 @@ H5_daos_attribute_rename(H5_daos_obj_t *attr_container_obj, const char *cur_attr
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, FAIL, "can't open attribute")
 
     /* Create the new attribute */
-    if(H5Pset(cur_attr->acpl_id, H5VL_PROP_ATTR_TYPE_ID, &cur_attr->type_id) < 0)
-        D_GOTO_ERROR(H5E_PLIST, H5E_CANTSET, FAIL, "can't set property value for attribute datatype ID")
-    if(H5Pset(cur_attr->acpl_id, H5VL_PROP_ATTR_SPACE_ID, &cur_attr->space_id) < 0)
-        D_GOTO_ERROR(H5E_PLIST, H5E_CANTSET, FAIL, "can't set property value for attribute dataspace ID")
     if(NULL == (new_attr = (H5_daos_attr_t *)H5_daos_attribute_create(attr_container_obj, &sub_loc_params,
-            new_attr_name, cur_attr->acpl_id, H5P_DEFAULT, H5P_DEFAULT, NULL)))
+            new_attr_name, cur_attr->type_id, cur_attr->space_id, cur_attr->acpl_id, H5P_DEFAULT,
+            H5P_DEFAULT, NULL)))
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTCREATE, FAIL, "can't create new attribute")
 
     /* Transfer data from the old attribute to the new attribute */

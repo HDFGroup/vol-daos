@@ -522,6 +522,7 @@ H5_daos_init(hid_t H5VL_DAOS_UNUSED vipl_id)
     H5_daos_snap_id_t snap_id_default;
 #endif
     int pool_rank, pool_num_procs;
+    int mpi_initialized;
     int ret;
     herr_t ret_value = SUCCEED;            /* Return value */
 
@@ -571,10 +572,19 @@ H5_daos_init(hid_t H5VL_DAOS_UNUSED vipl_id)
         memset(H5_daos_pool_grp_g, '\0', sizeof(H5_daos_pool_grp_g));
     } /* end if */
 
-    /* Obtain the process rank and size from the communicator attached to the
-     * fapl ID */
-    MPI_Comm_rank(H5_daos_pool_comm_g, &pool_rank);
-    MPI_Comm_size(H5_daos_pool_comm_g, &pool_num_procs);
+    if (MPI_SUCCESS != MPI_Initialized(&mpi_initialized))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't determine if MPI has been initialized")
+    if (mpi_initialized) {
+        /* Obtain the process rank and size from the communicator attached to the
+         * fapl ID */
+        MPI_Comm_rank(H5_daos_pool_comm_g, &pool_rank);
+        MPI_Comm_size(H5_daos_pool_comm_g, &pool_num_procs);
+    }
+    else {
+        /* Execute in serial mode */
+        pool_rank = 0;
+        pool_num_procs = 1;
+    }
 
     if(pool_rank == 0) {
         /* First connect to the pool */
@@ -1008,7 +1018,7 @@ H5_daos_fapl_copy(const void *_old_fa)
     new_fa->comm = MPI_COMM_NULL;
 
     /* Duplicate communicator and Info object. */
-    if(FAIL == H5FDmpi_comm_info_dup(old_fa->comm, old_fa->info, &new_fa->comm, &new_fa->info))
+    if(FAIL == H5_daos_comm_info_dup(old_fa->comm, old_fa->info, &new_fa->comm, &new_fa->info))
         D_GOTO_ERROR(H5E_INTERNAL, H5E_CANTCOPY, NULL, "failed to duplicate MPI communicator and info")
 
     ret_value = new_fa;
@@ -1048,7 +1058,7 @@ H5_daos_fapl_free(void *_fa)
 
     /* Free the internal communicator and INFO object */
     if(fa->comm != MPI_COMM_NULL)
-        if(H5FDmpi_comm_info_free(&fa->comm, &fa->info) < 0)
+        if(H5_daos_comm_info_free(&fa->comm, &fa->info) < 0)
             D_GOTO_ERROR(H5E_INTERNAL, H5E_CANTFREE, FAIL, "failed to free copy of MPI communicator and info")
 
     /* free the struct */
@@ -1084,6 +1094,9 @@ static herr_t H5_daos_optional(void *item, hid_t dxpl_id, void **req,
         {
             const H5VL_loc_params_t *loc_params = va_arg(arguments, const H5VL_loc_params_t *);
             const char *name = va_arg(arguments, const char *);
+            hid_t lcpl_id = va_arg(arguments, hid_t);
+            hid_t ktype_id = va_arg(arguments, hid_t);
+            hid_t vtype_id = va_arg(arguments, hid_t);
             hid_t mcpl_id = va_arg(arguments, hid_t);
             hid_t mapl_id = va_arg(arguments, hid_t);
             void **map = va_arg(arguments, void **);
@@ -1094,7 +1107,8 @@ static herr_t H5_daos_optional(void *item, hid_t dxpl_id, void **req,
                 D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map object output parameter is NULL")
 
             /* Pass the call */
-            if(NULL == (*map = H5_daos_map_create(item, loc_params, name, mcpl_id, mapl_id, dxpl_id, req)))
+            if(NULL == (*map = H5_daos_map_create(item, loc_params, name, lcpl_id, ktype_id, vtype_id,
+                    mcpl_id, mapl_id, dxpl_id, req)))
                 D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create map object")
 
             break;
@@ -1756,6 +1770,116 @@ H5_daos_md_update_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     return ret_value;
 } /* end H5_daos_md_update_comp_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_comm_info_dup
+ *
+ * Purpose:     Make duplicates of MPI communicator and info objects.
+ *              If the info object is in fact MPI_INFO_NULL, no duplicate
+ *              is made but the same value is assigned to the 'info_new'
+ *              object handle.
+ *
+ * Return:      Success:    Non-negative.  The new communicator and info
+ *                          object handles are returned via the comm_new
+ *                          and info_new pointers.
+ *
+ *              Failure:    Negative.
+ *
+ * Programmer:  Albert Cheng
+ *              Jan  8, 2003
+ *
+ * Modifications:
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_comm_info_dup(MPI_Comm comm, MPI_Info info,
+    MPI_Comm *comm_new, MPI_Info *info_new)
+{
+    MPI_Comm comm_dup = MPI_COMM_NULL;
+    MPI_Info info_dup = MPI_INFO_NULL;
+    int      mpi_code;
+    herr_t   ret_value = SUCCEED;
+
+    /* Check arguments */
+    if(MPI_COMM_NULL == comm)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "invalid MPI communicator -- MPI_COMM_NULL")
+    if(!comm_new)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "comm_new pointer is NULL")
+    if(!info_new)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "info_new pointer is NULL")
+
+    /* Duplicate the MPI objects. Temporary variables are used for error recovery cleanup. */
+    if(MPI_SUCCESS != (mpi_code = MPI_Comm_dup(comm, &comm_dup)))
+        D_GOTO_ERROR(H5E_INTERNAL, H5E_MPI, FAIL, "MPI_Comm_dup failed: %d", mpi_code)
+    if(MPI_INFO_NULL != info) {
+        if(MPI_SUCCESS != (mpi_code = MPI_Info_dup(info, &info_dup)))
+            D_GOTO_ERROR(H5E_INTERNAL, H5E_MPI, FAIL, "MPI_Info_dup failed: %d", mpi_code)
+    }
+    else {
+        info_dup = info;
+    }
+
+    /* Set MPI_ERRORS_RETURN on comm_dup so that MPI failures are not fatal,
+       and return codes can be checked and handled. May 23, 2017 FTW */
+    if(MPI_SUCCESS != (mpi_code = MPI_Comm_set_errhandler(comm_dup, MPI_ERRORS_RETURN)))
+        D_GOTO_ERROR(H5E_INTERNAL, H5E_MPI, FAIL, "MPI_Comm_set_errhandler failed: %d", mpi_code)
+
+    /* Copy the duplicated MPI objects to the return arguments. */
+    *comm_new = comm_dup;
+    *info_new = info_dup;
+
+done:
+    if(FAIL == ret_value) {
+        /* Need to free anything created */
+        if(MPI_COMM_NULL != comm_dup)
+            MPI_Comm_free(&comm_dup);
+        if(MPI_INFO_NULL != info_dup)
+            MPI_Info_free(&info_dup);
+    }
+
+    D_FUNC_LEAVE
+}
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_comm_info_free
+ *
+ * Purpose:     Free the MPI communicator and info objects.
+ *              If comm or info is in fact MPI_COMM_NULL or MPI_INFO_NULL,
+ *              respectively, no action occurs to it.
+ *
+ * Return:      Success:    Non-negative.  The values the pointers refer
+ *                          to will be set to the corresponding NULL
+ *                          handles.
+ *
+ *              Failure:    Negative.
+ *
+ * Programmer:  Albert Cheng
+ *              Jan  8, 2003
+ *
+ * Modifications:
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_comm_info_free(MPI_Comm *comm, MPI_Info *info)
+{
+    herr_t ret_value = SUCCEED;
+
+    /* Check arguments. */
+    if(!comm)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "comm pointer is NULL")
+    if(!info)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "info pointer is NULL")
+
+    if(MPI_COMM_NULL != *comm)
+        MPI_Comm_free(comm);
+    if(MPI_INFO_NULL != *info)
+        MPI_Info_free(info);
+
+done:
+    D_FUNC_LEAVE
+}
 
 
 H5PL_type_t

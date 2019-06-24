@@ -270,7 +270,7 @@ H5_daos_object_get(void *_item, const H5VL_loc_params_t *loc_params,
         case H5VL_REF_GET_NAME:
         case H5VL_REF_GET_REGION:
         case H5VL_REF_GET_TYPE:
-        case H5VL_ID_GET_NAME:
+        case H5VL_OBJECT_GET_NAME:
         default:
             D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported object get operation")
     } /* end switch */

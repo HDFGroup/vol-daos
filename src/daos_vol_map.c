@@ -39,11 +39,11 @@ static herr_t  H5_daos_map_delete_key(H5_daos_map_t *map, hid_t key_mem_type_id,
 void *
 H5_daos_map_create(void *_item,
     const H5VL_loc_params_t H5VL_DAOS_UNUSED *loc_params, const char *name,
+    hid_t H5VL_DAOS_UNUSED lcpl_id, hid_t ktype_id, hid_t vtype_id,
     hid_t mcpl_id, hid_t mapl_id, hid_t dxpl_id, void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_map_t *map = NULL;
-    hid_t ktype_id, vtype_id;
     H5_daos_group_t *target_grp = NULL;
     void *ktype_buf = NULL;
     void *vtype_buf = NULL;
@@ -70,12 +70,6 @@ H5_daos_map_create(void *_item,
     if(!collective)
         if(H5Pget_all_coll_metadata_ops(mapl_id, &collective) < 0)
             D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, NULL, "can't get collective access property")
-
-    /* Get creation properties */
-    if(H5Pget(mcpl_id, H5VL_PROP_MAP_KEY_TYPE_ID, &ktype_id) < 0)
-        D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, NULL, "can't get property value for key datatype ID")
-    if(H5Pget(mcpl_id, H5VL_PROP_MAP_VAL_TYPE_ID, &vtype_id) < 0)
-        D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, NULL, "can't get property value for value datatype ID")
 
     /* Start H5 operation */
     if(NULL == (int_req = (H5_daos_req_t *)DV_malloc(sizeof(H5_daos_req_t))))

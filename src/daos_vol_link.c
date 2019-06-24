@@ -320,8 +320,8 @@ done:
  */
 herr_t
 H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
-    const H5VL_loc_params_t *loc_params, hid_t lcpl_id,
-    hid_t H5VL_DAOS_UNUSED lapl_id, hid_t dxpl_id, void **req)
+    const H5VL_loc_params_t *loc_params, hid_t H5VL_DAOS_UNUSED lcpl_id,
+    hid_t H5VL_DAOS_UNUSED lapl_id, hid_t dxpl_id, void **req, va_list arguments)
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_group_t *link_grp = NULL;
@@ -352,8 +352,7 @@ H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
 
             /* Retrieve target name */
             link_val.type = H5L_TYPE_SOFT;
-            if(H5Pget(lcpl_id, H5VL_PROP_LINK_TARGET_NAME, &link_val.target.soft) < 0)
-                D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, FAIL, "can't get property value for soft link target name")
+            link_val.target.soft = va_arg(arguments, const char *);
 
             break;
 

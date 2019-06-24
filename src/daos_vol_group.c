@@ -335,7 +335,8 @@ done:
 void *
 H5_daos_group_create(void *_item,
     const H5VL_loc_params_t H5VL_DAOS_UNUSED *loc_params, const char *name,
-    hid_t gcpl_id, hid_t gapl_id, hid_t dxpl_id, void H5VL_DAOS_UNUSED **req)
+    hid_t H5VL_DAOS_UNUSED lcpl_id, hid_t gcpl_id, hid_t gapl_id, hid_t dxpl_id,
+    void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_group_t *grp = NULL;

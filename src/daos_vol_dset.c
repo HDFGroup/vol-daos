@@ -2109,11 +2109,10 @@ H5_daos_get_selected_chunk_info(hid_t dcpl_id,
                 if ((tmp_chunk_mspace_id = H5Scopy(mem_space_id)) < 0)
                     D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTCOPY, FAIL, "unable to copy memory space");
 
-#if 0 /* Should not be needed - H5Scopy should release the selection */
+                /* NOTE: Should not be needed - H5Scopy should release the selection, but there is currently a bug in HDF5 */
                 /* Release the current selection */
                 if (H5Sselect_release(tmp_chunk_mspace_id) < 0)
                     D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTRELEASE, FAIL, "unable to release selection in temporary chunk's memory dataspace");
-#endif
 
                 /* Copy the chunk's file space selection to its memory space selection */
                 if (H5Sselect_copy(tmp_chunk_mspace_id, tmp_chunk_fspace_id) < 0)

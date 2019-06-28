@@ -837,6 +837,10 @@ H5_daos_map_get_val(void *_map, hid_t key_mem_type_id, const void *key,
                        DAOS_TX_NONE, &dkey,
                        1, &iod, &sgl, NULL , NULL)))
             D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "MAP get failed: %s", H5_daos_err_to_string(ret));
+
+        /* Check for no key-value pair found */
+        if(iod.iod_size == (uint64_t)0)
+            D_GOTO_ERROR(H5E_MAP, H5E_NOTFOUND, FAIL, "key not found")
     }
     else {
         iod.iod_size = DAOS_REC_ANY;

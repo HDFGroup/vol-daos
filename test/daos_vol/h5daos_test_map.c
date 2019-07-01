@@ -1500,8 +1500,10 @@ test_map_delete_key(hid_t file_id, const char *map_name, hid_t key_dtype)
         goto error;
     } /* end if */
 
+    /* In test_map_nonexistent_key(), a non-existent entry is added.  So the number of entries should be
+     * still be NUMB_KEYS.  But for the case of large number of entries, test_map_nonexistent_key() is skipped. */
     if(!strcmp(map_name, MAP_MANY_ENTRIES_NAME)) {
-        if(idx != (hsize_t)LARGE_NUMB_KEYS) {
+        if(idx != (hsize_t)LARGE_NUMB_KEYS - 1) {
             H5_FAILED(); AT();
             printf("incorrect value of idx after H5Miterate: %d\n", idx);
             goto error;

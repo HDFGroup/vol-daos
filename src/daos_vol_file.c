@@ -19,6 +19,15 @@
 #include "util/daos_vol_mem.h"  /* DAOS connector memory management        */
 
 /* Prototypes */
+static H5_daos_req_t *H5_daos_req_create(H5_daos_file_t *file);
+
+static herr_t H5_daos_cont_set_mpi_info(H5_daos_file_t *file, H5_daos_fapl_t *fa);
+static herr_t H5_daos_cont_create(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *int_req);
+static herr_t H5_daos_cont_open(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *int_req);
+static herr_t H5_daos_cont_root_grp_open(H5_daos_file_t *file, daos_obj_id_t root_grp_oid, hid_t dxpl_id, void **gcpl_buf, uint64_t *gcpl_len);
+static herr_t H5_daos_cont_handle_bcast(H5_daos_file_t *file);
+static herr_t H5_daos_cont_gcpl_bcast(H5_daos_file_t *file, void **gcpl_buf, uint64_t *gcpl_len);
+
 static herr_t H5_daos_file_flush(H5_daos_file_t *file);
 static herr_t H5_daos_file_close_helper(H5_daos_file_t *file,
     hid_t dxpl_id, void **req);
@@ -36,6 +45,336 @@ typedef struct get_obj_ids_udata_t {
     hid_t *oid_list;
     size_t obj_count;
 } get_obj_ids_udata_t;
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_req_create
+ *
+ * Purpose:     Create a request.
+ *
+ * Return:      Valid pointer on success/NULL on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+/* TODO this should be moved to request module, keep here for now */
+static H5_daos_req_t *
+H5_daos_req_create(H5_daos_file_t *file)
+{
+    H5_daos_req_t *ret_value = NULL;
+
+    if(NULL == (ret_value = (H5_daos_req_t *)DV_malloc(sizeof(H5_daos_req_t))))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for request")
+    ret_value->th = DAOS_TX_NONE;
+    ret_value->th_open = FALSE;
+    ret_value->file = file;
+    ret_value->file->item.rc++;
+    ret_value->rc = 1;
+    ret_value->status = H5_DAOS_INCOMPLETE;
+    ret_value->failed_task = NULL;
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_req_create() */
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_cont_set_mpi_info
+ *
+ * Purpose:     Set MPI info for file.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_cont_set_mpi_info(H5_daos_file_t *file, H5_daos_fapl_t *fa)
+{
+    int mpi_initialized;
+    herr_t ret_value = SUCCEED;
+
+    if(MPI_SUCCESS != MPI_Initialized(&mpi_initialized))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't determine if MPI has been initialized")
+    if(mpi_initialized) {
+        /* Duplicate communicator and Info object. */
+        /*
+         * XXX: DSINC - Need to pass in MPI Info to VOL connector as well.
+         */
+        if(FAIL == H5_daos_comm_info_dup(fa ? fa->comm : H5_daos_pool_comm_g, fa ? fa->info : MPI_INFO_NULL, &file->comm, &file->info))
+            D_GOTO_ERROR(H5E_INTERNAL, H5E_CANTCOPY, FAIL, "failed to duplicate MPI communicator and info")
+
+        /* Obtain the process rank and size from the communicator attached to the
+         * fapl ID */
+        MPI_Comm_rank(fa ? fa->comm : H5_daos_pool_comm_g, &file->my_rank);
+        MPI_Comm_size(fa ? fa->comm : H5_daos_pool_comm_g, &file->num_procs);
+    } else {
+        file->my_rank = 0;
+        file->num_procs = 1;
+    }
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_cont_set_mpi_info() */
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_cont_create
+ *
+ * Purpose:     Create a DAOS container.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_cont_create(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *int_req)
+{
+    herr_t ret_value = SUCCEED;
+    int ret;
+
+    /* If the H5F_ACC_EXCL flag was specified, ensure that the container does not exist. */
+    if(flags & H5F_ACC_EXCL)
+        if(0 == daos_cont_open(H5_daos_poh_g, file->uuid, DAOS_COO_RW, &file->coh, NULL /*&file->co_info*/, NULL /*event*/))
+            D_GOTO_ERROR(H5E_FILE, H5E_FILEEXISTS, FAIL, "container already existed and H5F_ACC_EXCL flag was used!")
+
+    /* Delete the container if H5F_ACC_TRUNC is set.  This shouldn't cause a
+     * problem even if the container doesn't exist. */
+    if(flags & H5F_ACC_TRUNC)
+        if(0 != (ret = daos_cont_destroy(H5_daos_poh_g, file->uuid, 1, NULL /*event*/)))
+            D_GOTO_ERROR(H5E_FILE, H5E_CANTCREATE, FAIL, "can't destroy container: %s", H5_daos_err_to_string(ret))
+
+    /* Create the container for the file */
+    if(0 != (ret = daos_cont_create(H5_daos_poh_g, file->uuid, NULL /* cont_prop */, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTCREATE, FAIL, "can't create container: %s", H5_daos_err_to_string(ret))
+
+    /* Open the container */
+    if(0 != (ret = daos_cont_open(H5_daos_poh_g, file->uuid, DAOS_COO_RW, &file->coh, NULL /*&file->co_info*/, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENFILE, FAIL, "can't open container: %s", H5_daos_err_to_string(ret))
+
+    /* Start transaction */
+    if(0 != (ret = daos_tx_open(file->coh, &int_req->th, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't start transaction")
+    int_req->th_open = TRUE;
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_cont_create() */
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_cont_open
+ *
+ * Purpose:     Open a DAOS container.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_cont_open(H5_daos_file_t *file, unsigned flags, H5_daos_req_t H5VL_DAOS_UNUSED *int_req)
+{
+    herr_t ret_value = SUCCEED;
+    int ret;
+
+    /* Open the container */
+    if(0 != (ret = daos_cont_open(H5_daos_poh_g, file->uuid, flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &file->coh, NULL /*&file->co_info*/, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENFILE, FAIL, "can't open container: %s", H5_daos_err_to_string(ret))
+
+    /* If a snapshot was requested, use it as the epoch, otherwise query it
+     */
+#ifdef DV_HAVE_SNAP_OPEN_ID
+    if(snap_id != H5_DAOS_SNAP_ID_INVAL) {
+        epoch = (daos_epoch_t)snap_id;
+
+        assert(!(flags & H5F_ACC_RDWR));
+    } /* end if */
+    else {
+#endif
+#ifdef DV_HAVE_SNAP_OPEN_ID
+    } /* end else */
+#endif
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_cont_open() */
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_cont_root_grp_open
+ *
+ * Purpose:     Open the root group.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_cont_root_grp_open(H5_daos_file_t *file, daos_obj_id_t root_grp_oid,
+    hid_t dxpl_id, void **gcpl_buf, uint64_t *gcpl_len)
+{
+    daos_key_t dkey;
+    daos_iod_t iod;
+    daos_sg_list_t sgl;
+    daos_iov_t sg_iov;
+    herr_t ret_value = SUCCEED;
+    int ret;
+
+    /* Read max OID from gmd obj */
+    /* Set up dkey */
+    daos_iov_set(&dkey, H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
+
+    /* Set up iod */
+    memset(&iod, 0, sizeof(iod));
+    daos_iov_set(&iod.iod_name, H5_daos_max_oid_key_g, H5_daos_max_oid_key_size_g);
+    daos_csum_set(&iod.iod_kcsum, NULL, 0);
+    iod.iod_nr = 1u;
+    iod.iod_size = (uint64_t)8;
+    iod.iod_type = DAOS_IOD_SINGLE;
+
+    /* Set up sgl */
+    daos_iov_set(&sg_iov, &file->max_oid, (daos_size_t)8);
+    sgl.sg_nr = 1;
+    sgl.sg_nr_out = 0;
+    sgl.sg_iovs = &sg_iov;
+
+    /* Read max OID from gmd obj */
+    if(0 != (ret = daos_obj_fetch(file->glob_md_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTDECODE, FAIL, "can't read max OID from global metadata object: %s", H5_daos_err_to_string(ret))
+
+    /* Open root group */
+    if(NULL == (file->root_grp = (H5_daos_group_t *)H5_daos_group_open_helper(file, root_grp_oid, H5P_GROUP_ACCESS_DEFAULT, dxpl_id, NULL, (file->num_procs > 1) ? gcpl_buf : NULL, gcpl_len)))
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't open root group")
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_cont_root_grp_open() */
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_cont_handle_bcast
+ *
+ * Purpose:     Broadcast the container handle.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_cont_handle_bcast(H5_daos_file_t *file)
+{
+    daos_iov_t glob = {.iov_buf = NULL, .iov_buf_len = 0, .iov_len = 0};
+    herr_t ret_value = SUCCEED; /* Return value */
+    hbool_t err_occurred = FALSE;
+    int ret;
+
+    /* Calculate size of global cont handle */
+    if((file->my_rank == 0) && (0 != (ret = daos_cont_local2global(file->coh, &glob))))
+        err_occurred = TRUE;
+
+    /* Bcast size */
+    if(MPI_SUCCESS != MPI_Bcast(&glob.iov_buf_len, 1, MPI_UINT64_T, 0, H5_daos_pool_comm_g))
+        D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't broadcast global container handle size")
+
+    /* Error checking */
+    if(err_occurred) {
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "can't get global container handle size: %s", H5_daos_err_to_string(ret))
+    } else if(0 == glob.iov_buf_len) {
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "invalid global handle size after bcast")
+    }
+
+    /* Allocate buffer */
+    if(NULL == (glob.iov_buf = (char *)DV_malloc(glob.iov_buf_len)))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate space for global container handle")
+    memset(glob.iov_buf, 0, glob.iov_buf_len);
+    glob.iov_len = glob.iov_buf_len;
+
+    /* Get global container handle */
+    if((file->my_rank == 0) && (0 != (ret = daos_cont_local2global(file->coh, &glob))))
+        err_occurred = TRUE;
+
+    /* Bcast handle */
+    if(MPI_SUCCESS != MPI_Bcast(glob.iov_buf, (int)glob.iov_buf_len, MPI_BYTE, 0, H5_daos_pool_comm_g))
+        D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't broadcast global container handle");
+
+    /* Error checking */
+    if(err_occurred) {
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "can't get global container handle: %s", H5_daos_err_to_string(ret))
+    } else {
+        size_t i;
+        hbool_t non_zeros = FALSE;
+        for(i = 0; i < glob.iov_buf_len; i++)
+            if(0 != ((char *)(glob.iov_buf))[i]) {
+                non_zeros = TRUE;
+                break; /* Break if not 0 */
+            }
+        if(!non_zeros)
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "invalid global handle size after bcast")
+    }
+
+    /* Get container handle */
+    if((file->my_rank != 0) && (0 != (ret = daos_cont_global2local(H5_daos_poh_g, glob, &file->coh))))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "can't get global container handle: %s", H5_daos_err_to_string(ret))
+
+done:
+    DV_free(glob.iov_buf);
+
+    D_FUNC_LEAVE
+} /* end H5_daos_cont_handle_bcast() */
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_cont_gcpl_bcast
+ *
+ * Purpose:     Broadcast the container GCPL + max OID.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_cont_gcpl_bcast(H5_daos_file_t *file, void **gcpl_buf, uint64_t *gcpl_len)
+{
+    herr_t ret_value = SUCCEED; /* Return value */
+    char *buf = NULL;
+    size_t buf_size = 2 * sizeof(uint64_t) + *gcpl_len;
+
+    /* Bcast size */
+    if(MPI_SUCCESS != MPI_Bcast(&buf_size, 1, MPI_UINT64_T, 0, H5_daos_pool_comm_g))
+        D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't broadcast gcpl size")
+
+    /* Allocate buffer */
+    if(NULL == (buf = (char *)DV_malloc(buf_size)))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate space for bcast buffer")
+
+    if(file->my_rank == 0) {
+        uint8_t *p = (uint8_t *)buf;
+
+        /* Encode GCPL length */
+        UINT64ENCODE(p, *gcpl_len)
+
+        /* Encode max OID */
+        UINT64ENCODE(p, file->max_oid)
+
+        /* Copy GCPL buffer */
+        memcpy(p, *gcpl_buf, *gcpl_len);
+    }
+
+    /* Bcast buffer */
+    if(MPI_SUCCESS != MPI_Bcast(buf, (int)buf_size, MPI_BYTE, 0, H5_daos_pool_comm_g))
+        D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't broadcast gcpl info buf");
+
+    if(file->my_rank != 0) {
+        uint8_t *p = (uint8_t *)buf;
+
+        /* Decode GCPL length */
+        UINT64DECODE(p, *gcpl_len)
+
+        /* Decode max OID */
+        UINT64DECODE(p, file->max_oid)
+
+        /* Copy GCPL buffer */
+        if(NULL == (*gcpl_buf = DV_malloc(*gcpl_len)))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate space for gcpl buffer")
+        memcpy(*gcpl_buf, p, *gcpl_len);
+    }
+
+done:
+    DV_free(buf);
+
+    D_FUNC_LEAVE
+} /* end H5_daos_cont_gcpl_bcast() */
 
 
 /*-------------------------------------------------------------------------
@@ -57,17 +396,9 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
 {
     H5_daos_fapl_t *fa = NULL;
     H5_daos_file_t *file = NULL;
-    daos_iov_t glob;
-    uint64_t gh_buf_size;
-    char gh_buf_static[H5_DAOS_GH_BUF_SIZE];
-    char *gh_buf_dyn = NULL;
-    char *gh_buf = gh_buf_static;
     daos_obj_id_t gmd_oid = {0, 0};
-    uint8_t *p;
-    hbool_t must_bcast = FALSE;
     hbool_t sched_init = FALSE;
     H5_daos_req_t *int_req = NULL;
-    int mpi_initialized;
     int ret;
     void *ret_value = NULL;
 
@@ -93,10 +424,6 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     /* allocate the file object that is returned to the user */
     if(NULL == (file = H5FL_CALLOC(H5_daos_file_t)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, NULL, "can't allocate DAOS file struct")
-    file->item.open_req = NULL;
-    file->closed = FALSE;
-    file->glob_md_oh = DAOS_HDL_INVAL;
-    file->root_grp = NULL;
     file->fcpl_id = FAIL;
     file->fapl_id = FAIL;
     file->vol_id = FAIL;
@@ -108,8 +435,6 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     if(NULL == (file->file_name = strdup(name)))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't copy file name")
     file->flags = flags;
-    file->max_oid = 0;
-    file->max_oid_dirty = FALSE;
     if((file->fcpl_id = H5Pcopy(fcpl_id)) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTCOPY, NULL, "failed to copy fcpl")
     if((file->fapl_id = H5Pcopy(fapl_id)) < 0)
@@ -124,25 +449,9 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create task scheduler: %s", H5_daos_err_to_string(ret))
     sched_init = TRUE;
 
-    if (MPI_SUCCESS != MPI_Initialized(&mpi_initialized))
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, NULL, "can't determine if MPI has been initialized")
-    if (mpi_initialized) {
-        /* Duplicate communicator and Info object. */
-        /*
-         * XXX: DSINC - Need to pass in MPI Info to VOL connector as well.
-         */
-        if(FAIL == H5_daos_comm_info_dup(fa ? fa->comm : H5_daos_pool_comm_g, fa ? fa->info : MPI_INFO_NULL, &file->comm, &file->info))
-            D_GOTO_ERROR(H5E_INTERNAL, H5E_CANTCOPY, NULL, "failed to duplicate MPI communicator and info")
-
-        /* Obtain the process rank and size from the communicator attached to the
-         * fapl ID */
-        MPI_Comm_rank(fa ? fa->comm : H5_daos_pool_comm_g, &file->my_rank);
-        MPI_Comm_size(fa ? fa->comm : H5_daos_pool_comm_g, &file->num_procs);
-    }
-    else {
-        file->my_rank = 0;
-        file->num_procs = 1;
-    }
+    /* Set MPI container info */
+    if(H5_daos_cont_set_mpi_info(file, fa) < 0)
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTSET, NULL, "can't set MPI container info")
 
     /* Hash file name to create uuid */
     H5_daos_hash128(name, &file->uuid);
@@ -155,137 +464,20 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     daos_obj_generate_id(&gmd_oid, DAOS_OF_DKEY_HASHED | DAOS_OF_AKEY_HASHED, DAOS_OC_TINY_RW);
 
     /* Start H5 operation */
-    if(NULL == (int_req = (H5_daos_req_t *)DV_malloc(sizeof(H5_daos_req_t))))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for request")
-    int_req->th = DAOS_TX_NONE;
-    int_req->th_open = FALSE;
-    int_req->file = file;
-    int_req->file->item.rc++;
-    int_req->rc = 1;
-    int_req->status = H5_DAOS_INCOMPLETE;
-    int_req->failed_task = NULL;
+    if(NULL == (int_req = H5_daos_req_create(file)))
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, NULL, "can't create DAOS request")
 
-    if(file->my_rank == 0) {
-        /* If there are other processes and we fail we must bcast anyways so they
-         * don't hang */
-        if(file->num_procs > 1)
-            must_bcast = TRUE;
+    /* Create container on rank 0 */
+    if((file->my_rank == 0) && H5_daos_cont_create(file, flags, int_req) < 0)
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create DAOS container")
 
-        /* If the H5F_ACC_EXCL flag was specified, ensure that the container does not exist. */
-        if(flags & H5F_ACC_EXCL)
-            if(0 == daos_cont_open(H5_daos_poh_g, file->uuid, DAOS_COO_RW, &file->coh, NULL /*&file->co_info*/, NULL /*event*/))
-                D_GOTO_ERROR(H5E_FILE, H5E_FILEEXISTS, NULL, "container already existed and H5F_ACC_EXCL flag was used!")
+    /* Broadcast container handle to other procs if any */
+    if((file->num_procs > 1) && (H5_daos_cont_handle_bcast(file) < 0))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTSET, NULL, "can't broadcast DAOS container handle")
 
-        /* Delete the container if H5F_ACC_TRUNC is set.  This shouldn't cause a
-         * problem even if the container doesn't exist. */
-        if(flags & H5F_ACC_TRUNC)
-            if(0 != (ret = daos_cont_destroy(H5_daos_poh_g, file->uuid, 1, NULL /*event*/)))
-                D_GOTO_ERROR(H5E_FILE, H5E_CANTCREATE, NULL, "can't destroy container: %s", H5_daos_err_to_string(ret))
-
-        /* Create the container for the file */
-        if(0 != (ret = daos_cont_create(H5_daos_poh_g, file->uuid, NULL /* cont_prop */, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTCREATE, NULL, "can't create container: %s", H5_daos_err_to_string(ret))
-
-        /* Open the container */
-        if(0 != (ret = daos_cont_open(H5_daos_poh_g, file->uuid, DAOS_COO_RW, &file->coh, NULL /*&file->co_info*/, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENFILE, NULL, "can't open container: %s", H5_daos_err_to_string(ret))
-
-        /* Start transaction */
-        if(0 != (ret = daos_tx_open(file->coh, &int_req->th, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't start transaction")
-        int_req->th_open = TRUE;
-
-        /* Open global metadata object */
-        if(0 != (ret = daos_obj_open(file->coh, gmd_oid, DAOS_OO_RW, &file->glob_md_oh, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENFILE, NULL, "can't open global metadata object: %s", H5_daos_err_to_string(ret))
-
-        /* Bcast global container handle if there are other processes */
-        if(file->num_procs > 1) {
-            /* Calculate size of the global container handle */
-            glob.iov_buf = NULL;
-            glob.iov_buf_len = 0;
-            glob.iov_len = 0;
-            if(0 != (ret = daos_cont_local2global(file->coh, &glob)))
-                D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't get global container handle size: %s", H5_daos_err_to_string(ret))
-            gh_buf_size = (uint64_t)glob.iov_buf_len;
-
-            /* Check if the global handle won't fit into the static buffer */
-            assert(sizeof(gh_buf_static) >= sizeof(uint64_t));
-            if(gh_buf_size + sizeof(uint64_t) > sizeof(gh_buf_static)) {
-                /* Allocate dynamic buffer */
-                if(NULL == (gh_buf_dyn = (char *)DV_malloc(gh_buf_size + sizeof(uint64_t))))
-                    D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, NULL, "can't allocate space for global container handle")
-
-                /* Use dynamic buffer */
-                gh_buf = gh_buf_dyn;
-            } /* end if */
-
-            /* Encode handle length */
-            p = (uint8_t *)gh_buf;
-            UINT64ENCODE(p, gh_buf_size)
-
-            /* Retrieve global container handle */
-            glob.iov_buf = (char *)p;
-            glob.iov_buf_len = gh_buf_size;
-            glob.iov_len = 0;
-            if(0 != (ret = daos_cont_local2global(file->coh, &glob)))
-                D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't get global container handle: %s", H5_daos_err_to_string(ret))
-            assert(glob.iov_len == glob.iov_buf_len);
-
-            /* We are about to bcast so we no longer need to bcast on failure */
-            must_bcast = FALSE;
-
-            /* MPI_Bcast gh_buf */
-            if(MPI_SUCCESS != MPI_Bcast(gh_buf, (int)sizeof(gh_buf_static), MPI_BYTE, 0, fa ? fa->comm : H5_daos_pool_comm_g))
-                D_GOTO_ERROR(H5E_FILE, H5E_MPI, NULL, "can't broadcast global container handle")
-
-            /* Need a second bcast if we had to allocate a dynamic buffer */
-            if(gh_buf == gh_buf_dyn)
-                if(MPI_SUCCESS != MPI_Bcast((char *)p, (int)gh_buf_size, MPI_BYTE, 0, fa ? fa->comm : H5_daos_pool_comm_g))
-                    D_GOTO_ERROR(H5E_FILE, H5E_MPI, NULL, "can't broadcast global container handle (second broadcast)")
-        } /* end if */
-    } /* end if */
-    else {
-        /* Receive global handle */
-        if(MPI_SUCCESS != MPI_Bcast(gh_buf, (int)sizeof(gh_buf_static), MPI_BYTE, 0, fa ? fa->comm : H5_daos_pool_comm_g))
-            D_GOTO_ERROR(H5E_FILE, H5E_MPI, NULL, "can't receive broadcasted global container handle")
-
-        /* Decode handle length */
-        p = (uint8_t *)gh_buf;
-        UINT64DECODE(p, gh_buf_size)
-
-        /* Check for gh_buf_size set to 0 - indicates failure */
-        if(gh_buf_size == 0)
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "lead process failed to open file")
-
-        /* Check if we need to perform another bcast */
-        if(gh_buf_size + sizeof(uint64_t) > sizeof(gh_buf_static)) {
-            /* Check if we need to allocate a dynamic buffer */
-            if(gh_buf_size > sizeof(gh_buf_static)) {
-                /* Allocate dynamic buffer */
-                if(NULL == (gh_buf_dyn = (char *)DV_malloc(gh_buf_size)))
-                    D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, NULL, "can't allocate space for global pool handle")
-                gh_buf = gh_buf_dyn;
-            } /* end if */
-
-            /* Receive global handle */
-            if(MPI_SUCCESS != MPI_Bcast(gh_buf_dyn, (int)gh_buf_size, MPI_BYTE, 0, fa ? fa->comm : H5_daos_pool_comm_g))
-                D_GOTO_ERROR(H5E_FILE, H5E_MPI, NULL, "can't receive broadcasted global container handle (second broadcast)")
-
-            p = (uint8_t *)gh_buf;
-        } /* end if */
-
-        /* Create local container handle */
-        glob.iov_buf = (char *)p;
-        glob.iov_buf_len = gh_buf_size;
-        glob.iov_len = gh_buf_size;
-        if(0 != (ret = daos_cont_global2local(H5_daos_poh_g, glob, &file->coh)))
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENOBJ, NULL, "can't get local container handle: %s", H5_daos_err_to_string(ret))
-
-        /* Open global metadata object */
-        if(0 != (ret = daos_obj_open(file->coh, gmd_oid, DAOS_OO_RW, &file->glob_md_oh, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENFILE, NULL, "can't open global metadata object: %s", H5_daos_err_to_string(ret))
-    } /* end else */
+    /* Open global metadata object */
+    if(0 != (ret = daos_obj_open(file->coh, gmd_oid, DAOS_OO_RW, &file->glob_md_oh, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENFILE, NULL, "can't open global metadata object: %s", H5_daos_err_to_string(ret))
 
     /* Create root group */
     if(NULL == (file->root_grp = (H5_daos_group_t *)H5_daos_group_create_helper(file, fcpl_id, H5P_GROUP_ACCESS_DEFAULT, dxpl_id, int_req, NULL, NULL, 0, TRUE)))
@@ -315,14 +507,6 @@ done:
 
     /* Cleanup on failure */
     if(NULL == ret_value) {
-        /* Bcast bcast_buf_64 as '0' if necessary - this will trigger failures
-         * in the other processes so we do not need to do the second bcast. */
-        if(must_bcast) {
-            memset(gh_buf_static, 0, sizeof(gh_buf_static));
-            if(MPI_SUCCESS != MPI_Bcast(gh_buf_static, sizeof(gh_buf_static), MPI_BYTE, 0, fa ? fa->comm : H5_daos_pool_comm_g))
-                D_DONE_ERROR(H5E_FILE, H5E_MPI, NULL, "can't broadcast empty global container handle")
-        } /* end if */
-
         /* Close file */
         if(file && H5_daos_file_close_helper(file, dxpl_id, req) < 0)
             D_DONE_ERROR(H5E_FILE, H5E_CANTCLOSEFILE, NULL, "can't close file")
@@ -330,9 +514,6 @@ done:
 
     if(fa)
         H5VLfree_connector_info(H5_DAOS_g, fa);
-
-    /* Clean up */
-    DV_free(gh_buf_dyn);
 
     D_FUNC_LEAVE_API
 } /* end H5_daos_file_create() */
@@ -360,18 +541,10 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
 #ifdef DV_HAVE_SNAP_OPEN_ID
     H5_daos_snap_id_t snap_id;
 #endif
-    daos_iov_t glob;
-    uint64_t gh_len;
-    char foi_buf_static[H5_DAOS_FOI_BUF_SIZE];
-    char *foi_buf_dyn = NULL;
-    char *foi_buf = foi_buf_static;
     void *gcpl_buf = NULL;
-    uint64_t gcpl_len;
+    uint64_t gcpl_len = 0;
     daos_obj_id_t gmd_oid = {0, 0};
     daos_obj_id_t root_grp_oid = {0, 0};
-    uint8_t *p;
-    hbool_t must_bcast = FALSE;
-    int mpi_initialized;
     int ret;
     void *ret_value = NULL;
 
@@ -397,10 +570,6 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     /* Allocate the file object that is returned to the user */
     if(NULL == (file = H5FL_CALLOC(H5_daos_file_t)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, NULL, "can't allocate DAOS file struct")
-    file->item.open_req = NULL;
-    file->closed = FALSE;
-    file->glob_md_oh = DAOS_HDL_INVAL;
-    file->root_grp = NULL;
     file->fcpl_id = FAIL;
     file->fapl_id = FAIL;
     file->vol_id = FAIL;
@@ -423,25 +592,9 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     if(0 != (ret = tse_sched_init(&file->sched, NULL, file->crt_ctx)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create task scheduler: %s", H5_daos_err_to_string(ret))
 
-    if (MPI_SUCCESS != MPI_Initialized(&mpi_initialized))
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, NULL, "can't determine if MPI has been initialized")
-    if (mpi_initialized) {
-        /* Duplicate communicator and Info object. */
-        /*
-         * XXX: DSINC - Need to pass in MPI Info to VOL connector as well.
-         */
-        if(FAIL == H5_daos_comm_info_dup(fa ? fa->comm : H5_daos_pool_comm_g, fa ? fa->info : MPI_INFO_NULL, &file->comm, &file->info))
-            D_GOTO_ERROR(H5E_INTERNAL, H5E_CANTCOPY, NULL, "failed to duplicate MPI communicator and info")
-
-        /* Obtain the process rank and size from the communicator attached to the
-         * fapl ID */
-        MPI_Comm_rank(fa ? fa->comm : H5_daos_pool_comm_g, &file->my_rank);
-        MPI_Comm_size(fa ? fa->comm : H5_daos_pool_comm_g, &file->num_procs);
-    }
-    else {
-        file->my_rank = 0;
-        file->num_procs = 1;
-    }
+    /* Set MPI container info */
+    if(H5_daos_cont_set_mpi_info(file, fa) < 0)
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTSET, NULL, "can't set MPI container info")
 
     /* Hash file name to create uuid */
     H5_daos_hash128(name, &file->uuid);
@@ -456,170 +609,29 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     if(H5Pget_all_coll_metadata_ops(fapl_id, &file->collective) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTGET, NULL, "can't get collective access property")
 
-    if(file->my_rank == 0) {
-        daos_key_t dkey;
-        daos_iod_t iod;
-        daos_sg_list_t sgl;
-        daos_iov_t sg_iov;
+    /* Create container on rank 0 */
+    if((file->my_rank == 0) && H5_daos_cont_open(file, flags, NULL) < 0)
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create DAOS container")
 
-        /* If there are other processes and we fail we must bcast anyways so they
-         * don't hang */
-        if(file->num_procs > 1)
-            must_bcast = TRUE;
+    /* Broadcast container handle to other procs if any */
+    if((file->num_procs > 1) && (H5_daos_cont_handle_bcast(file) < 0))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTSET, NULL, "can't broadcast DAOS container handle")
 
-        /* Open the container */
-        if(0 != (ret = daos_cont_open(H5_daos_poh_g, file->uuid, flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &file->coh, NULL /*&file->co_info*/, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENFILE, NULL, "can't open container: %s", H5_daos_err_to_string(ret))
+    /* Open global metadata object */
+    if(0 != (ret = daos_obj_open(file->coh, gmd_oid, flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &file->glob_md_oh, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENFILE, NULL, "can't open global metadata object: %s", H5_daos_err_to_string(ret))
 
-        /* If a snapshot was requested, use it as the epoch, otherwise query it
-         */
-#ifdef DV_HAVE_SNAP_OPEN_ID
-        if(snap_id != H5_DAOS_SNAP_ID_INVAL) {
-            epoch = (daos_epoch_t)snap_id;
+    /* Open root group */
+    if((file->my_rank == 0) && H5_daos_cont_root_grp_open(file, root_grp_oid, dxpl_id, &gcpl_buf, &gcpl_len) < 0)
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENFILE, NULL, "can't open root group")
 
-            assert(!(flags & H5F_ACC_RDWR));
-        } /* end if */
-        else {
-#endif
-#ifdef DV_HAVE_SNAP_OPEN_ID
-        } /* end else */
-#endif
+    /* Broadcast other info to other procs if any */
+    if((file->num_procs > 1) && (H5_daos_cont_gcpl_bcast(file, &gcpl_buf, &gcpl_len) < 0))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTSET, NULL, "can't broadcast DAOS container handle")
 
-        /* Open global metadata object */
-        if(0 != (ret = daos_obj_open(file->coh, gmd_oid, flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &file->glob_md_oh, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENFILE, NULL, "can't open global metadata object: %s", H5_daos_err_to_string(ret))
-
-        /* Read max OID from gmd obj */
-        /* Set up dkey */
-        daos_iov_set(&dkey, H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
-
-        /* Set up iod */
-        memset(&iod, 0, sizeof(iod));
-        daos_iov_set(&iod.iod_name, H5_daos_max_oid_key_g, H5_daos_max_oid_key_size_g);
-        daos_csum_set(&iod.iod_kcsum, NULL, 0);
-        iod.iod_nr = 1u;
-        iod.iod_size = (uint64_t)8;
-        iod.iod_type = DAOS_IOD_SINGLE;
-
-        /* Set up sgl */
-        daos_iov_set(&sg_iov, &file->max_oid, (daos_size_t)8);
-        sgl.sg_nr = 1;
-        sgl.sg_nr_out = 0;
-        sgl.sg_iovs = &sg_iov;
-
-        /* Read max OID from gmd obj */
-        if(0 != (ret = daos_obj_fetch(file->glob_md_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTDECODE, NULL, "can't read max OID from global metadata object: %s", H5_daos_err_to_string(ret))
-
-        /* Open root group */
-        if(NULL == (file->root_grp = (H5_daos_group_t *)H5_daos_group_open_helper(file, root_grp_oid, H5P_GROUP_ACCESS_DEFAULT, dxpl_id, NULL, (file->num_procs > 1) ? &gcpl_buf : NULL, &gcpl_len)))
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't open root group")
-
-        /* Bcast global handles if there are other processes */
-        if(file->num_procs > 1) {
-            /* Calculate size of the global container handle */
-            glob.iov_buf = NULL;
-            glob.iov_buf_len = 0;
-            glob.iov_len = 0;
-            if(0 != (ret = daos_cont_local2global(file->coh, &glob)))
-                D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't get global container handle size: %s", H5_daos_err_to_string(ret))
-            gh_len = (uint64_t)glob.iov_buf_len;
-
-            /* Check if the file open info won't fit into the static buffer */
-            if(gh_len + gcpl_len + 3 * sizeof(uint64_t) > sizeof(foi_buf_static)) {
-                /* Allocate dynamic buffer */
-                if(NULL == (foi_buf_dyn = (char *)DV_malloc(gh_len + gcpl_len + 3 * sizeof(uint64_t))))
-                    D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, NULL, "can't allocate space for global container handle")
-
-                /* Use dynamic buffer */
-                foi_buf = foi_buf_dyn;
-            } /* end if */
-
-            /* Encode handle length */
-            p = (uint8_t *)foi_buf;
-            UINT64ENCODE(p, gh_len)
-
-            /* Encode GCPL length */
-            UINT64ENCODE(p, gcpl_len)
-
-            /* Encode max OID */
-            UINT64ENCODE(p, file->max_oid)
-
-            /* Retrieve global container handle */
-            glob.iov_buf = (char *)p;
-            glob.iov_buf_len = gh_len;
-            glob.iov_len = 0;
-            if(0 != (ret = daos_cont_local2global(file->coh, &glob)))
-                D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't get file open info: %s", H5_daos_err_to_string(ret))
-            assert(glob.iov_len == glob.iov_buf_len);
-
-            /* Copy GCPL buffer */
-            memcpy(p + gh_len, gcpl_buf, gcpl_len);
-
-            /* We are about to bcast so we no longer need to bcast on failure */
-            must_bcast = FALSE;
-
-            /* MPI_Bcast foi_buf */
-            if(MPI_SUCCESS != MPI_Bcast(foi_buf, (int)sizeof(foi_buf_static), MPI_BYTE, 0, fa ? fa->comm : H5_daos_pool_comm_g))
-                D_GOTO_ERROR(H5E_FILE, H5E_MPI, NULL, "can't broadcast global container handle")
-
-            /* Need a second bcast if we had to allocate a dynamic buffer */
-            if(foi_buf == foi_buf_dyn)
-                if(MPI_SUCCESS != MPI_Bcast((char *)p, (int)(gh_len + gcpl_len), MPI_BYTE, 0, fa ? fa->comm : H5_daos_pool_comm_g))
-                    D_GOTO_ERROR(H5E_FILE, H5E_MPI, NULL, "can't broadcast file open info (second broadcast)")
-        } /* end if */
-    } /* end if */
-    else {
-        /* Receive file open info */
-        if(MPI_SUCCESS != MPI_Bcast(foi_buf, (int)sizeof(foi_buf_static), MPI_BYTE, 0, fa ? fa->comm : H5_daos_pool_comm_g))
-            D_GOTO_ERROR(H5E_FILE, H5E_MPI, NULL, "can't receive broadcasted global container handle")
-
-        /* Decode handle length */
-        p = (uint8_t *)foi_buf;
-        UINT64DECODE(p, gh_len)
-
-        /* Check for gh_len set to 0 - indicates failure */
-        if(gh_len == 0)
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "lead process failed to open file")
-
-        /* Decode GCPL length */
-        UINT64DECODE(p, gcpl_len)
-
-        /* Decode max OID */
-        UINT64DECODE(p, file->max_oid)
-
-        /* Check if we need to perform another bcast */
-        if(gh_len + gcpl_len + 3 * sizeof(uint64_t) > sizeof(foi_buf_static)) {
-            /* Check if we need to allocate a dynamic buffer */
-            if(gh_len + gcpl_len > sizeof(foi_buf_static)) {
-                /* Allocate dynamic buffer */
-                if(NULL == (foi_buf_dyn = (char *)DV_malloc(gh_len + gcpl_len)))
-                    D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, NULL, "can't allocate space for global pool handle")
-                foi_buf = foi_buf_dyn;
-            } /* end if */
-
-            /* Receive global handle */
-            if(MPI_SUCCESS != MPI_Bcast(foi_buf_dyn, (int)(gh_len + gcpl_len), MPI_BYTE, 0, fa ? fa->comm : H5_daos_pool_comm_g))
-                D_GOTO_ERROR(H5E_FILE, H5E_MPI, NULL, "can't receive broadcasted global container handle (second broadcast)")
-
-            p = (uint8_t *)foi_buf;
-        } /* end if */
-
-        /* Create local container handle */
-        glob.iov_buf = (char *)p;
-        glob.iov_buf_len = gh_len;
-        glob.iov_len = gh_len;
-        if(0 != (ret = daos_cont_global2local(H5_daos_poh_g, glob, &file->coh)))
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENOBJ, NULL, "can't get local container handle: %s", H5_daos_err_to_string(ret))
-
-        /* Open global metadata object */
-        if(0 != (ret = daos_obj_open(file->coh, gmd_oid, flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &file->glob_md_oh, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENFILE, NULL, "can't open global metadata object: %s", H5_daos_err_to_string(ret))
-
-        /* Reconstitute root group from revieved GCPL */
-        if(NULL == (file->root_grp = (H5_daos_group_t *)H5_daos_group_reconstitute(file, root_grp_oid, p + gh_len, H5P_GROUP_ACCESS_DEFAULT, dxpl_id, NULL)))
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't reconstitute root group")
-    } /* end else */
+    /* Reconstitute root group from revived GCPL */
+    if((file->my_rank != 0) && (NULL == (file->root_grp = (H5_daos_group_t *)H5_daos_group_reconstitute(file, root_grp_oid, gcpl_buf, H5P_GROUP_ACCESS_DEFAULT, dxpl_id, NULL))))
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't reconstitute root group")
 
     /* FCPL was stored as root group's GCPL (as GCPL is the parent of FCPL).
      * Point to it. */
@@ -632,14 +644,6 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
 done:
     /* Cleanup on failure */
     if(NULL == ret_value) {
-        /* Bcast bcast_buf_64 as '0' if necessary - this will trigger failures
-         * in the other processes so we do not need to do the second bcast. */
-        if(must_bcast) {
-            memset(foi_buf_static, 0, sizeof(foi_buf_static));
-            if(MPI_SUCCESS != MPI_Bcast(foi_buf_static, sizeof(foi_buf_static), MPI_BYTE, 0, fa ? fa->comm : H5_daos_pool_comm_g))
-                D_DONE_ERROR(H5E_FILE, H5E_MPI, NULL, "can't broadcast empty global container handle")
-        } /* end if */
-
         /* Close file */
         if(file && H5_daos_file_close_helper(file, dxpl_id, req) < 0)
             D_DONE_ERROR(H5E_FILE, H5E_CANTCLOSEFILE, NULL, "can't close file")
@@ -649,7 +653,6 @@ done:
         H5VLfree_connector_info(H5_DAOS_g, fa);
 
     /* Clean up buffers */
-    foi_buf_dyn = (char *)DV_free(foi_buf_dyn);
     gcpl_buf = DV_free(gcpl_buf);
 
     D_FUNC_LEAVE_API

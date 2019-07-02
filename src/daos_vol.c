@@ -51,8 +51,7 @@ static herr_t H5_daos_pool_create(uuid_t uuid, const char **pool_grp, d_rank_lis
 static herr_t H5_daos_pool_destroy(uuid_t uuid);
 static herr_t H5_daos_pool_connect(void);
 static herr_t H5_daos_pool_disconnect(void);
-static herr_t H5_daos_pool_local2global(void);
-static herr_t H5_daos_pool_global2local(void);
+static herr_t H5_daos_pool_handle_bcast(int rank);
 static void *H5_daos_fapl_copy(const void *_old_fa);
 static herr_t H5_daos_fapl_free(void *_fa);
 static herr_t H5_daos_optional(void *item, hid_t dxpl_id, void **req,
@@ -586,17 +585,13 @@ H5_daos_init(hid_t H5VL_DAOS_UNUSED vipl_id)
         pool_num_procs = 1;
     }
 
-    if(pool_rank == 0) {
-        /* First connect to the pool */
-        if(H5_daos_pool_connect() < 0)
-            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't connect to DAOS pool")
+    /* First connect to the pool */
+    if((pool_rank == 0) && H5_daos_pool_connect() < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't connect to DAOS pool")
 
-        /* Broadcast pool handle to other procs if any */
-        if((pool_num_procs > 1) && (H5_daos_pool_local2global() < 0))
-            D_GOTO_ERROR(H5E_VOL, H5E_CANTSET, FAIL, "can't broadcast DAOS pool handle")
-    } /* end if */
-    else if(H5_daos_pool_global2local() < 0)
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTRECV, FAIL, "can't receive DAOS pool handle")
+    /* Broadcast pool handle to other procs if any */
+    if((pool_num_procs > 1) && (H5_daos_pool_handle_bcast(pool_rank) < 0))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTSET, FAIL, "can't broadcast DAOS pool handle")
 
     /* Initialized */
     H5_daos_initialized_g = TRUE;
@@ -844,7 +839,7 @@ done:
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_pool_local2global
+ * Function:    H5_daos_pool_handle_bcast
  *
  * Purpose:     Broadcast the pool handle.
  *
@@ -853,135 +848,66 @@ done:
  *-------------------------------------------------------------------------
  */
 static herr_t
-H5_daos_pool_local2global(void)
+H5_daos_pool_handle_bcast(int rank)
 {
-    daos_iov_t glob;
-    uint64_t gh_buf_size;
-    char gh_buf_static[H5_DAOS_GH_BUF_SIZE];
-    char *gh_buf_dyn = NULL;
-    char *gh_buf = gh_buf_static;
-    uint8_t *p;
-    hbool_t must_bcast = TRUE; /* Force bcast in case of failure to prevent hang */
+    daos_iov_t glob = {.iov_buf = NULL, .iov_buf_len = 0, .iov_len = 0};
+    herr_t ret_value = SUCCEED; /* Return value */
+    hbool_t err_occurred = FALSE;
     int ret;
-    herr_t ret_value = SUCCEED;            /* Return value */
 
     /* Calculate size of global pool handle */
-    glob.iov_buf = NULL;
-    glob.iov_buf_len = 0;
-    glob.iov_len = 0;
-    if(0 != (ret = daos_pool_local2global(H5_daos_poh_g, &glob)))
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't get global pool handle size: %s", H5_daos_err_to_string(ret))
-    gh_buf_size = (uint64_t)glob.iov_buf_len;
+    if((rank == 0) && (0 != (ret = daos_pool_local2global(H5_daos_poh_g, &glob))))
+        err_occurred = TRUE; /* Defer goto error to make sure we enter bcast */
 
-    /* Check if the global handle won't fit into the static buffer */
-    assert(sizeof(gh_buf_static) >= sizeof(uint64_t));
-    if(gh_buf_size + sizeof(uint64_t) > sizeof(gh_buf_static)) {
-        /* Allocate dynamic buffer */
-        if(NULL == (gh_buf_dyn = (char *)DV_malloc(gh_buf_size + sizeof(uint64_t))))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate space for global pool handle")
+    /* Bcast size */
+    if(MPI_SUCCESS != MPI_Bcast(&glob.iov_buf_len, 1, MPI_UINT64_T, 0, H5_daos_pool_comm_g))
+        D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't broadcast global pool handle size")
 
-        /* Use dynamic buffer */
-        gh_buf = gh_buf_dyn;
-    } /* end if */
+    /* Error checking */
+    if(err_occurred) {
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "can't get global pool handle size: %s", H5_daos_err_to_string(ret))
+    } else if(0 == glob.iov_buf_len) {
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "invalid global handle size after bcast")
+    }
 
-    /* Encode handle length */
-    p = (uint8_t *)gh_buf;
-    UINT64ENCODE(p, gh_buf_size)
+    /* Allocate buffer */
+    if(NULL == (glob.iov_buf = (char *)DV_malloc(glob.iov_buf_len)))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate space for global pool handle")
+    memset(glob.iov_buf, 0, glob.iov_buf_len);
+    glob.iov_len = glob.iov_buf_len;
 
     /* Get global pool handle */
-    glob.iov_buf = (char *)p;
-    glob.iov_buf_len = gh_buf_size;
-    glob.iov_len = 0;
-    if(0 != (ret = daos_pool_local2global(H5_daos_poh_g, &glob)))
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't get global pool handle: %s", H5_daos_err_to_string(ret))
-    assert(glob.iov_len == glob.iov_buf_len);
+    if((rank == 0) && (0 != (ret = daos_pool_local2global(H5_daos_poh_g, &glob))))
+        err_occurred = TRUE;
 
-    /* We are about to bcast so we no longer need to bcast on failure */
-    must_bcast = FALSE;
-
-    /* MPI_Bcast gh_buf */
-    if(MPI_SUCCESS != MPI_Bcast(gh_buf, (int)sizeof(gh_buf_static), MPI_BYTE, 0, H5_daos_pool_comm_g))
+    /* Bcast handle */
+    if(MPI_SUCCESS != MPI_Bcast(glob.iov_buf, (int)glob.iov_buf_len, MPI_BYTE, 0, H5_daos_pool_comm_g))
         D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't broadcast global pool handle")
 
-    /* Need a second bcast if we had to allocate a dynamic buffer */
-    if(gh_buf == gh_buf_dyn)
-        if(MPI_SUCCESS != MPI_Bcast((char *)p, (int)gh_buf_size, MPI_BYTE, 0, H5_daos_pool_comm_g))
-            D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't broadcast global pool handle (second broadcast)")
+    /* Error checking */
+    if(err_occurred) {
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "can't get global pool handle: %s", H5_daos_err_to_string(ret))
+    } else {
+        size_t i;
+        hbool_t non_zeros = FALSE;
+        for(i = 0; i < glob.iov_buf_len; i++)
+            if(0 != ((char *)(glob.iov_buf))[i]) {
+                non_zeros = TRUE;
+                break; /* Break if not 0 */
+            }
+        if(!non_zeros)
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "invalid global handle size after bcast")
+    }
+
+    /* Get pool handle */
+    if((rank != 0) && (0 != (ret = daos_pool_global2local(glob, &H5_daos_poh_g))))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't get global pool handle: %s", H5_daos_err_to_string(ret))
 
 done:
-    /* Bcast gh_buf as '0' if necessary - this will trigger failures in the
-     * other processes so we do not need to do the second bcast. */
-    if(must_bcast) {
-        memset(gh_buf_static, 0, sizeof(gh_buf_static));
-        if(MPI_SUCCESS != MPI_Bcast(gh_buf_static, sizeof(gh_buf_static), MPI_BYTE, 0, H5_daos_pool_comm_g))
-            D_DONE_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't broadcast empty global handle")
-    } /* end if */
+    DV_free(glob.iov_buf);
 
     D_FUNC_LEAVE_API
-} /* end H5_daos_pool_local2global() */
-
-
-/*-------------------------------------------------------------------------
- * Function:    H5_daos_pool_global2local
- *
- * Purpose:     Receive the broadcasted pool handle.
- *
- * Return:      Non-negative on success/Negative on failure
- *
- *-------------------------------------------------------------------------
- */
-static herr_t
-H5_daos_pool_global2local(void)
-{
-    daos_iov_t glob;
-    uint64_t gh_buf_size;
-    char gh_buf_static[H5_DAOS_GH_BUF_SIZE];
-    char *gh_buf_dyn = NULL;
-    char *gh_buf = gh_buf_static;
-    uint8_t *p;
-    int ret;
-    herr_t ret_value = SUCCEED;             /* Return value */
-
-    /* Receive global handle */
-    if(MPI_SUCCESS != MPI_Bcast(gh_buf, (int)sizeof(gh_buf_static), MPI_BYTE, 0, H5_daos_pool_comm_g))
-        D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't receive broadcasted global pool handle")
-
-    /* Decode handle length */
-    p = (uint8_t *)gh_buf;
-    UINT64DECODE(p, gh_buf_size)
-
-    /* Check for gh_buf_size set to 0 - indicates failure */
-    if(gh_buf_size == 0)
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "lead process failed to initialize")
-
-    /* Check if we need to perform another bcast */
-    if(gh_buf_size + sizeof(uint64_t) > sizeof(gh_buf_static)) {
-        /* Check if we need to allocate a dynamic buffer */
-        if(gh_buf_size > sizeof(gh_buf_static)) {
-            /* Allocate dynamic buffer */
-            if(NULL == (gh_buf_dyn = (char *)DV_malloc(gh_buf_size)))
-                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate space for global pool handle")
-            gh_buf = gh_buf_dyn;
-        } /* end if */
-
-        /* Receive global handle */
-        if(MPI_SUCCESS != MPI_Bcast(gh_buf, (int)gh_buf_size, MPI_BYTE, 0, H5_daos_pool_comm_g))
-            D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't receive broadcasted global pool handle (second broadcast)")
-
-        p = (uint8_t *)gh_buf;
-    } /* end if */
-
-    /* Create local pool handle */
-    glob.iov_buf = (char *)p;
-    glob.iov_buf_len = gh_buf_size;
-    glob.iov_len = gh_buf_size;
-    if(0 != (ret = daos_pool_global2local(glob, &H5_daos_poh_g)))
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTOPENOBJ, FAIL, "can't get local pool handle: %s", H5_daos_err_to_string(ret))
-
-done:
-    DV_free(gh_buf_dyn);
-    D_FUNC_LEAVE_API
-} /* end H5_daos_pool_global2local */
+} /* end H5_daos_pool_handle_bcast() */
 
 
 /*-------------------------------------------------------------------------

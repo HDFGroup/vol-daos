@@ -28,8 +28,8 @@
 #define FALSE                   0
 
 #define FILENAME                "h5daos_test_map.h5"
-#define NUMB_KEYS               4
-#define LARGE_NUMB_KEYS         1024   /* Don't set this too high because this test uses linear search */
+#define NUMB_KEYS               4       /* Don't set this too high because this test uses linear search */
+#define LARGE_NUMB_KEYS         1024
 #define LARGE_NUMB_MAPS         128
 
 #define MAP_INT_INT_NAME        "map_int_int"
@@ -980,7 +980,7 @@ map_iterate_cb(hid_t map_id, const void *_key, void *_iterate_ud)
 
         if(i == NUMB_KEYS) {
             H5_FAILED(); AT();
-            printf("key not found: %d among ", *((const int *)_key));
+            printf("returned key not found in local key array: %d among ", *((const int *)_key));
             for(i = 0; i < NUMB_KEYS; i++)
                 printf("%d, ", int_int_keys[i]);
             printf("\n");
@@ -996,7 +996,7 @@ map_iterate_cb(hid_t map_id, const void *_key, void *_iterate_ud)
 
         if(i == NUMB_KEYS) {
             H5_FAILED(); AT();
-            printf("key not found\n");
+            printf("returned key not found in local key array\n");
             goto error;
         } /* end if */
     } else if(!strcmp(iterate_ud->map_name, MAP_VL_VL_NAME)) {
@@ -1009,7 +1009,7 @@ map_iterate_cb(hid_t map_id, const void *_key, void *_iterate_ud)
 
         if(i == NUMB_KEYS) {
             H5_FAILED(); AT();
-            printf("key not found\n");
+            printf("returned key not found in local key array\n");
             goto error;
         } /* end if */
     } else if(!strcmp(iterate_ud->map_name, MAP_COMP_COMP_NAME)) {
@@ -1022,22 +1022,21 @@ map_iterate_cb(hid_t map_id, const void *_key, void *_iterate_ud)
 
         if(i == NUMB_KEYS) {
             H5_FAILED(); AT();
-            printf("key not found\n");
+            printf("returned key not found in local key array\n");
             goto error;
         } /* end if */
     } else if(!strcmp(iterate_ud->map_name, MAP_MANY_ENTRIES_NAME)) {
-        for(i = 0; i < LARGE_NUMB_KEYS; i++) {
-            if(large_int_int_keys[i] == *((const int *)_key)) {
-                iterate_ud->keys_visited[i]++;
-                break;
-            } /* end if */
-        }
+        /* Work backwards from algorithm used to generate the keys to find the
+         * index into large_int_int_keys */
+        i = *((const int *)_key) % LARGE_NUMB_KEYS;
 
-        if(i == LARGE_NUMB_KEYS) {
+        if(large_int_int_keys[i] != *((const int *)_key)) {
             H5_FAILED(); AT();
-            printf("key not found\n");
+            printf("returned key not found at expected location in local key array\n");
             goto error;
         } /* end if */
+
+        iterate_ud->keys_visited[i]++;
     }
 
     /* Check for short circuit */

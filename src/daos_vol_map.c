@@ -327,7 +327,7 @@ done:
     else
         assert((!ktype_buf && !vtype_buf && !mcpl_buf) || update_task_scheduled);
 
-    D_FUNC_LEAVE_API
+    D_FUNC_LEAVE
 } /* end H5_daos_map_create() */
 
 
@@ -596,7 +596,7 @@ done:
     /* Free memory */
     minfo_buf_dyn = (uint8_t *)DV_free(minfo_buf_dyn);
 
-    D_FUNC_LEAVE_API
+    D_FUNC_LEAVE
 } /* end H5_daos_map_open() */
 
 
@@ -879,7 +879,7 @@ H5_daos_map_get_val(void *_map, hid_t key_mem_type_id, const void *key,
     }
 
 done:
-    D_FUNC_LEAVE_API
+    D_FUNC_LEAVE
 } /* end H5_daos_map_get_val() */
 
 
@@ -958,7 +958,7 @@ H5_daos_map_set(void *_map, hid_t key_mem_type_id, const void *key,
         D_GOTO_ERROR(H5E_MAP, H5E_CANTSET, FAIL, "map set failed: %s", H5_daos_err_to_string(ret));
 
 done:
-    D_FUNC_LEAVE_API
+    D_FUNC_LEAVE
 } /* end H5_daos_map_set() */
 
 #if DV_HAVE_MAP
@@ -982,7 +982,7 @@ H5_daos_map_get_types(void *_map, hid_t *key_type_id, hid_t *val_type_id,
             D_GOTO_ERROR(H5E_ARGS, H5E_CANTGET, FAIL, "can't get datatype ID of map val");
 
 done:
-    D_FUNC_LEAVE_API
+    D_FUNC_LEAVE
 } /* end H5_daos_map_get_types() */
 
 
@@ -1036,7 +1036,7 @@ H5_daos_map_get_count(void *_map, hsize_t *count, void H5VL_DAOS_UNUSED **req)
     *count = (hsize_t)(key_nr - 1);
 
 done:
-    D_FUNC_LEAVE_API
+    D_FUNC_LEAVE
 } /* end H5_daos_map_get_count() */
 #endif /* DV_HAVE_MAP */
 
@@ -1097,7 +1097,7 @@ H5_daos_map_exists(void *_map, hid_t key_mem_type_id, const void *key,
         *exists = FALSE;
 
 done:
-    D_FUNC_LEAVE_API
+    D_FUNC_LEAVE
 } /* end H5_daos_map_exists() */
 
 
@@ -1216,7 +1216,7 @@ done:
         map = NULL;
     } /* end else */
 
-    D_FUNC_LEAVE_API
+    D_FUNC_LEAVE
 } /* end H5_daos_map_specific() */
 
 
@@ -1402,7 +1402,7 @@ H5_daos_map_iterate(H5_daos_map_t *map, hid_t map_id, hsize_t *idx,
 done:
     dkey_buf = (char *)DV_free(dkey_buf);
 
-    D_FUNC_LEAVE_API
+    D_FUNC_LEAVE
 } /* end H5_daos_map_iterate() */
 
 
@@ -1471,7 +1471,7 @@ H5_daos_map_delete_key(H5_daos_map_t *map, hid_t key_mem_type_id,
             D_GOTO_ERROR(H5E_MAP, H5E_CANTSET, FAIL, "map dkey delete failed: %s", H5_daos_err_to_string(ret));
 
 done:
-    D_FUNC_LEAVE_API
+    D_FUNC_LEAVE
 } /* end H5_daos_map_delete_key() */
 
 
@@ -1518,6 +1518,6 @@ H5_daos_map_close(void *_map, hid_t H5VL_DAOS_UNUSED dxpl_id,
     } /* end if */
 
 done:
-    D_FUNC_LEAVE_API
+    D_FUNC_LEAVE
 } /* end H5_daos_map_close() */
 

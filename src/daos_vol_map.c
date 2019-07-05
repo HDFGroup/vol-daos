@@ -1428,7 +1428,6 @@ H5_daos_map_delete_key(H5_daos_map_t *map, hid_t key_mem_type_id,
 {
     size_t key_size;
     daos_key_t dkey;
-    daos_key_t akey;
     H5T_class_t key_cls;
     int ret;
     herr_t ret_value = SUCCEED;
@@ -1449,13 +1448,27 @@ H5_daos_map_delete_key(H5_daos_map_t *map, hid_t key_mem_type_id,
     /* Set up dkey */
     daos_iov_set(&dkey, (void *)(H5T_VLEN == key_cls ? ((const hvl_t *)key)->p : key), (daos_size_t)key_size);
 
-    /* Set up akey */
-    daos_iov_set(&akey, (void *)H5_daos_map_key_g, H5_daos_map_key_size_g);
+    /* Check for key sharing dkey with other metadata.  If dkey is shared, only
+     * delete akey, otherwise delete dkey. */
+    if(((key_size == H5_daos_int_md_key_size_g)
+            && !memcmp(key, H5_daos_int_md_key_g, H5_daos_int_md_key_size_g))
+            || ((key_size == H5_daos_attr_key_size_g)
+            && !memcmp(key, H5_daos_attr_key_g, H5_daos_attr_key_size_g))) {
+        daos_key_t akey;
 
-    /* Delete key/value pair from map */
-    if(0 != (ret = daos_obj_punch_akeys(map->obj.obj_oh, DAOS_TX_NONE, &dkey,
-           1, &akey, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTSET, FAIL, "map key delete failed: %s", H5_daos_err_to_string(ret));
+        /* Set up akey */
+        daos_iov_set(&akey, (void *)H5_daos_map_key_g, H5_daos_map_key_size_g);
+
+        /* Delete key/value pair from map */
+        if(0 != (ret = daos_obj_punch_akeys(map->obj.obj_oh, DAOS_TX_NONE, &dkey,
+               1, &akey, NULL /*event*/)))
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTSET, FAIL, "map akey delete failed: %s", H5_daos_err_to_string(ret));
+    } /* end if */
+    else
+        /* Delete dkey from map */
+        if(0 != (ret = daos_obj_punch_dkeys(map->obj.obj_oh, DAOS_TX_NONE, 1,
+                &dkey, NULL /*event*/)))
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTSET, FAIL, "map dkey delete failed: %s", H5_daos_err_to_string(ret));
 
 done:
     D_FUNC_LEAVE_API

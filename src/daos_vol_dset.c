@@ -88,6 +88,8 @@ static herr_t H5_daos_dataset_io_types_equal(H5_daos_dset_t *dset, daos_key_t dk
 static herr_t H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t dkey,
     hssize_t num_elem, hid_t mem_type_id, hid_t mem_space_id, hid_t file_space_id,
     hid_t dxpl_id, dset_io_type io_type, void *buf);
+static herr_t H5_daos_dataset_set_extent(H5_daos_dset_t *dset,
+    const hsize_t *size, hid_t dxpl_id, void **req);
 static herr_t H5_daos_get_selected_chunk_info(hid_t dcpl_id,
     hid_t file_space_id, hid_t mem_space_id,
     H5_daos_select_chunk_info_t **chunk_info, size_t *chunk_info_len);
@@ -1867,7 +1869,7 @@ done:
  */
 herr_t
 H5_daos_dataset_specific(void *_item, H5VL_dataset_specific_t specific_type,
-    hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req, va_list H5VL_DAOS_UNUSED arguments)
+    hid_t dxpl_id, void **req, va_list arguments)
 {
     H5_daos_dset_t *dset = (H5_daos_dset_t *)_item;
     herr_t          ret_value = SUCCEED;
@@ -1879,8 +1881,21 @@ H5_daos_dataset_specific(void *_item, H5VL_dataset_specific_t specific_type,
 
     switch (specific_type) {
         case H5VL_DATASET_SET_EXTENT:
+            {
+                const hsize_t *size = va_arg(arguments, const hsize_t *);
+
+                /* Call main routine */
+                if(H5_daos_dataset_set_extent(dset, size, dxpl_id, req) < 0)
+                    D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "failed to set dataset extent")
+
+                break;
+            } /* end block */
+
         case H5VL_DATASET_FLUSH:
         case H5VL_DATASET_REFRESH:
+            /* No-ops */
+            break;
+
         default:
             D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported dataset specific operation")
     }  /* end switch */
@@ -1888,6 +1903,84 @@ H5_daos_dataset_specific(void *_item, H5VL_dataset_specific_t specific_type,
 done:
     D_FUNC_LEAVE_API
 } /* end H5_daos_dataset_specific() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_dataset_set_extent
+ *
+ * Purpose:     Changes the extent of a dataset
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ * Programmer:  Neil Fortner
+ *              July, 2019
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_dataset_set_extent(H5_daos_dset_t *dset, const hsize_t *size,
+    hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req)
+{
+    hsize_t maxdims[H5S_MAX_RANK];
+    int ndims;
+    daos_key_t dkey;
+    daos_iod_t iod;
+    daos_sg_list_t sgl;
+    daos_iov_t sg_iov;
+    void *space_buf = NULL;
+    size_t space_size = 0;
+    int ret;
+    herr_t ret_value = SUCCEED;
+
+    /* Get dataspace rank */
+    if((ndims = H5Sget_simple_extent_ndims(dset->space_id)) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get current dataspace rank")
+
+    /* Get dataspace max dims */
+    if(H5Sget_simple_extent_dims(dset->space_id, NULL, maxdims) <0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get current dataspace maximum dimensions")
+
+    /* Change dataspace extent */
+    if(H5Sset_extent_simple(dset->space_id, ndims, size, maxdims) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTSET, FAIL, "can't set dataspace dimensions")
+
+    /* Encode dataspace */
+    if(H5Sencode2(dset->space_id, NULL, &space_size, dset->obj.item.file->fapl_id) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "can't determine serialized length of dataspace")
+    if(NULL == (space_buf = DV_malloc(space_size)))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for serialized dataspace")
+    if(H5Sencode2(dset->space_id, space_buf, &space_size, dset->obj.item.file->fapl_id) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTENCODE, FAIL, "can't serialize dataspace")
+
+    /* Set up operation to write dataspace to dataset */
+    /* Set up dkey */
+    daos_iov_set(&dkey, (void *)H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
+
+    /* Set up iod */
+    memset(&iod, 0, sizeof(iod));
+    daos_iov_set(&iod.iod_name, (void *)H5_daos_space_key_g, H5_daos_space_key_size_g);
+    daos_csum_set(&iod.iod_kcsum, NULL, 0);
+    iod.iod_nr = 1u;
+    iod.iod_size = (uint64_t)space_size;
+    iod.iod_type = DAOS_IOD_SINGLE;
+
+    /* Set up sgl */
+    daos_iov_set(&sg_iov, space_buf, (daos_size_t)space_size);
+    sgl.sg_nr = 1;
+    sgl.sg_nr_out = 0;
+    sgl.sg_iovs = &sg_iov;
+
+    /* Write updated dataspace to dataset */
+    if(0 != (ret = daos_obj_update(dset->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't write metadata to dataset: %s", H5_daos_err_to_string(ret))
+
+done:
+    /* Free memory */
+    space_buf = DV_free(space_buf);
+
+    D_FUNC_LEAVE
+} /* end H5_daos_dataset_set_extent() */
 
 
 /*-------------------------------------------------------------------------

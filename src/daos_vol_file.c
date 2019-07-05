@@ -61,6 +61,8 @@ H5_daos_req_create(H5_daos_file_t *file)
 {
     H5_daos_req_t *ret_value = NULL;
 
+    assert(file);
+
     if(NULL == (ret_value = (H5_daos_req_t *)DV_malloc(sizeof(H5_daos_req_t))))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for request")
     ret_value->th = DAOS_TX_NONE;
@@ -89,6 +91,8 @@ H5_daos_cont_set_mpi_info(H5_daos_file_t *file, H5_daos_fapl_t *fa)
 {
     int mpi_initialized;
     herr_t ret_value = SUCCEED;
+
+    assert(file);
 
     if(MPI_SUCCESS != MPI_Initialized(&mpi_initialized))
         D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't determine if MPI has been initialized")
@@ -127,6 +131,9 @@ H5_daos_cont_create(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *int_req
 {
     herr_t ret_value = SUCCEED;
     int ret;
+
+    assert(file);
+    assert(int_req);
 
     /* If the H5F_ACC_EXCL flag was specified, ensure that the container does not exist. */
     if(flags & H5F_ACC_EXCL)
@@ -171,6 +178,8 @@ H5_daos_cont_open(H5_daos_file_t *file, unsigned flags, H5_daos_req_t H5VL_DAOS_
     herr_t ret_value = SUCCEED;
     int ret;
 
+    assert(file);
+
     /* Open the container */
     if(0 != (ret = daos_cont_open(H5_daos_poh_g, file->uuid, flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &file->coh, NULL /*&file->co_info*/, NULL /*event*/)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENFILE, FAIL, "can't open container: %s", H5_daos_err_to_string(ret))
@@ -212,6 +221,10 @@ H5_daos_cont_root_grp_open(H5_daos_file_t *file, daos_obj_id_t root_grp_oid,
     daos_iov_t sg_iov;
     herr_t ret_value = SUCCEED;
     int ret;
+
+    assert(file);
+    assert(gcpl_buf);
+    assert(gcpl_len);
 
     /* Read max OID from gmd obj */
     /* Set up dkey */
@@ -259,6 +272,8 @@ H5_daos_cont_handle_bcast(H5_daos_file_t *file)
     herr_t ret_value = SUCCEED; /* Return value */
     hbool_t err_occurred = FALSE;
     int ret;
+
+    assert(file);
 
     /* Calculate size of global cont handle */
     if((file->my_rank == 0) && (0 != (ret = daos_cont_local2global(file->coh, &glob))))
@@ -328,9 +343,14 @@ H5_daos_cont_gcpl_bcast(H5_daos_file_t *file, void **gcpl_buf, uint64_t *gcpl_le
 {
     herr_t ret_value = SUCCEED; /* Return value */
     char *buf = NULL;
-    size_t buf_size = 2 * sizeof(uint64_t) + *gcpl_len;
+    size_t buf_size;
+
+    assert(file);
+    assert(gcpl_buf);
+    assert(gcpl_len);
 
     /* Bcast size */
+    buf_size = 2 * sizeof(uint64_t) + *gcpl_len;
     if(MPI_SUCCESS != MPI_Bcast(&buf_size, 1, MPI_UINT64_T, 0, H5_daos_pool_comm_g))
         D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't broadcast gcpl size")
 
@@ -609,7 +629,7 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     if(H5Pget_all_coll_metadata_ops(fapl_id, &file->collective) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTGET, NULL, "can't get collective access property")
 
-    /* Create container on rank 0 */
+    /* Open container on rank 0 */
     if((file->my_rank == 0) && H5_daos_cont_open(file, flags, NULL) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create DAOS container")
 
@@ -625,7 +645,7 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     if((file->my_rank == 0) && H5_daos_cont_root_grp_open(file, root_grp_oid, dxpl_id, &gcpl_buf, &gcpl_len) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENFILE, NULL, "can't open root group")
 
-    /* Broadcast other info to other procs if any */
+    /* Broadcast GCPL info to other procs if any */
     if((file->num_procs > 1) && (H5_daos_cont_gcpl_bcast(file, &gcpl_buf, &gcpl_len) < 0))
         D_GOTO_ERROR(H5E_VOL, H5E_CANTSET, NULL, "can't broadcast DAOS container handle")
 

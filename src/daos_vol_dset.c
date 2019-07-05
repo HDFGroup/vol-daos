@@ -1930,6 +1930,7 @@ H5_daos_dataset_set_extent(H5_daos_dset_t *dset, const hsize_t *size,
     daos_iov_t sg_iov;
     void *space_buf = NULL;
     size_t space_size = 0;
+    int i;
     int ret;
     herr_t ret_value = SUCCEED;
 
@@ -1940,6 +1941,11 @@ H5_daos_dataset_set_extent(H5_daos_dset_t *dset, const hsize_t *size,
     /* Get dataspace max dims */
     if(H5Sget_simple_extent_dims(dset->space_id, NULL, maxdims) <0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get current dataspace maximum dimensions")
+
+    /* Make sure max dims aren't exceeded */
+    for(i = 0; i < ndims; i++)
+        if((maxdims[i] != H5S_UNLIMITED) && (size[i] > maxdims[i]))
+            D_GOTO_ERROR(H5E_ARGS, H5E_BADRANGE, FAIL, "requested dataset dimensions exceed maximum dimensions")
 
     /* Change dataspace extent */
     if(H5Sset_extent_simple(dset->space_id, ndims, size, maxdims) < 0)

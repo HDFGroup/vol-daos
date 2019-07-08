@@ -1217,10 +1217,17 @@ error:
     return 1;
 } /* end test_map_iterate() */
 
+/*
+ * Iterating over all keys to verify that the deleted key is not in the map
+ */
+typedef struct {
+    char *map_name;
+} iterate_ud2_t;
+
 static herr_t
 map_iterate_cb2(hid_t map_id, const void *_key, void *_iterate_ud)
 {
-    iterate_ud_t *iterate_ud = (iterate_ud_t *)_iterate_ud;
+    iterate_ud2_t *iterate_ud = (iterate_ud2_t *)_iterate_ud;
     int i;
 
     /* Check parameters */
@@ -1273,10 +1280,6 @@ map_iterate_cb2(hid_t map_id, const void *_key, void *_iterate_ud)
         } /* end if */
     }
 
-    /* Check for short circuit */
-    if(++iterate_ud->ncalls == iterate_ud->stop_at)
-        return 1;
-
     return 0;
 
 error:
@@ -1291,7 +1294,7 @@ test_map_delete_key(hid_t file_id, const char *map_name, hid_t key_dtype)
 {
     hid_t map_id = -1;
     hbool_t exists;
-    iterate_ud_t iterate_ud;
+    iterate_ud2_t iterate_ud;
     hsize_t idx;
     int ret;
     int i;
@@ -1486,7 +1489,6 @@ test_map_delete_key(hid_t file_id, const char *map_name, hid_t key_dtype)
     iterate_ud.map_name = strdup(map_name);
 
     /* Iterate over all keys to make sure the deleted one no longer exists */
-    iterate_ud.stop_at = -1;
     idx = 0;
     if((ret = H5Miterate(map_id, &idx, key_dtype, map_iterate_cb2, &iterate_ud, H5P_DEFAULT)) < 0) {
         H5_FAILED(); AT();

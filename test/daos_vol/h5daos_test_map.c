@@ -1218,6 +1218,75 @@ error:
 } /* end test_map_iterate() */
 
 /*
+ * Iterating over all keys to verify that the deleted key is not in the map
+ */
+typedef struct {
+    char *map_name;
+} iterate_ud2_t;
+
+static herr_t
+map_iterate_cb2(hid_t map_id, const void *_key, void *_iterate_ud)
+{
+    iterate_ud2_t *iterate_ud = (iterate_ud2_t *)_iterate_ud;
+    int i;
+
+    /* Check parameters */
+    if(!_key) {
+        H5_FAILED(); AT();
+        printf("key is NULL\n");
+        goto error;
+    } /* end if */
+    if(!iterate_ud) {
+        H5_FAILED(); AT();
+        printf("op_data is NULL\n");
+        goto error;
+    } /* end if */
+    if(!iterate_ud->map_name) {
+        H5_FAILED(); AT();
+        printf("op_data is NULL\n");
+        goto error;
+    } /* end if */
+
+    /* Mark key visited */
+    if(!strcmp(iterate_ud->map_name, MAP_INT_INT_NAME)) {
+        if(int_int_keys[0] == *((const int *)_key)) {
+            H5_FAILED(); AT();
+            printf("deleted key still exists: %d\n", *((const int *)_key));
+            goto error;
+        } /* end if */
+    } else if(!strcmp(iterate_ud->map_name, MAP_ENUM_ENUM_NAME)) {
+        if(enum_enum_keys[0] == *((const enum_key_t *)_key)) {
+            H5_FAILED(); AT();
+            printf("deleted key still exists: %d\n", *((const enum_key_t *)_key));
+            goto error;
+        } /* end if */
+    } else if(!strcmp(iterate_ud->map_name, MAP_VL_VL_NAME)) {
+        if(vl_vl_keys[0].len == ((const hvl_t *)_key)->len && !memcmp(vl_vl_keys[0].p, ((const hvl_t *)_key)->p, vl_vl_keys[0].len)) {
+            H5_FAILED(); AT();
+            printf("deleted key still exists\n");
+            goto error;
+        } /* end if */
+    } else if(!strcmp(iterate_ud->map_name, MAP_COMP_COMP_NAME)) {
+        if(comp_comp_keys[0].a == ((const compound_t *)_key)->a && comp_comp_keys[0].b == ((const compound_t *)_key)->b) {
+            H5_FAILED(); AT();
+            printf("deleted key still exists\n");
+            goto error;
+        } /* end if */
+    } else if(!strcmp(iterate_ud->map_name, MAP_MANY_ENTRIES_NAME)) {
+        if(large_int_int_keys[i] == *((const int *)_key)) {
+            H5_FAILED(); AT();
+            printf("deleted key still exists\n");
+            goto error;
+        } /* end if */
+    }
+
+    return 0;
+
+error:
+    return -1;
+} /* end map_iterate_cb2 */
+
+/*
  * Tests checking if an entry can be removed in a map object
  */
 static int
@@ -1225,6 +1294,9 @@ test_map_delete_key(hid_t file_id, const char *map_name, hid_t key_dtype)
 {
     hid_t map_id = -1;
     hbool_t exists;
+    iterate_ud2_t iterate_ud;
+    hsize_t idx;
+    int ret;
     int i;
 
     TESTING_2("removing an entry by the key")
@@ -1410,6 +1482,47 @@ test_map_delete_key(hid_t file_id, const char *map_name, hid_t key_dtype)
         } /* end for */
     }
 
+    /* Reset iterate_ud */
+    memset(&iterate_ud, 0, sizeof(iterate_ud));
+
+    /* Copy the map name to the struct */
+    iterate_ud.map_name = strdup(map_name);
+
+    /* Iterate over all keys to make sure the deleted one no longer exists */
+    idx = 0;
+    if((ret = H5Miterate(map_id, &idx, key_dtype, map_iterate_cb2, &iterate_ud, H5P_DEFAULT)) < 0) {
+        H5_FAILED(); AT();
+        printf("failed to iterate over map\n");
+        goto error;
+    } /* end if */
+    if(ret != 0) {
+        H5_FAILED(); AT();
+        printf("incorrect return code from H5Miterate\n");
+        goto error;
+    } /* end if */
+
+    /* In test_map_nonexistent_key(), a non-existent entry is added.  So the number of entries should be
+     * still be NUMB_KEYS.  But for the case of large number of entries, test_map_nonexistent_key() is skipped. */
+    if(!strcmp(map_name, MAP_MANY_ENTRIES_NAME)) {
+        if(idx != (hsize_t)LARGE_NUMB_KEYS - 1) {
+            H5_FAILED(); AT();
+            printf("incorrect value of idx after H5Miterate: %d\n", idx);
+            goto error;
+        } /* end if */
+    } else {
+        if(idx != (hsize_t)NUMB_KEYS) {
+            H5_FAILED(); AT();
+            printf("incorrect value of idx after H5Miterate: %d\n", idx);
+            goto error;
+        } /* end if */
+    }
+
+    /* Reset iterate_cb */
+    if(iterate_ud.map_name) {
+        free(iterate_ud.map_name);
+        iterate_ud.map_name = NULL;
+    }
+
     if(H5Mclose(map_id) < 0)
         TEST_ERROR
 
@@ -1421,6 +1534,9 @@ error:
     H5E_BEGIN_TRY {
         H5Mclose(map_id);
     } H5E_END_TRY;
+
+    if(iterate_ud.map_name)
+        free(iterate_ud.map_name);
 
     return 1;
 } /* end test_map_exists() */

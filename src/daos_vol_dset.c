@@ -1309,6 +1309,10 @@ H5_daos_dataset_io_types_equal(H5_daos_dset_t *dset, daos_key_t dkey, hssize_t H
     iod.iod_recxs = recxs;
     sgl.sg_iovs = sg_iovs;
 
+    /* No selection in the file */
+    if(iod.iod_nr == 0)
+        D_GOTO_DONE(SUCCEED);
+
     if(io_type == IO_READ) {
         /* Read data from dataset */
         if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
@@ -1436,6 +1440,10 @@ H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t dkey, hssize_t
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't generate sequence lists for DAOS I/O")
     iod.iod_nr = (unsigned)tot_nseq;
     iod.iod_recxs = recxs;
+
+    /* No selection in the file */
+    if(iod.iod_nr == 0)
+        D_GOTO_DONE(SUCCEED);
 
     /* Set up constant sgl info */
     sgl.sg_nr = 1;

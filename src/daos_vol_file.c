@@ -21,6 +21,7 @@
 /* Prototypes */
 static H5_daos_req_t *H5_daos_req_create(H5_daos_file_t *file);
 
+static herr_t H5_daos_cont_get_fapl_info(hid_t fapl_id, H5_daos_fapl_t *fa_out);
 static herr_t H5_daos_cont_set_mpi_info(H5_daos_file_t *file, H5_daos_fapl_t *fa);
 static herr_t H5_daos_cont_create(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *int_req);
 static herr_t H5_daos_cont_open(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *int_req);
@@ -78,6 +79,49 @@ done:
 } /* end H5_daos_req_create() */
 
 /*-------------------------------------------------------------------------
+ * Function:    H5_daos_cont_get_fapl_info
+ *
+ * Purpose:     Retrieve needed information from the given FAPL ID.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_cont_get_fapl_info(hid_t fapl_id, H5_daos_fapl_t *fa_out)
+{
+    H5_daos_fapl_t *local_fapl_info = NULL;
+    herr_t ret_value = SUCCEED;
+
+    if(H5Pget_vol_info(fapl_id, (void **) &local_fapl_info) < 0)
+        D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, FAIL, "can't get VOL info struct")
+    if(local_fapl_info) {
+        fa_out->comm = local_fapl_info->comm;
+        fa_out->info = local_fapl_info->info;
+    }
+    else {
+        hid_t driver_id;
+
+        if((driver_id = H5Pget_driver(fapl_id)) < 0)
+            D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, FAIL, "can't determine if a MPI-based HDF5 VFD was requested for file access")
+        if(H5FD_MPIO == driver_id) {
+            if(H5Pget_fapl_mpio(fapl_id, &fa_out->comm, &fa_out->info) < 0)
+                D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, FAIL, "can't get HDF5 MPI information")
+        }
+        else {
+            fa_out->comm = MPI_COMM_SELF;
+            fa_out->info = MPI_INFO_NULL;
+        }
+    }
+
+done:
+    if(local_fapl_info)
+        H5VLfree_connector_info(H5_DAOS_g, local_fapl_info);
+
+    D_FUNC_LEAVE
+} /* end H5_daos_cont_get_fapl_info() */
+
+/*-------------------------------------------------------------------------
  * Function:    H5_daos_cont_set_mpi_info
  *
  * Purpose:     Set MPI info for file.
@@ -93,6 +137,7 @@ H5_daos_cont_set_mpi_info(H5_daos_file_t *file, H5_daos_fapl_t *fa)
     herr_t ret_value = SUCCEED;
 
     assert(file);
+    assert(fa);
 
     if(MPI_SUCCESS != MPI_Initialized(&mpi_initialized))
         D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't determine if MPI has been initialized")
@@ -280,7 +325,7 @@ H5_daos_cont_handle_bcast(H5_daos_file_t *file)
         err_occurred = TRUE;
 
     /* Bcast size */
-    if(MPI_SUCCESS != MPI_Bcast(&glob.iov_buf_len, 1, MPI_UINT64_T, 0, H5_daos_pool_comm_g))
+    if(MPI_SUCCESS != MPI_Bcast(&glob.iov_buf_len, 1, MPI_UINT64_T, 0, file->comm))
         D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't broadcast global container handle size")
 
     /* Error checking */
@@ -301,7 +346,7 @@ H5_daos_cont_handle_bcast(H5_daos_file_t *file)
         err_occurred = TRUE;
 
     /* Bcast handle */
-    if(MPI_SUCCESS != MPI_Bcast(glob.iov_buf, (int)glob.iov_buf_len, MPI_BYTE, 0, H5_daos_pool_comm_g))
+    if(MPI_SUCCESS != MPI_Bcast(glob.iov_buf, (int)glob.iov_buf_len, MPI_BYTE, 0, file->comm))
         D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't broadcast global container handle");
 
     /* Error checking */
@@ -351,7 +396,7 @@ H5_daos_cont_gcpl_bcast(H5_daos_file_t *file, void **gcpl_buf, uint64_t *gcpl_le
 
     /* Bcast size */
     buf_size = 2 * sizeof(uint64_t) + *gcpl_len;
-    if(MPI_SUCCESS != MPI_Bcast(&buf_size, 1, MPI_UINT64_T, 0, H5_daos_pool_comm_g))
+    if(MPI_SUCCESS != MPI_Bcast(&buf_size, 1, MPI_UINT64_T, 0, file->comm))
         D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't broadcast gcpl size")
 
     /* Allocate buffer */
@@ -372,7 +417,7 @@ H5_daos_cont_gcpl_bcast(H5_daos_file_t *file, void **gcpl_buf, uint64_t *gcpl_le
     }
 
     /* Bcast buffer */
-    if(MPI_SUCCESS != MPI_Bcast(buf, (int)buf_size, MPI_BYTE, 0, H5_daos_pool_comm_g))
+    if(MPI_SUCCESS != MPI_Bcast(buf, (int)buf_size, MPI_BYTE, 0, file->comm))
         D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't broadcast gcpl info buf");
 
     if(file->my_rank != 0) {
@@ -414,8 +459,8 @@ void *
 H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     hid_t fapl_id, hid_t dxpl_id, void **req)
 {
-    H5_daos_fapl_t *fa = NULL;
     H5_daos_file_t *file = NULL;
+    H5_daos_fapl_t fapl_info;
     daos_obj_id_t gmd_oid = {0, 0};
     hbool_t sched_init = FALSE;
     H5_daos_req_t *int_req = NULL;
@@ -435,10 +480,7 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     flags |= H5F_ACC_RDWR | H5F_ACC_CREAT;
 
     /* Get information from the FAPL */
-    /*
-     * XXX: DSINC - may no longer need to use this VOL info.
-     */
-    if(H5Pget_vol_info(fapl_id, (void **) &fa) < 0)
+    if(H5_daos_cont_get_fapl_info(fapl_id, &fapl_info) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTGET, NULL, "can't get DAOS info struct")
 
     /* allocate the file object that is returned to the user */
@@ -470,7 +512,7 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     sched_init = TRUE;
 
     /* Set MPI container info */
-    if(H5_daos_cont_set_mpi_info(file, fa) < 0)
+    if(H5_daos_cont_set_mpi_info(file, &fapl_info) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTSET, NULL, "can't set MPI container info")
 
     /* Hash file name to create uuid */
@@ -532,9 +574,6 @@ done:
             D_DONE_ERROR(H5E_FILE, H5E_CANTCLOSEFILE, NULL, "can't close file")
     } /* end if */
 
-    if(fa)
-        H5VLfree_connector_info(H5_DAOS_g, fa);
-
     D_FUNC_LEAVE_API
 } /* end H5_daos_file_create() */
 
@@ -556,8 +595,8 @@ void *
 H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     hid_t dxpl_id, void **req)
 {
-    H5_daos_fapl_t *fa = NULL;
     H5_daos_file_t *file = NULL;
+    H5_daos_fapl_t fapl_info;
 #ifdef DV_HAVE_SNAP_OPEN_ID
     H5_daos_snap_id_t snap_id;
 #endif
@@ -572,11 +611,8 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "file name is NULL")
 
     /* Get information from the FAPL */
-    /*
-     * XXX: DSINC - may no longer need to use this VOL info.
-     */
-    if(H5Pget_vol_info(fapl_id, (void **) &fa) < 0)
-        D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, NULL, "can't get DAOS info struct")
+    if(H5_daos_cont_get_fapl_info(fapl_id, &fapl_info) < 0)
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTGET, NULL, "can't get DAOS info struct")
 
 #ifdef DV_HAVE_SNAP_OPEN_ID
     if(H5Pget(fapl_id, H5_DAOS_SNAP_OPEN_ID, &snap_id) < 0)
@@ -613,7 +649,7 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create task scheduler: %s", H5_daos_err_to_string(ret))
 
     /* Set MPI container info */
-    if(H5_daos_cont_set_mpi_info(file, fa) < 0)
+    if(H5_daos_cont_set_mpi_info(file, &fapl_info) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTSET, NULL, "can't set MPI container info")
 
     /* Hash file name to create uuid */
@@ -668,9 +704,6 @@ done:
         if(file && H5_daos_file_close_helper(file, dxpl_id, req) < 0)
             D_DONE_ERROR(H5E_FILE, H5E_CANTCLOSEFILE, NULL, "can't close file")
     } /* end if */
-
-    if(fa)
-        H5VLfree_connector_info(H5_DAOS_g, fa);
 
     /* Clean up buffers */
     gcpl_buf = DV_free(gcpl_buf);

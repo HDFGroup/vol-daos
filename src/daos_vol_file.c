@@ -93,6 +93,10 @@ H5_daos_cont_get_fapl_info(hid_t fapl_id, H5_daos_fapl_t *fa_out)
     H5_daos_fapl_t *local_fapl_info = NULL;
     herr_t ret_value = SUCCEED;
 
+    /*
+     * First, check to see if any MPI info was set through the use of
+     * a H5Pset_fapl_daos() call.
+     */
     if(H5Pget_vol_info(fapl_id, (void **) &local_fapl_info) < 0)
         D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, FAIL, "can't get VOL info struct")
     if(local_fapl_info) {
@@ -102,6 +106,10 @@ H5_daos_cont_get_fapl_info(hid_t fapl_id, H5_daos_fapl_t *fa_out)
     else {
         hid_t driver_id;
 
+        /*
+         * If no info was set using H5Pset_fapl_daos(), see if the application
+         * set any MPI info by using HDF5's H5Pset_fapl_mpio().
+         */
         if((driver_id = H5Pget_driver(fapl_id)) < 0)
             D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, FAIL, "can't determine if a MPI-based HDF5 VFD was requested for file access")
         if(H5FD_MPIO == driver_id) {
@@ -109,6 +117,10 @@ H5_daos_cont_get_fapl_info(hid_t fapl_id, H5_daos_fapl_t *fa_out)
                 D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, FAIL, "can't get HDF5 MPI information")
         }
         else {
+            /*
+             * If no MPI info was set (as in the case of passing a default FAPL),
+             * simply use MPI_COMM_SELF as the communicator.
+             */
             fa_out->comm = MPI_COMM_SELF;
             fa_out->info = MPI_INFO_NULL;
         }

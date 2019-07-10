@@ -182,7 +182,7 @@ typedef struct H5_daos_file_t {
     MPI_Info info;
     int my_rank;
     int num_procs;
-    hbool_t collective;
+    hbool_t is_collective_md_read;
     hid_t vol_id;
     void *vol_info;
 } H5_daos_file_t;

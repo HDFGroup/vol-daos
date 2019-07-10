@@ -518,9 +518,11 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     /* Hash file name to create uuid */
     H5_daos_hash128(name, &file->uuid);
 
-    /* Determine if we requested collective object ops for the file */
-    if(H5Pget_all_coll_metadata_ops(fapl_id, &file->collective) < 0)
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTGET, NULL, "can't get collective access property")
+    /* Determine if we requested collective metadata reads for the file */
+    file->is_collective_md_read = FALSE;
+    if(H5P_FILE_ACCESS_DEFAULT != fapl_id)
+        if(H5Pget_all_coll_metadata_ops(fapl_id, &file->is_collective_md_read) < 0)
+            D_GOTO_ERROR(H5E_FILE, H5E_CANTGET, NULL, "can't get collective metadata reads property")
 
     /* Generate oid for global metadata object */
     daos_obj_generate_id(&gmd_oid, DAOS_OF_DKEY_HASHED | DAOS_OF_AKEY_HASHED, DAOS_OC_TINY_RW);
@@ -661,9 +663,11 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     /* Generate root group oid */
     H5_daos_oid_encode(&root_grp_oid, (uint64_t)1, H5I_GROUP);
 
-    /* Determine if we requested collective object ops for the file */
-    if(H5Pget_all_coll_metadata_ops(fapl_id, &file->collective) < 0)
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTGET, NULL, "can't get collective access property")
+    /* Determine if we requested collective metadata reads for the file */
+    file->is_collective_md_read = FALSE;
+    if(H5P_FILE_ACCESS_DEFAULT != fapl_id)
+        if(H5Pget_all_coll_metadata_ops(fapl_id, &file->is_collective_md_read) < 0)
+            D_GOTO_ERROR(H5E_FILE, H5E_CANTGET, NULL, "can't get collective metadata reads property")
 
     /* Open container on rank 0 */
     if((file->my_rank == 0) && H5_daos_cont_open(file, flags, NULL) < 0)
@@ -1160,6 +1164,15 @@ H5_daos_file_close(void *_file, hid_t dxpl_id, void **req)
     if(0 != (ret = daos_epoch_flush(file->coh, epoch, NULL /*state*/, NULL /*event*/)))
         D_DONE_ERROR(H5E_FILE, H5E_CANTFLUSH, FAIL, "can't flush epoch: %s", H5_daos_err_to_string(ret))
 #endif
+
+    /*
+     * Ensure that all other processes are done with the file before
+     * closing the container handle. This is to prevent invalid handle
+     * issues due to rank 0 closing the container handle before other
+     * ranks are done using it.
+     */
+    if(MPI_SUCCESS != MPI_Barrier(file->comm))
+        D_GOTO_ERROR(H5E_FILE, H5E_MPI, FAIL, "MPI_Barrier failed during file close")
 
     /* Close the file */
     if(H5_daos_file_close_helper(file, dxpl_id, req) < 0)

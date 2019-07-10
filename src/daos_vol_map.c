@@ -66,7 +66,7 @@ H5_daos_map_create(void *_item,
         D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, NULL, "no write intent on file")
 
     /* Check for collective access, if not already set by the file */
-    collective = item->file->collective;
+    collective = item->file->is_collective_md_read;
     if(!collective)
         if(H5Pget_all_coll_metadata_ops(mapl_id, &collective) < 0)
             D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, NULL, "can't get collective access property")
@@ -370,7 +370,7 @@ H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "map parent object is NULL")
 
     /* Check for collective access, if not already set by the file */
-    collective = item->file->collective;
+    collective = item->file->is_collective_md_read;
     if(!collective)
         if(H5Pget_all_coll_metadata_ops(mapl_id, &collective) < 0)
             D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, NULL, "can't get collective access property")

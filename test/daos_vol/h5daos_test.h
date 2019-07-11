@@ -54,7 +54,6 @@
 /*
  * Global variables
  */
-#define MAINPROCESS (!mpi_rank)
 
 extern uuid_t pool_uuid;
 extern int    mpi_rank;

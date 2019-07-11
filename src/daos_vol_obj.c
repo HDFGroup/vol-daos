@@ -81,8 +81,12 @@ H5_daos_object_open(void *_item, const H5VL_loc_params_t *loc_params,
         assert(H5VL_OBJECT_BY_NAME == loc_params->type);
 
         /* Check for collective access, if not already set by the file */
-        if(!collective && (H5P_LINK_ACCESS_DEFAULT != loc_params->loc_data.loc_by_name.lapl_id))
-            if(H5Pget_all_coll_metadata_ops(loc_params->loc_data.loc_by_name.lapl_id, &collective) < 0)
+        /*
+         * DSINC - This is not correct, but in the H5Acreate_by_name case HDF5 does not set
+         * loc_params->loc_data.loc_by_name.lapl_id correctly so this will fail.
+         */
+        if(!collective /* && (H5P_LINK_ACCESS_DEFAULT != loc_params->loc_data.loc_by_name.lapl_id) */)
+            if(H5Pget_all_coll_metadata_ops(/*loc_params->loc_data.loc_by_name.lapl_id*/ H5P_LINK_ACCESS_DEFAULT, &collective) < 0)
                 D_GOTO_ERROR(H5E_OHDR, H5E_CANTGET, NULL, "can't get collective metadata reads property")
 
         /* Check if we're actually opening the group or just receiving the group

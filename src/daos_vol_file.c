@@ -498,6 +498,9 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     /* allocate the file object that is returned to the user */
     if(NULL == (file = H5FL_CALLOC(H5_daos_file_t)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, NULL, "can't allocate DAOS file struct")
+    file->item.open_req = NULL;
+    file->glob_md_oh = DAOS_HDL_INVAL;
+    file->root_grp = NULL;
     file->fcpl_id = FAIL;
     file->fapl_id = FAIL;
     file->vol_id = FAIL;
@@ -640,6 +643,9 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     /* Allocate the file object that is returned to the user */
     if(NULL == (file = H5FL_CALLOC(H5_daos_file_t)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, NULL, "can't allocate DAOS file struct")
+    file->item.open_req = NULL;
+    file->glob_md_oh = DAOS_HDL_INVAL;
+    file->root_grp = NULL;
     file->fcpl_id = FAIL;
     file->fapl_id = FAIL;
     file->vol_id = FAIL;

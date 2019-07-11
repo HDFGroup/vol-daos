@@ -1183,7 +1183,7 @@ H5_daos_file_close(void *_file, hid_t dxpl_id, void **req)
      * issues due to rank 0 closing the container handle before other
      * ranks are done using it.
      */
-    if(MPI_SUCCESS != MPI_Barrier(file->comm))
+    if(file->num_procs > 1 && (MPI_SUCCESS != MPI_Barrier(file->comm)))
         D_GOTO_ERROR(H5E_FILE, H5E_MPI, FAIL, "MPI_Barrier failed during file close")
 
     /* Close the file */

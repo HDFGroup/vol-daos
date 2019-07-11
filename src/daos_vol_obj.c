@@ -61,7 +61,11 @@ H5_daos_object_open(void *_item, const H5VL_loc_params_t *loc_params,
     if(H5VL_OBJECT_BY_IDX == loc_params->type)
         D_GOTO_ERROR(H5E_OHDR, H5E_UNSUPPORTED, NULL, "H5Oopen_by_idx is unsupported")
 
-    collective = item->file->collective;
+    /*
+     * Like HDF5, metadata reads are independent by default. If the application has specifically
+     * requested collective metadata reads, they will be enabled here.
+     */
+    collective = item->file->is_collective_md_read;
 
     /* Check loc_params type */
     if(H5VL_OBJECT_BY_ADDR == loc_params->type) {
@@ -77,10 +81,9 @@ H5_daos_object_open(void *_item, const H5VL_loc_params_t *loc_params,
         assert(H5VL_OBJECT_BY_NAME == loc_params->type);
 
         /* Check for collective access, if not already set by the file */
-        if(!collective)
-            if(H5Pget_all_coll_metadata_ops((H5P_DEFAULT != loc_params->loc_data.loc_by_name.lapl_id) ? loc_params->loc_data.loc_by_name.lapl_id : H5P_LINK_ACCESS_DEFAULT,
-                    &collective) < 0)
-                D_GOTO_ERROR(H5E_OHDR, H5E_CANTGET, NULL, "can't get collective access property")
+        if(!collective && (H5P_LINK_ACCESS_DEFAULT != loc_params->loc_data.loc_by_name.lapl_id))
+            if(H5Pget_all_coll_metadata_ops(loc_params->loc_data.loc_by_name.lapl_id, &collective) < 0)
+                D_GOTO_ERROR(H5E_OHDR, H5E_CANTGET, NULL, "can't get collective metadata reads property")
 
         /* Check if we're actually opening the group or just receiving the group
          * info from the leader */

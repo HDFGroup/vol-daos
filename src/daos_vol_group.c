@@ -356,11 +356,11 @@ H5_daos_group_create(void *_item,
     if(!(item->file->flags & H5F_ACC_RDWR))
         D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, NULL, "no write intent on file")
  
-    /* Check for collective access, if not already set by the file */
-    collective = item->file->collective;
-    if(!collective)
-        if(H5Pget_all_coll_metadata_ops(gapl_id, &collective) < 0)
-            D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, NULL, "can't get collective access property")
+    /*
+     * Like HDF5, all metadata writes are collective by default. Once independent
+     * metadata writes are implemented, we will need to check for this property.
+     */
+    collective = TRUE;
 
     /* Start H5 operation */
     if(NULL == (int_req = (H5_daos_req_t *)DV_malloc(sizeof(H5_daos_req_t))))
@@ -637,11 +637,14 @@ H5_daos_group_open(void *_item, const H5VL_loc_params_t *loc_params,
     if(!loc_params)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "location parameters object is NULL")
  
-    /* Check for collective access, if not already set by the file */
-    collective = item->file->collective;
-    if(!collective)
+    /*
+     * Like HDF5, metadata reads are independent by default. If the application has specifically
+     * requested collective metadata reads, they will be enabled here.
+     */
+    collective = item->file->is_collective_md_read;
+    if(!collective && (H5P_GROUP_ACCESS_DEFAULT != gapl_id))
         if(H5Pget_all_coll_metadata_ops(gapl_id, &collective) < 0)
-            D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, NULL, "can't get collective access property")
+            D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, NULL, "can't get collective metadata reads property")
 
     /* Check if we're actually opening the group or just receiving the group
      * info from the leader */

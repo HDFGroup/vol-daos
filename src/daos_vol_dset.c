@@ -1895,6 +1895,9 @@ H5_daos_dataset_specific(void *_item, H5VL_dataset_specific_t specific_type,
             {
                 const hsize_t *size = va_arg(arguments, const hsize_t *);
 
+                if(!size)
+                    D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "size parameter is NULL")
+
                 /* Call main routine */
                 if(H5_daos_dataset_set_extent(dset, size, dxpl_id, req) < 0)
                     D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "failed to set dataset extent")
@@ -1935,15 +1938,24 @@ H5_daos_dataset_set_extent(H5_daos_dset_t *dset, const hsize_t *size,
 {
     hsize_t maxdims[H5S_MAX_RANK];
     int ndims;
-    daos_key_t dkey;
-    daos_iod_t iod;
-    daos_sg_list_t sgl;
-    daos_iov_t sg_iov;
     void *space_buf = NULL;
-    size_t space_size = 0;
+    hbool_t collective;
     int i;
     int ret;
     herr_t ret_value = SUCCEED;
+
+    assert(dset);
+    assert(size);
+
+    /* Check for write access */
+    if(!(dset->obj.item.file->flags & H5F_ACC_RDWR))
+        D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, FAIL, "no write intent on file")
+
+    /*
+     * Like HDF5, all metadata writes are collective by default. Once independent
+     * metadata writes are implemented, we will need to check for this property.
+     */
+    collective = TRUE;
 
     /* Get dataspace rank */
     if((ndims = H5Sget_simple_extent_ndims(dset->space_id)) < 0)
@@ -1962,35 +1974,44 @@ H5_daos_dataset_set_extent(H5_daos_dset_t *dset, const hsize_t *size,
     if(H5Sset_extent_simple(dset->space_id, ndims, size, maxdims) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTSET, FAIL, "can't set dataspace dimensions")
 
-    /* Encode dataspace */
-    if(H5Sencode2(dset->space_id, NULL, &space_size, dset->obj.item.file->fapl_id) < 0)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "can't determine serialized length of dataspace")
-    if(NULL == (space_buf = DV_malloc(space_size)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for serialized dataspace")
-    if(H5Sencode2(dset->space_id, space_buf, &space_size, dset->obj.item.file->fapl_id) < 0)
-        D_GOTO_ERROR(H5E_DATASET, H5E_CANTENCODE, FAIL, "can't serialize dataspace")
+    /* Write new dataspace to dataset in file if this process should */
+    if(!collective || (dset->obj.item.file->my_rank == 0)) {
+        daos_key_t dkey;
+        daos_iod_t iod;
+        daos_sg_list_t sgl;
+        daos_iov_t sg_iov;
+        size_t space_size = 0;
 
-    /* Set up operation to write dataspace to dataset */
-    /* Set up dkey */
-    daos_iov_set(&dkey, (void *)H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
+        /* Encode dataspace */
+        if(H5Sencode2(dset->space_id, NULL, &space_size, dset->obj.item.file->fapl_id) < 0)
+            D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "can't determine serialized length of dataspace")
+        if(NULL == (space_buf = DV_malloc(space_size)))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for serialized dataspace")
+        if(H5Sencode2(dset->space_id, space_buf, &space_size, dset->obj.item.file->fapl_id) < 0)
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTENCODE, FAIL, "can't serialize dataspace")
 
-    /* Set up iod */
-    memset(&iod, 0, sizeof(iod));
-    daos_iov_set(&iod.iod_name, (void *)H5_daos_space_key_g, H5_daos_space_key_size_g);
-    daos_csum_set(&iod.iod_kcsum, NULL, 0);
-    iod.iod_nr = 1u;
-    iod.iod_size = (uint64_t)space_size;
-    iod.iod_type = DAOS_IOD_SINGLE;
+        /* Set up operation to write dataspace to dataset */
+        /* Set up dkey */
+        daos_iov_set(&dkey, (void *)H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
 
-    /* Set up sgl */
-    daos_iov_set(&sg_iov, space_buf, (daos_size_t)space_size);
-    sgl.sg_nr = 1;
-    sgl.sg_nr_out = 0;
-    sgl.sg_iovs = &sg_iov;
+        /* Set up iod */
+        memset(&iod, 0, sizeof(iod));
+        daos_iov_set(&iod.iod_name, (void *)H5_daos_space_key_g, H5_daos_space_key_size_g);
+        daos_csum_set(&iod.iod_kcsum, NULL, 0);
+        iod.iod_nr = 1u;
+        iod.iod_size = (uint64_t)space_size;
+        iod.iod_type = DAOS_IOD_SINGLE;
 
-    /* Write updated dataspace to dataset */
-    if(0 != (ret = daos_obj_update(dset->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't write metadata to dataset: %s", H5_daos_err_to_string(ret))
+        /* Set up sgl */
+        daos_iov_set(&sg_iov, space_buf, (daos_size_t)space_size);
+        sgl.sg_nr = 1;
+        sgl.sg_nr_out = 0;
+        sgl.sg_iovs = &sg_iov;
+
+        /* Write updated dataspace to dataset */
+        if(0 != (ret = daos_obj_update(dset->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*event*/)))
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't write metadata to dataset: %s", H5_daos_err_to_string(ret))
+    } /* end if */
 
 done:
     /* Free memory */

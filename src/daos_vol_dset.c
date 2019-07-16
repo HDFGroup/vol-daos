@@ -1893,10 +1893,17 @@ H5_daos_dataset_specific(void *_item, H5VL_dataset_specific_t specific_type,
     switch (specific_type) {
         case H5VL_DATASET_SET_EXTENT:
             {
+                H5D_layout_t storage_layout;
                 const hsize_t *size = va_arg(arguments, const hsize_t *);
 
                 if(!size)
                     D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "size parameter is NULL")
+
+                if (H5D_LAYOUT_ERROR == (storage_layout = H5Pget_layout(dset->dcpl_id)))
+                    D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "failed to retrieve dataset storage layout")
+
+                if (H5D_CHUNKED != storage_layout)
+                    D_GOTO_ERROR(H5E_DATASET, H5E_BADVALUE, FAIL, "dataset storage layout is not chunked")
 
                 /* Call main routine */
                 if(H5_daos_dataset_set_extent(dset, size, dxpl_id, req) < 0)

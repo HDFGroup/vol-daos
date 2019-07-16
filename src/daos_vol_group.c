@@ -61,6 +61,16 @@ H5_daos_group_traverse(H5_daos_item_t *item, const char *path,
         (*obj_name)++;
     } /* end if */
     else {
+        /* Check for the leading './' case */
+        if ((*obj_name)[0] == '.' && (*obj_name)[1] == '/') {
+            /*
+             * Advance past the leading '.' and '/' characters.
+             * Note that the case of multiple leading '.' characters
+             * is not currently handled.
+             */
+            (*obj_name)++; (*obj_name)++;
+        }
+
         if(item->type == H5I_GROUP)
             grp = (H5_daos_group_t *)item;
         else if(item->type == H5I_FILE)
@@ -68,7 +78,7 @@ H5_daos_group_traverse(H5_daos_item_t *item, const char *path,
         else
             D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "item not a file or group")
     } /* end else */
-        
+
     grp->obj.item.rc++;
 
     /* Search for '/' */

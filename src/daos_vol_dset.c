@@ -93,6 +93,8 @@ static herr_t H5_daos_dataset_set_extent(H5_daos_dset_t *dset,
 static herr_t H5_daos_get_selected_chunk_info(hid_t dcpl_id,
     hid_t file_space_id, hid_t mem_space_id,
     H5_daos_select_chunk_info_t **chunk_info, size_t *chunk_info_len);
+static hbool_t H5_daos_is_partial_edge_chunk(unsigned dims_rank,
+    const hsize_t *dset_dims, const hsize_t *chunk_dims, const hsize_t *chunk_coords);
 
 
 /*-------------------------------------------------------------------------
@@ -2107,7 +2109,8 @@ H5_daos_get_selected_chunk_info(hid_t dcpl_id,
     H5_daos_select_chunk_info_t *_chunk_info = NULL;
     hssize_t  num_sel_points;
     hssize_t  chunk_file_space_adjust[H5O_LAYOUT_NDIMS];
-    hsize_t   chunk_dims[H5S_MAX_RANK];
+    hsize_t   file_space_dims[H5S_MAX_RANK];
+    hsize_t   chunk_dims[H5S_MAX_RANK], partial_chunk_dims[H5S_MAX_RANK] = {0};
     hsize_t   file_sel_start[H5S_MAX_RANK], file_sel_end[H5S_MAX_RANK];
     hsize_t   mem_sel_start[H5S_MAX_RANK], mem_sel_end[H5S_MAX_RANK];
     hsize_t   start_coords[H5O_LAYOUT_NDIMS], end_coords[H5O_LAYOUT_NDIMS];
@@ -2143,6 +2146,9 @@ H5_daos_get_selected_chunk_info(hid_t dcpl_id,
     if ((mspace_ndims = H5Sget_simple_extent_ndims(mem_space_id)) < 0)
         D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, FAIL, "can't get memory space dimensionality");
     assert(mspace_ndims == fspace_ndims);
+
+    if (H5Sget_simple_extent_dims(file_space_id, file_space_dims, NULL) < 0)
+        D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, FAIL, "can't get file dataspace dimensions")
 
     /* Get the bounding box for the current selection in the file and memory spaces */
     if (H5Sget_select_bounds(file_space_id, file_sel_start, file_sel_end) < 0)
@@ -2198,6 +2204,7 @@ H5_daos_get_selected_chunk_info(hid_t dcpl_id,
         if (TRUE == intersect) {
             hssize_t chunk_mem_space_adjust[H5O_LAYOUT_NDIMS];
             hssize_t chunk_sel_npoints;
+            hbool_t  is_partial_edge_chunk = FALSE;
 
             /* Re-allocate selected chunk info buffer if necessary */
             while (i > (info_buf_alloced / sizeof(*_chunk_info)) - 1) {
@@ -2223,8 +2230,27 @@ H5_daos_get_selected_chunk_info(hid_t dcpl_id,
             } /* end if */
 #endif
 
+            /* Determine if the current chunk is a partial edge chunk */
+            if ((is_partial_edge_chunk = H5_daos_is_partial_edge_chunk((unsigned) fspace_ndims,
+                    file_space_dims, chunk_dims, start_coords))) {
+                /* If this is a partial edge chunk, setup the partial edge chunk dimensions.
+                 * These will be used to adjust the selection within the edge chunk so that
+                 * it falls within the dataset's dataspace boundaries.
+                 */
+                for (j = 0; j < (size_t) fspace_ndims; j++) {
+                    if (start_coords[j] + chunk_dims[j] > file_space_dims[j]) {
+                        size_t n_elems_beyond_edge = start_coords[j] + chunk_dims[j] - file_space_dims[j];
+
+                        partial_chunk_dims[j] = chunk_dims[j] - n_elems_beyond_edge;
+                    }
+                    else
+                        partial_chunk_dims[j] = chunk_dims[j];
+                }
+            }
+
             /* "AND" temporary chunk and current chunk */
-            if (H5Sselect_hyperslab(tmp_chunk_fspace_id, H5S_SELECT_AND, start_coords, NULL, chunk_dims, NULL) < 0)
+            if (H5Sselect_hyperslab(tmp_chunk_fspace_id, H5S_SELECT_AND, start_coords, NULL,
+                    is_partial_edge_chunk ? partial_chunk_dims : chunk_dims, NULL) < 0)
                 D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTSELECT, FAIL, "can't create temporary chunk selection");
 
             /* Resize chunk's dataspace dimensions to size of chunk */
@@ -2345,3 +2371,36 @@ done:
 
     D_FUNC_LEAVE
 } /* end H5_daos_get_selected_chunk_info() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_is_partial_edge_chunk
+ *
+ * Purpose:     Determines whether a given chunk is a partial edge chunk,
+ *              based on the chunk's coordinates in relation to the given
+ *              dataset dimensions.
+ *
+ * Return:      Success: TRUE/FALSE (can't fail)
+ *
+ * Programmer:  Jordan Henderson
+ *              July, 2019
+ *
+ *-------------------------------------------------------------------------
+ */
+static hbool_t
+H5_daos_is_partial_edge_chunk(unsigned dims_rank, const hsize_t *dset_dims,
+    const hsize_t *chunk_dims, const hsize_t *chunk_coords)
+{
+    unsigned i;
+
+    assert(dims_rank > 0);
+    assert(dset_dims);
+    assert(chunk_dims);
+    assert(chunk_coords);
+
+    for (i = 0; i < dims_rank; i++)
+        if (chunk_coords[i] + chunk_dims[i] > dset_dims[i])
+            return TRUE;
+
+    return FALSE;
+} /* end H5_daos_is_partial_edge_chunk() */

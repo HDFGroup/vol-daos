@@ -45,6 +45,11 @@ else()
   message(FATAL_ERROR "Could not find CART, please check CART_INCLUDE_DIR.")
 endif()
 
+option(DAOS_USE_NEW_API "Required to be turned ON with DAOS v0.6" OFF)
+if(DAOS_USE_NEW_API)
+  set(H5VL_DAOS_NEW_API 1)
+endif()
+
 # HDF5
 option(HDF5_VOL_DAOS_USE_SYSTEM_HDF5 "Use system-installed HDF5." ON)
 if(HDF5_VOL_DAOS_USE_SYSTEM_HDF5)

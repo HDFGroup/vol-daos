@@ -1155,8 +1155,8 @@ H5_daos_oid_generate(daos_obj_id_t *oid, uint64_t addr, H5I_type_t obj_type)
     oid->lo = addr;
 
     /* Generate oid */
-    daos_obj_generate_id(oid, DAOS_OF_DKEY_HASHED | DAOS_OF_AKEY_HASHED,
-            obj_type == H5I_DATASET ? DAOS_OC_LARGE_RW : DAOS_OC_TINY_RW);
+    H5_daos_obj_generate_id(oid,
+        obj_type == H5I_DATASET ? DAOS_OC_LARGE_RW : DAOS_OC_TINY_RW);
 
     return;
 } /* end H5_daos_oid_generate() */

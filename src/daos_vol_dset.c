@@ -88,8 +88,8 @@ static herr_t H5_daos_dataset_io_types_equal(H5_daos_dset_t *dset, daos_key_t dk
 static herr_t H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t dkey,
     hssize_t num_elem, hid_t mem_type_id, hid_t mem_space_id, hid_t file_space_id,
     hid_t dxpl_id, dset_io_type io_type, void *buf);
-static herr_t H5_daos_dataset_refresh(H5_daos_dset_t *dset,
-    hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req);
+static herr_t H5_daos_dataset_refresh(H5_daos_dset_t *dset, hid_t dxpl_id,
+    void **req);
 static herr_t H5_daos_dataset_set_extent(H5_daos_dset_t *dset,
     const hsize_t *size, hid_t dxpl_id, void **req);
 static herr_t H5_daos_get_selected_chunk_info(hid_t dcpl_id,

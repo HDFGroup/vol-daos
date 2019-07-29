@@ -88,6 +88,8 @@ static herr_t H5_daos_dataset_io_types_equal(H5_daos_dset_t *dset, daos_key_t dk
 static herr_t H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t dkey,
     hssize_t num_elem, hid_t mem_type_id, hid_t mem_space_id, hid_t file_space_id,
     hid_t dxpl_id, dset_io_type io_type, void *buf);
+static herr_t H5_daos_dataset_refresh(H5_daos_dset_t *dset, hid_t dxpl_id,
+    void **req);
 static herr_t H5_daos_dataset_set_extent(H5_daos_dset_t *dset,
     const hsize_t *size, hid_t dxpl_id, void **req);
 static herr_t H5_daos_get_selected_chunk_info(hid_t dcpl_id,
@@ -1915,9 +1917,17 @@ H5_daos_dataset_specific(void *_item, H5VL_dataset_specific_t specific_type,
             } /* end block */
 
         case H5VL_DATASET_FLUSH:
-        case H5VL_DATASET_REFRESH:
-            /* No-ops */
+            /* No-op */
             break;
+
+        case H5VL_DATASET_REFRESH:
+            {
+                /* Call main routine */
+                if(H5_daos_dataset_refresh(dset, dxpl_id, req) < 0)
+                    D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "failed to refresh dataset")
+
+                break;
+            } /* end block */
 
         default:
             D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported dataset specific operation")
@@ -1926,6 +1936,85 @@ H5_daos_dataset_specific(void *_item, H5VL_dataset_specific_t specific_type,
 done:
     D_FUNC_LEAVE_API
 } /* end H5_daos_dataset_specific() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_dataset_refresh
+ *
+ * Purpose:     Refreshes a dataset (reads the dataspace)
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ * Programmer:  Neil Fortner
+ *              July, 2019
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_dataset_refresh(H5_daos_dset_t *dset, hid_t H5VL_DAOS_UNUSED dxpl_id,
+    void H5VL_DAOS_UNUSED **req)
+{
+    daos_key_t dkey;
+    daos_iod_t iod;
+    daos_sg_list_t sgl;
+    daos_iov_t sg_iov;
+    uint8_t space_buf_static[H5_DAOS_DINFO_BUF_SIZE];
+    uint8_t *space_buf_dyn = NULL;
+    uint8_t *space_buf = space_buf_static;
+    int ret;
+    herr_t ret_value = SUCCEED;
+
+    assert(dset);
+
+    /* Set up operation to read dataspace size from dataset */
+    /* Set up dkey */
+    daos_iov_set(&dkey, (void *)H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
+
+    /* Set up iod */
+    memset(&iod, 0, sizeof(iod));
+    daos_iov_set(&iod.iod_name, (void *)H5_daos_space_key_g, H5_daos_space_key_size_g);
+    daos_csum_set(&iod.iod_kcsum, NULL, 0);
+    iod.iod_nr = 1u;
+    iod.iod_size = DAOS_REC_ANY;
+    iod.iod_type = DAOS_IOD_SINGLE;
+
+    /* Read dataspace size from dataset */
+    if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, NULL,
+                  NULL /*maps*/, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTDECODE, FAIL, "can't read dataspace size from dataset: %s", H5_daos_err_to_string(ret))
+
+    /* Check for metadata not found */
+    if(iod.iod_size == (uint64_t)0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_NOTFOUND, FAIL, "dataspace not found")
+
+    /* Allocate dataspace buffer if necessary */
+    if(iod.iod_size > sizeof(space_buf_static)) {
+        if(NULL == (space_buf_dyn = (uint8_t *)DV_malloc(iod.iod_size)))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate dataspace buffer")
+        space_buf = space_buf_dyn;
+    } /* end if */
+
+    /* Set up sgl */
+    daos_iov_set(&sg_iov, space_buf, iod.iod_size);
+    sgl.sg_nr = 1;
+    sgl.sg_nr_out = 0;
+    sgl.sg_iovs = &sg_iov;
+
+    /* Read dataspace from dataset */
+    if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTDECODE, FAIL, "can't read metadata from dataset: %s", H5_daos_err_to_string(ret))
+
+    /* Decode dataspace */
+    if((dset->space_id = H5Sdecode(space_buf)) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_CANTDECODE, FAIL, "can't deserialize dataspace")
+
+done:
+    /* Free memory */
+    space_buf_dyn = DV_free(space_buf_dyn);
+
+    D_FUNC_LEAVE
+} /* end H5_daos_dataset_refresh() */
 
 
 /*-------------------------------------------------------------------------

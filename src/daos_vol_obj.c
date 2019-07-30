@@ -18,6 +18,9 @@
 #include "util/daos_vol_err.h"  /* DAOS connector error handling           */
 #include "util/daos_vol_mem.h"  /* DAOS connector memory management        */
 
+static herr_t H5_daos_object_get_info(H5_daos_obj_t *target_obj, unsigned fields, H5O_info_t *obj_info_out);
+static hssize_t H5_daos_object_get_num_attrs(H5_daos_obj_t *target_obj);
+
 
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_object_open
@@ -103,10 +106,15 @@ H5_daos_object_open(void *_item, const H5VL_loc_params_t *loc_params,
             if(target_name[0] == '\0'
                     || (target_name[0] == '.' && target_name[1] == '\0'))
                 oid = target_grp->obj.oid;
-            else
+            else {
+                htri_t link_resolved;
+
                 /* Follow link to object */
-                if(H5_daos_link_follow(target_grp, target_name, strlen(target_name), dxpl_id, req, &oid) < 0)
-                    D_GOTO_ERROR(H5E_OHDR, H5E_CANTINIT, NULL, "can't follow link to group")
+                if((link_resolved = H5_daos_link_follow(target_grp, target_name, strlen(target_name), dxpl_id, req, &oid)) < 0)
+                    D_GOTO_ERROR(H5E_OHDR, H5E_TRAVERSE, NULL, "can't follow link to group")
+                if(!link_resolved)
+                    D_GOTO_ERROR(H5E_OHDR, H5E_TRAVERSE, NULL, "link to group did not resolve")
+            }
 
             /* Broadcast group info if there are other processes that need it */
             if(collective && (item->file->num_procs > 1)) {
@@ -305,7 +313,8 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
     H5VL_object_specific_t specific_type, hid_t H5VL_DAOS_UNUSED dxpl_id,
     void H5VL_DAOS_UNUSED **req, va_list H5VL_DAOS_UNUSED arguments)
 {
-//    H5_daos_item_t *item = (H5_daos_item_t *)_item;
+    H5_daos_item_t *item = (H5_daos_item_t *)_item;
+    H5_daos_group_t *target_grp = NULL;
     herr_t          ret_value = SUCCEED;
 
     if(!_item)
@@ -315,16 +324,106 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
 
     switch (specific_type) {
         case H5VL_OBJECT_CHANGE_REF_COUNT:
+            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported object specific operation")
+
+        /* H5Oexists_by_name */
         case H5VL_OBJECT_EXISTS:
+        {
+            H5VL_loc_params_t sub_loc_params;
+            daos_obj_id_t oid;
+            htri_t *ret = va_arg(arguments, htri_t *);
+            const char *obj_name;
+
+            /* Open group containing the link in question */
+            sub_loc_params.obj_type = item->type;
+            sub_loc_params.type = H5VL_OBJECT_BY_SELF;
+            if(NULL == (target_grp = (H5_daos_group_t *)H5_daos_group_traverse(item, loc_params->loc_data.loc_by_name.name,
+                    dxpl_id, req, &obj_name, NULL, NULL)))
+                D_GOTO_ERROR(H5E_SYM, H5E_CANTOPENOBJ, FAIL, "can't open group")
+
+            /* Check if the link resolves */
+            if((*ret = H5_daos_link_follow(target_grp, obj_name, strlen(obj_name), dxpl_id, req, &oid)) < 0)
+                D_GOTO_ERROR(H5E_OHDR, H5E_TRAVERSE, FAIL, "can't follow link to object")
+
+            break;
+        } /* H5VL_OBJECT_EXISTS */
+
         case H5VL_OBJECT_VISIT:
         case H5VL_REF_CREATE:
+            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported object specific operation")
+
         case H5VL_OBJECT_FLUSH:
+        {
+            switch(item->type) {
+                case H5I_FILE:
+                    if(H5_daos_file_flush((H5_daos_file_t *)item) < 0)
+                        D_GOTO_ERROR(H5E_FILE, H5E_WRITEERROR, FAIL, "can't flush file")
+                    break;
+                case H5I_GROUP:
+                    if(H5_daos_group_flush((H5_daos_group_t *)item) < 0)
+                        D_GOTO_ERROR(H5E_SYM, H5E_WRITEERROR, FAIL, "can't flush group")
+                    break;
+                case H5I_DATASET:
+                    if(H5_daos_dataset_flush((H5_daos_dset_t *)item) < 0)
+                        D_GOTO_ERROR(H5E_DATASET, H5E_WRITEERROR, FAIL, "can't flush dataset")
+                    break;
+                case H5I_DATATYPE:
+                    if(H5_daos_datatype_flush((H5_daos_dtype_t *)item) < 0)
+                        D_GOTO_ERROR(H5E_DATATYPE, H5E_WRITEERROR, FAIL, "can't flush datatype")
+                    break;
+                default:
+                    D_GOTO_ERROR(H5E_VOL, H5E_BADTYPE, FAIL, "invalid object type")
+            } /* end switch */
+
+            break;
+        } /* H5VL_OBJECT_FLUSH */
+
         case H5VL_OBJECT_REFRESH:
+        {
+            switch(item->type) {
+                case H5I_FILE:
+                    if(H5_daos_group_refresh(item->file->root_grp, dxpl_id, req) < 0)
+                        D_GOTO_ERROR(H5E_FILE, H5E_READERROR, FAIL, "failed to refresh file")
+                    break;
+                case H5I_GROUP:
+                    if(H5_daos_group_refresh((H5_daos_group_t *)item, dxpl_id, req) < 0)
+                        D_GOTO_ERROR(H5E_SYM, H5E_READERROR, FAIL, "failed to refresh group")
+                    break;
+                case H5I_DATASET:
+                    if(H5_daos_dataset_refresh((H5_daos_dset_t *)item, dxpl_id, req) < 0)
+                        D_GOTO_ERROR(H5E_DATASET, H5E_READERROR, FAIL, "failed to refresh dataset")
+                    break;
+                case H5I_DATATYPE:
+                    if(H5_daos_datatype_refresh((H5_daos_dtype_t *)item, dxpl_id, req) < 0)
+                        D_GOTO_ERROR(H5E_DATATYPE, H5E_READERROR, FAIL, "failed to refresh datatype")
+                    break;
+                default:
+                    D_GOTO_ERROR(H5E_VOL, H5E_BADTYPE, FAIL, "invalid object type")
+            } /* end switch */
+
+            break;
+        } /* H5VL_OBJECT_REFRESH */
+
         default:
             D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported object specific operation")
     } /* end switch */
 
 done:
+#if 0
+    if(target_grp_id >= 0) {
+        if(H5Idec_ref(target_grp_id) < 0)
+            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group ID")
+        target_grp_id = -1;
+        target_grp = NULL;
+    } /* end if */
+    else
+#endif
+    if(target_grp) {
+        if(H5_daos_group_close(target_grp, dxpl_id, req) < 0)
+            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group")
+        target_grp = NULL;
+    } /* end else */
+
     D_FUNC_LEAVE_API
 } /* end H5_daos_object_specific() */
 
@@ -546,9 +645,6 @@ done:
  * Return:      Success:        The number of attributes attached to the
  *                              given object.
  *              Failure:        -1
- *
- * Programmer:
- *
  *
  *-------------------------------------------------------------------------
  */

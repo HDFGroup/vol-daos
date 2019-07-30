@@ -29,7 +29,6 @@ static herr_t H5_daos_cont_root_grp_open(H5_daos_file_t *file, daos_obj_id_t roo
 static herr_t H5_daos_cont_handle_bcast(H5_daos_file_t *file);
 static herr_t H5_daos_cont_gcpl_bcast(H5_daos_file_t *file, void **gcpl_buf, uint64_t *gcpl_len);
 
-static herr_t H5_daos_file_flush(H5_daos_file_t *file);
 static herr_t H5_daos_file_close_helper(H5_daos_file_t *file,
     hid_t dxpl_id, void **req);
 static herr_t H5_daos_get_obj_count_callback(hid_t id, void *udata);
@@ -903,66 +902,6 @@ done:
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_file_flush
- *
- * Purpose:     Flushes a DAOS file.  Currently a no-op, may create a
- *              snapshot in the future.
- *
- * Return:      Success:        0
- *              Failure:        -1
- *
- * Programmer:  Neil Fortner
- *              January, 2017
- *
- *-------------------------------------------------------------------------
- */
-static herr_t
-H5_daos_file_flush(H5_daos_file_t *file)
-{
-#if 0
-    int ret;
-#endif
-    herr_t ret_value = SUCCEED;    /* Return value */
-
-    assert(file);
-
-    /* Nothing to do if no write intent */
-    if(!(file->flags & H5F_ACC_RDWR))
-        D_GOTO_DONE(SUCCEED)
-
-    /* Progress scheduler until empty? DSINC */
-
-#if 0
-    /* Collectively determine if anyone requested a snapshot of the epoch */
-    if(MPI_SUCCESS != MPI_Reduce(file->my_rank == 0 ? MPI_IN_PLACE : &file->snap_epoch, &file->snap_epoch, 1, MPI_INT, MPI_LOR, 0, file->comm))
-        D_GOTO_ERROR(H5E_FILE, H5E_MPI, FAIL, "failed to determine whether to take snapshot (MPI_Reduce)")
-
-    /* Barrier on all ranks so we don't commit before all ranks are
-     * finished writing. H5Fflush must be called collectively. */
-    if(MPI_SUCCESS != MPI_Barrier(file->comm))
-        D_GOTO_ERROR(H5E_FILE, H5E_MPI, FAIL, "MPI_Barrier failed")
-
-    /* Commit the epoch */
-    if(file->my_rank == 0) {
-        /* Save a snapshot of this epoch if requested */
-        /* Disabled until snapshots are supported in DAOS DSINC */
-
-        if(file->snap_epoch)
-            if(0 != (ret = daos_snap_create(file->coh, file->epoch, NULL /*event*/)))
-                D_GOTO_ERROR(H5E_FILE, H5E_WRITEERROR, FAIL, "can't create snapshot: %s", H5_daos_err_to_string(ret))
-
-        /* Commit the epoch.  This should slip previous epochs automatically. */
-        if(0 != (ret = daos_epoch_commit(file->coh, file->epoch, NULL /*state*/, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "failed to commit epoch: %s", H5_daos_err_to_string(ret))
-    } /* end if */
-#endif
-
-done:
-    D_FUNC_LEAVE
-} /* end H5_daos_file_flush() */
-
-
-/*-------------------------------------------------------------------------
  * Function:    H5_daos_file_specific
  *
  * Purpose:     Perform an operation
@@ -1199,6 +1138,66 @@ H5_daos_file_close(void *_file, hid_t dxpl_id, void **req)
 done:
     D_FUNC_LEAVE_API
 } /* end H5_daos_file_close() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_file_flush
+ *
+ * Purpose:     Flushes a DAOS file.  Currently a no-op, may create a
+ *              snapshot in the future.
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ * Programmer:  Neil Fortner
+ *              January, 2017
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_file_flush(H5_daos_file_t *file)
+{
+#if 0
+    int ret;
+#endif
+    herr_t ret_value = SUCCEED;    /* Return value */
+
+    assert(file);
+
+    /* Nothing to do if no write intent */
+    if(!(file->flags & H5F_ACC_RDWR))
+        D_GOTO_DONE(SUCCEED)
+
+    /* Progress scheduler until empty? DSINC */
+
+#if 0
+    /* Collectively determine if anyone requested a snapshot of the epoch */
+    if(MPI_SUCCESS != MPI_Reduce(file->my_rank == 0 ? MPI_IN_PLACE : &file->snap_epoch, &file->snap_epoch, 1, MPI_INT, MPI_LOR, 0, file->comm))
+        D_GOTO_ERROR(H5E_FILE, H5E_MPI, FAIL, "failed to determine whether to take snapshot (MPI_Reduce)")
+
+    /* Barrier on all ranks so we don't commit before all ranks are
+     * finished writing. H5Fflush must be called collectively. */
+    if(MPI_SUCCESS != MPI_Barrier(file->comm))
+        D_GOTO_ERROR(H5E_FILE, H5E_MPI, FAIL, "MPI_Barrier failed")
+
+    /* Commit the epoch */
+    if(file->my_rank == 0) {
+        /* Save a snapshot of this epoch if requested */
+        /* Disabled until snapshots are supported in DAOS DSINC */
+
+        if(file->snap_epoch)
+            if(0 != (ret = daos_snap_create(file->coh, file->epoch, NULL /*event*/)))
+                D_GOTO_ERROR(H5E_FILE, H5E_WRITEERROR, FAIL, "can't create snapshot: %s", H5_daos_err_to_string(ret))
+
+        /* Commit the epoch.  This should slip previous epochs automatically. */
+        if(0 != (ret = daos_epoch_commit(file->coh, file->epoch, NULL /*state*/, NULL /*event*/)))
+            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "failed to commit epoch: %s", H5_daos_err_to_string(ret))
+    } /* end if */
+#endif
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_file_flush() */
 
 
 /*-------------------------------------------------------------------------

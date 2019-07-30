@@ -19,7 +19,6 @@
 #include "util/daos_vol_mem.h"  /* DAOS connector memory management        */
 
 static herr_t H5_daos_get_group_info(H5_daos_group_t *grp, H5G_info_t *group_info);
-static herr_t H5_daos_group_flush(H5_daos_group_t *grp);
 
 
 /*-------------------------------------------------------------------------
@@ -86,14 +85,18 @@ H5_daos_group_traverse(H5_daos_item_t *item, const char *path,
 
     /* Traverse path */
     while(next_obj) {
+        htri_t link_resolved;
+
         /* Free gcpl_buf_out */
         if(gcpl_buf_out)
             *gcpl_buf_out = DV_free(*gcpl_buf_out);
 
         /* Follow link to next group in path */
         assert(next_obj > *obj_name);
-        if(H5_daos_link_follow(grp, *obj_name, (size_t)(next_obj - *obj_name), dxpl_id, req, &oid) < 0)
-            D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't follow link to group")
+        if((link_resolved = H5_daos_link_follow(grp, *obj_name, (size_t)(next_obj - *obj_name), dxpl_id, req, &oid)) < 0)
+            D_GOTO_ERROR(H5E_SYM, H5E_TRAVERSE, NULL, "can't follow link to group")
+        if(!link_resolved)
+            D_GOTO_ERROR(H5E_SYM, H5E_TRAVERSE, NULL, "link to group did not resolve")
 
         /* Close previous group */
         if(H5_daos_group_close(grp, dxpl_id, req) < 0)
@@ -102,7 +105,7 @@ H5_daos_group_traverse(H5_daos_item_t *item, const char *path,
 
         /* Open group */
         if(NULL == (grp = (H5_daos_group_t *)H5_daos_group_open_helper(item->file, oid, H5P_GROUP_ACCESS_DEFAULT, dxpl_id, NULL, gcpl_buf_out, gcpl_len_out)))
-            D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't open group")
+            D_GOTO_ERROR(H5E_SYM, H5E_CANTOPENOBJ, NULL, "can't open group")
 
         /* Advance to next path element */
         *obj_name = next_obj + 1;
@@ -702,12 +705,16 @@ H5_daos_group_open(void *_item, const H5VL_loc_params_t *loc_params,
                     D_GOTO_ERROR(H5E_SYM, H5E_CANTENCODE, NULL, "can't serialize gcpl")
             } /* end if */
             else {
+                htri_t link_resolved;
+
                 gcpl_buf = (uint8_t *)DV_free(gcpl_buf);
                 gcpl_len = 0;
 
                 /* Follow link to group */
-                if(H5_daos_link_follow(target_grp, target_name, strlen(target_name), dxpl_id, req, &oid) < 0)
-                    D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't follow link to group")
+                if((link_resolved = H5_daos_link_follow(target_grp, target_name, strlen(target_name), dxpl_id, req, &oid)) < 0)
+                    D_GOTO_ERROR(H5E_SYM, H5E_TRAVERSE, NULL, "can't follow link to group")
+                if(!link_resolved)
+                    D_GOTO_ERROR(H5E_SYM, H5E_TRAVERSE, NULL, "link to group did not resolve")
 
                 /* Open group */
                 if(NULL == (grp = (H5_daos_group_t *)H5_daos_group_open_helper(item->file, oid, gapl_id, dxpl_id, NULL, (collective && (item->file->num_procs > 1)) ? (void **)&gcpl_buf : NULL, &gcpl_len)))
@@ -888,10 +895,13 @@ H5_daos_group_get(void *_item, H5VL_group_get_t get_type, hid_t dxpl_id,
                     if(target_group_name[0] != '\0'
                             && (target_group_name[0] != '.' || target_group_name[1] != '\0')) {
                         daos_obj_id_t oid;
+                        htri_t link_resolved;
 
                         /* Follow link to group */
-                        if(H5_daos_link_follow(target_group, target_group_name, strlen(target_group_name), dxpl_id, req, &oid) < 0)
-                            D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't follow link to group")
+                        if((link_resolved = H5_daos_link_follow(target_group, target_group_name, strlen(target_group_name), dxpl_id, req, &oid)) < 0)
+                            D_GOTO_ERROR(H5E_SYM, H5E_TRAVERSE, FAIL, "can't follow link to group")
+                        if(!link_resolved)
+                            D_GOTO_ERROR(H5E_SYM, H5E_TRAVERSE, FAIL, "link to group did not resolve")
 
                         /* "Close" the group in order to decrement the group's reference count.
                          * Note that this will not actually close the group, but is needed due
@@ -1042,7 +1052,7 @@ done:
  *
  *-------------------------------------------------------------------------
  */
-static herr_t
+herr_t
 H5_daos_group_flush(H5_daos_group_t *grp)
 {
     herr_t ret_value = SUCCEED;    /* Return value */
@@ -1058,6 +1068,34 @@ H5_daos_group_flush(H5_daos_group_t *grp)
 done:
     D_FUNC_LEAVE
 } /* end H5_daos_group_flush() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_group_refresh
+ *
+ * Purpose:     Refreshes a DAOS group (currently a no-op)
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ * Programmer:  Jordan Henderson
+ *              July, 2019
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_group_refresh(H5_daos_group_t *grp, hid_t H5VL_DAOS_UNUSED dxpl_id,
+    void H5VL_DAOS_UNUSED **req)
+{
+    herr_t ret_value = SUCCEED;
+
+    assert(grp);
+
+    D_GOTO_DONE(SUCCEED)
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_group_refresh() */
 
 
 /*-------------------------------------------------------------------------

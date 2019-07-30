@@ -88,8 +88,6 @@ static herr_t H5_daos_dataset_io_types_equal(H5_daos_dset_t *dset, daos_key_t dk
 static herr_t H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t dkey,
     hssize_t num_elem, hid_t mem_type_id, hid_t mem_space_id, hid_t file_space_id,
     hid_t dxpl_id, dset_io_type io_type, void *buf);
-static herr_t H5_daos_dataset_refresh(H5_daos_dset_t *dset, hid_t dxpl_id,
-    void **req);
 static herr_t H5_daos_dataset_set_extent(H5_daos_dset_t *dset,
     const hsize_t *size, hid_t dxpl_id, void **req);
 static herr_t H5_daos_get_selected_chunk_info(hid_t dcpl_id,
@@ -443,6 +441,8 @@ H5_daos_dataset_open(void *_item,
             H5_daos_oid_generate(&dset->obj.oid, (uint64_t)loc_params->loc_data.loc_by_addr.addr, H5I_DATASET);
         } /* end if */
         else {
+            htri_t link_resolved;
+
             /* Open using name parameter */
             if(H5VL_OBJECT_BY_SELF != loc_params->type)
                 D_GOTO_ERROR(H5E_ARGS, H5E_UNSUPPORTED, NULL, "unsupported dataset open location parameters type")
@@ -454,8 +454,10 @@ H5_daos_dataset_open(void *_item,
                 D_GOTO_ERROR(H5E_DATASET, H5E_BADITER, NULL, "can't traverse path")
 
             /* Follow link to dataset */
-            if(H5_daos_link_follow(target_grp, target_name, strlen(target_name), dxpl_id, req, &dset->obj.oid) < 0)
-                D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't follow link to dataset")
+            if((link_resolved = H5_daos_link_follow(target_grp, target_name, strlen(target_name), dxpl_id, req, &dset->obj.oid)) < 0)
+                D_GOTO_ERROR(H5E_DATASET, H5E_TRAVERSE, NULL, "can't follow link to dataset")
+            if(!link_resolved)
+                D_GOTO_ERROR(H5E_DATASET, H5E_TRAVERSE, NULL, "link to dataset did not resolve")
         } /* end else */
 
         /* Open dataset */
@@ -1917,8 +1919,12 @@ H5_daos_dataset_specific(void *_item, H5VL_dataset_specific_t specific_type,
             } /* end block */
 
         case H5VL_DATASET_FLUSH:
-            /* No-op */
-            break;
+            {
+                if(H5_daos_dataset_flush(dset) < 0)
+                    D_GOTO_ERROR(H5E_DATASET, H5E_WRITEERROR, FAIL, "can't flush dataset")
+
+                break;
+            } /* end block */
 
         case H5VL_DATASET_REFRESH:
             {
@@ -1939,9 +1945,88 @@ done:
 
 
 /*-------------------------------------------------------------------------
+ * Function:    H5_daos_dataset_close
+ *
+ * Purpose:     Closes a DAOS HDF5 dataset.
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ * Programmer:  Neil Fortner
+ *              November, 2016
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_dataset_close(void *_dset, hid_t H5VL_DAOS_UNUSED dxpl_id,
+    void H5VL_DAOS_UNUSED **req)
+{
+    H5_daos_dset_t *dset = (H5_daos_dset_t *)_dset;
+    int ret;
+    herr_t ret_value = SUCCEED;
+
+    if(!_dset)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "dataset object is NULL")
+
+    if(--dset->obj.item.rc == 0) {
+        /* Free dataset data structures */
+        if(dset->obj.item.open_req)
+            H5_daos_req_free_int(dset->obj.item.open_req);
+        if(!daos_handle_is_inval(dset->obj.obj_oh))
+            if(0 != (ret = daos_obj_close(dset->obj.obj_oh, NULL /*event*/)))
+                D_DONE_ERROR(H5E_DATASET, H5E_CANTCLOSEOBJ, FAIL, "can't close dataset DAOS object: %s", H5_daos_err_to_string(ret))
+        if(dset->type_id != FAIL && H5Idec_ref(dset->type_id) < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close dataset's datatype")
+        if(dset->space_id != FAIL && H5Idec_ref(dset->space_id) < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close dataset's dataspace")
+        if(dset->dcpl_id != FAIL && H5Idec_ref(dset->dcpl_id) < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close dcpl")
+        if(dset->dapl_id != FAIL && H5Idec_ref(dset->dapl_id) < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close dapl")
+        dset = H5FL_FREE(H5_daos_dset_t, dset);
+    } /* end if */
+
+done:
+    D_FUNC_LEAVE_API
+} /* end H5_daos_dataset_close() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_dataset_flush
+ *
+ * Purpose:     Flushes a DAOS dataset.  Currently a no-op, may create a
+ *              snapshot in the future.
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ * Programmer:  Jordan Henderson
+ *              July, 2019
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_dataset_flush(H5_daos_dset_t *dset)
+{
+    herr_t ret_value = SUCCEED;
+
+    assert(dset);
+
+    /* Nothing to do if no write intent */
+    if(!(dset->obj.item.file->flags & H5F_ACC_RDWR))
+        D_GOTO_DONE(SUCCEED);
+
+    /* Progress scheduler until empty? DSINC */
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_dataset_flush() */
+
+
+/*-------------------------------------------------------------------------
  * Function:    H5_daos_dataset_refresh
  *
- * Purpose:     Refreshes a dataset (reads the dataspace)
+ * Purpose:     Refreshes a DAOS dataset (reads the dataspace)
  *
  * Return:      Success:        0
  *              Failure:        -1
@@ -1951,7 +2036,7 @@ done:
  *
  *-------------------------------------------------------------------------
  */
-static herr_t
+herr_t
 H5_daos_dataset_refresh(H5_daos_dset_t *dset, hid_t H5VL_DAOS_UNUSED dxpl_id,
     void H5VL_DAOS_UNUSED **req)
 {
@@ -2117,53 +2202,6 @@ done:
 
     D_FUNC_LEAVE
 } /* end H5_daos_dataset_set_extent() */
-
-
-/*-------------------------------------------------------------------------
- * Function:    H5_daos_dataset_close
- *
- * Purpose:     Closes a DAOS HDF5 dataset.
- *
- * Return:      Success:        0
- *              Failure:        -1
- *
- * Programmer:  Neil Fortner
- *              November, 2016
- *
- *-------------------------------------------------------------------------
- */
-herr_t
-H5_daos_dataset_close(void *_dset, hid_t H5VL_DAOS_UNUSED dxpl_id,
-    void H5VL_DAOS_UNUSED **req)
-{
-    H5_daos_dset_t *dset = (H5_daos_dset_t *)_dset;
-    int ret;
-    herr_t ret_value = SUCCEED;
-
-    if(!_dset)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "dataset object is NULL")
-
-    if(--dset->obj.item.rc == 0) {
-        /* Free dataset data structures */
-        if(dset->obj.item.open_req)
-            H5_daos_req_free_int(dset->obj.item.open_req);
-        if(!daos_handle_is_inval(dset->obj.obj_oh))
-            if(0 != (ret = daos_obj_close(dset->obj.obj_oh, NULL /*event*/)))
-                D_DONE_ERROR(H5E_DATASET, H5E_CANTCLOSEOBJ, FAIL, "can't close dataset DAOS object: %s", H5_daos_err_to_string(ret))
-        if(dset->type_id != FAIL && H5Idec_ref(dset->type_id) < 0)
-            D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close dataset's datatype")
-        if(dset->space_id != FAIL && H5Idec_ref(dset->space_id) < 0)
-            D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close dataset's dataspace")
-        if(dset->dcpl_id != FAIL && H5Idec_ref(dset->dcpl_id) < 0)
-            D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close dcpl")
-        if(dset->dapl_id != FAIL && H5Idec_ref(dset->dapl_id) < 0)
-            D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close dapl")
-        dset = H5FL_FREE(H5_daos_dset_t, dset);
-    } /* end if */
-
-done:
-    D_FUNC_LEAVE_API
-} /* end H5_daos_dataset_close() */
 
 
 /*-------------------------------------------------------------------------

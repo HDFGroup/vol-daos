@@ -657,7 +657,9 @@ done:
  * Purpose:     Follows the link in grp identified with name, and returns
  *              in oid the oid of the target object.
  *
- * Return:      Success:        SUCCEED 
+ * Return:      Success:        TRUE (for hard links and soft/external
+ *                              links which resolve) or FALSE (for soft
+ *                              links which do not resolve)
  *              Failure:        FAIL
  *
  * Programmer:  Neil Fortner
@@ -665,14 +667,14 @@ done:
  *
  *-------------------------------------------------------------------------
  */
-herr_t
+htri_t
 H5_daos_link_follow(H5_daos_group_t *grp, const char *name,
     size_t name_len, hid_t dxpl_id, void **req, daos_obj_id_t *oid)
 {
     H5_daos_link_val_t link_val;
     hbool_t link_val_alloc = FALSE;
     H5_daos_group_t *target_grp = NULL;
-    herr_t ret_value = SUCCEED;
+    htri_t ret_value = TRUE;
 
     assert(grp);
     assert(name);
@@ -705,9 +707,9 @@ H5_daos_link_follow(H5_daos_group_t *grp, const char *name,
                         || (target_name[0] == '.' && name_len == (size_t)1))
                     *oid = target_grp->obj.oid;
                 else
-                    /* Follow the last element in the path */
+                    /* Attempt to follow the last element in the path */
                     if(H5_daos_link_follow(target_grp, target_name, strlen(target_name), dxpl_id, req, oid) < 0)
-                        D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't follow link")
+                        D_GOTO_DONE(FALSE)
 
                 break;
             } /* end block */

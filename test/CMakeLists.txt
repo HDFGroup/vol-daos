@@ -21,28 +21,31 @@ find_program(DAOS_SERVER_EXECUTABLE
 )
 mark_as_advanced(DAOS_SERVER_EXECUTABLE)
 
+# Default paths
+set(DAOS_LOG_DIR ${CMAKE_CURRENT_BINARY_DIR})
+set(DAOS_SERVER_SOCKET_DIR ${CMAKE_CURRENT_BINARY_DIR})
+
 # Preflags
-set(DAOS_SERVER_URI_FILEPATH ${CMAKE_CURRENT_BINARY_DIR}/daos_uri.txt)
 set(DAOS_SERVER_PREFLAGS
-  "--enable-recovery --report-uri ${DAOS_SERVER_URI_FILEPATH}"
+  "--enable-recovery"
 )
 
 # Postflags
-set(DAOS_SERVER_NUMSTREAMS "1" CACHE STRING
-  "Number of ABT streams used by DAOS server for testing."
+set(DAOS_SERVER_URI_DIR
+  ${CMAKE_CURRENT_BINARY_DIR}
 )
-mark_as_advanced(DAOS_SERVER_NUMSTREAMS)
-
 set(DAOS_SERVER_CONFIG_FILEPATH
   ${CMAKE_CURRENT_BINARY_DIR}/scripts/daos_server.yml
 )
 set(DAOS_SERVER_POSTFLAGS
-  "-c ${DAOS_SERVER_NUMSTREAMS} -d ${CMAKE_CURRENT_BINARY_DIR} -o ${DAOS_SERVER_CONFIG_FILEPATH}"
+  "-i"
+  "-a ${DAOS_SERVER_URI_DIR}"
+  "-o ${DAOS_SERVER_CONFIG_FILEPATH}"
 )
 
 # Transport
-set(DAOS_SERVER_TRANSPORT "ofi+tcp" CACHE STRING
-  "Transport used by DAOS server for testing."
+set(DAOS_SERVER_TRANSPORT "ofi+sockets" CACHE STRING
+  "Transport used by DAOS server for testing (sm, ofi+sockets)."
 )
 mark_as_advanced(DAOS_SERVER_TRANSPORT)
 
@@ -52,10 +55,38 @@ set(DAOS_SERVER_IFACE "lo" CACHE STRING
 )
 mark_as_advanced(DAOS_SERVER_IFACE)
 
+# SCM size
+set(DAOS_SERVER_SCM_SIZE "8" CACHE STRING
+  "Size of RAM available for storage in GB."
+)
+mark_as_advanced(DAOS_SERVER_SCM_SIZE)
+
 # Init config
 configure_file(
   ${CMAKE_CURRENT_SOURCE_DIR}/scripts/daos_server.yml.in
   ${CMAKE_CURRENT_BINARY_DIR}/scripts/daos_server.yml
+)
+
+#------------------------------------------------------------------------------
+# DAOS agent config
+#------------------------------------------------------------------------------
+# Exec
+find_program(DAOS_AGENT_EXECUTABLE
+  NAMES daos_agent
+  PATH_SUFFIXES bin sbin
+  HINTS ${DAOS_HINT_DIRS}
+  DOC "DAOS agent executable."
+)
+mark_as_advanced(DAOS_AGENT_EXECUTABLE)
+
+# Default paths
+set(DAOS_AGENT_DIR ${CMAKE_CURRENT_BINARY_DIR})
+set(DAOS_AGENT_SOCKET_DIR ${CMAKE_CURRENT_BINARY_DIR})
+
+# Agent config
+configure_file(
+  ${CMAKE_CURRENT_SOURCE_DIR}/scripts/daos_agent.sh.in
+  ${CMAKE_CURRENT_BINARY_DIR}/scripts/daos_agent.sh
 )
 
 #------------------------------------------------------------------------------
@@ -65,17 +96,17 @@ configure_file(
 set(HDF5_VOL_TEST_PLUGIN_PATH ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
 set(HDF5_VOL_TEST_PLUGIN_NAME "daos")
 
-set(DAOS_CLIENT_ENV_VARS
-  "D_LOG_FILE=${CMAKE_CURRENT_BINARY_DIR}/daos_client.log"
-  "CRT_PHY_ADDR_STR=${DAOS_SERVER_TRANSPORT}"
-  "OFI_INTERFACE=${DAOS_SERVER_IFACE}"
-  "HDF5_PLUGIN_PATH=${HDF5_VOL_TEST_PLUGIN_PATH}"
-  "HDF5_VOL_CONNECTOR=${HDF5_VOL_TEST_PLUGIN_NAME}"
-)
-
 # Preflags
 set(DAOS_CLIENT_PREFLAGS
-  "--ompi-server file:${DAOS_SERVER_URI_FILEPATH}"
+  "-x D_LOG_FILE=${CMAKE_CURRENT_BINARY_DIR}/daos_client.log"
+  "-x D_LOG_MASK=ERR"
+  "-x CRT_PHY_ADDR_STR=${DAOS_SERVER_TRANSPORT}"
+  "-x OFI_INTERFACE=${DAOS_SERVER_IFACE}"
+  "-x DAOS_SINGLETON_CLI=1"
+  "-x CRT_ATTACH_INFO_PATH=${DAOS_SERVER_URI_DIR}"
+  "-x DAOS_AGENT_DRPC_DIR=${DAOS_AGENT_DIR}"
+  "-x HDF5_PLUGIN_PATH=${HDF5_VOL_TEST_PLUGIN_PATH}"
+  "-x HDF5_VOL_CONNECTOR=${HDF5_VOL_TEST_PLUGIN_NAME}"
 )
 
 #------------------------------------------------------------------------------
@@ -87,14 +118,10 @@ set(MPIEXEC_EXECUTABLE "${ORTERUN_EXECUTABLE}" CACHE FILEPATH "Executable for ru
 set(MPIEXEC_SERVER_PREFLAGS "${DAOS_SERVER_PREFLAGS}")
 set(MPIEXEC_SERVER_POSTFLAGS "${DAOS_SERVER_POSTFLAGS}")
 set(MPIEXEC_PREFLAGS "${DAOS_CLIENT_PREFLAGS}")
-set(MPIEXEC_MAX_NUMPROCS "1" CACHE STRING
-  "Maximum number of processors available to run MPI applications."
-  FORCE
-)
 
 set(HDF5_VOL_TEST_SERVER ${DAOS_SERVER_EXECUTABLE})
 # Do not forget to include env command
-set(H5VL_TEST_ENV_VARS "env ${DAOS_CLIENT_ENV_VARS}")
+# set(H5VL_TEST_ENV_VARS "env ${DAOS_CLIENT_ENV_VARS}")
 
 # Test will start running after following line is printed
 set(H5VL_TEST_SERVER_START_MSG "DAOS I/O server")

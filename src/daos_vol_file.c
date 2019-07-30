@@ -540,7 +540,7 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
             D_GOTO_ERROR(H5E_FILE, H5E_CANTGET, NULL, "can't get collective metadata reads property")
 
     /* Generate oid for global metadata object */
-    daos_obj_generate_id(&gmd_oid, DAOS_OF_DKEY_HASHED | DAOS_OF_AKEY_HASHED, DAOS_OC_TINY_RW);
+    H5_daos_obj_generate_id(&gmd_oid, DAOS_OC_TINY_RW);
 
     /* Start H5 operation */
     if(NULL == (int_req = H5_daos_req_create(file)))
@@ -676,7 +676,7 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     H5_daos_hash128(name, &file->uuid);
 
     /* Generate oid for global metadata object */
-    daos_obj_generate_id(&gmd_oid, DAOS_OF_DKEY_HASHED | DAOS_OF_AKEY_HASHED, DAOS_OC_TINY_RW);
+    H5_daos_obj_generate_id(&gmd_oid, DAOS_OC_TINY_RW);
 
     /* Generate root group oid */
     H5_daos_oid_encode(&root_grp_oid, (uint64_t)1, H5I_GROUP);

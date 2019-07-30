@@ -18,12 +18,33 @@
 /* Public headers needed by this file */
 #include "daos_vol_public.h"
 
+/* CART headers */
+#include <gurt/types.h>
+#include <gurt/common.h>
+#include <cart/api.h>
+
+/* DAOS headers */
 #include <daos.h>
 #include <daos_task.h>
 #include <daos/tse.h>
-#include <cart/api.h>
 
+/* System headers */
 #include <assert.h>
+
+/* For DAOS compatibility */
+#ifdef H5VL_DAOS_NEW_API
+typedef d_iov_t daos_iov_t;
+typedef d_sg_list_t daos_sg_list_t;
+# define DAOS_OC_TINY_RW  OC_S1
+# define DAOS_OC_LARGE_RW OC_SX
+# define daos_rank_list_free d_rank_list_free
+# define daos_iov_set d_iov_set
+# define H5_daos_obj_generate_id(oid, cid) \
+    daos_obj_generate_id(oid, 0, cid, 0)
+#else
+# define H5_daos_obj_generate_id(oid, cid) \
+    daos_obj_generate_id(oid, DAOS_OF_DKEY_HASHED | DAOS_OF_AKEY_HASHED, cid)
+#endif
 
 /*****************/
 /* Public Macros */

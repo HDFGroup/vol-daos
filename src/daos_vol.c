@@ -1149,14 +1149,25 @@ done:
 void
 H5_daos_oid_generate(daos_obj_id_t *oid, uint64_t addr, H5I_type_t obj_type)
 {
+    daos_oclass_id_t object_class;
+    daos_ofeat_t object_feats;
+
     assert(oid);
 
     /* Encode type and address */
     oid->lo = addr;
 
+    /* Set the object feature flags */
+    if(H5I_GROUP == obj_type)
+        object_feats = DAOS_OF_DKEY_LEXICAL | DAOS_OF_AKEY_HASHED;
+    else
+        object_feats = DAOS_OF_DKEY_HASHED | DAOS_OF_AKEY_LEXICAL;
+
+    /* Set the object class ID */
+    object_class = (obj_type == H5I_DATASET) ? DAOS_OC_LARGE_RW : DAOS_OC_TINY_RW;
+
     /* Generate oid */
-    daos_obj_generate_id(oid, DAOS_OF_DKEY_HASHED | DAOS_OF_AKEY_HASHED,
-            obj_type == H5I_DATASET ? DAOS_OC_LARGE_RW : DAOS_OC_TINY_RW);
+    daos_obj_generate_id(oid, object_feats, object_class);
 
     return;
 } /* end H5_daos_oid_generate() */

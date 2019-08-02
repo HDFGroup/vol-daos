@@ -310,17 +310,40 @@ done:
  */
 herr_t
 H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
-    H5VL_object_specific_t specific_type, hid_t H5VL_DAOS_UNUSED dxpl_id,
-    void H5VL_DAOS_UNUSED **req, va_list H5VL_DAOS_UNUSED arguments)
+    H5VL_object_specific_t specific_type, hid_t dxpl_id, void **req,
+    va_list arguments)
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
+    H5_daos_obj_t *target_obj = NULL;
     H5_daos_group_t *target_grp = NULL;
-    herr_t          ret_value = SUCCEED;
+    hid_t target_obj_id = H5I_INVALID_HID;
+    herr_t ret_value = SUCCEED;
 
     if(!_item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL")
     if(!loc_params)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "location parameters object is NULL")
+
+    /* Determine target object */
+    if(loc_params->type == H5VL_OBJECT_BY_SELF) {
+        /* Use item as target object, or the root group if item is a file */
+        if(item->type == H5I_FILE)
+            target_obj = (H5_daos_obj_t *)item->file->root_grp;
+        else
+            target_obj = (H5_daos_obj_t *)item;
+        target_obj->item.rc++;
+    } /* end if */
+    else if(loc_params->type == H5VL_OBJECT_BY_NAME) {
+        /*
+         * Open target_obj. If H5Oexists_by_name is being called, skip doing
+         * this since the path may point to a soft link that doesn't resolve.
+         */
+        if(H5VL_OBJECT_EXISTS != specific_type)
+            if(NULL == (target_obj = (H5_daos_obj_t *)H5_daos_object_open(item, loc_params, NULL, dxpl_id, req)))
+                D_GOTO_ERROR(H5E_OHDR, H5E_CANTOPENOBJ, FAIL, "can't open target object")
+    } /* end else */
+    else
+        D_GOTO_ERROR(H5E_OHDR, H5E_UNSUPPORTED, FAIL, "unsupported object operation location parameters type")
 
     switch (specific_type) {
         case H5VL_OBJECT_CHANGE_REF_COUNT:
@@ -329,14 +352,11 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
         /* H5Oexists_by_name */
         case H5VL_OBJECT_EXISTS:
         {
-            H5VL_loc_params_t sub_loc_params;
             daos_obj_id_t oid;
-            htri_t *ret = va_arg(arguments, htri_t *);
             const char *obj_name;
+            htri_t *ret = va_arg(arguments, htri_t *);
 
             /* Open group containing the link in question */
-            sub_loc_params.obj_type = item->type;
-            sub_loc_params.type = H5VL_OBJECT_BY_SELF;
             if(NULL == (target_grp = (H5_daos_group_t *)H5_daos_group_traverse(item, loc_params->loc_data.loc_by_name.name,
                     dxpl_id, req, &obj_name, NULL, NULL)))
                 D_GOTO_ERROR(H5E_SYM, H5E_CANTOPENOBJ, FAIL, "can't open group")
@@ -348,10 +368,38 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
             break;
         } /* H5VL_OBJECT_EXISTS */
 
+        /* H5Ovisit(_by_name) */
         case H5VL_OBJECT_VISIT:
+        {
+            H5_daos_iter_data_t obj_iter_data;
+
+            obj_iter_data.idx_p = NULL;
+            obj_iter_data.index_type = va_arg(arguments, int);
+            obj_iter_data.is_recursive = FALSE;
+            obj_iter_data.iter_order = va_arg(arguments, int);
+            obj_iter_data.u.obj_iter_data.obj_iter_op = va_arg(arguments, H5O_iterate_t);
+            obj_iter_data.op_data = va_arg(arguments, void *);
+            obj_iter_data.u.obj_iter_data.fields = va_arg(arguments, unsigned);
+            obj_iter_data.u.obj_iter_data.obj_name = ".";
+            obj_iter_data.iter_type = H5_DAOS_ITER_TYPE_OBJ;
+            obj_iter_data.dxpl_id = dxpl_id;
+            obj_iter_data.req = req;
+
+            /* Register id for target_obj */
+            if((target_obj_id = H5VLwrap_register(target_obj, target_obj->item.type)) < 0)
+                D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, FAIL, "unable to atomize object handle")
+            obj_iter_data.iter_root_obj = target_obj_id;
+
+            if((ret_value = H5_daos_object_visit(target_obj, &obj_iter_data)) < 0)
+                D_GOTO_ERROR(H5E_OHDR, H5E_BADITER, FAIL, "object visiting failed")
+
+            break;
+        } /* H5VL_OBJECT_VISIT */
+
         case H5VL_REF_CREATE:
             D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported object specific operation")
 
+        /* H5Oflush */
         case H5VL_OBJECT_FLUSH:
         {
             switch(item->type) {
@@ -378,6 +426,7 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
             break;
         } /* H5VL_OBJECT_FLUSH */
 
+        /* H5Orefresh */
         case H5VL_OBJECT_REFRESH:
         {
             switch(item->type) {
@@ -409,19 +458,22 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
     } /* end switch */
 
 done:
-#if 0
-    if(target_grp_id >= 0) {
-        if(H5Idec_ref(target_grp_id) < 0)
-            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group ID")
-        target_grp_id = -1;
-        target_grp = NULL;
-    } /* end if */
-    else
-#endif
     if(target_grp) {
         if(H5_daos_group_close(target_grp, dxpl_id, req) < 0)
             D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group")
         target_grp = NULL;
+    } /* end else */
+
+    if(target_obj_id >= 0) {
+        if(H5Idec_ref(target_obj_id) < 0)
+            D_DONE_ERROR(H5E_OHDR, H5E_CLOSEERROR, FAIL, "can't close object ID")
+        target_obj_id = H5I_INVALID_HID;
+        target_obj = NULL;
+    } /* end if */
+    else if(target_obj) {
+        if(H5_daos_object_close(target_obj, dxpl_id, req) < 0)
+            D_DONE_ERROR(H5E_OHDR, H5E_CLOSEERROR, FAIL, "can't close object")
+        target_obj = NULL;
     } /* end else */
 
     D_FUNC_LEAVE_API
@@ -551,6 +603,53 @@ done:
 
 
 /*-------------------------------------------------------------------------
+ * Function:    H5_daos_object_visit
+ *
+ * Purpose:     Helper routine to recursively visit the specified object
+ *              and all objects accessible from the specified object,
+ *              calling the supplied callback function on each object,
+ *              when H5Ovisit(_by_name) is called.
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_object_visit(H5_daos_obj_t *target_obj, H5_daos_iter_data_t *obj_iter_data)
+{
+    H5O_info_t target_obj_info;
+    herr_t op_ret = H5_ITER_CONT;
+    herr_t ret_value = SUCCEED;
+
+    assert(target_obj);
+    assert(obj_iter_data);
+
+    /*
+     * Visit the specified target object first.
+     */
+
+    /* Retrieve the info of the target object */
+    if(H5_daos_object_get_info(target_obj, obj_iter_data->u.obj_iter_data.fields, &target_obj_info) < 0)
+        D_GOTO_ERROR(H5E_OHDR, H5E_CANTGET, FAIL, "can't get info for object")
+
+    /* Visit the object */
+    if((op_ret = obj_iter_data->u.obj_iter_data.obj_iter_op(obj_iter_data->iter_root_obj, obj_iter_data->u.obj_iter_data.obj_name, &target_obj_info, obj_iter_data->op_data)) < 0)
+        D_GOTO_ERROR(H5E_OHDR, H5E_BADITER, op_ret, "operator function returned failure")
+
+    /* If the object is a group, visit all objects below the group */
+    if(H5I_GROUP == target_obj->item.type)
+        if(H5_daos_link_iterate((H5_daos_group_t *) target_obj, obj_iter_data) < 0)
+            D_GOTO_ERROR(H5E_SYM, H5E_BADITER, FAIL, "failed to iterate through group's links")
+
+    ret_value = op_ret;
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_object_visit() */
+
+
+/*-------------------------------------------------------------------------
  * Function:    H5_daos_object_get_info
  *
  * Purpose:     Helper routine to retrieve the info for an object when
@@ -558,9 +657,6 @@ done:
  *
  * Return:      Success:        0
  *              Failure:        -1
- *
- * Programmer:
- *
  *
  *-------------------------------------------------------------------------
  */

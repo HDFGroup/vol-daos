@@ -1115,10 +1115,10 @@ done:
 static herr_t
 H5_daos_get_group_info(H5_daos_group_t *grp, H5G_info_t *group_info)
 {
+    H5_daos_iter_data_t link_iter_data;
     H5G_info_t local_grp_info;
-    iter_data  link_iter_data;
-    hid_t      target_grp_id = -1;
-    herr_t     ret_value = SUCCEED;
+    hid_t target_grp_id = -1;
+    herr_t ret_value = SUCCEED;
 
     assert(grp);
     assert(group_info);
@@ -1139,10 +1139,13 @@ H5_daos_get_group_info(H5_daos_group_t *grp, H5G_info_t *group_info)
     link_iter_data.idx_p = NULL;
     link_iter_data.index_type = H5_INDEX_NAME;
     link_iter_data.is_recursive = FALSE;
-    link_iter_data.iter_function.link_iter_op = H5_daos_link_iterate_count_links_callback;
+    link_iter_data.u.link_iter_data.link_iter_op = H5_daos_link_iterate_count_links_callback;
     link_iter_data.iter_order = H5_ITER_NATIVE;
     link_iter_data.iter_root_obj = target_grp_id;
     link_iter_data.op_data = &local_grp_info.nlinks;
+    link_iter_data.iter_type = H5_DAOS_ITER_TYPE_LINK;
+    link_iter_data.dxpl_id = H5P_DATASET_XFER_DEFAULT;
+    link_iter_data.req = NULL;
     if(H5_daos_link_iterate(grp, &link_iter_data) < 0)
         D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, FAIL, "can't retrieve the number of links in group")
 

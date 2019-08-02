@@ -138,10 +138,10 @@ DV_realloc(void *mem, size_t size)
                 DV_free(mem);
             } /* end if */
             else
-            ret_value = DV_malloc(size);
+                ret_value = DV_malloc(size);
         } /* end if */
         else
-        ret_value = DV_free(mem);
+            ret_value = DV_free(mem);
 #else
         ret_value = realloc(mem, size);
 

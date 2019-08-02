@@ -569,14 +569,17 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
         /* H5Literate/visit(_by_name) */
         case H5VL_LINK_ITER:
             {
-                iter_data link_iter_data;
+                H5_daos_iter_data_t link_iter_data;
 
                 link_iter_data.is_recursive = va_arg(arguments, int);
                 link_iter_data.index_type = (H5_index_t) va_arg(arguments, int);
                 link_iter_data.iter_order = (H5_iter_order_t) va_arg(arguments, int);
                 link_iter_data.idx_p = va_arg(arguments, hsize_t *);
-                link_iter_data.iter_function.link_iter_op = va_arg(arguments, H5L_iterate_t);
+                link_iter_data.u.link_iter_data.link_iter_op = va_arg(arguments, H5L_iterate_t);
                 link_iter_data.op_data = va_arg(arguments, void *);
+                link_iter_data.iter_type = H5_DAOS_ITER_TYPE_LINK;
+                link_iter_data.dxpl_id = dxpl_id;
+                link_iter_data.req = req;
 
                 switch (loc_params->type) {
                     /* H5Literate/H5Lvisit */
@@ -751,8 +754,9 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_link_iterate(H5_daos_group_t *target_grp, iter_data *link_iter_data)
+H5_daos_link_iterate(H5_daos_group_t *target_grp, H5_daos_iter_data_t *link_iter_data)
 {
+    H5_daos_obj_t *target_obj = NULL;
     daos_anchor_t anchor;
     uint32_t nr;
     daos_key_desc_t kds[H5_DAOS_ITER_LEN];
@@ -776,9 +780,9 @@ H5_daos_link_iterate(H5_daos_group_t *target_grp, iter_data *link_iter_data)
     if(link_iter_data->idx_p && (*link_iter_data->idx_p != 0))
         D_GOTO_ERROR(H5E_SYM, H5E_UNSUPPORTED, FAIL, "iteration restart not supported (must start from 0)")
 
-    /* Ordered iteration not supported */
-    if(link_iter_data->iter_order != H5_ITER_NATIVE)
-        D_GOTO_ERROR(H5E_SYM, H5E_UNSUPPORTED, FAIL, "ordered iteration not supported (order must be H5_ITER_NATIVE)")
+    /* Native iteration order is currently associated with increasing order; decreasing order iteration is not currently supported */
+    if(link_iter_data->iter_order == H5_ITER_DEC)
+        D_GOTO_ERROR(H5E_SYM, H5E_UNSUPPORTED, FAIL, "decreasing iteration order not supported (order must be H5_ITER_NATIVE or H5_ITER_INC)")
 
     /* Recursive iteration not supported */
     if(link_iter_data->is_recursive)
@@ -859,9 +863,31 @@ H5_daos_link_iterate(H5_daos_group_t *target_grp, iter_data *link_iter_data)
                     link_val.target.soft = (char *)DV_free(link_val.target.soft);
                 } /* end else */
 
-                /* Make callback */
-                if((op_ret = link_iter_data->iter_function.link_iter_op(link_iter_data->iter_root_obj, p, &linfo, link_iter_data->op_data)) < 0)
-                    D_GOTO_ERROR(H5E_SYM, H5E_BADITER, op_ret, "operator function returned failure")
+                if(H5_DAOS_ITER_TYPE_LINK == link_iter_data->iter_type) {
+                    /* Make callback */
+                    if((op_ret = link_iter_data->u.link_iter_data.link_iter_op(link_iter_data->iter_root_obj, p, &linfo, link_iter_data->op_data)) < 0)
+                        D_GOTO_ERROR(H5E_SYM, H5E_BADITER, op_ret, "operator function returned failure")
+                } /* end if */
+                else if(H5_DAOS_ITER_TYPE_OBJ == link_iter_data->iter_type) {
+                    H5VL_loc_params_t sub_loc_params;
+
+                    /*
+                     * Open the target object.
+                     */
+                    sub_loc_params.type = H5VL_OBJECT_BY_NAME;
+                    sub_loc_params.loc_data.loc_by_name.name = p;
+                    sub_loc_params.loc_data.loc_by_name.lapl_id = H5P_LINK_ACCESS_DEFAULT;
+                    if(NULL == (target_obj = H5_daos_object_open(target_grp, &sub_loc_params, NULL, link_iter_data->dxpl_id, link_iter_data->req)))
+                        D_GOTO_ERROR(H5E_OHDR, H5E_CANTOPENOBJ, FAIL, "can't open object")
+
+                    link_iter_data->u.obj_iter_data.obj_name = p;
+                    if(H5_daos_object_visit(target_obj, link_iter_data) < 0)
+                        D_GOTO_ERROR(H5E_OHDR, H5E_BADITER, FAIL, "failed to visit object")
+
+                    if(H5_daos_object_close(target_obj, link_iter_data->dxpl_id, link_iter_data->req) < 0)
+                        D_GOTO_ERROR(H5E_OHDR, H5E_CLOSEERROR, FAIL, "can't close object")
+                    target_obj = NULL;
+                } /* end else */
 
                 /* Replace null terminator */
                 p[kds[i].kd_key_len] = tmp_char;
@@ -879,6 +905,12 @@ H5_daos_link_iterate(H5_daos_group_t *target_grp, iter_data *link_iter_data)
     ret_value = op_ret;
 
 done:
+    if(target_obj) {
+        if(H5_daos_object_close(target_obj, link_iter_data->dxpl_id, link_iter_data->req) < 0)
+            D_DONE_ERROR(H5E_OHDR, H5E_CLOSEERROR, FAIL, "can't close object")
+        target_obj = NULL;
+    } /* end if */
+
     dkey_buf = (char *)DV_free(dkey_buf);
 
     D_FUNC_LEAVE

@@ -346,8 +346,20 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
         D_GOTO_ERROR(H5E_OHDR, H5E_UNSUPPORTED, FAIL, "unsupported object operation location parameters type")
 
     switch (specific_type) {
+        /* H5Oincr_refcount/H5Odecr_refcount */
         case H5VL_OBJECT_CHANGE_REF_COUNT:
-            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported object specific operation")
+        {
+            int mode = va_arg(arguments, int);
+
+            if(mode > 0)
+                target_obj->item.rc++;
+            else if(mode < 0)
+                target_obj->item.rc--;
+            else
+                D_GOTO_ERROR(H5E_VOL, H5E_BADVALUE, FAIL, "invalid reference count change mode")
+
+            break;
+        } /* H5VL_OBJECT_CHANGE_REF_COUNT */
 
         /* H5Oexists_by_name */
         case H5VL_OBJECT_EXISTS:
@@ -462,7 +474,7 @@ done:
         if(H5_daos_group_close(target_grp, dxpl_id, req) < 0)
             D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group")
         target_grp = NULL;
-    } /* end else */
+    } /* end if */
 
     if(target_obj_id >= 0) {
         if(H5Idec_ref(target_obj_id) < 0)

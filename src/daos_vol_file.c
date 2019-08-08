@@ -980,6 +980,13 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
             break;
         } /* H5VL_FILE_IS_ACCESSIBLE */
 
+        /* H5Fdelete */
+        case H5VL_FILE_DELETE:
+        {
+            D_GOTO_ERROR(H5E_FILE, H5E_UNSUPPORTED, FAIL, "file deletion is currently unsupported")
+            break;
+        } /* H5VL_FILE_DELETE */
+
         default:
             D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported file specific operation")
     } /* end switch */

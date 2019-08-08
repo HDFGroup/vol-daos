@@ -129,8 +129,7 @@ done:
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_group_create_helper
  *
- * Purpose:     Performs the actual group creation, but does not create a
- *              link.
+ * Purpose:     Performs the actual group creation.
  *
  * Return:      Success:        group object. 
  *              Failure:        NULL
@@ -1115,7 +1114,7 @@ done:
 static herr_t
 H5_daos_get_group_info(H5_daos_group_t *grp, H5G_info_t *group_info)
 {
-    H5_daos_iter_data_t link_iter_data;
+    H5_daos_iter_data_t iter_data;
     H5G_info_t local_grp_info;
     hid_t target_grp_id = -1;
     herr_t ret_value = SUCCEED;
@@ -1133,20 +1132,13 @@ H5_daos_get_group_info(H5_daos_group_t *grp, H5G_info_t *group_info)
         D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, FAIL, "unable to atomize object handle")
     grp->obj.item.rc++;
 
-    /*
-     * Retrieve the number of links in the group.
-     */
-    link_iter_data.idx_p = NULL;
-    link_iter_data.index_type = H5_INDEX_NAME;
-    link_iter_data.is_recursive = FALSE;
-    link_iter_data.u.link_iter_data.link_iter_op = H5_daos_link_iterate_count_links_callback;
-    link_iter_data.iter_order = H5_ITER_NATIVE;
-    link_iter_data.iter_root_obj = target_grp_id;
-    link_iter_data.op_data = &local_grp_info.nlinks;
-    link_iter_data.iter_type = H5_DAOS_ITER_TYPE_LINK;
-    link_iter_data.dxpl_id = H5P_DATASET_XFER_DEFAULT;
-    link_iter_data.req = NULL;
-    if(H5_daos_link_iterate(grp, &link_iter_data) < 0)
+    /* Initialize iteration data */
+    H5_daos_iter_data_init(&iter_data, H5_DAOS_ITER_TYPE_LINK, H5_INDEX_NAME, H5_ITER_NATIVE,
+            FALSE, NULL, target_grp_id, &local_grp_info.nlinks, H5P_DATASET_XFER_DEFAULT, NULL);
+    iter_data.u.link_iter_data.link_iter_op = H5_daos_link_iterate_count_links_callback;
+
+    /* Retrieve the number of links in the group. */
+    if(H5_daos_link_iterate(grp, &iter_data) < 0)
         D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, FAIL, "can't retrieve the number of links in group")
 
     memcpy(group_info, &local_grp_info, sizeof(*group_info));

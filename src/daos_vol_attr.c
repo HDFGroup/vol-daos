@@ -20,8 +20,6 @@
 
 static herr_t H5_daos_attribute_delete(H5_daos_obj_t *attr_container_obj, const char *attr_name);
 static htri_t H5_daos_attribute_exists(H5_daos_obj_t *attr_container_obj, const char *attr_name);
-static herr_t H5_daos_attribute_iterate(H5_daos_obj_t *attr_container_obj, H5_daos_iter_data_t *attr_iter_data,
-    hid_t dxpl_id, void **req);
 static herr_t H5_daos_attribute_rename(H5_daos_obj_t *attr_container_obj, const char *cur_attr_name,
     const char *new_attr_name);
 static herr_t H5_daos_attribute_get_akey_strings(const char *attr_name, char **datatype_key_out,
@@ -1156,32 +1154,23 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
 
         case H5VL_ATTR_ITER:
             {
-                H5_daos_iter_data_t attr_iter_data;
-
-                attr_iter_data.is_recursive = FALSE;
-                attr_iter_data.index_type = (H5_index_t)va_arg(arguments, int);
-                attr_iter_data.iter_order = (H5_iter_order_t)va_arg(arguments, int);
-                attr_iter_data.idx_p = va_arg(arguments, hsize_t *);
-                attr_iter_data.u.attr_iter_data.attr_iter_op = va_arg(arguments, H5A_operator2_t);
-                attr_iter_data.op_data = va_arg(arguments, void *);
-                attr_iter_data.iter_type = H5_DAOS_ITER_TYPE_ATTR;
-                attr_iter_data.dxpl_id = dxpl_id;
-                attr_iter_data.req = req;
-
-                /* Iteration restart not supported */
-                if(attr_iter_data.idx_p && (*attr_iter_data.idx_p != 0))
-                    D_GOTO_ERROR(H5E_ATTR, H5E_UNSUPPORTED, FAIL, "iteration restart not supported (must start from 0)")
-
-                /* Ordered iteration not supported */
-                if(attr_iter_data.iter_order != H5_ITER_NATIVE)
-                    D_GOTO_ERROR(H5E_ATTR, H5E_UNSUPPORTED, FAIL, "ordered iteration not supported (order must be H5_ITER_NATIVE)")
+                H5_daos_iter_data_t iter_data;
+                H5_index_t idx_type = (H5_index_t)va_arg(arguments, int);
+                H5_iter_order_t iter_order = (H5_iter_order_t)va_arg(arguments, int);
+                hsize_t *idx_p = va_arg(arguments, hsize_t *);
+                H5A_operator2_t iter_op = va_arg(arguments, H5A_operator2_t);
+                void *op_data = va_arg(arguments, void *);
 
                 /* Register id for target_obj */
                 if((target_obj_id = H5VLwrap_register(target_obj, target_obj->item.type)) < 0)
                     D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, FAIL, "unable to atomize object handle")
-                attr_iter_data.iter_root_obj = target_obj_id;
 
-                if((ret_value = H5_daos_attribute_iterate(target_obj, &attr_iter_data, dxpl_id, req)) < 0)
+                /* Initialize iteration data */
+                H5_daos_iter_data_init(&iter_data, H5_DAOS_ITER_TYPE_ATTR, idx_type, iter_order,
+                        FALSE, idx_p, target_obj_id, op_data, dxpl_id, req);
+                iter_data.u.attr_iter_data.attr_iter_op = iter_op;
+
+                if((ret_value = H5_daos_attribute_iterate(target_obj, &iter_data, dxpl_id, req)) < 0)
                     D_GOTO_ERROR(H5E_ATTR, H5E_BADITER, FAIL, "can't iterate over attributes")
 
                 break;
@@ -1412,8 +1401,8 @@ done:
  *
  *-------------------------------------------------------------------------
  */
-static herr_t
-H5_daos_attribute_iterate(H5_daos_obj_t *attr_container_obj, H5_daos_iter_data_t *attr_iter_data,
+herr_t
+H5_daos_attribute_iterate(H5_daos_obj_t *attr_container_obj, H5_daos_iter_data_t *iter_data,
     hid_t dxpl_id, void **req)
 {
     H5VL_loc_params_t sub_loc_params;
@@ -1435,7 +1424,15 @@ H5_daos_attribute_iterate(H5_daos_obj_t *attr_container_obj, H5_daos_iter_data_t
     herr_t ret_value = SUCCEED;
 
     assert(attr_container_obj);
-    assert(attr_iter_data);
+    assert(iter_data);
+
+    /* Iteration restart not supported */
+    if(iter_data->idx_p && (*iter_data->idx_p != 0))
+        D_GOTO_ERROR(H5E_ATTR, H5E_UNSUPPORTED, FAIL, "iteration restart not supported (must start from 0)")
+
+    /* Native iteration order is currently associated with increasing order; decreasing order iteration is not currently supported */
+    if(iter_data->iter_order == H5_ITER_DEC)
+        D_GOTO_ERROR(H5E_ATTR, H5E_UNSUPPORTED, FAIL, "decreasing iteration order not supported (order must be H5_ITER_NATIVE or H5_ITER_INC)")
 
     /* Initialize sub_loc_params */
     sub_loc_params.obj_type = attr_container_obj->item.type;
@@ -1529,19 +1526,20 @@ H5_daos_attribute_iterate(H5_daos_obj_t *attr_container_obj, H5_daos_iter_data_t
                 ainfo.data_size = (hsize_t)npoints * (hsize_t)type_size;
 
                 /* Make callback */
-                if((op_ret = attr_iter_data->u.attr_iter_data.attr_iter_op(attr_iter_data->iter_root_obj, &p[2], &ainfo, attr_iter_data->op_data)) < 0)
+                if((op_ret = iter_data->u.attr_iter_data.attr_iter_op(iter_data->iter_root_obj, &p[2], &ainfo, iter_data->op_data)) < 0)
                     D_GOTO_ERROR(H5E_ATTR, H5E_BADITER, op_ret, "operator function returned failure")
 
                 /* Close attribute */
                 if(H5_daos_attribute_close(attr, dxpl_id, req) < 0)
                     D_GOTO_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close attribute")
+                attr = NULL;
 
                 /* Replace null terminator */
                 p[kds[i].kd_key_len] = tmp_char;
 
                 /* Advance idx */
-                if(attr_iter_data->idx_p)
-                    (*attr_iter_data->idx_p)++;
+                if(iter_data->idx_p)
+                    (*iter_data->idx_p)++;
             } /* end if */
 
             /* Advance to next akey */

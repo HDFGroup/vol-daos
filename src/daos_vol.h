@@ -39,6 +39,8 @@ typedef d_sg_list_t daos_sg_list_t;
 # define DAOS_OC_LARGE_RW OC_SX
 # define daos_rank_list_free d_rank_list_free
 # define daos_iov_set d_iov_set
+# define DAOS_OF_AKEY_HASHED 0
+# define DAOS_OF_DKEY_HASHED 0
 # define H5_daos_obj_generate_id(oid, ofeats, cid) \
     daos_obj_generate_id(oid, ofeats, cid, 0)
 #else

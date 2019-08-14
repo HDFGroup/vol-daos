@@ -1167,7 +1167,7 @@ H5_daos_oid_generate(daos_obj_id_t *oid, uint64_t addr, H5I_type_t obj_type)
     object_class = (obj_type == H5I_DATASET) ? DAOS_OC_LARGE_RW : DAOS_OC_TINY_RW;
 
     /* Generate oid */
-    daos_obj_generate_id(oid, object_feats, object_class);
+    H5_daos_obj_generate_id(oid, object_feats, object_class);
 
     return;
 } /* end H5_daos_oid_generate() */

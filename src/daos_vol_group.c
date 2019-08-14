@@ -18,6 +18,7 @@
 #include "util/daos_vol_err.h"  /* DAOS connector error handling           */
 #include "util/daos_vol_mem.h"  /* DAOS connector memory management        */
 
+static herr_t H5_daos_group_fill_gcpl_cache(H5_daos_group_t *grp);
 static herr_t H5_daos_get_group_info(H5_daos_group_t *grp, H5G_info_t *group_info);
 static herr_t H5_daos_group_flush(H5_daos_group_t *grp);
 
@@ -114,6 +115,41 @@ done:
 
 
 /*-------------------------------------------------------------------------
+ * Function:    H5_daos_group_fill_gcpl_cache
+ *
+ * Purpose:     Fills the "gcpl_cache" field of the group struct, using
+ *              the group's GCPL.  Assumes grp->gcpl_cache has been
+ *              initialized to all zeros.
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ * Programmer:  Neil Fortner
+ *              August, 2019
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_group_fill_gcpl_cache(H5_daos_group_t *grp)
+{
+    unsigned corder_flags;
+    herr_t ret_value = SUCCEED;
+
+    assert(grp);
+
+    /* Determine if this group is tracking link creation order */
+    if(H5Pget_link_creation_order(grp->gcpl_id, &corder_flags) < 0)
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't get link creation order flags")
+    assert(!grp->gcpl_cache.track_corder);
+    if(corder_flags & H5P_CRT_ORDER_TRACKED)
+        grp->gcpl_cache.track_corder = TRUE;
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_group_fill_gcpl_cache() */
+
+
+/*-------------------------------------------------------------------------
  * Function:    H5_daos_group_create_helper
  *
  * Purpose:     Performs the actual group creation, but does not create a
@@ -200,7 +236,7 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
         update_cb_ud->req = req;
 
         /* Set up dkey.  Point to global name buffer, do not free. */
-        daos_iov_set(&update_cb_ud->dkey, H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
+        daos_iov_set(&update_cb_ud->dkey, (void *)H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
         update_cb_ud->free_dkey = FALSE;
 
         /* Single iod and sgl */
@@ -277,9 +313,13 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
 
     /* Finish setting up group struct */
     if((grp->gcpl_id = H5Pcopy(gcpl_id)) < 0)
-        D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, NULL, "failed to copy gcpl");
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, NULL, "failed to copy gcpl")
     if((grp->gapl_id = H5Pcopy(gapl_id)) < 0)
-        D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, NULL, "failed to copy gapl");
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, NULL, "failed to copy gapl")
+
+    /* Fill GCPL cache */
+    if(H5_daos_group_fill_gcpl_cache(grp) < 0)
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "failed to fill GCPL cache")
 
     ret_value = (void *)grp;
 
@@ -474,11 +514,11 @@ H5_daos_group_open_helper(H5_daos_file_t *file, daos_obj_id_t oid,
 
     /* Set up operation to read GCPL size from group */
     /* Set up dkey */
-    daos_iov_set(&dkey, H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
+    daos_iov_set(&dkey, (void *)H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
 
     /* Set up iod */
     memset(&iod, 0, sizeof(iod));
-    daos_iov_set(&iod.iod_name, H5_daos_cpl_key_g, H5_daos_cpl_key_size_g);
+    daos_iov_set(&iod.iod_name, (void *)H5_daos_cpl_key_g, H5_daos_cpl_key_size_g);
     daos_csum_set(&iod.iod_kcsum, NULL, 0);
     iod.iod_nr = 1u;
     iod.iod_size = DAOS_REC_ANY;
@@ -515,6 +555,10 @@ H5_daos_group_open_helper(H5_daos_file_t *file, daos_obj_id_t oid,
     if((grp->gapl_id = H5Pcopy(gapl_id)) < 0)
         D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, NULL, "failed to copy gapl");
 
+    /* Fill GCPL cache */
+    if(H5_daos_group_fill_gcpl_cache(grp) < 0)
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "failed to fill GCPL cache")
+
     /* Return GCPL info if requested, relinquish ownership of gcpl_buf if so */
     if(gcpl_buf_out) {
         assert(gcpl_len_out);
@@ -547,7 +591,7 @@ done:
  *
  * Purpose:     Reconstitutes a group object opened by another process.
  *
- * Return:      Success:        group object. 
+ * Return:      Success:        group object.
  *              Failure:        NULL
  *
  * Programmer:  Neil Fortner
@@ -589,6 +633,10 @@ H5_daos_group_reconstitute(H5_daos_file_t *file, daos_obj_id_t oid,
     if((grp->gapl_id = H5Pcopy(gapl_id)) < 0)
         D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, NULL, "failed to copy gapl");
 
+    /* Fill GCPL cache */
+    if(H5_daos_group_fill_gcpl_cache(grp) < 0)
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "failed to fill GCPL cache")
+
     ret_value = (void *)grp;
 
 done:
@@ -607,7 +655,7 @@ done:
  *
  * Purpose:     Sends a request to DAOS to open a group
  *
- * Return:      Success:        dataset object. 
+ * Return:      Success:        group object. 
  *              Failure:        NULL
  *
  * Programmer:  Neil Fortner

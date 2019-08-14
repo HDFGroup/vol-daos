@@ -1133,7 +1133,7 @@ H5_daos_get_group_info(H5_daos_group_t *grp, H5G_info_t *group_info)
     grp->obj.item.rc++;
 
     /* Initialize iteration data */
-    H5_daos_iter_data_init(&iter_data, H5_DAOS_ITER_TYPE_LINK, H5_INDEX_NAME, H5_ITER_NATIVE,
+    H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_LINK, H5_INDEX_NAME, H5_ITER_NATIVE,
             FALSE, NULL, target_grp_id, &local_grp_info.nlinks, H5P_DATASET_XFER_DEFAULT, NULL);
     iter_data.u.link_iter_data.link_iter_op = H5_daos_link_iterate_count_links_callback;
 

@@ -1811,35 +1811,6 @@ done:
 } /* end H5_daos_comm_info_free() */
 
 
-/*-------------------------------------------------------------------------
- * Function:    H5_daos_iter_data_init
- *
- * Purpose:     Initializes all non-specific fields of a
- *              H5_daos_iter_data_t stuct.
- *
- * Return:      void
- *
- *-------------------------------------------------------------------------
- */
-void
-H5_daos_iter_data_init(H5_daos_iter_data_t *iter_data, H5_daos_iter_data_type_t iter_type,
-    H5_index_t idx_type, H5_iter_order_t iter_order, int is_recursive, hsize_t *idx_p,
-    hid_t iter_root_obj, void *op_data, hid_t dxpl_id, void **req)
-{
-    assert(iter_data);
-
-    iter_data->iter_type = iter_type;
-    iter_data->index_type = idx_type;
-    iter_data->iter_order = iter_order;
-    iter_data->is_recursive = is_recursive;
-    iter_data->idx_p = idx_p;
-    iter_data->iter_root_obj = iter_root_obj;
-    iter_data->op_data = op_data;
-    iter_data->dxpl_id = dxpl_id;
-    iter_data->req = req;
-} /* end H5_daos_iter_data_init() */
-
-
 H5PL_type_t
 H5PLget_plugin_type(void) {
     return H5PL_TYPE_VOL;

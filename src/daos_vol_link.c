@@ -596,7 +596,7 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
                     D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, FAIL, "unable to atomize object handle")
 
                 /* Initialize iteration data */
-                H5_daos_iter_data_init(&iter_data, H5_DAOS_ITER_TYPE_LINK, idx_type, iter_order,
+                H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_LINK, idx_type, iter_order,
                         is_recursive, idx_p, target_grp_id, op_data, dxpl_id, req);
                 iter_data.u.link_iter_data.link_iter_op = iter_op;
 

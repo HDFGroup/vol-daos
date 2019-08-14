@@ -160,6 +160,21 @@ typedef d_sg_list_t daos_sg_list_t;
  */
 #undef DV_HAVE_SNAP_OPEN_ID
 
+/* Macro to initialize all non-specific fields of an H5_daos_iter_data_t struct */
+#define H5_DAOS_ITER_DATA_INIT(_iter_data, _iter_type, _idx_type, _iter_order, \
+    _is_recursive, _idx_p, _iter_root_obj, _op_data, _dxpl_id, _req)           \
+    do {                                                                       \
+        _iter_data.iter_type = _iter_type;                                     \
+        _iter_data.index_type = _idx_type;                                     \
+        _iter_data.iter_order = _iter_order;                                   \
+        _iter_data.is_recursive = _is_recursive;                               \
+        _iter_data.idx_p = _idx_p;                                             \
+        _iter_data.iter_root_obj = _iter_root_obj;                             \
+        _iter_data.op_data = _op_data;                                         \
+        _iter_data.dxpl_id = _dxpl_id;                                         \
+        _iter_data.req = _req;                                                 \
+    } while(0)
+
 /*******************/
 /* Public Typedefs */
 /*******************/
@@ -459,9 +474,6 @@ H5VL_DAOS_PRIVATE int H5_daos_md_update_comp_cb(tse_task_t *task, void *args);
 H5VL_DAOS_PRIVATE herr_t H5_daos_comm_info_dup(MPI_Comm comm, MPI_Info info,
         MPI_Comm *comm_new, MPI_Info *info_new);
 H5VL_DAOS_PRIVATE herr_t H5_daos_comm_info_free(MPI_Comm *comm, MPI_Info *info);
-H5VL_DAOS_PRIVATE void H5_daos_iter_data_init(H5_daos_iter_data_t *iter_data,
-    H5_daos_iter_data_type_t iter_type, H5_index_t idx_type, H5_iter_order_t iter_order,
-    int is_recursive, hsize_t *idx_p, hid_t iter_root_obj, void *op_data, hid_t dxpl_id, void **req);
 
 /* File callbacks */
 H5VL_DAOS_PRIVATE void *H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,

@@ -489,7 +489,7 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
                 D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, FAIL, "unable to atomize object handle")
 
             /* Initialize iteration data */
-            H5_daos_iter_data_init(&iter_data, H5_DAOS_ITER_TYPE_OBJ, idx_type, iter_order,
+            H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_OBJ, idx_type, iter_order,
                     FALSE, NULL, target_obj_id, op_data, dxpl_id, req);
             iter_data.u.obj_iter_data.fields = fields;
             iter_data.u.obj_iter_data.obj_iter_op = iter_op;
@@ -1084,7 +1084,7 @@ H5_daos_group_copy(H5_daos_group_t *src_obj, H5_daos_group_t *dst_obj, const cha
     copy_op_data.req = req;
 
     /* Initialize iteration data */
-    H5_daos_iter_data_init(&iter_data, H5_DAOS_ITER_TYPE_LINK, H5_INDEX_CRT_ORDER, H5_ITER_INC,
+    H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_LINK, H5_INDEX_CRT_ORDER, H5_ITER_INC,
             (obj_copy_options & H5O_COPY_SHALLOW_HIERARCHY_FLAG) ? 0 : 1, NULL,
             target_group_id, &copy_op_data, dxpl_id, req);
     iter_data.u.link_iter_data.link_iter_op = H5_daos_group_copy_cb;
@@ -1307,7 +1307,7 @@ H5_daos_object_copy_attributes(H5_daos_obj_t *src_obj, H5_daos_obj_t *dst_obj,
     src_obj->item.rc++;
 
     /* Initialize iteration data */
-    H5_daos_iter_data_init(&iter_data, H5_DAOS_ITER_TYPE_ATTR, H5_INDEX_NAME, H5_ITER_INC,
+    H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_ATTR, H5_INDEX_NAME, H5_ITER_INC,
             FALSE, NULL, target_obj_id, dst_obj, dxpl_id, req);
     iter_data.u.attr_iter_data.attr_iter_op = H5_daos_object_copy_attributes_cb;
 

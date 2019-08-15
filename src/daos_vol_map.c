@@ -400,6 +400,8 @@ H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
             H5_daos_oid_generate(&map->obj.oid, (uint64_t)loc_params->loc_data.loc_by_addr.addr, H5I_MAP);
         } /* end if */
         else {
+            htri_t link_resolved;
+
             /* Open using name parameter */
             if(H5VL_OBJECT_BY_SELF != loc_params->type)
                 D_GOTO_ERROR(H5E_ARGS, H5E_UNSUPPORTED, NULL, "unsupported map open location parameters type")
@@ -411,8 +413,10 @@ H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
                 D_GOTO_ERROR(H5E_MAP, H5E_BADITER, NULL, "can't traverse path")
 
             /* Follow link to map */
-            if(H5_daos_link_follow(target_grp, target_name, strlen(target_name), dxpl_id, req, &map->obj.oid) < 0)
-                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't follow link to map")
+            if((link_resolved = H5_daos_link_follow(target_grp, target_name, strlen(target_name), dxpl_id, req, &map->obj.oid)) < 0)
+                D_GOTO_ERROR(H5E_MAP, H5E_TRAVERSE, NULL, "can't follow link to map")
+            if(!link_resolved)
+                D_GOTO_ERROR(H5E_MAP, H5E_TRAVERSE, NULL, "link to map did not resolve")
         } /* end else */
 
         /* Open map */
@@ -1520,4 +1524,3 @@ H5_daos_map_close(void *_map, hid_t H5VL_DAOS_UNUSED dxpl_id,
 done:
     D_FUNC_LEAVE
 } /* end H5_daos_map_close() */
-

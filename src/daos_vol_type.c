@@ -611,6 +611,8 @@ H5_daos_datatype_open(void *_item,
             H5_daos_oid_generate(&dtype->obj.oid, (uint64_t)loc_params->loc_data.loc_by_addr.addr, H5I_DATATYPE);
         } /* end if */
         else {
+            htri_t link_resolved;
+
             /* Open using name parameter */
             if(H5VL_OBJECT_BY_SELF != loc_params->type)
                 D_GOTO_ERROR(H5E_ARGS, H5E_UNSUPPORTED, NULL, "unsupported datatype open location parameters type")
@@ -622,8 +624,10 @@ H5_daos_datatype_open(void *_item,
                 D_GOTO_ERROR(H5E_DATATYPE, H5E_BADITER, NULL, "can't traverse path")
 
             /* Follow link to datatype */
-            if(H5_daos_link_follow(target_grp, target_name, strlen(target_name), dxpl_id, req, &dtype->obj.oid) < 0)
-                D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't follow link to datatype")
+            if((link_resolved = H5_daos_link_follow(target_grp, target_name, strlen(target_name), dxpl_id, req, &dtype->obj.oid)) < 0)
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_TRAVERSE, NULL, "can't follow link to datatype")
+            if(!link_resolved)
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_TRAVERSE, NULL, "link to datatype did not resolve")
         } /* end else */
 
         /* Open datatype */
@@ -875,7 +879,20 @@ H5_daos_datatype_specific(void *_item, H5VL_datatype_specific_t specific_type,
 
     switch (specific_type) {
         case H5VL_DATATYPE_FLUSH:
+        {
+            if(H5_daos_datatype_flush(dtype) < 0)
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_WRITEERROR, FAIL, "can't flush datatype")
+
+            break;
+        } /* H5VL_DATATYPE_FLUSH */
+
         case H5VL_DATATYPE_REFRESH:
+        {
+            if(H5_daos_datatype_refresh(dtype, dxpl_id, req) < 0)
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_READERROR, FAIL, "failed to refresh datatype")
+
+            break;
+        } /* H5VL_DATATYPE_REFRESH */
         default:
             D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported datatype specific operation")
     } /* end switch */
@@ -929,3 +946,62 @@ done:
     D_FUNC_LEAVE_API
 } /* end H5_daos_datatype_close() */
 
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_datatype_flush
+ *
+ * Purpose:     Flushes a DAOS committed datatype. Currently a no-op, may
+ *              create a snapshot in the future.
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ * Programmer:  Jordan Henderson
+ *              July, 2019
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_datatype_flush(H5_daos_dtype_t *dtype)
+{
+    herr_t ret_value = SUCCEED;
+
+    assert(dtype);
+
+    /* Nothing to do if no write intent */
+    if(!(dtype->obj.item.file->flags & H5F_ACC_RDWR))
+        D_GOTO_DONE(SUCCEED)
+
+    /* Progress scheduler until empty? DSINC */
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_datatype_flush() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_datatype_refresh
+ *
+ * Purpose:     Refreshes a DAOS committed datatype (currently a no-op)
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ * Programmer:  Jordan Henderson
+ *              July, 2019
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_datatype_refresh(H5_daos_dtype_t *dtype, hid_t H5VL_DAOS_UNUSED dxpl_id,
+    void H5VL_DAOS_UNUSED **req)
+{
+    herr_t ret_value = SUCCEED;
+
+    assert(dtype);
+
+    D_GOTO_DONE(SUCCEED)
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_datatype_refresh() */

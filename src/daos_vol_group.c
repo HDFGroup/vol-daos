@@ -19,7 +19,6 @@
 #include "util/daos_vol_mem.h"  /* DAOS connector memory management        */
 
 static herr_t H5_daos_get_group_info(H5_daos_group_t *grp, H5G_info_t *group_info);
-static herr_t H5_daos_group_flush(H5_daos_group_t *grp);
 
 
 /*-------------------------------------------------------------------------
@@ -61,6 +60,16 @@ H5_daos_group_traverse(H5_daos_item_t *item, const char *path,
         (*obj_name)++;
     } /* end if */
     else {
+        /* Check for the leading './' case */
+        if ((*obj_name)[0] == '.' && (*obj_name)[1] == '/') {
+            /*
+             * Advance past the leading '.' and '/' characters.
+             * Note that the case of multiple leading '.' characters
+             * is not currently handled.
+             */
+            (*obj_name)++; (*obj_name)++;
+        }
+
         if(item->type == H5I_GROUP)
             grp = (H5_daos_group_t *)item;
         else if(item->type == H5I_FILE)
@@ -68,7 +77,7 @@ H5_daos_group_traverse(H5_daos_item_t *item, const char *path,
         else
             D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "item not a file or group")
     } /* end else */
-        
+
     grp->obj.item.rc++;
 
     /* Search for '/' */
@@ -76,14 +85,18 @@ H5_daos_group_traverse(H5_daos_item_t *item, const char *path,
 
     /* Traverse path */
     while(next_obj) {
+        htri_t link_resolved;
+
         /* Free gcpl_buf_out */
         if(gcpl_buf_out)
             *gcpl_buf_out = DV_free(*gcpl_buf_out);
 
         /* Follow link to next group in path */
         assert(next_obj > *obj_name);
-        if(H5_daos_link_follow(grp, *obj_name, (size_t)(next_obj - *obj_name), dxpl_id, req, &oid) < 0)
-            D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't follow link to group")
+        if((link_resolved = H5_daos_link_follow(grp, *obj_name, (size_t)(next_obj - *obj_name), dxpl_id, req, &oid)) < 0)
+            D_GOTO_ERROR(H5E_SYM, H5E_TRAVERSE, NULL, "can't follow link to group")
+        if(!link_resolved)
+            D_GOTO_ERROR(H5E_SYM, H5E_TRAVERSE, NULL, "link to group did not resolve")
 
         /* Close previous group */
         if(H5_daos_group_close(grp, dxpl_id, req) < 0)
@@ -92,7 +105,7 @@ H5_daos_group_traverse(H5_daos_item_t *item, const char *path,
 
         /* Open group */
         if(NULL == (grp = (H5_daos_group_t *)H5_daos_group_open_helper(item->file, oid, H5P_GROUP_ACCESS_DEFAULT, dxpl_id, NULL, gcpl_buf_out, gcpl_len_out)))
-            D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't open group")
+            D_GOTO_ERROR(H5E_SYM, H5E_CANTOPENOBJ, NULL, "can't open group")
 
         /* Advance to next path element */
         *obj_name = next_obj + 1;
@@ -116,8 +129,7 @@ done:
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_group_create_helper
  *
- * Purpose:     Performs the actual group creation, but does not create a
- *              link.
+ * Purpose:     Performs the actual group creation.
  *
  * Return:      Success:        group object. 
  *              Failure:        NULL
@@ -692,12 +704,16 @@ H5_daos_group_open(void *_item, const H5VL_loc_params_t *loc_params,
                     D_GOTO_ERROR(H5E_SYM, H5E_CANTENCODE, NULL, "can't serialize gcpl")
             } /* end if */
             else {
+                htri_t link_resolved;
+
                 gcpl_buf = (uint8_t *)DV_free(gcpl_buf);
                 gcpl_len = 0;
 
                 /* Follow link to group */
-                if(H5_daos_link_follow(target_grp, target_name, strlen(target_name), dxpl_id, req, &oid) < 0)
-                    D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't follow link to group")
+                if((link_resolved = H5_daos_link_follow(target_grp, target_name, strlen(target_name), dxpl_id, req, &oid)) < 0)
+                    D_GOTO_ERROR(H5E_SYM, H5E_TRAVERSE, NULL, "can't follow link to group")
+                if(!link_resolved)
+                    D_GOTO_ERROR(H5E_SYM, H5E_TRAVERSE, NULL, "link to group did not resolve")
 
                 /* Open group */
                 if(NULL == (grp = (H5_daos_group_t *)H5_daos_group_open_helper(item->file, oid, gapl_id, dxpl_id, NULL, (collective && (item->file->num_procs > 1)) ? (void **)&gcpl_buf : NULL, &gcpl_len)))
@@ -878,10 +894,13 @@ H5_daos_group_get(void *_item, H5VL_group_get_t get_type, hid_t dxpl_id,
                     if(target_group_name[0] != '\0'
                             && (target_group_name[0] != '.' || target_group_name[1] != '\0')) {
                         daos_obj_id_t oid;
+                        htri_t link_resolved;
 
                         /* Follow link to group */
-                        if(H5_daos_link_follow(target_group, target_group_name, strlen(target_group_name), dxpl_id, req, &oid) < 0)
-                            D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't follow link to group")
+                        if((link_resolved = H5_daos_link_follow(target_group, target_group_name, strlen(target_group_name), dxpl_id, req, &oid)) < 0)
+                            D_GOTO_ERROR(H5E_SYM, H5E_TRAVERSE, FAIL, "can't follow link to group")
+                        if(!link_resolved)
+                            D_GOTO_ERROR(H5E_SYM, H5E_TRAVERSE, FAIL, "link to group did not resolve")
 
                         /* "Close" the group in order to decrement the group's reference count.
                          * Note that this will not actually close the group, but is needed due
@@ -1032,7 +1051,7 @@ done:
  *
  *-------------------------------------------------------------------------
  */
-static herr_t
+herr_t
 H5_daos_group_flush(H5_daos_group_t *grp)
 {
     herr_t ret_value = SUCCEED;    /* Return value */
@@ -1048,6 +1067,34 @@ H5_daos_group_flush(H5_daos_group_t *grp)
 done:
     D_FUNC_LEAVE
 } /* end H5_daos_group_flush() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_group_refresh
+ *
+ * Purpose:     Refreshes a DAOS group (currently a no-op)
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ * Programmer:  Jordan Henderson
+ *              July, 2019
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_group_refresh(H5_daos_group_t *grp, hid_t H5VL_DAOS_UNUSED dxpl_id,
+    void H5VL_DAOS_UNUSED **req)
+{
+    herr_t ret_value = SUCCEED;
+
+    assert(grp);
+
+    D_GOTO_DONE(SUCCEED)
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_group_refresh() */
 
 
 /*-------------------------------------------------------------------------
@@ -1067,10 +1114,10 @@ done:
 static herr_t
 H5_daos_get_group_info(H5_daos_group_t *grp, H5G_info_t *group_info)
 {
+    H5_daos_iter_data_t iter_data;
     H5G_info_t local_grp_info;
-    iter_data  link_iter_data;
-    hid_t      target_grp_id = -1;
-    herr_t     ret_value = SUCCEED;
+    hid_t target_grp_id = -1;
+    herr_t ret_value = SUCCEED;
 
     assert(grp);
     assert(group_info);
@@ -1085,17 +1132,13 @@ H5_daos_get_group_info(H5_daos_group_t *grp, H5G_info_t *group_info)
         D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, FAIL, "unable to atomize object handle")
     grp->obj.item.rc++;
 
-    /*
-     * Retrieve the number of links in the group.
-     */
-    link_iter_data.idx_p = NULL;
-    link_iter_data.index_type = H5_INDEX_NAME;
-    link_iter_data.is_recursive = FALSE;
-    link_iter_data.iter_function.link_iter_op = H5_daos_link_iterate_count_links_callback;
-    link_iter_data.iter_order = H5_ITER_NATIVE;
-    link_iter_data.iter_root_obj = target_grp_id;
-    link_iter_data.op_data = &local_grp_info.nlinks;
-    if(H5_daos_link_iterate(grp, &link_iter_data) < 0)
+    /* Initialize iteration data */
+    H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_LINK, H5_INDEX_NAME, H5_ITER_NATIVE,
+            FALSE, NULL, target_grp_id, &local_grp_info.nlinks, H5P_DATASET_XFER_DEFAULT, NULL);
+    iter_data.u.link_iter_data.link_iter_op = H5_daos_link_iterate_count_links_callback;
+
+    /* Retrieve the number of links in the group. */
+    if(H5_daos_link_iterate(grp, &iter_data) < 0)
         D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, FAIL, "can't retrieve the number of links in group")
 
     memcpy(group_info, &local_grp_info, sizeof(*group_info));

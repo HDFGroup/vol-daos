@@ -631,7 +631,7 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_map_get_val(void *_map, hid_t key_mem_type_id,
     void **req);
 H5VL_DAOS_PRIVATE herr_t H5_daos_map_exists(void *_map, hid_t key_mem_type_id,
     const void *key, hbool_t *exists, hid_t dxpl_id, void **req);
-H5VL_DAOS_PRIVATE herr_t H5_daos_map_set(void *_map, hid_t key_mem_type_id,
+H5VL_DAOS_PRIVATE herr_t H5_daos_map_put(void *_map, hid_t key_mem_type_id,
     const void *key,  hid_t val_mem_type_id, const void *value, hid_t dxpl_id,
     void **req);
 H5VL_DAOS_PRIVATE herr_t H5_daos_map_specific(void *_item,

@@ -888,7 +888,7 @@ done:
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_map_set
+ * Function:    H5_daos_map_put
  *
  * Purpose:     Adds a key-value pair to the Map specified by map_id, or
  *              updates the value for the specified key if one was set
@@ -905,7 +905,7 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t 
-H5_daos_map_set(void *_map, hid_t key_mem_type_id, const void *key,
+H5_daos_map_put(void *_map, hid_t key_mem_type_id, const void *key,
     hid_t val_mem_type_id, const void *value, hid_t H5VL_DAOS_UNUSED dxpl_id,
     void H5VL_DAOS_UNUSED **req)
 {
@@ -959,11 +959,11 @@ H5_daos_map_set(void *_map, hid_t key_mem_type_id, const void *key,
     if(0 != (ret = daos_obj_update(map->obj.obj_oh,
                    DAOS_TX_NONE, &dkey,
                    1, &iod, &sgl, NULL)))
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTSET, FAIL, "map set failed: %s", H5_daos_err_to_string(ret));
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTSET, FAIL, "map put failed: %s", H5_daos_err_to_string(ret));
 
 done:
     D_FUNC_LEAVE
-} /* end H5_daos_map_set() */
+} /* end H5_daos_map_put() */
 
 #if DV_HAVE_MAP
 
@@ -1184,7 +1184,7 @@ H5_daos_map_specific(void *_item, const H5VL_loc_params_t *loc_params,
             break;
         } /* H5VL_MAP_ITER */
 
-        case H5VL_MAP_DELETE_KEY:
+        case H5VL_MAP_DELETE:
         {
             hid_t key_mem_type_id = va_arg(arguments, hid_t);
             const void *key = va_arg(arguments, const void *);
@@ -1201,7 +1201,7 @@ H5_daos_map_specific(void *_item, const H5VL_loc_params_t *loc_params,
                 D_GOTO_ERROR(H5E_MAP, H5E_CANTREMOVE, FAIL, "map key delete failed")
 
             break;
-        } /* H5VL_MAP_DELETE_KEY */
+        } /* H5VL_MAP_DELETE */
 
         default:
             D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported map specific operation")

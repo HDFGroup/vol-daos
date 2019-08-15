@@ -318,21 +318,21 @@ test_insert_keys_one_rank()
         /*
          * Insert a few keys
          */
-        if (H5Mset(map_id, MAP_TEST_INSERT_RANK_0_ONLY_KEY_TYPE, &key1,
+        if (H5Mput(map_id, MAP_TEST_INSERT_RANK_0_ONLY_KEY_TYPE, &key1,
                 MAP_TEST_INSERT_RANK_0_ONLY_VAL_TYPE, &val1, H5P_DEFAULT)) {
             H5_FAILED();
             HDputs("    failed to set key-value pair in map");
             goto error;
         }
 
-        if (H5Mset(map_id, MAP_TEST_INSERT_RANK_0_ONLY_KEY_TYPE, &key2,
+        if (H5Mput(map_id, MAP_TEST_INSERT_RANK_0_ONLY_KEY_TYPE, &key2,
                 MAP_TEST_INSERT_RANK_0_ONLY_VAL_TYPE, &val2, H5P_DEFAULT)) {
             H5_FAILED();
             HDputs("    failed to set key-value pair in map");
             goto error;
         }
 
-        if (H5Mset(map_id, MAP_TEST_INSERT_RANK_0_ONLY_KEY_TYPE, &key3,
+        if (H5Mput(map_id, MAP_TEST_INSERT_RANK_0_ONLY_KEY_TYPE, &key3,
                 MAP_TEST_INSERT_RANK_0_ONLY_VAL_TYPE, &val3, H5P_DEFAULT)) {
             H5_FAILED();
             HDputs("    failed to set key-value pair in map");
@@ -526,7 +526,7 @@ test_insert_keys_all_ranks()
         /* Values simply determined by the current rank number */
         vals[i] = mpi_rank;
 
-        if (H5Mset(map_id, MAP_TEST_INSERT_ALL_RANKS_KEY_TYPE, &(keys[i]),
+        if (H5Mput(map_id, MAP_TEST_INSERT_ALL_RANKS_KEY_TYPE, &(keys[i]),
                 MAP_TEST_INSERT_ALL_RANKS_VAL_TYPE, &(vals[i]), H5P_DEFAULT) < 0) {
             H5_FAILED();
             HDputs("    failed to set key-value pair in map");
@@ -710,7 +710,7 @@ test_insert_keys_one_rank_iterate_all_ranks()
             /* Values simply determined by 10 times the current iteration number */
             cur_val = i * 10;
 
-            if (H5Mset(map_id, MAP_TEST_INSERT_RANK_0_ITERATE_ALL_RANKS_KEY_TYPE, &cur_key,
+            if (H5Mput(map_id, MAP_TEST_INSERT_RANK_0_ITERATE_ALL_RANKS_KEY_TYPE, &cur_key,
                     MAP_TEST_INSERT_RANK_0_ITERATE_ALL_RANKS_VAL_TYPE, &cur_val, H5P_DEFAULT) < 0) {
                 H5_FAILED();
                 printf("    failed to set key-value pair %lld in map\n", (long long) i);
@@ -857,7 +857,7 @@ test_insert_keys_all_ranks_iterate_all_ranks()
         /* Values simply determined by 5 times the current rank number */
         cur_val = mpi_rank * 5;
 
-        if (H5Mset(map_id, MAP_TEST_INSERT_ALL_RANKS_ITERATE_ALL_RANKS_KEY_TYPE, &cur_key,
+        if (H5Mput(map_id, MAP_TEST_INSERT_ALL_RANKS_ITERATE_ALL_RANKS_KEY_TYPE, &cur_key,
                 MAP_TEST_INSERT_ALL_RANKS_ITERATE_ALL_RANKS_VAL_TYPE, &cur_val, H5P_DEFAULT) < 0) {
             H5_FAILED();
             printf("    failed to set key-value pair %lld in map\n", (long long) i);
@@ -1007,7 +1007,7 @@ test_delete_keys_one_rank_iterate_all_ranks()
         /* Values simply determined by 5 times the current rank number */
         cur_val = mpi_rank * 5;
 
-        if (H5Mset(map_id, MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_KEY_TYPE, &cur_key,
+        if (H5Mput(map_id, MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_KEY_TYPE, &cur_key,
                 MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_VAL_TYPE, &cur_val, H5P_DEFAULT) < 0) {
             H5_FAILED();
             printf("    failed to set key-value pair %lld in map\n", (long long) i);
@@ -1076,7 +1076,7 @@ test_delete_keys_one_rank_iterate_all_ranks()
         for (i = 0; i < MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_N_KEYS; i++) {
             cur_key = (mpi_rank * MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_N_KEYS) + i;
 
-            if (H5Mdelete_key(map_id, MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_KEY_TYPE, &cur_key, H5P_DEFAULT) < 0) {
+            if (H5Mdelete(map_id, MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_KEY_TYPE, &cur_key, H5P_DEFAULT) < 0) {
                 H5_FAILED();
                 printf("    failed to delete key %lld in map\n", (long long) i);
                 goto error;
@@ -1224,7 +1224,7 @@ test_delete_keys_all_ranks_iterate_all_ranks()
          * with values ranging from 0 to (N keys - 1) */
         cur_val = i;
 
-        if (H5Mset(map_id, MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_KEY_TYPE, &cur_key,
+        if (H5Mput(map_id, MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_KEY_TYPE, &cur_key,
                 MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_VAL_TYPE, &cur_val, H5P_DEFAULT) < 0) {
             H5_FAILED();
             printf("    failed to set key-value pair %lld in map\n", (long long) i);
@@ -1294,7 +1294,7 @@ test_delete_keys_all_ranks_iterate_all_ranks()
 
         cur_key = (mpi_rank * MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_N_KEYS) + i;
 
-        if (H5Mdelete_key(map_id, MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_KEY_TYPE, &cur_key, H5P_DEFAULT) < 0) {
+        if (H5Mdelete(map_id, MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_KEY_TYPE, &cur_key, H5P_DEFAULT) < 0) {
             H5_FAILED();
             HDputs("    failed to delete key in map\n");
             goto error;
@@ -1455,7 +1455,7 @@ test_update_keys_rank_0_only_read_all_ranks()
         /* Values range from 0 to ((mpi_size * MAP_TEST_INSERT_ALL_RANKS_ITERATE_ALL_RANKS_N_KEYS) - 1) */
         cur_val = (mpi_rank * MAP_TEST_UPDATE_RANK_0_READ_ALL_RANKS_N_KEYS) + i;
 
-        if (H5Mset(map_id, MAP_TEST_UPDATE_RANK_0_READ_ALL_RANKS_KEY_TYPE, &cur_key,
+        if (H5Mput(map_id, MAP_TEST_UPDATE_RANK_0_READ_ALL_RANKS_KEY_TYPE, &cur_key,
                 MAP_TEST_UPDATE_RANK_0_READ_ALL_RANKS_VAL_TYPE, &cur_val, H5P_DEFAULT) < 0) {
             H5_FAILED();
             printf("    failed to set key-value pair %lld in map\n", (long long) i);
@@ -1507,7 +1507,7 @@ test_update_keys_rank_0_only_read_all_ranks()
 
                 cur_val++;
 
-                if (H5Mset(map_id, MAP_TEST_UPDATE_RANK_0_READ_ALL_RANKS_KEY_TYPE, &cur_key,
+                if (H5Mput(map_id, MAP_TEST_UPDATE_RANK_0_READ_ALL_RANKS_KEY_TYPE, &cur_key,
                         MAP_TEST_UPDATE_RANK_0_READ_ALL_RANKS_VAL_TYPE, &cur_val, H5P_DEFAULT) < 0) {
                     H5_FAILED();
                     printf("    failed to set key-value pair %lld in map\n", (long long) j);
@@ -1672,7 +1672,7 @@ test_update_keys_all_ranks_read_all_ranks()
         /* Values range from 0 to ((mpi_size * MAP_TEST_INSERT_ALL_RANKS_ITERATE_ALL_RANKS_N_KEYS) - 1) */
         cur_val = (mpi_rank * MAP_TEST_UPDATE_ALL_RANKS_READ_ALL_RANKS_N_KEYS) + i;
 
-        if (H5Mset(map_id, MAP_TEST_UPDATE_ALL_RANKS_READ_ALL_RANKS_KEY_TYPE, &cur_key,
+        if (H5Mput(map_id, MAP_TEST_UPDATE_ALL_RANKS_READ_ALL_RANKS_KEY_TYPE, &cur_key,
                 MAP_TEST_UPDATE_ALL_RANKS_READ_ALL_RANKS_VAL_TYPE, &cur_val, H5P_DEFAULT) < 0) {
             H5_FAILED();
             printf("    failed to set key-value pair %lld in map\n", (long long) i);
@@ -1723,7 +1723,7 @@ test_update_keys_all_ranks_read_all_ranks()
 
             cur_val++;
 
-            if (H5Mset(map_id, MAP_TEST_UPDATE_ALL_RANKS_READ_ALL_RANKS_KEY_TYPE, &cur_key,
+            if (H5Mput(map_id, MAP_TEST_UPDATE_ALL_RANKS_READ_ALL_RANKS_KEY_TYPE, &cur_key,
                     MAP_TEST_UPDATE_ALL_RANKS_READ_ALL_RANKS_VAL_TYPE, &cur_val, H5P_DEFAULT) < 0) {
                 H5_FAILED();
                 printf("    failed to set key-value pair %lld in map\n", (long long) j);

@@ -18,9 +18,16 @@
 #include "util/daos_vol_err.h"  /* DAOS connector error handling           */
 #include "util/daos_vol_mem.h"  /* DAOS connector memory management        */
 
+/* Macros */
+#define H5_DAOS_HARD_LINK_VAL_SIZE 17
+
 /* Prototypes */
 static herr_t H5_daos_link_read(H5_daos_group_t *grp, const char *name,
     size_t name_len, H5_daos_link_val_t *val);
+static herr_t H5_daos_link_get_info(H5_daos_item_t *item, const char *link_path,
+    H5L_info_t *link_info, hid_t dxpl_id, void **req);
+static herr_t H5_daos_link_delete(H5_daos_item_t *item, const char *link_path,
+    hid_t dxpl_id, void **req);
 
 
 /*-------------------------------------------------------------------------
@@ -121,7 +128,7 @@ H5_daos_link_read(H5_daos_group_t *grp, const char *name, size_t name_len,
             if(val_buf_dyn) {
                 val->target.soft = (char *)val_buf_dyn;
                 val_buf_dyn = NULL;
-                memmove(val->target.soft,  val->target.soft + 1, iod.iod_size - 1);
+                memmove(val->target.soft, val->target.soft + 1, iod.iod_size - 1);
             } /* end if */
             else {
                 if(NULL == (val->target.soft = (char *)DV_malloc(iod.iod_size)))
@@ -207,10 +214,10 @@ H5_daos_link_write(H5_daos_group_t *grp, const char *name,
     /* Encode type specific value information */
     switch(val->type) {
          case H5L_TYPE_HARD:
-            assert(17 == sizeof(val->target.hard) + 1);
+            assert(H5_DAOS_HARD_LINK_VAL_SIZE == sizeof(val->target.hard) + 1);
 
             /* Allocate iov_buf */
-            if(NULL == (iov_buf = (uint8_t *)DV_malloc(17)))
+            if(NULL == (iov_buf = (uint8_t *)DV_malloc(H5_DAOS_HARD_LINK_VAL_SIZE)))
                 D_GOTO_ERROR(H5E_SYM, H5E_CANTALLOC, FAIL, "can't allocate space for link target")
             p = iov_buf;
 
@@ -221,10 +228,10 @@ H5_daos_link_write(H5_daos_group_t *grp, const char *name,
             UINT64ENCODE(p, val->target.hard.lo)
             UINT64ENCODE(p, val->target.hard.hi)
 
-            update_cb_ud->iod[0].iod_size = (uint64_t)17;
+            update_cb_ud->iod[0].iod_size = (uint64_t)H5_DAOS_HARD_LINK_VAL_SIZE;
 
             /* Set up type specific sgl */
-            daos_iov_set(&update_cb_ud->sg_iov[0], iov_buf, (daos_size_t)17);
+            daos_iov_set(&update_cb_ud->sg_iov[0], iov_buf, (daos_size_t)H5_DAOS_HARD_LINK_VAL_SIZE);
             update_cb_ud->sgl[0].sg_nr = 1;
             update_cb_ud->sgl[0].sg_nr_out = 0;
 
@@ -325,6 +332,7 @@ H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_group_t *link_grp = NULL;
+    H5_daos_obj_t *target_obj = NULL;
     const char *link_name = NULL;
     H5_daos_link_val_t link_val;
     tse_task_t *link_write_task;
@@ -342,9 +350,50 @@ H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
 
     switch(create_type) {
         case H5VL_LINK_CREATE_HARD:
-            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "hard link creation not supported")
+        {
+            H5_daos_obj_t *target_obj_loc = va_arg(arguments, void *);
+            H5VL_loc_params_t *target_obj_loc_params = va_arg(arguments, H5VL_loc_params_t *);
+
+            /* Determine the target location object in which to place
+             * the new link. If item is NULL here, H5L_SAME_LOC was
+             * used as the third parameter to H5Lcreate_hard, so the
+             * target location object is actually the object passed
+             * in from the va_arg list. */
+            if(!item)
+                item = (H5_daos_item_t *) target_obj_loc;
+
+            /* Determine the target location object for the object
+             * that the hard link is to point to. If target_obj_loc
+             * is NULL here, H5L_SAME_LOC was used as the first
+             * parameter to H5Lcreate_hard, so the target location
+             * object is actually the VOL object that was passed
+             * into this callback as a function parameter.
+             */
+            if(target_obj_loc == NULL)
+                target_obj_loc = (H5_daos_obj_t *) item;
+
+            if(H5VL_OBJECT_BY_NAME == target_obj_loc_params->type) {
+                /* Attempt to open the hard link's target object */
+                if(NULL == (target_obj = H5_daos_object_open((H5_daos_item_t *) target_obj_loc,
+                        target_obj_loc_params, NULL, dxpl_id, req)))
+                    D_GOTO_ERROR(H5E_LINK, H5E_CANTOPENOBJ, FAIL, "couldn't open hard link's target object")
+            }
+            else {
+                /* H5Olink */
+                assert(H5VL_OBJECT_BY_SELF == target_obj_loc_params->type);
+                target_obj = target_obj_loc;
+            }
+
+            link_val.type = H5L_TYPE_HARD;
+            link_val.target.hard = target_obj->oid;
+
+            /*
+             * TODO: if the link write succeeds, the link ref. count for
+             * the target object should be incremented.
+             */
 
             break;
+        } /* H5VL_LINK_CREATE_HARD */
 
         case H5VL_LINK_CREATE_SOFT:
             if(!_item)
@@ -357,7 +406,7 @@ H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
             break;
 
         case H5VL_LINK_CREATE_UD:
-            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "UD link creation not supported")
+            D_GOTO_ERROR(H5E_LINK, H5E_UNSUPPORTED, FAIL, "UD link creation not supported")
         default:
             D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "invalid link creation call")
     } /* end switch */
@@ -381,7 +430,7 @@ H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
 
     /* Create link */
     if(H5_daos_link_write(link_grp, link_name, strlen(link_name), &link_val, int_req, &link_write_task) < 0)
-        D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't create link")
+        D_GOTO_ERROR(H5E_LINK, H5E_WRITEERROR, FAIL, "can't create link")
     finalize_deps[finalize_ndeps] = link_write_task;
     finalize_ndeps++;
 
@@ -389,17 +438,19 @@ done:
     /* Close link group */
     if(link_grp && H5_daos_group_close(link_grp, dxpl_id, req) < 0)
         D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group")
+    if(target_obj && H5_daos_object_close(target_obj, dxpl_id, req) < 0)
+        D_DONE_ERROR(H5E_OHDR, H5E_CLOSEERROR, FAIL, "can't close object")
 
     if(int_req) {
         /* Create task to finalize H5 operation */
         if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &item->file->sched, int_req, &finalize_task)))
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+            D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
         /* Register dependencies (if any) */
         else if(finalize_ndeps > 0 && 0 != (ret = tse_task_register_deps(finalize_task, finalize_ndeps, finalize_deps)))
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+            D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
         /* Schedule finalize task */
         else if(0 != (ret = tse_task_schedule(finalize_task, false)))
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+            D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
         else
             /* finalize_task now owns a reference to req */
             int_req->rc++;
@@ -410,18 +461,16 @@ done:
 
             /* Wait for scheduler to be empty *//* Change to custom progress function DSINC */
             if(0 != (ret = daos_progress(&item->file->sched, DAOS_EQ_WAIT, &is_empty)))
-                D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't progress scheduler: %s", H5_daos_err_to_string(ret))
+                D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't progress scheduler: %s", H5_daos_err_to_string(ret))
 
             /* Check for failure */
             if(int_req->status < 0)
-                D_DONE_ERROR(H5E_DATATYPE, H5E_CANTOPERATE, FAIL, "link creation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status))
+                D_DONE_ERROR(H5E_LINK, H5E_CANTOPERATE, FAIL, "link creation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status))
         } /* end block */
 
         /* Close internal request */
         H5_daos_req_free_int(int_req);
     } /* end if */
-
-    PRINT_ERROR_STACK
 
     D_FUNC_LEAVE_API
 } /* end H5_daos_link_create() */
@@ -475,10 +524,9 @@ done:
 
 herr_t
 H5_daos_link_get(void *_item, const H5VL_loc_params_t *loc_params,
-    H5VL_link_get_t get_type, hid_t H5VL_DAOS_UNUSED dxpl_id,
-    void H5VL_DAOS_UNUSED **req, va_list H5VL_DAOS_UNUSED arguments)
+    H5VL_link_get_t get_type, hid_t dxpl_id, void **req, va_list arguments)
 {
-//    H5_daos_item_t *item = (H5_daos_item_t *)_item;
+    H5_daos_item_t *item = (H5_daos_item_t *)_item;
     herr_t          ret_value = SUCCEED;
 
     if(!_item)
@@ -488,6 +536,18 @@ H5_daos_link_get(void *_item, const H5VL_loc_params_t *loc_params,
 
     switch (get_type) {
         case H5VL_LINK_GET_INFO:
+        {
+            H5L_info_t *link_info = va_arg(arguments, H5L_info_t *);
+
+            if(H5VL_OBJECT_BY_NAME != loc_params->type)
+                D_GOTO_ERROR(H5E_LINK, H5E_UNSUPPORTED, FAIL, "H5Lget_info_by_idx is unsupported")
+
+            if(H5_daos_link_get_info(item, loc_params->loc_data.loc_by_name.name, link_info, dxpl_id, req) < 0)
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't retrieve link's info")
+
+            break;
+        } /* H5VL_LINK_GET_INFO */
+
         case H5VL_LINK_GET_NAME:
         case H5VL_LINK_GET_VAL:
         default:
@@ -520,7 +580,6 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_group_t *target_grp = NULL;
     hid_t target_grp_id = -1;
-    int ret;
     herr_t ret_value = SUCCEED;    /* Return value */
 
     if(!_item)
@@ -606,8 +665,18 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
                 break;
             } /* end block */
 
+        /* H5Ldelete(_by_idx) */
         case H5VL_LINK_DELETE:
-            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "unsupported specific operation")
+        {
+            if(H5VL_OBJECT_BY_IDX == loc_params->type)
+                D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "H5Ldelete_by_idx is unsupported")
+
+            if(H5_daos_link_delete(item, loc_params->loc_data.loc_by_name.name, dxpl_id, req) < 0)
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTREMOVE, FAIL, "failed to delete link")
+
+            break;
+        } /* H5VL_LINK_DELETE */
+
         default:
             D_GOTO_ERROR(H5E_VOL, H5E_BADVALUE, FAIL, "invalid specific operation")
     } /* end switch */
@@ -627,61 +696,6 @@ done:
 
     D_FUNC_LEAVE_API
 } /* end H5_daos_link_specific() */
-
-
-/*-------------------------------------------------------------------------
- * Function:    H5_daos_link_exists
- *
- * Purpose:     Helper routine to determine if a link exists by the given
- *              pathname from the specified object.
- *
- * Return:      Success:        TRUE if the link exists or FALSE if it does
- *                              not exist.
- *              Failure:        FAIL
- *
- *-------------------------------------------------------------------------
- */
-htri_t
-H5_daos_link_exists(H5_daos_item_t *item, const char *link_path, hid_t dxpl_id, void **req)
-{
-    H5_daos_group_t *target_grp = NULL;
-    const char *target_name = NULL;
-    daos_key_t dkey;
-    daos_iod_t iod;
-    int ret;
-    htri_t ret_value = FALSE;
-
-    /* Traverse the path */
-    if(NULL == (target_grp = H5_daos_group_traverse(item, link_path, dxpl_id, req, &target_name, NULL, NULL)))
-        D_GOTO_ERROR(H5E_SYM, H5E_BADITER, FAIL, "can't traverse path")
-
-    /* Set up dkey */
-    daos_iov_set(&dkey, (void *)target_name, strlen(target_name));
-
-    /* Set up iod */
-    memset(&iod, 0, sizeof(iod));
-    daos_iov_set(&iod.iod_name, H5_daos_link_key_g, H5_daos_link_key_size_g);
-    daos_csum_set(&iod.iod_kcsum, NULL, 0);
-    iod.iod_nr = 1u;
-    iod.iod_size = DAOS_REC_ANY;
-    iod.iod_type = DAOS_IOD_SINGLE;
-
-    /* Read link */
-    if(0 != (ret = daos_obj_fetch(target_grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, NULL /*sgl*/, NULL /*maps*/, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't read link: %s", H5_daos_err_to_string(ret))
-
-    /* Set return value */
-    ret_value = iod.iod_size != (uint64_t)0;
-
-done:
-    if(target_grp) {
-        if(H5_daos_group_close(target_grp, dxpl_id, req) < 0)
-            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group")
-        target_grp = NULL;
-    } /* end if */
-
-    D_FUNC_LEAVE
-} /* end H5_daos_link_exists() */
 
 
 /*-------------------------------------------------------------------------
@@ -777,6 +791,119 @@ done:
 
 
 /*-------------------------------------------------------------------------
+ * Function:    H5_daos_link_get_info
+ *
+ * Purpose:     Helper routine to retrieve a link's info and populate a
+ *              H5L_info_t struct.
+ *
+ * Return:      Success:        SUCCEED
+ *              Failure:        FAIL
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_link_get_info(H5_daos_item_t *item, const char *link_path,
+    H5L_info_t *link_info, hid_t dxpl_id, void **req)
+{
+    H5_daos_link_val_t link_val;
+    H5_daos_group_t *target_grp = NULL;
+    H5L_info_t local_link_info;
+    const char *target_name;
+    herr_t ret_value = SUCCEED;
+
+    assert(link_info);
+
+    /* Traverse the path */
+    if(NULL == (target_grp = H5_daos_group_traverse(item, link_path, dxpl_id, req, &target_name, NULL, NULL)))
+        D_GOTO_ERROR(H5E_SYM, H5E_TRAVERSE, FAIL, "failed to traverse path")
+
+    if(H5_daos_link_read(target_grp, target_name, strlen(target_name), &link_val) < 0)
+        D_GOTO_ERROR(H5E_LINK, H5E_READERROR, FAIL, "failed to read link")
+
+    local_link_info.type = link_val.type;
+
+    /* TODO */
+    if(H5L_TYPE_HARD == link_val.type)
+        local_link_info.u.address = HADDR_UNDEF;
+    else if(H5L_TYPE_SOFT == link_val.type || H5L_TYPE_EXTERNAL == link_val.type)
+        local_link_info.u.val_size = 0;
+
+    /* TODO Retrieve the link's creation order and mark the order as valid */
+    local_link_info.corder = -1;
+    local_link_info.corder_valid = FALSE;
+
+    /* Only ASCII character set is supported currently */
+    local_link_info.cset = H5T_CSET_ASCII;
+
+    memcpy(link_info, &local_link_info, sizeof(*link_info));
+
+done:
+    if(target_grp) {
+        if(H5_daos_group_close(target_grp, dxpl_id, req) < 0)
+            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group")
+        target_grp = NULL;
+    } /* end if */
+
+    D_FUNC_LEAVE
+} /* end H5_daos_link_get_info() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_link_exists
+ *
+ * Purpose:     Helper routine to determine if a link exists by the given
+ *              pathname from the specified object.
+ *
+ * Return:      Success:        TRUE if the link exists or FALSE if it does
+ *                              not exist.
+ *              Failure:        FAIL
+ *
+ *-------------------------------------------------------------------------
+ */
+htri_t
+H5_daos_link_exists(H5_daos_item_t *item, const char *link_path, hid_t dxpl_id, void **req)
+{
+    H5_daos_group_t *target_grp = NULL;
+    const char *target_name = NULL;
+    daos_key_t dkey;
+    daos_iod_t iod;
+    int ret;
+    htri_t ret_value = FALSE;
+
+    /* Traverse the path */
+    if(NULL == (target_grp = H5_daos_group_traverse(item, link_path, dxpl_id, req, &target_name, NULL, NULL)))
+        D_GOTO_ERROR(H5E_SYM, H5E_TRAVERSE, FAIL, "can't traverse path")
+
+    /* Set up dkey */
+    daos_iov_set(&dkey, (void *)target_name, strlen(target_name));
+
+    /* Set up iod */
+    memset(&iod, 0, sizeof(iod));
+    daos_iov_set(&iod.iod_name, H5_daos_link_key_g, H5_daos_link_key_size_g);
+    daos_csum_set(&iod.iod_kcsum, NULL, 0);
+    iod.iod_nr = 1u;
+    iod.iod_size = DAOS_REC_ANY;
+    iod.iod_type = DAOS_IOD_SINGLE;
+
+    /* Read link */
+    if(0 != (ret = daos_obj_fetch(target_grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, NULL /*sgl*/, NULL /*maps*/, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't read link: %s", H5_daos_err_to_string(ret))
+
+    /* Set return value */
+    ret_value = iod.iod_size != (uint64_t)0;
+
+done:
+    if(target_grp) {
+        if(H5_daos_group_close(target_grp, dxpl_id, req) < 0)
+            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group")
+        target_grp = NULL;
+    } /* end if */
+
+    D_FUNC_LEAVE
+} /* end H5_daos_link_exists() */
+
+
+/*-------------------------------------------------------------------------
  * Function:    H5_daos_link_iterate
  *
  * Purpose:     Iterates over the links in the specified group, using the
@@ -847,8 +974,7 @@ H5_daos_link_iterate(H5_daos_group_t *target_grp, H5_daos_iter_data_t *iter_data
 
     /* Loop to retrieve keys and make callbacks */
     do {
-        /* Loop to retrieve keys (exit as soon as we get at least 1
-         * key) */
+        /* Loop to retrieve keys (exit as soon as we get at least 1 key) */
         do {
             /* Reset nr */
             nr = H5_DAOS_ITER_LEN;
@@ -861,11 +987,13 @@ H5_daos_link_iterate(H5_daos_group_t *target_grp, H5_daos_iter_data_t *iter_data
             /* Call failed, if the buffer is too small double it and
              * try again, otherwise fail */
             if(ret == -DER_KEY2BIG) {
+                char *tmp_realloc;
+
                 /* Allocate larger buffer */
-                DV_free(dkey_buf);
                 dkey_buf_len *= 2;
-                if(NULL == (dkey_buf = (char *)DV_malloc(dkey_buf_len)))
+                if(NULL == (tmp_realloc = (char *)DV_realloc(dkey_buf, dkey_buf_len)))
                     D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for dkeys")
+                dkey_buf = tmp_realloc;
 
                 /* Update sgl */
                 daos_iov_set(&sg_iov, dkey_buf, (daos_size_t)(dkey_buf_len - 1));
@@ -925,7 +1053,7 @@ H5_daos_link_iterate(H5_daos_group_t *target_grp, H5_daos_iter_data_t *iter_data
                         if(NULL == (target_obj = H5_daos_object_open(target_grp, &sub_loc_params, NULL, iter_data->dxpl_id, iter_data->req)))
                             D_GOTO_ERROR(H5E_OHDR, H5E_CANTOPENOBJ, FAIL, "can't open object")
 
-                            iter_data->u.obj_iter_data.obj_name = p;
+                        iter_data->u.obj_iter_data.obj_name = p;
                         if(H5_daos_object_visit(target_obj, iter_data) < 0)
                             D_GOTO_ERROR(H5E_OHDR, H5E_BADITER, FAIL, "failed to visit object")
 
@@ -983,3 +1111,49 @@ H5_daos_link_iterate_count_links_callback(hid_t H5VL_DAOS_UNUSED group, const ch
     (*((hsize_t *) op_data))++;
     return 0;
 } /* end H5_daos_link_iterate_count_links_callback() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_link_delete
+ *
+ * Purpose:     Deletes the link specified by the given link pathname from
+ *              the specified object.
+ *
+ * Return:      Success:        SUCCEED or positive
+ *              Failure:        FAIL
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_link_delete(H5_daos_item_t *item, const char *link_path, hid_t dxpl_id, void **req)
+{
+    H5_daos_group_t *target_grp = NULL;
+    const char *target_name = NULL;
+    daos_key_t dkey;
+    int ret;
+    herr_t ret_value = SUCCEED;
+
+    /* Traverse the path */
+    if(NULL == (target_grp = H5_daos_group_traverse(item, link_path, dxpl_id, req, &target_name, NULL, NULL)))
+        D_GOTO_ERROR(H5E_SYM, H5E_TRAVERSE, FAIL, "can't traverse path")
+
+    /* Setup dkey */
+    daos_iov_set(&dkey, (void *)target_name, strlen(target_name));
+
+    /* Punch the link's dkey, along with all of its akeys */
+    if(0 != (ret = daos_obj_punch_dkeys(target_grp->obj.obj_oh, DAOS_TX_NONE, 1, &dkey, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTREMOVE, FAIL, "failed to punch link dkey: %s", H5_daos_err_to_string(ret))
+
+    /* TODO: If no more hard links point to the object in question, it should be
+     * removed from the file, or at least marked to be removed.
+     */
+
+done:
+    if(target_grp) {
+        if(H5_daos_group_close(target_grp, dxpl_id, req) < 0)
+            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group")
+        target_grp = NULL;
+    } /* end if */
+
+    D_FUNC_LEAVE
+} /* end H5_daos_link_delete() */

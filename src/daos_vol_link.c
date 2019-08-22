@@ -526,8 +526,10 @@ herr_t
 H5_daos_link_get(void *_item, const H5VL_loc_params_t *loc_params,
     H5VL_link_get_t get_type, hid_t dxpl_id, void **req, va_list arguments)
 {
-    H5_daos_item_t *item = (H5_daos_item_t *)_item;
-    herr_t          ret_value = SUCCEED;
+    H5_daos_link_val_t  link_val;
+    H5_daos_item_t     *item = (H5_daos_item_t *)_item;
+    hbool_t             link_val_alloc = FALSE;
+    herr_t              ret_value = SUCCEED;
 
     if(!_item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL")
@@ -539,7 +541,7 @@ H5_daos_link_get(void *_item, const H5VL_loc_params_t *loc_params,
         {
             H5L_info_t *link_info = va_arg(arguments, H5L_info_t *);
 
-            if(H5VL_OBJECT_BY_NAME != loc_params->type)
+            if(H5VL_OBJECT_BY_IDX == loc_params->type)
                 D_GOTO_ERROR(H5E_LINK, H5E_UNSUPPORTED, FAIL, "H5Lget_info_by_idx is unsupported")
 
             if(H5_daos_link_get_info(item, loc_params->loc_data.loc_by_name.name, link_info, dxpl_id, req) < 0)
@@ -549,12 +551,48 @@ H5_daos_link_get(void *_item, const H5VL_loc_params_t *loc_params,
         } /* H5VL_LINK_GET_INFO */
 
         case H5VL_LINK_GET_NAME:
+            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported link get operation")
+
         case H5VL_LINK_GET_VAL:
+        {
+            void *out_buf = va_arg(arguments, void *);
+            size_t out_buf_size = va_arg(arguments, size_t);
+
+            if(H5VL_OBJECT_BY_IDX == loc_params->type)
+                D_GOTO_ERROR(H5E_LINK, H5E_UNSUPPORTED, FAIL, "H5Lget_val_by_idx is unsupported")
+
+            if(H5_daos_link_read((H5_daos_group_t *) item, loc_params->loc_data.loc_by_name.name,
+                    strlen(loc_params->loc_data.loc_by_name.name), &link_val))
+                D_GOTO_ERROR(H5E_LINK, H5E_READERROR, FAIL, "failed to read link")
+
+            if(H5L_TYPE_HARD == link_val.type)
+                D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, FAIL, "link value cannot be retrieved from a hard link")
+            else if(H5L_TYPE_SOFT == link_val.type)
+                link_val_alloc = TRUE;
+
+            if(out_buf) {
+                /*
+                 * H5Lget_val specifically says that if the size of the buffer
+                 * given is smaller than the size of the link's value, then
+                 * the link's value will be truncated to 'size' bytes and will
+                 * not be null-terminated.
+                 */
+                memcpy(out_buf, link_val.target.soft, out_buf_size);
+            } /* end if */
+
+            break;
+        } /* H5VL_LINK_GET_VAL */
+
         default:
             D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported link get operation")
     } /* end switch */
 
 done:
+    if(link_val_alloc) {
+        assert(H5L_TYPE_SOFT == link_val.type);
+        DV_free(link_val.target.soft);
+    } /* end if */
+
     D_FUNC_LEAVE_API
 } /* end H5_daos_link_get() */
 
@@ -809,6 +847,7 @@ H5_daos_link_get_info(H5_daos_item_t *item, const char *link_path,
     H5_daos_group_t *target_grp = NULL;
     H5L_info_t local_link_info;
     const char *target_name;
+    hbool_t link_val_alloc = FALSE;
     herr_t ret_value = SUCCEED;
 
     assert(link_info);
@@ -825,8 +864,14 @@ H5_daos_link_get_info(H5_daos_item_t *item, const char *link_path,
     /* TODO */
     if(H5L_TYPE_HARD == link_val.type)
         local_link_info.u.address = HADDR_UNDEF;
-    else if(H5L_TYPE_SOFT == link_val.type || H5L_TYPE_EXTERNAL == link_val.type)
-        local_link_info.u.val_size = 0;
+    else if(H5L_TYPE_SOFT == link_val.type || H5L_TYPE_EXTERNAL == link_val.type) {
+        link_val_alloc = TRUE;
+
+        local_link_info.u.val_size = strlen(link_val.target.soft) + 1;
+
+        /* Free soft link value */
+        link_val.target.soft = (char *)DV_free(link_val.target.soft);
+    }
 
     /* TODO Retrieve the link's creation order and mark the order as valid */
     local_link_info.corder = -1;
@@ -838,6 +883,11 @@ H5_daos_link_get_info(H5_daos_item_t *item, const char *link_path,
     memcpy(link_info, &local_link_info, sizeof(*link_info));
 
 done:
+    if(link_val_alloc) {
+        assert(H5L_TYPE_SOFT == link_val.type);
+        DV_free(link_val.target.soft);
+    } /* end if */
+
     if(target_grp) {
         if(H5_daos_group_close(target_grp, dxpl_id, req) < 0)
             D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group")

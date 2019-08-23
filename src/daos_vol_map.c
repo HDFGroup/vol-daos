@@ -1303,32 +1303,8 @@ H5_daos_map_iterate(H5_daos_map_t *map, hid_t map_id, hsize_t *idx,
 
     /* Loop to retrieve keys and make callbacks */
     do {
-        /* Loop to retrieve keys (exit as soon as we get at least 1
-         * key) */
-        do {
-            /* Reset nr */
-            nr = H5_DAOS_ITER_LEN;
-
-            /* Ask daos for a list of dkeys, break out if we succeed
-             */
-            if(0 == (ret = daos_obj_list_dkey(map->obj.obj_oh, DAOS_TX_NONE, &nr, kds, &sgl, &anchor, NULL /*event*/)))
-                break;
-
-            /* Call failed, if the buffer is too small double it and
-             * try again, otherwise fail */
-            if(ret == -DER_KEY2BIG) {
-                /* Allocate larger buffer */
-                DV_free(dkey_buf);
-                dkey_buf_len *= 2;
-                if(NULL == (dkey_buf = (char *)DV_malloc(dkey_buf_len)))
-                    D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for dkeys")
-
-                /* Update sgl */
-                daos_iov_set(&sg_iov, dkey_buf, (daos_size_t)(dkey_buf_len - 1));
-            } /* end if */
-            else
-                D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, FAIL, "can't retrieve attributes: %s", H5_daos_err_to_string(ret))
-        } while(1);
+        H5_DAOS_RETRIEVE_KEYS_LOOP(dkey_buf, dkey_buf_len, sg_iov, H5E_MAP, daos_obj_list_dkey,
+                map->obj.obj_oh, DAOS_TX_NONE, &nr, kds, &sgl, &anchor, NULL /*event*/);
 
         /* Loop over returned dkeys */
         p = dkey_buf;

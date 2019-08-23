@@ -31,6 +31,9 @@
 /* System headers */
 #include <assert.h>
 
+/* Hash table */
+#include "util/daos_vol_hash_table.h"
+
 /* For DAOS compatibility */
 #ifdef H5VL_DAOS_NEW_API
 typedef d_iov_t daos_iov_t;
@@ -160,10 +163,47 @@ typedef d_sg_list_t daos_sg_list_t;
  */
 #undef DV_HAVE_SNAP_OPEN_ID
 
+/*
+ * Macro to loop over asking DAOS for a list of akeys/dkeys for an object
+ * and stop as soon as at least one key is retrieved. If DAOS returns
+ * -DER_KEY2BIG, the loop will re-allocate the specified key buffer as
+ * necessary and try again. The variadic portion of this macro corresponds
+ * to the arguments given to daos_obj_list_akey/dkey.
+ */
+#define H5_DAOS_RETRIEVE_KEYS_LOOP(key_buf, key_buf_len, sg_iov, maj_err, daos_obj_list_func, ...)  \
+do {                                                                                                \
+    /* Reset nr */                                                                                  \
+    nr = H5_DAOS_ITER_LEN;                                                                          \
+                                                                                                    \
+    /* Ask DAOS for a list of keys, break out if we succeed */                                      \
+    if(0 == (ret = daos_obj_list_func(__VA_ARGS__)))                                                \
+        break;                                                                                      \
+                                                                                                    \
+    /*                                                                                              \
+     * Call failed - if the buffer is too small double it and                                       \
+     * try again, otherwise fail.                                                                   \
+     */                                                                                             \
+    if(ret == -DER_KEY2BIG) {                                                                       \
+        char *tmp_realloc;                                                                          \
+                                                                                                    \
+        /* Allocate larger buffer */                                                                \
+        key_buf_len *= 2;                                                                           \
+        if(NULL == (tmp_realloc = (char *)DV_realloc(key_buf, key_buf_len)))                        \
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't reallocate key buffer")          \
+        key_buf = tmp_realloc;                                                                      \
+                                                                                                    \
+        /* Update SGL */                                                                            \
+        daos_iov_set(&sg_iov, key_buf, (daos_size_t)(key_buf_len - 1));                             \
+    } /* end if */                                                                                  \
+    else                                                                                            \
+        D_GOTO_ERROR(maj_err, H5E_CANTGET, FAIL, "can't list keys: %s", H5_daos_err_to_string(ret)) \
+} while(1)
+
 /* Macro to initialize all non-specific fields of an H5_daos_iter_data_t struct */
 #define H5_DAOS_ITER_DATA_INIT(_iter_data, _iter_type, _idx_type, _iter_order, \
     _is_recursive, _idx_p, _iter_root_obj, _op_data, _dxpl_id, _req)           \
     do {                                                                       \
+        memset(&_iter_data, 0, sizeof(H5_daos_iter_data_t));                   \
         _iter_data.iter_type = _iter_type;                                     \
         _iter_data.index_type = _idx_type;                                     \
         _iter_data.iter_order = _iter_order;                                   \
@@ -342,7 +382,11 @@ typedef struct H5_daos_iter_data_t {
         } attr_iter_data;
 
         struct {
-            H5L_iterate_t   link_iter_op;
+            H5L_iterate_t    link_iter_op;
+            dv_hash_table_t *visited_link_table;
+            char            *recursive_link_path;
+            size_t           recursive_link_path_nalloc;
+            unsigned         recurse_depth;
         } link_iter_data;
 
         struct {

@@ -18,6 +18,7 @@
 #include "util/daos_vol_err.h"  /* DAOS connector error handling           */
 #include "util/daos_vol_mem.h"  /* DAOS connector memory management        */
 
+static herr_t H5_daos_object_visit_link_iter_cb(hid_t group, const char *name, const H5L_info_t *info, void *op_data);
 static herr_t H5_daos_object_get_info(H5_daos_obj_t *target_obj, unsigned fields, H5O_info_t *obj_info_out);
 static hssize_t H5_daos_object_get_num_attrs(H5_daos_obj_t *target_obj);
 static herr_t H5_daos_group_copy(H5_daos_group_t *src_obj, H5_daos_group_t *dst_obj, const char *dst_name,
@@ -708,6 +709,74 @@ done:
 
 
 /*-------------------------------------------------------------------------
+ * Function:    H5_daos_object_visit_link_iter_cb
+ *
+ * Purpose:     Link iteration callback (H5L_iterate_t) which is
+ *              recursively called for each link in a group during a call
+ *              to H5Ovisit(_by_name).
+ *
+ *              The callback expects to receive an H5_daos_iter_data_t
+ *              which contains a pointer to the object iteration operator
+ *              callback function (H5O_iterate_t) to call on the object
+ *              which each link points to.
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_object_visit_link_iter_cb(hid_t group, const char *name, const H5L_info_t *info,
+    void *op_data)
+{
+    H5_daos_iter_data_t *iter_data = (H5_daos_iter_data_t *)op_data;
+    H5_daos_group_t *target_grp;
+    H5_daos_obj_t *target_obj = NULL;
+    htri_t link_resolves = TRUE;
+    herr_t ret_value = H5_ITER_CONT;
+
+    assert(iter_data);
+    assert(H5_DAOS_ITER_TYPE_OBJ == iter_data->iter_type);
+
+    if(NULL == (target_grp = (H5_daos_group_t *) H5VLobject(group)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, H5_ITER_ERROR, "failed to retrieve VOL object for group ID")
+
+    if(H5L_TYPE_SOFT == info->type)
+        /* Check that the soft link resolves before opening the target object */
+        if((link_resolves = H5_daos_link_follow(target_grp, name, strlen(name), iter_data->dxpl_id, NULL, NULL)) < 0)
+            D_GOTO_ERROR(H5E_LINK, H5E_TRAVERSE, H5_ITER_ERROR, "can't follow link")
+
+    if(link_resolves) {
+        H5VL_loc_params_t loc_params;
+
+        /* Open the target object */
+        loc_params.type = H5VL_OBJECT_BY_NAME;
+        loc_params.loc_data.loc_by_name.name = name;
+        loc_params.loc_data.loc_by_name.lapl_id = H5P_LINK_ACCESS_DEFAULT;
+        if(NULL == (target_obj = H5_daos_object_open(target_grp, &loc_params, NULL, iter_data->dxpl_id, iter_data->req)))
+            D_GOTO_ERROR(H5E_OHDR, H5E_CANTOPENOBJ, H5_ITER_ERROR, "can't open object")
+
+        iter_data->u.obj_iter_data.obj_name = name;
+        if(H5_daos_object_visit(target_obj, iter_data) < 0)
+            D_GOTO_ERROR(H5E_OHDR, H5E_BADITER, H5_ITER_ERROR, "failed to visit object")
+
+        if(H5_daos_object_close(target_obj, iter_data->dxpl_id, iter_data->req) < 0)
+            D_GOTO_ERROR(H5E_OHDR, H5E_CLOSEERROR, H5_ITER_ERROR, "can't close object")
+        target_obj = NULL;
+    } /* end if */
+
+done:
+    if(target_obj) {
+        if(H5_daos_object_close(target_obj, iter_data->dxpl_id, iter_data->req) < 0)
+            D_DONE_ERROR(H5E_OHDR, H5E_CLOSEERROR, H5_ITER_ERROR, "can't close object")
+        target_obj = NULL;
+    } /* end if */
+
+    D_FUNC_LEAVE
+} /* end H5_daos_object_visit_link_iter_cb() */
+
+
+/*-------------------------------------------------------------------------
  * Function:    H5_daos_object_visit
  *
  * Purpose:     Helper routine to recursively visit the specified object
@@ -730,22 +799,33 @@ H5_daos_object_visit(H5_daos_obj_t *target_obj, H5_daos_iter_data_t *iter_data)
     assert(target_obj);
     assert(iter_data);
 
-    /*
-     * Visit the specified target object first.
-     */
-
     /* Retrieve the info of the target object */
     if(H5_daos_object_get_info(target_obj, iter_data->u.obj_iter_data.fields, &target_obj_info) < 0)
         D_GOTO_ERROR(H5E_OHDR, H5E_CANTGET, FAIL, "can't get info for object")
 
-    /* Visit the object */
+    /* Visit the specified target object first */
     if((op_ret = iter_data->u.obj_iter_data.obj_iter_op(iter_data->iter_root_obj, iter_data->u.obj_iter_data.obj_name, &target_obj_info, iter_data->op_data)) < 0)
         D_GOTO_ERROR(H5E_OHDR, H5E_BADITER, op_ret, "operator function returned failure")
 
     /* If the object is a group, visit all objects below the group */
-    if(H5I_GROUP == target_obj->item.type)
-        if(H5_daos_link_iterate((H5_daos_group_t *) target_obj, iter_data) < 0)
+    if(H5I_GROUP == target_obj->item.type) {
+        H5_daos_iter_data_t sub_iter_data;
+
+        /*
+         * Initialize the link iteration data with all of the fields from
+         * the passed in object iteration data, with the exception that the
+         * link iteration data's is_recursive field is set to TRUE. The link
+         * iteration data's op_data will be a pointer to the passed in
+         * object iteration data so that the correct object iteration callback
+         * operator function can be called for each link during H5_daos_link_iterate().
+         */
+        H5_DAOS_ITER_DATA_INIT(sub_iter_data, H5_DAOS_ITER_TYPE_LINK, iter_data->index_type, iter_data->iter_order,
+                FALSE, iter_data->idx_p, iter_data->iter_root_obj, iter_data, iter_data->dxpl_id, iter_data->req);
+        sub_iter_data.u.link_iter_data.link_iter_op = H5_daos_object_visit_link_iter_cb;
+
+        if(H5_daos_link_iterate((H5_daos_group_t *) target_obj, &sub_iter_data) < 0)
             D_GOTO_ERROR(H5E_SYM, H5E_BADITER, FAIL, "failed to iterate through group's links")
+    } /* end if */
 
     ret_value = op_ret;
 

@@ -20,6 +20,24 @@
 
 /* Macros */
 #define H5_DAOS_HARD_LINK_VAL_SIZE 17
+#define H5_DAOS_RECURSE_LINK_PATH_BUF_INIT 1024
+
+/*
+ * Given an H5_daos_link_val_t, uses this to fill out the
+ * link type and link object address (hard link) or link
+ * value size (soft/external link) fields of an H5L_info_t
+ * for a link.
+ */
+#define H5_DAOS_LINK_VAL_TO_INFO(link_val, link_info)            \
+do {                                                             \
+    link_info.type = link_val.type;                              \
+    if(link_val.type == H5L_TYPE_HARD)                           \
+        link_info.u.address = (haddr_t)link_val.target.hard.lo;  \
+    else {                                                       \
+        assert(link_val.type == H5L_TYPE_SOFT);                  \
+        link_info.u.val_size = strlen(link_val.target.soft) + 1; \
+    }                                                            \
+} while(0)
 
 /* Prototypes */
 static herr_t H5_daos_link_read(H5_daos_group_t *grp, const char *name,
@@ -28,6 +46,10 @@ static herr_t H5_daos_link_get_info(H5_daos_item_t *item, const char *link_path,
     H5L_info_t *link_info, hid_t dxpl_id, void **req);
 static herr_t H5_daos_link_delete(H5_daos_item_t *item, const char *link_path,
     hid_t dxpl_id, void **req);
+
+static uint64_t H5_daos_hash_obj_id(dv_hash_table_key_t obj_id_lo);
+static int H5_daos_cmp_obj_id(dv_hash_table_key_t obj_id_lo1, dv_hash_table_key_t obj_id_lo2);
+static void H5_daos_free_visited_link_hash_table_key(dv_hash_table_key_t value);
 
 
 /*-------------------------------------------------------------------------
@@ -372,20 +394,20 @@ H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
             if(target_obj_loc == NULL)
                 target_obj_loc = (H5_daos_obj_t *) item;
 
+            link_val.type = H5L_TYPE_HARD;
+
             if(H5VL_OBJECT_BY_NAME == target_obj_loc_params->type) {
                 /* Attempt to open the hard link's target object */
                 if(NULL == (target_obj = H5_daos_object_open((H5_daos_item_t *) target_obj_loc,
                         target_obj_loc_params, NULL, dxpl_id, req)))
                     D_GOTO_ERROR(H5E_LINK, H5E_CANTOPENOBJ, FAIL, "couldn't open hard link's target object")
+                link_val.target.hard = target_obj->oid;
             }
             else {
                 /* H5Olink */
                 assert(H5VL_OBJECT_BY_SELF == target_obj_loc_params->type);
-                target_obj = target_obj_loc;
+                link_val.target.hard = target_obj_loc->oid;
             }
-
-            link_val.type = H5L_TYPE_HARD;
-            link_val.target.hard = target_obj->oid;
 
             /*
              * TODO: if the link write succeeds, the link ref. count for
@@ -570,15 +592,14 @@ H5_daos_link_get(void *_item, const H5VL_loc_params_t *loc_params,
             else if(H5L_TYPE_SOFT == link_val.type)
                 link_val_alloc = TRUE;
 
-            if(out_buf) {
-                /*
-                 * H5Lget_val specifically says that if the size of the buffer
-                 * given is smaller than the size of the link's value, then
-                 * the link's value will be truncated to 'size' bytes and will
-                 * not be null-terminated.
-                 */
+            /*
+             * H5Lget_val specifically says that if the size of the buffer
+             * given is smaller than the size of the link's value, then
+             * the link's value will be truncated to 'size' bytes and will
+             * not be null-terminated.
+             */
+            if(out_buf)
                 memcpy(out_buf, link_val.target.soft, out_buf_size);
-            } /* end if */
 
             break;
         } /* H5VL_LINK_GET_VAL */
@@ -799,6 +820,7 @@ H5_daos_link_follow(H5_daos_group_t *grp, const char *name,
                         link_resolves = H5_daos_link_follow(target_grp, target_name, strlen(target_name), dxpl_id, req, oid);
                     } H5E_END_TRY;
 
+                    /* Check if the soft link resolved to something */
                     if(link_resolves < 0)
                         D_GOTO_DONE(FALSE)
                 } /* end else */
@@ -843,13 +865,14 @@ static herr_t
 H5_daos_link_get_info(H5_daos_item_t *item, const char *link_path,
     H5L_info_t *link_info, hid_t dxpl_id, void **req)
 {
-    H5_daos_link_val_t link_val;
+    H5_daos_link_val_t link_val = { 0 };
     H5_daos_group_t *target_grp = NULL;
     H5L_info_t local_link_info;
     const char *target_name;
-    hbool_t link_val_alloc = FALSE;
     herr_t ret_value = SUCCEED;
 
+    assert(item);
+    assert(link_path);
     assert(link_info);
 
     /* Traverse the path */
@@ -859,19 +882,14 @@ H5_daos_link_get_info(H5_daos_item_t *item, const char *link_path,
     if(H5_daos_link_read(target_grp, target_name, strlen(target_name), &link_val) < 0)
         D_GOTO_ERROR(H5E_LINK, H5E_READERROR, FAIL, "failed to read link")
 
-    local_link_info.type = link_val.type;
-
-    /* TODO */
-    if(H5L_TYPE_HARD == link_val.type)
-        local_link_info.u.address = HADDR_UNDEF;
-    else if(H5L_TYPE_SOFT == link_val.type || H5L_TYPE_EXTERNAL == link_val.type) {
-        link_val_alloc = TRUE;
-
-        local_link_info.u.val_size = strlen(link_val.target.soft) + 1;
-
-        /* Free soft link value */
+    /*
+     * Fill in link type and link object address (hard link) or
+     * link value size (soft link) fields, then free the link
+     * value if this is a soft link.
+     */
+    H5_DAOS_LINK_VAL_TO_INFO(link_val, local_link_info);
+    if(H5L_TYPE_SOFT == link_val.type)
         link_val.target.soft = (char *)DV_free(link_val.target.soft);
-    }
 
     /* TODO Retrieve the link's creation order and mark the order as valid */
     local_link_info.corder = -1;
@@ -883,10 +901,8 @@ H5_daos_link_get_info(H5_daos_item_t *item, const char *link_path,
     memcpy(link_info, &local_link_info, sizeof(*link_info));
 
 done:
-    if(link_val_alloc) {
-        assert(H5L_TYPE_SOFT == link_val.type);
+    if(H5L_TYPE_SOFT == link_val.type)
         DV_free(link_val.target.soft);
-    } /* end if */
 
     if(target_grp) {
         if(H5_daos_group_close(target_grp, dxpl_id, req) < 0)
@@ -970,25 +986,21 @@ done:
 herr_t
 H5_daos_link_iterate(H5_daos_group_t *target_grp, H5_daos_iter_data_t *iter_data)
 {
+    H5_daos_link_val_t link_val = {0};
     H5_daos_obj_t *target_obj = NULL;
+    H5_daos_group_t *subgroup = NULL;
     daos_anchor_t anchor;
-    uint32_t nr;
-    daos_key_desc_t kds[H5_DAOS_ITER_LEN];
     daos_sg_list_t sgl;
     daos_iov_t sg_iov;
-    H5_daos_link_val_t link_val;
     H5L_info_t linfo;
     herr_t op_ret;
-    char tmp_char;
     char *dkey_buf = NULL;
     size_t dkey_buf_len = 0;
-    char *p;
-    int ret;
-    uint32_t i;
     herr_t ret_value = SUCCEED;
 
     assert(target_grp);
     assert(iter_data);
+    assert(H5_DAOS_ITER_TYPE_LINK == iter_data->iter_type);
 
     /* Iteration restart not supported */
     if(iter_data->idx_p && (*iter_data->idx_p != 0))
@@ -998,9 +1010,29 @@ H5_daos_link_iterate(H5_daos_group_t *target_grp, H5_daos_iter_data_t *iter_data
     if(iter_data->iter_order == H5_ITER_DEC)
         D_GOTO_ERROR(H5E_SYM, H5E_UNSUPPORTED, FAIL, "decreasing iteration order not supported (order must be H5_ITER_NATIVE or H5_ITER_INC)")
 
-    /* Recursive iteration not supported */
-    if(iter_data->is_recursive)
-        D_GOTO_ERROR(H5E_SYM, H5E_UNSUPPORTED, FAIL, "recursive iteration not supported")
+    /*
+     * If iteration is recursive, setup a hash table to keep track of visited
+     * group links so that cyclic links don't result in infinite looping.
+     *
+     * Also setup the recursive link path buffer, which keeps track of the full
+     * path to the current link and is passed to the operator callback function.
+     */
+    if(iter_data->is_recursive && (iter_data->u.link_iter_data.recurse_depth == 0)) {
+        if(NULL == (iter_data->u.link_iter_data.visited_link_table = dv_hash_table_new(H5_daos_hash_obj_id, H5_daos_cmp_obj_id)))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "failed to allocate visited links table")
+
+        /*
+         * Since the table key values are DV_malloc()ed, register the callback function to
+         * call DV_free() on the keys when necessary.
+         */
+        dv_hash_table_register_free_functions(iter_data->u.link_iter_data.visited_link_table, H5_daos_free_visited_link_hash_table_key, NULL);
+
+        /* Allocate the link path buffer for recursive iteration */
+        if(NULL == (iter_data->u.link_iter_data.recursive_link_path = DV_malloc(H5_DAOS_RECURSE_LINK_PATH_BUF_INIT)))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "failed to allocate link path buffer")
+        iter_data->u.link_iter_data.recursive_link_path_nalloc = H5_DAOS_RECURSE_LINK_PATH_BUF_INIT;
+        *iter_data->u.link_iter_data.recursive_link_path = '\0';
+    } /* end if */
 
     /* Initialize const linfo info */
     linfo.corder_valid = FALSE;
@@ -1024,33 +1056,15 @@ H5_daos_link_iterate(H5_daos_group_t *target_grp, H5_daos_iter_data_t *iter_data
 
     /* Loop to retrieve keys and make callbacks */
     do {
+        daos_key_desc_t kds[H5_DAOS_ITER_LEN];
+        uint32_t nr;
+        uint32_t i;
+        char *p;
+        int ret;
+
         /* Loop to retrieve keys (exit as soon as we get at least 1 key) */
-        do {
-            /* Reset nr */
-            nr = H5_DAOS_ITER_LEN;
-
-            /* Ask daos for a list of dkeys, break out if we succeed
-             */
-            if(0 == (ret = daos_obj_list_dkey(target_grp->obj.obj_oh, DAOS_TX_NONE, &nr, kds, &sgl, &anchor, NULL /*event*/)))
-                break;
-
-            /* Call failed, if the buffer is too small double it and
-             * try again, otherwise fail */
-            if(ret == -DER_KEY2BIG) {
-                char *tmp_realloc;
-
-                /* Allocate larger buffer */
-                dkey_buf_len *= 2;
-                if(NULL == (tmp_realloc = (char *)DV_realloc(dkey_buf, dkey_buf_len)))
-                    D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for dkeys")
-                dkey_buf = tmp_realloc;
-
-                /* Update sgl */
-                daos_iov_set(&sg_iov, dkey_buf, (daos_size_t)(dkey_buf_len - 1));
-            } /* end if */
-            else
-                D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, FAIL, "can't retrieve attributes: %s", H5_daos_err_to_string(ret))
-        } while(1);
+        H5_DAOS_RETRIEVE_KEYS_LOOP(dkey_buf, dkey_buf_len, sg_iov, H5E_SYM, daos_obj_list_dkey,
+                target_grp->obj.obj_oh, DAOS_TX_NONE, &nr, kds, &sgl, &anchor, NULL /*event*/);
 
         /* Loop over returned dkeys */
         p = dkey_buf;
@@ -1058,6 +1072,10 @@ H5_daos_link_iterate(H5_daos_group_t *target_grp, H5_daos_iter_data_t *iter_data
         for(i = 0; (i < nr) && (op_ret == 0); i++) {
             /* Check if this key represents a link */
             if(p[0] != '/') {
+                char *link_path = p;
+                char *cur_link_path_end = NULL;
+                char tmp_char;
+
                 /* Add null terminator temporarily */
                 tmp_char = p[kds[i].kd_key_len];
                 p[kds[i].kd_key_len] = '\0';
@@ -1066,52 +1084,121 @@ H5_daos_link_iterate(H5_daos_group_t *target_grp, H5_daos_iter_data_t *iter_data
                 if(H5_daos_link_read(target_grp, p, (size_t)kds[i].kd_key_len, &link_val) < 0)
                     D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't read link")
 
-                /* Update linfo */
-                linfo.type = link_val.type;
-                if(link_val.type == H5L_TYPE_HARD)
-                    linfo.u.address = (haddr_t)link_val.target.hard.lo;
-                else {
-                    assert(link_val.type == H5L_TYPE_SOFT);
-                    linfo.u.val_size = strlen(link_val.target.soft) + 1;
-
-                    /* Free soft link value */
+                /* Update linfo, then free soft link value if necessary */
+                H5_DAOS_LINK_VAL_TO_INFO(link_val, linfo);
+                if(H5L_TYPE_SOFT == link_val.type)
                     link_val.target.soft = (char *)DV_free(link_val.target.soft);
-                } /* end else */
 
-                if(H5_DAOS_ITER_TYPE_LINK == iter_data->iter_type) {
-                    /* Make callback */
-                    if((op_ret = iter_data->u.link_iter_data.link_iter_op(iter_data->iter_root_obj, p, &linfo, iter_data->op_data)) < 0)
-                        D_GOTO_ERROR(H5E_SYM, H5E_BADITER, op_ret, "operator function returned failure")
-                } /* end if */
-                else if(H5_DAOS_ITER_TYPE_OBJ == iter_data->iter_type) {
-                    H5VL_loc_params_t sub_loc_params;
-                    htri_t link_resolves = TRUE;
+                /* If doing recursive iteration, add the current link name to the end of the recursive link path */
+                if(iter_data->is_recursive) {
+                    size_t cur_link_path_len = strlen(iter_data->u.link_iter_data.recursive_link_path);
 
-                    if(H5L_TYPE_SOFT == link_val.type)
-                        /* Check that the soft link resolves before opening the target object */
-                        if((link_resolves = H5_daos_link_follow(target_grp, p, strlen(p), iter_data->dxpl_id, NULL, NULL)) < 0)
-                            D_GOTO_ERROR(H5E_LINK, H5E_TRAVERSE, FAIL, "can't follow link")
+                    /*
+                     * Save a pointer to the current end of the recursive link path string. This will
+                     * be used later to strip the added link name back off of the path string once
+                     * processing is done.
+                     */
+                    cur_link_path_end = &iter_data->u.link_iter_data.recursive_link_path[cur_link_path_len];
 
-                    if(link_resolves) {
-                        /*
-                         * Open the target object.
-                         */
+                    /*
+                     * Reallocate the link path buffer if the current link path + the current
+                     * link name and null terminator is larger than what's currently allocated.
+                     */
+                    while(cur_link_path_len + strlen(p) + 1 > iter_data->u.link_iter_data.recursive_link_path_nalloc) {
+                        char *tmp_realloc;
 
-                        sub_loc_params.type = H5VL_OBJECT_BY_NAME;
-                        sub_loc_params.loc_data.loc_by_name.name = p;
-                        sub_loc_params.loc_data.loc_by_name.lapl_id = H5P_LINK_ACCESS_DEFAULT;
-                        if(NULL == (target_obj = H5_daos_object_open(target_grp, &sub_loc_params, NULL, iter_data->dxpl_id, iter_data->req)))
-                            D_GOTO_ERROR(H5E_OHDR, H5E_CANTOPENOBJ, FAIL, "can't open object")
+                        iter_data->u.link_iter_data.recursive_link_path_nalloc *= 2;
+                        if(NULL == (tmp_realloc = DV_realloc(iter_data->u.link_iter_data.recursive_link_path,
+                                iter_data->u.link_iter_data.recursive_link_path_nalloc)))
+                            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't reallocate link path buffer")
 
-                        iter_data->u.obj_iter_data.obj_name = p;
-                        if(H5_daos_object_visit(target_obj, iter_data) < 0)
-                            D_GOTO_ERROR(H5E_OHDR, H5E_BADITER, FAIL, "failed to visit object")
-
-                        if(H5_daos_object_close(target_obj, iter_data->dxpl_id, iter_data->req) < 0)
-                            D_GOTO_ERROR(H5E_OHDR, H5E_CLOSEERROR, FAIL, "can't close object")
-                        target_obj = NULL;
+                        iter_data->u.link_iter_data.recursive_link_path = tmp_realloc;
                     } /* end if */
-                } /* end else */
+
+                    /* Append the current link name to the current link path */
+                    strncat(&iter_data->u.link_iter_data.recursive_link_path[cur_link_path_len], p,
+                            iter_data->u.link_iter_data.recursive_link_path_nalloc - cur_link_path_len - 1);
+
+                    link_path = iter_data->u.link_iter_data.recursive_link_path;
+                } /* end if */
+
+                /* Call the link iteration callback operator function on the current link */
+                if((op_ret = iter_data->u.link_iter_data.link_iter_op(iter_data->iter_root_obj, link_path, &linfo, iter_data->op_data)) < 0)
+                    D_GOTO_ERROR(H5E_SYM, H5E_BADITER, op_ret, "operator function returned failure")
+
+                /* Check for short-circuit success */
+                if(op_ret)
+                    D_GOTO_DONE(op_ret)
+
+                if(iter_data->is_recursive) {
+                    assert(iter_data->u.link_iter_data.visited_link_table);
+
+                    /* If the current link points to a group that hasn't been visited yet, iterate over its links as well. */
+                    if((H5L_TYPE_HARD == link_val.type) && (H5I_GROUP == H5_daos_oid_to_type(link_val.target.hard))
+                            && (DV_HASH_TABLE_NULL == dv_hash_table_lookup(iter_data->u.link_iter_data.visited_link_table, &link_val.target.hard.lo))) {
+                        H5VL_loc_params_t sub_loc_params;
+                        uint64_t *oid_lo_copy;
+                        size_t cur_link_path_len;
+                        herr_t recurse_ret;
+
+                        if(NULL == (oid_lo_copy = DV_malloc(sizeof(*oid_lo_copy))))
+                            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "failed to allocate entry for visited link table")
+                        *oid_lo_copy = link_val.target.hard.lo;
+
+                        /*
+                         * The value chosen for the hash table entry doesn't really matter, as long
+                         * as it doesn't match DV_HASH_TABLE_NULL. Later, it only needs to be known
+                         * if we inserted the key into the table or not, so the value will not be checked.
+                         */
+                        ret = dv_hash_table_insert(iter_data->u.link_iter_data.visited_link_table, oid_lo_copy, oid_lo_copy);
+                        if(!ret) {
+                            DV_free(oid_lo_copy);
+                            D_GOTO_ERROR(H5E_LINK, H5E_CANTINSERT, FAIL, "failed to insert link into visited link table")
+                        } /* end if */
+
+                        sub_loc_params.type = H5VL_OBJECT_BY_SELF;
+                        sub_loc_params.obj_type = H5I_GROUP;
+                        if(NULL == (subgroup = H5_daos_group_open(target_grp, &sub_loc_params,
+                                p, H5P_GROUP_ACCESS_DEFAULT, iter_data->dxpl_id, iter_data->req)))
+                            D_GOTO_ERROR(H5E_SYM, H5E_CANTOPENOBJ, FAIL, "failed to open group")
+
+                        /* Add a trailing slash to the link path buffer to denote that this link points to a group */
+                        cur_link_path_len = strlen(iter_data->u.link_iter_data.recursive_link_path);
+                        while(cur_link_path_len + 2 > iter_data->u.link_iter_data.recursive_link_path_nalloc) {
+                            char *tmp_realloc;
+
+                            iter_data->u.link_iter_data.recursive_link_path_nalloc *= 2;
+                            if(NULL == (tmp_realloc = DV_realloc(iter_data->u.link_iter_data.recursive_link_path,
+                                    iter_data->u.link_iter_data.recursive_link_path_nalloc)))
+                                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "failed to reallocate link path buffer")
+
+                            iter_data->u.link_iter_data.recursive_link_path = tmp_realloc;
+                        }
+
+                        iter_data->u.link_iter_data.recursive_link_path[cur_link_path_len] = '/';
+                        iter_data->u.link_iter_data.recursive_link_path[cur_link_path_len + 1] = '\0';
+
+                        /* Recurse on this group */
+                        iter_data->u.link_iter_data.recurse_depth++;
+                        recurse_ret = H5_daos_link_iterate(subgroup, iter_data);
+                        iter_data->u.link_iter_data.recurse_depth--;
+
+                        if(recurse_ret < 0)
+                            D_GOTO_ERROR(H5E_LINK, H5E_BADITER, FAIL, "recursive link iteration failed")
+                        else if(recurse_ret)
+                            D_GOTO_DONE(recurse_ret) /* Short-circuit success */
+
+                        if(H5_daos_group_close(subgroup, iter_data->dxpl_id, iter_data->req) < 0)
+                            D_GOTO_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group")
+                        subgroup = NULL;
+                    } /* end if */
+
+                    /*
+                     * Strip the current link name (and, for groups, any trailing slash)
+                     * back off of the recursive link path.
+                     */
+                    *cur_link_path_end = '\0';
+                } /* end if */
 
                 /* Replace null terminator */
                 p[kds[i].kd_key_len] = tmp_char;
@@ -1129,13 +1216,34 @@ H5_daos_link_iterate(H5_daos_group_t *target_grp, H5_daos_iter_data_t *iter_data
     ret_value = op_ret;
 
 done:
+    if(subgroup) {
+        if(H5_daos_group_close(subgroup, iter_data->dxpl_id, iter_data->req) < 0)
+            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group")
+        subgroup = NULL;
+    }
     if(target_obj) {
         if(H5_daos_object_close(target_obj, iter_data->dxpl_id, iter_data->req) < 0)
             D_DONE_ERROR(H5E_OHDR, H5E_CLOSEERROR, FAIL, "can't close object")
         target_obj = NULL;
     } /* end if */
 
+    if(H5L_TYPE_SOFT == link_val.type)
+        link_val.target.soft = (char *)DV_free(link_val.target.soft);
+
     dkey_buf = (char *)DV_free(dkey_buf);
+
+    /*
+     * Free resources allocated for recursive iteration once we reach the top
+     * level of recursion again.
+     */
+    if(iter_data->is_recursive && (iter_data->u.link_iter_data.recurse_depth == 0)) {
+        iter_data->u.link_iter_data.recursive_link_path = DV_free(iter_data->u.link_iter_data.recursive_link_path);
+
+        if(iter_data->u.link_iter_data.visited_link_table) {
+            dv_hash_table_free(iter_data->u.link_iter_data.visited_link_table);
+            iter_data->u.link_iter_data.visited_link_table = NULL;
+        } /* end if */
+    } /* end if */
 
     D_FUNC_LEAVE
 } /* end H5_daos_link_iterate() */
@@ -1207,3 +1315,56 @@ done:
 
     D_FUNC_LEAVE
 } /* end H5_daos_link_delete() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_hash_obj_id
+ *
+ * Purpose:     Helper function to "hash" a DAOS object ID's lower 64 bits
+ *              by simply returning the value passed in.
+ *
+ * Return:      "hashed" DAOS object ID
+ *
+ */
+static uint64_t
+H5_daos_hash_obj_id(dv_hash_table_key_t obj_id_lo)
+{
+    return *((uint64_t *) obj_id_lo);
+} /* end H5_daos_hash_obj_id() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_cmp_obj_id
+ *
+ * Purpose:     Helper function to compare two "hashed" DAOS object IDs in
+ *              a dv_hash_table_t.
+ *
+ * Return:      Non-zero if the two keys are equal, zero if the keys are
+ *              not equal.
+ *
+ */
+static int
+H5_daos_cmp_obj_id(dv_hash_table_key_t obj_id_lo1, dv_hash_table_key_t obj_id_lo2)
+{
+    uint64_t val1 = *((uint64_t *) obj_id_lo1);
+    uint64_t val2 = *((uint64_t *) obj_id_lo2);
+
+    return (val1 == val2);
+} /* H5_daos_cmp_obj_id() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_free_visited_link_hash_table_key
+ *
+ * Purpose:     Helper function to free keys in the visited link hash table
+ *              used by link iteration.
+ *
+ * Return:      Nothing
+ *
+ */
+static void
+H5_daos_free_visited_link_hash_table_key(dv_hash_table_key_t value)
+{
+    DV_free(value);
+    value = NULL;
+} /* end H5_daos_free_visited_link_hash_table_key() */

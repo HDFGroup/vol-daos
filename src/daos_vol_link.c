@@ -65,7 +65,7 @@ H5_daos_link_read(H5_daos_group_t *grp, const char *name, size_t name_len,
 
     /* Set up iod */
     memset(&iod, 0, sizeof(iod));
-    daos_iov_set(&iod.iod_name, H5_daos_link_key_g, H5_daos_link_key_size_g);
+    daos_iov_set(&iod.iod_name, (void *)H5_daos_link_key_g, H5_daos_link_key_size_g);
     daos_csum_set(&iod.iod_kcsum, NULL, 0);
     iod.iod_nr = 1u;
     iod.iod_size = DAOS_REC_ANY;
@@ -173,6 +173,7 @@ H5_daos_link_write(H5_daos_group_t *grp, const char *name,
     hbool_t update_task_scheduled = FALSE;
     char *name_buf = NULL;
     uint8_t *iov_buf = NULL;
+    uint8_t *nlinks_old_buf = NULL; /* Holds the previous number of links, which is also the creation order for this link */
     uint8_t *p;
     int ret;
     herr_t ret_value = SUCCEED;
@@ -231,7 +232,7 @@ H5_daos_link_write(H5_daos_group_t *grp, const char *name,
             break;
 
         case H5L_TYPE_SOFT:
-            /* We need an extra byte for the link type (encoded above). */
+            /* We need an extra byte for the link type */
             update_cb_ud->iod[0].iod_size = (uint64_t)(strlen(val->target.soft) + 1);
 
             /* Allocate iov_buf */
@@ -261,7 +262,7 @@ H5_daos_link_write(H5_daos_group_t *grp, const char *name,
     } /* end switch */
 
     /* Finish setting up iod */
-    daos_iov_set(&update_cb_ud->iod[0].iod_name, H5_daos_link_key_g, H5_daos_link_key_size_g);
+    daos_iov_set(&update_cb_ud->iod[0].iod_name, (void *)H5_daos_link_key_g, H5_daos_link_key_size_g);
     daos_csum_set(&update_cb_ud->iod[0].iod_kcsum, NULL, 0);
     update_cb_ud->iod[0].iod_nr = 1u;
     update_cb_ud->iod[0].iod_type = DAOS_IOD_SINGLE;
@@ -272,6 +273,116 @@ H5_daos_link_write(H5_daos_group_t *grp, const char *name,
 
     /* Set task name */
     update_cb_ud->task_name = "link write";
+
+    /* Check for creation order tracking/indexing */
+    if(grp->gcpl_cache.track_corder) {
+        daos_key_t dkey;
+        daos_iod_t iod[3];
+        daos_sg_list_t sgl[3];
+        daos_iov_t sg_iov[3];
+        uint8_t nlinks_new_buf[8];
+        uint8_t corder_target_buf[9];
+        uint64_t nlinks;
+
+        /* Read num links */
+        /* Allocate buffer */
+        if(NULL == (nlinks_old_buf = (uint8_t *)DV_malloc(8)))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for number of links")
+
+        /* Set up dkey */
+        daos_iov_set(&dkey, (void *)H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
+
+        /* Set up iod */
+        memset(iod, 0, sizeof(iod));
+        daos_iov_set(&iod[0].iod_name, (void *)H5_daos_nlinks_key_g, H5_daos_nlinks_key_size_g);
+        daos_csum_set(&iod[0].iod_kcsum, NULL, 0);
+        iod[0].iod_nr = 1u;
+        iod[0].iod_size = (uint64_t)8;
+        iod[0].iod_type = DAOS_IOD_SINGLE;
+
+        /* Set up sgl */
+        daos_iov_set(&sg_iov[0], nlinks_old_buf, (daos_size_t)8);
+        sgl[0].sg_nr = 1;
+        sgl[0].sg_nr_out = 0;
+        sgl[0].sg_iovs = &sg_iov[0];
+
+        assert(H5_daos_nlinks_key_size_g != 8);
+
+        /* Read num links */
+        if(0 != (ret = daos_obj_fetch(grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, iod, sgl, NULL /*maps*/, NULL /*event*/)))
+            D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't read num links: %s", H5_daos_err_to_string(ret))
+
+        p = nlinks_old_buf;
+        /* Check for no num links found, in this case it must be 0 */
+        if(iod[0].iod_size == (uint64_t)0) {
+            nlinks = 0;
+            UINT64ENCODE(p, nlinks);
+        } /* end if */
+        else
+            /* Decode num links */
+            UINT64DECODE(p, nlinks);
+
+        /* Add new link to count */
+        nlinks++;
+
+        /* Write new info to creation order index */
+        /* Encode buffers */
+        p = nlinks_new_buf;
+        UINT64ENCODE(p, nlinks);
+        memcpy(corder_target_buf, nlinks_old_buf, 8);
+        corder_target_buf[8] = 0;
+
+        /* Set up iod */
+        /* iod[0] already set up from read operation */
+        daos_iov_set(&iod[1].iod_name, (void *)nlinks_old_buf, 8);
+        daos_csum_set(&iod[1].iod_kcsum, NULL, 0);
+        iod[1].iod_nr = 1u;
+        iod[1].iod_size = (uint64_t)name_len;
+        iod[1].iod_type = DAOS_IOD_SINGLE;
+
+        daos_iov_set(&iod[2].iod_name, (void *)corder_target_buf, 9);
+        daos_csum_set(&iod[2].iod_kcsum, NULL, 0);
+        iod[2].iod_nr = 1u;
+        iod[2].iod_size = update_cb_ud->iod[0].iod_size;
+        iod[2].iod_type = DAOS_IOD_SINGLE;
+
+        /* Set up sgl */
+        daos_iov_set(&sg_iov[0], nlinks_new_buf, (daos_size_t)8);
+        sgl[0].sg_nr = 1;
+        sgl[0].sg_nr_out = 0;
+        sgl[0].sg_iovs = &sg_iov[0];
+
+        daos_iov_set(&sg_iov[1], (void *)name_buf, (daos_size_t)name_len);
+        sgl[1].sg_nr = 1;
+        sgl[1].sg_nr_out = 0;
+        sgl[1].sg_iovs = &sg_iov[1];
+
+        daos_iov_set(&sg_iov[2], iov_buf, update_cb_ud->iod[0].iod_size);
+        sgl[2].sg_nr = 1;
+        sgl[2].sg_nr_out = 0;
+        sgl[2].sg_iovs = &sg_iov[2];
+
+        /* Issue write */
+        if(0 != (ret = daos_obj_update(grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 3, iod, sgl, NULL /*event*/)))
+            D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't write link creation order information: %s", H5_daos_err_to_string(ret))
+
+        /* Add link name->creation order mapping key-value pair to main write */
+        /* Increment number of records */
+        update_cb_ud->nr++;
+
+        /* Set up iod */
+        daos_iov_set(&update_cb_ud->iod[1].iod_name, (void *)H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
+        daos_csum_set(&update_cb_ud->iod[1].iod_kcsum, NULL, 0);
+        update_cb_ud->iod[1].iod_nr = 1u;
+        update_cb_ud->iod[1].iod_size = (uint64_t)8;
+        update_cb_ud->iod[1].iod_type = DAOS_IOD_SINGLE;
+
+        /* Set up sgl */
+        daos_iov_set(&update_cb_ud->sg_iov[1], (void *)nlinks_old_buf, 8);
+        update_cb_ud->sgl[1].sg_nr = 1;
+        update_cb_ud->sgl[1].sg_nr_out = 0;
+        update_cb_ud->sgl[1].sg_iovs = &update_cb_ud->sg_iov[1];
+    } /* end if */
 
     /* Create task for link write */
     if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_UPDATE, &grp->obj.item.file->sched, 0, NULL, taskp)))
@@ -298,6 +409,7 @@ done:
             D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close object")
         name_buf = DV_free(name_buf);
         iov_buf = DV_free(iov_buf);
+        nlinks_old_buf = DV_free(nlinks_old_buf);
         update_cb_ud = DV_free(update_cb_ud);
     } /* end if */
 
@@ -660,7 +772,7 @@ H5_daos_link_exists(H5_daos_item_t *item, const char *link_path, hid_t dxpl_id, 
 
     /* Set up iod */
     memset(&iod, 0, sizeof(iod));
-    daos_iov_set(&iod.iod_name, H5_daos_link_key_g, H5_daos_link_key_size_g);
+    daos_iov_set(&iod.iod_name, (void *)H5_daos_link_key_g, H5_daos_link_key_size_g);
     daos_csum_set(&iod.iod_kcsum, NULL, 0);
     iod.iod_nr = 1u;
     iod.iod_size = DAOS_REC_ANY;

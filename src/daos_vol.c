@@ -1153,14 +1153,25 @@ done:
 void
 H5_daos_oid_generate(daos_obj_id_t *oid, uint64_t addr, H5I_type_t obj_type)
 {
+    daos_oclass_id_t object_class;
+    daos_ofeat_t object_feats;
+
     assert(oid);
 
     /* Encode type and address */
     oid->lo = addr;
 
+    /* Set the object feature flags */
+    if(H5I_GROUP == obj_type)
+        object_feats = DAOS_OF_DKEY_LEXICAL | DAOS_OF_AKEY_HASHED;
+    else
+        object_feats = DAOS_OF_DKEY_HASHED | DAOS_OF_AKEY_LEXICAL;
+
+    /* Set the object class ID */
+    object_class = (obj_type == H5I_DATASET) ? DAOS_OC_LARGE_RW : DAOS_OC_TINY_RW;
+
     /* Generate oid */
-    H5_daos_obj_generate_id(oid,
-        obj_type == H5I_DATASET ? DAOS_OC_LARGE_RW : DAOS_OC_TINY_RW);
+    H5_daos_obj_generate_id(oid, object_feats, object_class);
 
     return;
 } /* end H5_daos_oid_generate() */
@@ -1716,10 +1727,6 @@ H5_daos_md_update_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
  *
  *              Failure:    Negative.
  *
- * Programmer:  Albert Cheng
- *              Jan  8, 2003
- *
- * Modifications:
  *-------------------------------------------------------------------------
  */
 herr_t
@@ -1769,7 +1776,7 @@ done:
     }
 
     D_FUNC_LEAVE
-}
+} /* end H5_daos_comm_info_dup() */
 
 
 /*-------------------------------------------------------------------------
@@ -1785,10 +1792,6 @@ done:
  *
  *              Failure:    Negative.
  *
- * Programmer:  Albert Cheng
- *              Jan  8, 2003
- *
- * Modifications:
  *-------------------------------------------------------------------------
  */
 herr_t
@@ -1809,7 +1812,7 @@ H5_daos_comm_info_free(MPI_Comm *comm, MPI_Info *info)
 
 done:
     D_FUNC_LEAVE
-}
+} /* end H5_daos_comm_info_free() */
 
 
 H5PL_type_t

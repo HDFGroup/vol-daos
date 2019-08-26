@@ -39,11 +39,13 @@ typedef d_sg_list_t daos_sg_list_t;
 # define DAOS_OC_LARGE_RW OC_SX
 # define daos_rank_list_free d_rank_list_free
 # define daos_iov_set d_iov_set
-# define H5_daos_obj_generate_id(oid, cid) \
-    daos_obj_generate_id(oid, 0, cid, 0)
+# define DAOS_OF_AKEY_HASHED 0
+# define DAOS_OF_DKEY_HASHED 0
+# define H5_daos_obj_generate_id(oid, ofeats, cid) \
+    daos_obj_generate_id(oid, ofeats, cid, 0)
 #else
-# define H5_daos_obj_generate_id(oid, cid) \
-    daos_obj_generate_id(oid, DAOS_OF_DKEY_HASHED | DAOS_OF_AKEY_HASHED, cid)
+# define H5_daos_obj_generate_id(oid, ofeats, cid) \
+    daos_obj_generate_id(oid, ofeats, cid)
 #endif
 
 /*****************/
@@ -157,6 +159,21 @@ typedef d_sg_list_t daos_sg_list_t;
  * H5Pregister2/H5Punregister on the H5P_FILE_ACCESS class.
  */
 #undef DV_HAVE_SNAP_OPEN_ID
+
+/* Macro to initialize all non-specific fields of an H5_daos_iter_data_t struct */
+#define H5_DAOS_ITER_DATA_INIT(_iter_data, _iter_type, _idx_type, _iter_order, \
+    _is_recursive, _idx_p, _iter_root_obj, _op_data, _dxpl_id, _req)           \
+    do {                                                                       \
+        _iter_data.iter_type = _iter_type;                                     \
+        _iter_data.index_type = _idx_type;                                     \
+        _iter_data.iter_order = _iter_order;                                   \
+        _iter_data.is_recursive = _is_recursive;                               \
+        _iter_data.idx_p = _idx_p;                                             \
+        _iter_data.iter_root_obj = _iter_root_obj;                             \
+        _iter_data.op_data = _op_data;                                         \
+        _iter_data.dxpl_id = _dxpl_id;                                         \
+        _iter_data.req = _req;                                                 \
+    } while(0)
 
 /*******************/
 /* Public Typedefs */
@@ -300,22 +317,47 @@ typedef struct H5_daos_md_update_cb_ud_t {
 } H5_daos_md_update_cb_ud_t;
 
 /*
- * A struct which is filled out and used when performing
- * link and attribute iteration.
+ * Enum values for determining the type of iteration
+ * being done with a given H5_daos_iter_data_t.
  */
-typedef struct iter_data {
-    H5_iter_order_t  iter_order;
-    H5_index_t       index_type;
-    hbool_t          is_recursive;
-    hsize_t         *idx_p;
-    hid_t            iter_root_obj;
-    void            *op_data;
+typedef enum {
+    H5_DAOS_ITER_TYPE_ATTR,
+    H5_DAOS_ITER_TYPE_LINK,
+    H5_DAOS_ITER_TYPE_OBJ,
+} H5_daos_iter_data_type_t;
 
+/*
+ * A struct which is filled out and used when performing
+ * link, attribute and object iteration/visiting.
+ */
+typedef struct H5_daos_iter_data_t {
+    H5_iter_order_t   iter_order;
+    H5_index_t        index_type;
+    hbool_t           is_recursive;
+    hsize_t          *idx_p;
+    hid_t             iter_root_obj;
+    void             *op_data;
+
+    hid_t             dxpl_id;
+    void            **req;
+
+    H5_daos_iter_data_type_t iter_type;
     union {
-        H5A_operator2_t attr_iter_op;
-        H5L_iterate_t   link_iter_op;
-    } iter_function;
-} iter_data;
+        struct {
+            H5A_operator2_t attr_iter_op;
+        } attr_iter_data;
+
+        struct {
+            H5L_iterate_t   link_iter_op;
+        } link_iter_data;
+
+        struct {
+            H5O_iterate_t   obj_iter_op;
+            unsigned        fields;
+            const char     *obj_name;
+        } obj_iter_data;
+    } u;
+} H5_daos_iter_data_t;
 
 /* XXX: The following two definitions are only here until they are
  * moved out of their respective H5Xpkg.h header files and into a
@@ -477,9 +519,10 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_link_specific(void *_item, const H5VL_loc_param
 H5VL_DAOS_PRIVATE herr_t H5_daos_link_write(H5_daos_group_t *grp, const char *name,
     size_t name_len, H5_daos_link_val_t *val, H5_daos_req_t *req,
     tse_task_t **taskp);
-H5VL_DAOS_PRIVATE herr_t H5_daos_link_follow(H5_daos_group_t *grp, const char *name,
+H5VL_DAOS_PRIVATE htri_t H5_daos_link_exists(H5_daos_item_t *item, const char *link_path, hid_t dxpl_id, void **req);
+H5VL_DAOS_PRIVATE htri_t H5_daos_link_follow(H5_daos_group_t *grp, const char *name,
     size_t name_len, hid_t dxpl_id, void **req, daos_obj_id_t *oid);
-H5VL_DAOS_PRIVATE herr_t H5_daos_link_iterate(H5_daos_group_t *target_grp, iter_data *link_iter_data);
+H5VL_DAOS_PRIVATE herr_t H5_daos_link_iterate(H5_daos_group_t *target_grp, H5_daos_iter_data_t *link_iter_data);
 
 /* Link iterate callbacks */
 H5VL_DAOS_PRIVATE herr_t H5_daos_link_iterate_count_links_callback(hid_t group, const char *name,
@@ -556,6 +599,7 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_object_optional(void *_item, hid_t dxpl_id, voi
     va_list arguments);
 
 /* Other object routines */
+H5VL_DAOS_PRIVATE herr_t H5_daos_object_visit(H5_daos_obj_t *target_obj, H5_daos_iter_data_t *obj_iter_data);
 H5VL_DAOS_PRIVATE herr_t H5_daos_object_close(void *_obj, hid_t dxpl_id, void **req);
 
 /* Attribute callbacks */
@@ -574,6 +618,10 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_attribute_specific(void *_item,
     const H5VL_loc_params_t *loc_params, H5VL_attr_specific_t specific_type,
     hid_t dxpl_id, void **req, va_list arguments);
 H5VL_DAOS_PRIVATE herr_t H5_daos_attribute_close(void *_attr, hid_t dxpl_id, void **req);
+
+/* Other attribute routines */
+H5VL_DAOS_PRIVATE herr_t H5_daos_attribute_iterate(H5_daos_obj_t *attr_container_obj,
+    H5_daos_iter_data_t *attr_iter_data, hid_t dxpl_id, void **req);
 
 /* Request callback */
 H5VL_DAOS_PRIVATE herr_t H5_daos_req_free(void *req);
@@ -605,6 +653,15 @@ H5PLUGIN_DLL herr_t H5_daos_map_get_count(void *_map, hsize_t *count, void **req
 #endif /* DV_HAVE_MAP */
 H5VL_DAOS_PRIVATE herr_t H5_daos_map_close(void *_map, hid_t dxpl_id,
     void **req);
+
+/* Helper routines */
+H5VL_DAOS_PRIVATE herr_t H5_daos_file_flush(H5_daos_file_t *file);
+H5VL_DAOS_PRIVATE herr_t H5_daos_group_flush(H5_daos_group_t *grp);
+H5VL_DAOS_PRIVATE herr_t H5_daos_dataset_flush(H5_daos_dset_t *dset);
+H5VL_DAOS_PRIVATE herr_t H5_daos_datatype_flush(H5_daos_dtype_t *dtype);
+H5VL_DAOS_PRIVATE herr_t H5_daos_group_refresh(H5_daos_group_t *grp, hid_t dxpl_id, void **req);
+H5VL_DAOS_PRIVATE herr_t H5_daos_dataset_refresh(H5_daos_dset_t *dset, hid_t dxpl_id, void **req);
+H5VL_DAOS_PRIVATE herr_t H5_daos_datatype_refresh(H5_daos_dtype_t *dtype, hid_t dxpl_id, void **req);
 
 #ifdef __cplusplus
 }

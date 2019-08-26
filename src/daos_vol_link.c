@@ -632,8 +632,6 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_group_t *target_grp = NULL;
     hid_t target_grp_id = -1;
-    char *dkey_buf = NULL;
-//    size_t dkey_buf_len = 0;
     int ret;
     herr_t ret_value = SUCCEED;    /* Return value */
 
@@ -647,33 +645,11 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
         case H5VL_LINK_EXISTS:
             {
                 htri_t *lexists_ret = va_arg(arguments, htri_t *);
-                const char *target_name = NULL;
-                daos_key_t dkey;
-                daos_iod_t iod;
 
                 assert(H5VL_OBJECT_BY_NAME == loc_params->type);
 
-                /* Traverse the path */
-                if(NULL == (target_grp = H5_daos_group_traverse(item, loc_params->loc_data.loc_by_name.name, dxpl_id, req, &target_name, NULL, NULL)))
-                    D_GOTO_ERROR(H5E_SYM, H5E_BADITER, FAIL, "can't traverse path")
-
-                /* Set up dkey */
-                daos_iov_set(&dkey, (void *)target_name, strlen(target_name));
-
-                /* Set up iod */
-                memset(&iod, 0, sizeof(iod));
-                daos_iov_set(&iod.iod_name, (void *)H5_daos_link_key_g, H5_daos_link_key_size_g);
-                daos_csum_set(&iod.iod_kcsum, NULL, 0);
-                iod.iod_nr = 1u;
-                iod.iod_size = DAOS_REC_ANY;
-                iod.iod_type = DAOS_IOD_SINGLE;
-
-                /* Read link */
-                if(0 != (ret = daos_obj_fetch(target_grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, NULL /*sgl*/, NULL /*maps*/, NULL /*event*/)))
-                    D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't read link: %s", H5_daos_err_to_string(ret))
-
-                /* Set return value */
-                *lexists_ret = iod.iod_size != (uint64_t)0;
+                if((*lexists_ret = H5_daos_link_exists(item, loc_params->loc_data.loc_by_name.name, dxpl_id, req)) < 0)
+                    D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't determine if link exists")
 
                 break;
             } /* end block */
@@ -681,14 +657,13 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
         /* H5Literate/visit(_by_name) */
         case H5VL_LINK_ITER:
             {
-                iter_data link_iter_data;
-
-                link_iter_data.is_recursive = va_arg(arguments, int);
-                link_iter_data.index_type = (H5_index_t) va_arg(arguments, int);
-                link_iter_data.iter_order = (H5_iter_order_t) va_arg(arguments, int);
-                link_iter_data.idx_p = va_arg(arguments, hsize_t *);
-                link_iter_data.iter_function.link_iter_op = va_arg(arguments, H5L_iterate_t);
-                link_iter_data.op_data = va_arg(arguments, void *);
+                H5_daos_iter_data_t iter_data;
+                int is_recursive = va_arg(arguments, int);
+                H5_index_t idx_type = (H5_index_t) va_arg(arguments, int);
+                H5_iter_order_t iter_order = (H5_iter_order_t) va_arg(arguments, int);
+                hsize_t *idx_p = va_arg(arguments, hsize_t *);
+                H5L_iterate_t iter_op = va_arg(arguments, H5L_iterate_t);
+                void *op_data = va_arg(arguments, void *);
 
                 switch (loc_params->type) {
                     /* H5Literate/H5Lvisit */
@@ -731,9 +706,13 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
                 /* Register id for target_grp */
                 if((target_grp_id = H5VLwrap_register(target_grp, H5I_GROUP)) < 0)
                     D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, FAIL, "unable to atomize object handle")
-                link_iter_data.iter_root_obj = target_grp_id;
 
-                if((ret_value = H5_daos_link_iterate(target_grp, &link_iter_data)) < 0)
+                /* Initialize iteration data */
+                H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_LINK, idx_type, iter_order,
+                        is_recursive, idx_p, target_grp_id, op_data, dxpl_id, req);
+                iter_data.u.link_iter_data.link_iter_op = iter_op;
+
+                if((ret_value = H5_daos_link_iterate(target_grp, &iter_data)) < 0)
                     D_GOTO_ERROR(H5E_LINK, H5E_BADITER, FAIL, "link iteration failed")
 
                 break;
@@ -757,10 +736,64 @@ done:
             D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group")
         target_grp = NULL;
     } /* end else */
-    dkey_buf = (char *)DV_free(dkey_buf);
 
     D_FUNC_LEAVE_API
 } /* end H5_daos_link_specific() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_link_exists
+ *
+ * Purpose:     Helper routine to determine if a link exists by the given
+ *              pathname from the specified object.
+ *
+ * Return:      Success:        TRUE if the link exists or FALSE if it does
+ *                              not exist.
+ *              Failure:        FAIL
+ *
+ *-------------------------------------------------------------------------
+ */
+htri_t
+H5_daos_link_exists(H5_daos_item_t *item, const char *link_path, hid_t dxpl_id, void **req)
+{
+    H5_daos_group_t *target_grp = NULL;
+    const char *target_name = NULL;
+    daos_key_t dkey;
+    daos_iod_t iod;
+    int ret;
+    htri_t ret_value = FALSE;
+
+    /* Traverse the path */
+    if(NULL == (target_grp = H5_daos_group_traverse(item, link_path, dxpl_id, req, &target_name, NULL, NULL)))
+        D_GOTO_ERROR(H5E_SYM, H5E_BADITER, FAIL, "can't traverse path")
+
+    /* Set up dkey */
+    daos_iov_set(&dkey, (void *)target_name, strlen(target_name));
+
+    /* Set up iod */
+    memset(&iod, 0, sizeof(iod));
+    daos_iov_set(&iod.iod_name, (void *)H5_daos_link_key_g, H5_daos_link_key_size_g);
+    daos_csum_set(&iod.iod_kcsum, NULL, 0);
+    iod.iod_nr = 1u;
+    iod.iod_size = DAOS_REC_ANY;
+    iod.iod_type = DAOS_IOD_SINGLE;
+
+    /* Read link */
+    if(0 != (ret = daos_obj_fetch(target_grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, NULL /*sgl*/, NULL /*maps*/, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't read link: %s", H5_daos_err_to_string(ret))
+
+    /* Set return value */
+    ret_value = iod.iod_size != (uint64_t)0;
+
+done:
+    if(target_grp) {
+        if(H5_daos_group_close(target_grp, dxpl_id, req) < 0)
+            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group")
+        target_grp = NULL;
+    } /* end if */
+
+    D_FUNC_LEAVE
+} /* end H5_daos_link_exists() */
 
 
 /*-------------------------------------------------------------------------
@@ -769,7 +802,9 @@ done:
  * Purpose:     Follows the link in grp identified with name, and returns
  *              in oid the oid of the target object.
  *
- * Return:      Success:        SUCCEED 
+ * Return:      Success:        TRUE (for hard links and soft/external
+ *                              links which resolve) or FALSE (for soft
+ *                              links which do not resolve)
  *              Failure:        FAIL
  *
  * Programmer:  Neil Fortner
@@ -777,14 +812,14 @@ done:
  *
  *-------------------------------------------------------------------------
  */
-herr_t
+htri_t
 H5_daos_link_follow(H5_daos_group_t *grp, const char *name,
     size_t name_len, hid_t dxpl_id, void **req, daos_obj_id_t *oid)
 {
     H5_daos_link_val_t link_val;
     hbool_t link_val_alloc = FALSE;
     H5_daos_group_t *target_grp = NULL;
-    herr_t ret_value = SUCCEED;
+    htri_t ret_value = TRUE;
 
     assert(grp);
     assert(name);
@@ -816,10 +851,17 @@ H5_daos_link_follow(H5_daos_group_t *grp, const char *name,
                 if(target_name[0] == '\0'
                         || (target_name[0] == '.' && name_len == (size_t)1))
                     *oid = target_grp->obj.oid;
-                else
-                    /* Follow the last element in the path */
-                    if(H5_daos_link_follow(target_grp, target_name, strlen(target_name), dxpl_id, req, oid) < 0)
-                        D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't follow link")
+                else {
+                    htri_t link_resolves;
+
+                    /* Attempt to follow the last element in the path */
+                    H5E_BEGIN_TRY {
+                        link_resolves = H5_daos_link_follow(target_grp, target_name, strlen(target_name), dxpl_id, req, oid);
+                    } H5E_END_TRY;
+
+                    if(link_resolves < 0)
+                        D_GOTO_DONE(FALSE)
+                } /* end else */
 
                 break;
             } /* end block */
@@ -861,8 +903,9 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_link_iterate(H5_daos_group_t *target_grp, iter_data *link_iter_data)
+H5_daos_link_iterate(H5_daos_group_t *target_grp, H5_daos_iter_data_t *iter_data)
 {
+    H5_daos_obj_t *target_obj = NULL;
     daos_anchor_t anchor;
     uint32_t nr;
     daos_key_desc_t kds[H5_DAOS_ITER_LEN];
@@ -880,18 +923,18 @@ H5_daos_link_iterate(H5_daos_group_t *target_grp, iter_data *link_iter_data)
     herr_t ret_value = SUCCEED;
 
     assert(target_grp);
-    assert(link_iter_data);
+    assert(iter_data);
 
     /* Iteration restart not supported */
-    if(link_iter_data->idx_p && (*link_iter_data->idx_p != 0))
+    if(iter_data->idx_p && (*iter_data->idx_p != 0))
         D_GOTO_ERROR(H5E_SYM, H5E_UNSUPPORTED, FAIL, "iteration restart not supported (must start from 0)")
 
-    /* Ordered iteration not supported */
-    if(link_iter_data->iter_order != H5_ITER_NATIVE)
-        D_GOTO_ERROR(H5E_SYM, H5E_UNSUPPORTED, FAIL, "ordered iteration not supported (order must be H5_ITER_NATIVE)")
+    /* Native iteration order is currently associated with increasing order; decreasing order iteration is not currently supported */
+    if(iter_data->iter_order == H5_ITER_DEC)
+        D_GOTO_ERROR(H5E_SYM, H5E_UNSUPPORTED, FAIL, "decreasing iteration order not supported (order must be H5_ITER_NATIVE or H5_ITER_INC)")
 
     /* Recursive iteration not supported */
-    if(link_iter_data->is_recursive)
+    if(iter_data->is_recursive)
         D_GOTO_ERROR(H5E_SYM, H5E_UNSUPPORTED, FAIL, "recursive iteration not supported")
 
     /* Initialize const linfo info */
@@ -969,16 +1012,47 @@ H5_daos_link_iterate(H5_daos_group_t *target_grp, iter_data *link_iter_data)
                     link_val.target.soft = (char *)DV_free(link_val.target.soft);
                 } /* end else */
 
-                /* Make callback */
-                if((op_ret = link_iter_data->iter_function.link_iter_op(link_iter_data->iter_root_obj, p, &linfo, link_iter_data->op_data)) < 0)
-                    D_GOTO_ERROR(H5E_SYM, H5E_BADITER, op_ret, "operator function returned failure")
+                if(H5_DAOS_ITER_TYPE_LINK == iter_data->iter_type) {
+                    /* Make callback */
+                    if((op_ret = iter_data->u.link_iter_data.link_iter_op(iter_data->iter_root_obj, p, &linfo, iter_data->op_data)) < 0)
+                        D_GOTO_ERROR(H5E_SYM, H5E_BADITER, op_ret, "operator function returned failure")
+                } /* end if */
+                else if(H5_DAOS_ITER_TYPE_OBJ == iter_data->iter_type) {
+                    H5VL_loc_params_t sub_loc_params;
+                    htri_t link_resolves = TRUE;
+
+                    if(H5L_TYPE_SOFT == link_val.type)
+                        /* Check that the soft link resolves before opening the target object */
+                        if((link_resolves = H5_daos_link_follow(target_grp, p, strlen(p), iter_data->dxpl_id, NULL, NULL)) < 0)
+                            D_GOTO_ERROR(H5E_LINK, H5E_TRAVERSE, FAIL, "can't follow link")
+
+                    if(link_resolves) {
+                        /*
+                         * Open the target object.
+                         */
+
+                        sub_loc_params.type = H5VL_OBJECT_BY_NAME;
+                        sub_loc_params.loc_data.loc_by_name.name = p;
+                        sub_loc_params.loc_data.loc_by_name.lapl_id = H5P_LINK_ACCESS_DEFAULT;
+                        if(NULL == (target_obj = H5_daos_object_open(target_grp, &sub_loc_params, NULL, iter_data->dxpl_id, iter_data->req)))
+                            D_GOTO_ERROR(H5E_OHDR, H5E_CANTOPENOBJ, FAIL, "can't open object")
+
+                            iter_data->u.obj_iter_data.obj_name = p;
+                        if(H5_daos_object_visit(target_obj, iter_data) < 0)
+                            D_GOTO_ERROR(H5E_OHDR, H5E_BADITER, FAIL, "failed to visit object")
+
+                        if(H5_daos_object_close(target_obj, iter_data->dxpl_id, iter_data->req) < 0)
+                            D_GOTO_ERROR(H5E_OHDR, H5E_CLOSEERROR, FAIL, "can't close object")
+                        target_obj = NULL;
+                    } /* end if */
+                } /* end else */
 
                 /* Replace null terminator */
                 p[kds[i].kd_key_len] = tmp_char;
 
                 /* Advance idx */
-                if(link_iter_data->idx_p)
-                    (*link_iter_data->idx_p)++;
+                if(iter_data->idx_p)
+                    (*iter_data->idx_p)++;
             } /* end if */
 
             /* Advance to next akey */
@@ -989,6 +1063,12 @@ H5_daos_link_iterate(H5_daos_group_t *target_grp, iter_data *link_iter_data)
     ret_value = op_ret;
 
 done:
+    if(target_obj) {
+        if(H5_daos_object_close(target_obj, iter_data->dxpl_id, iter_data->req) < 0)
+            D_DONE_ERROR(H5E_OHDR, H5E_CLOSEERROR, FAIL, "can't close object")
+        target_obj = NULL;
+    } /* end if */
+
     dkey_buf = (char *)DV_free(dkey_buf);
 
     D_FUNC_LEAVE

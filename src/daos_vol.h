@@ -193,11 +193,17 @@ typedef struct H5_daos_item_t {
     int rc;
 } H5_daos_item_t;
 
+/* The OCPL cache struct */
+typedef struct H5_daos_ocpl_cache_t {
+    hbool_t track_acorder;
+} H5_daos_ocpl_cache_t;
+
 /* Common object information */
 typedef struct H5_daos_obj_t {
     H5_daos_item_t item; /* Must be first */
     daos_obj_id_t oid;
     daos_handle_t obj_oh;
+    H5_daos_ocpl_cache_t ocpl_cache;
 } H5_daos_obj_t;
 
 /* The file struct */
@@ -444,6 +450,7 @@ extern H5VL_DAOS_PRIVATE const char H5_daos_nlinks_key_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_type_key_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_space_key_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_attr_key_g[];
+extern H5VL_DAOS_PRIVATE const char H5_daos_nattr_key_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_ktype_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_vtype_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_map_key_g[];
@@ -457,6 +464,7 @@ extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_nlinks_key_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_type_key_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_space_key_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_attr_key_size_g;
+extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_nattr_key_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_ktype_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_vtype_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_map_key_size_g;
@@ -601,6 +609,7 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_object_optional(void *_item, hid_t dxpl_id, voi
 /* Other object routines */
 H5VL_DAOS_PRIVATE herr_t H5_daos_object_visit(H5_daos_obj_t *target_obj, H5_daos_iter_data_t *obj_iter_data);
 H5VL_DAOS_PRIVATE herr_t H5_daos_object_close(void *_obj, hid_t dxpl_id, void **req);
+H5VL_DAOS_PRIVATE herr_t H5_daos_fill_ocpl_cache(H5_daos_obj_t *obj, hid_t ocpl_id);
 
 /* Attribute callbacks */
 H5VL_DAOS_PRIVATE void *H5_daos_attribute_create(void *_obj, const H5VL_loc_params_t *loc_params,

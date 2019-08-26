@@ -228,23 +228,23 @@ H5_daos_dataset_create(void *_item,
 
         /* Set up operation to write datatype, dataspace, and DCPL to dataset */
         /* Set up dkey */
-        daos_iov_set(&dkey, H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
+        daos_iov_set(&dkey, (void *)H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
 
         /* Set up iod */
         memset(iod, 0, sizeof(iod));
-        daos_iov_set(&iod[0].iod_name, H5_daos_type_key_g, H5_daos_type_key_size_g);
+        daos_iov_set(&iod[0].iod_name, (void *)H5_daos_type_key_g, H5_daos_type_key_size_g);
         daos_csum_set(&iod[0].iod_kcsum, NULL, 0);
         iod[0].iod_nr = 1u;
         iod[0].iod_size = (uint64_t)type_size;
         iod[0].iod_type = DAOS_IOD_SINGLE;
 
-        daos_iov_set(&iod[1].iod_name, H5_daos_space_key_g, H5_daos_space_key_size_g);
+        daos_iov_set(&iod[1].iod_name, (void *)H5_daos_space_key_g, H5_daos_space_key_size_g);
         daos_csum_set(&iod[1].iod_kcsum, NULL, 0);
         iod[1].iod_nr = 1u;
         iod[1].iod_size = (uint64_t)space_size;
         iod[1].iod_type = DAOS_IOD_SINGLE;
 
-        daos_iov_set(&iod[2].iod_name, H5_daos_cpl_key_g, H5_daos_cpl_key_size_g);
+        daos_iov_set(&iod[2].iod_name, (void *)H5_daos_cpl_key_g, H5_daos_cpl_key_size_g);
         daos_csum_set(&iod[2].iod_kcsum, NULL, 0);
         iod[2].iod_nr = 1u;
         iod[2].iod_size = (uint64_t)dcpl_size;
@@ -307,6 +307,10 @@ H5_daos_dataset_create(void *_item,
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, NULL, "failed to copy dcpl")
     if((dset->dapl_id = H5Pcopy(dapl_id)) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, NULL, "failed to copy dapl")
+
+    /* Fill OCPL cache */
+    if(H5_daos_fill_ocpl_cache(&dset->obj, dset->dcpl_id) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "failed to fill OCPL cache")
 
     /* Set return value */
     ret_value = (void *)dset;
@@ -467,17 +471,17 @@ H5_daos_dataset_open(void *_item,
         /* Set up operation to read datatype, dataspace, and DCPL sizes from
          * dataset */
         /* Set up dkey */
-        daos_iov_set(&dkey, H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
+        daos_iov_set(&dkey, (void *)H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
 
         /* Set up iod */
         memset(iod, 0, sizeof(iod));
-        daos_iov_set(&iod[0].iod_name, H5_daos_type_key_g, H5_daos_type_key_size_g);
+        daos_iov_set(&iod[0].iod_name, (void *)H5_daos_type_key_g, H5_daos_type_key_size_g);
         daos_csum_set(&iod[0].iod_kcsum, NULL, 0);
         iod[0].iod_nr = 1u;
         iod[0].iod_size = DAOS_REC_ANY;
         iod[0].iod_type = DAOS_IOD_SINGLE;
 
-        daos_iov_set(&iod[1].iod_name, H5_daos_space_key_g, H5_daos_space_key_size_g);
+        daos_iov_set(&iod[1].iod_name, (void *)H5_daos_space_key_g, H5_daos_space_key_size_g);
         daos_csum_set(&iod[1].iod_kcsum, NULL, 0);
         iod[1].iod_nr = 1u;
         iod[1].iod_size = DAOS_REC_ANY;
@@ -617,6 +621,10 @@ H5_daos_dataset_open(void *_item,
     /* Finish setting up dataset struct */
     if((dset->dapl_id = H5Pcopy(dapl_id)) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, NULL, "failed to copy dapl");
+
+    /* Fill OCPL cache */
+    if(H5_daos_fill_ocpl_cache(&dset->obj, dset->dcpl_id) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "failed to fill OCPL cache")
 
     /* Set return value */
     ret_value = (void *)dset;
@@ -1768,7 +1776,7 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
         if((num_elem = H5Sget_select_npoints(chunk_info[i].fspace_id)) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get number of points in selection")
 
-        if(single_chunk_write_func(dset, dkey, num_elem, mem_type_id, chunk_info[i].mspace_id, chunk_info[i].fspace_id, dxpl_id, IO_WRITE, buf) < 0)
+        if(single_chunk_write_func(dset, dkey, num_elem, mem_type_id, chunk_info[i].mspace_id, chunk_info[i].fspace_id, dxpl_id, IO_WRITE, (void *)buf) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_WRITEERROR, FAIL, "dataset write failed")
     } /* end for */
 

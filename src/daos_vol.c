@@ -1097,19 +1097,19 @@ static herr_t H5_daos_optional(void *item, hid_t dxpl_id, void **req,
             break;
         } /* end block */
 
-        /* H5Mset */
-        case H5VL_MAP_SET:
+        /* H5Mput */
+        case H5VL_MAP_PUT:
         {
             hid_t key_mem_type_id = va_arg(arguments, hid_t);
             const void *key = va_arg(arguments, const void *);
             hid_t val_mem_type_id = va_arg(arguments, hid_t);
             const void *value = va_arg(arguments, const void *);
 
-            /* All arguments will be checked by H5_daos_map_set. */
+            /* All arguments will be checked by H5_daos_map_put. */
 
             /* Pass the call */
-            if((ret_value = H5_daos_map_set(item, key_mem_type_id, key, val_mem_type_id, value, dxpl_id, req)) < 0)
-                D_GOTO_ERROR(H5E_MAP, H5E_WRITEERROR, ret_value, "can't set value")
+            if((ret_value = H5_daos_map_put(item, key_mem_type_id, key, val_mem_type_id, value, dxpl_id, req)) < 0)
+                D_GOTO_ERROR(H5E_MAP, H5E_WRITEERROR, ret_value, "can't put value")
 
             break;
         } /* end block */

@@ -1,7 +1,9 @@
 \subsection{H5daos\_init}
+\label{ref:h5daos_init}
 
 \begin{verbatim}
-herr_t H5daos_init(MPI_Comm pool_comm, uuid_t pool_uuid, char *pool_grp);
+herr_t H5daos_init(MPI_Comm pool_comm, uuid_t pool_uuid, const char *pool_grp,
+    const char *pool_svcl);
 \end{verbatim}
 
 \paragraph{Purpose:}
@@ -23,7 +25,8 @@ across \texttt{pool\_comm}.
  \begin{tabular}{ll}%
    \texttt{MPI\_Comm pool\_comm} & IN: Communicator used for connecting to the pool \\
    \texttt{uuid\_t pool\_uuid} & IN: UUID to identify a pool \\
-   \texttt{char *pool\_grp} & IN: Process set name of the DAOS servers managing the pool \\
+   \texttt{const char *pool\_grp} & IN: Process set name of the DAOS servers managing the pool \\
+   \texttt{const char *pool\_svcl} & IN: Comma-separated list of pool service replica ranks \\
  \end{tabular}%
 \end{flushleft}%
 
@@ -35,6 +38,7 @@ Returns a non-negative value if successful; otherwise returns a negative value.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \newpage
 \subsection{H5daos\_term}
+\label{ref:h5daos_term}
 
 \begin{verbatim}
 herr_t H5daos_term(void);
@@ -63,6 +67,7 @@ Returns a non-negative value if successful; otherwise returns a negative value.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \newpage
 \subsection{H5Pset\_fapl\_daos}
+\label{ref:h5pset_fapl_daos}
 
 \begin{verbatim}
 herr_t H5Pset_fapl_daos(hid_t fapl_id, MPI_Comm comm, MPI_Info info);

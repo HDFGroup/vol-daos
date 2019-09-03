@@ -2334,7 +2334,7 @@ H5_daos_get_selected_chunk_info(hid_t dcpl_id,
         if (is_all_file_space)
             intersect = TRUE;
         else
-            if ((intersect = H5Shyper_intersect_block(file_space_id, start_coords, end_coords)) < 0)
+            if ((intersect = H5Sselect_intersect_block(file_space_id, start_coords, end_coords)) < 0)
                 D_GOTO_ERROR(H5E_DATASPACE, H5E_BADVALUE, FAIL, "cannot determine chunk's intersection with the file dataspace");
         if (TRUE == intersect) {
             hssize_t chunk_mem_space_adjust[H5O_LAYOUT_NDIMS];
@@ -2407,11 +2407,6 @@ H5_daos_get_selected_chunk_info(hid_t dcpl_id,
             if (space_same_shape) {
                 if ((tmp_chunk_mspace_id = H5Scopy(mem_space_id)) < 0)
                     D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTCOPY, FAIL, "unable to copy memory space");
-
-                /* NOTE: Should not be needed - H5Scopy should release the selection, but there is currently a bug in HDF5 */
-                /* Release the current selection */
-                if (H5Sselect_release(tmp_chunk_mspace_id) < 0)
-                    D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTRELEASE, FAIL, "unable to release selection in temporary chunk's memory dataspace");
 
                 /* Copy the chunk's file space selection to its memory space selection */
                 if (H5Sselect_copy(tmp_chunk_mspace_id, tmp_chunk_fspace_id) < 0)

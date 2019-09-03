@@ -193,7 +193,7 @@ test_map_set(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t value_d
     if(!strcmp(map_name, MAP_INT_INT_NAME) || !strncmp(map_name, "map_large_name_", strlen("map_large_name_"))) {
         /* Set the values */
         for(i = 0; i < NUMB_KEYS; i++)
-            if(H5Mset(map_id, key_dtype, &int_int_keys[i], value_dtype, &int_int_vals[i], H5P_DEFAULT) < 0) {
+            if(H5Mput(map_id, key_dtype, &int_int_keys[i], value_dtype, &int_int_vals[i], H5P_DEFAULT) < 0) {
                 H5_FAILED(); AT();
                 printf("failed to set key-value pair\n");
                 goto error;
@@ -201,7 +201,7 @@ test_map_set(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t value_d
     } else if(!strcmp(map_name, MAP_ENUM_ENUM_NAME)) {
         /* Set the values */
         for(i = 0; i < NUMB_KEYS; i++)
-            if(H5Mset(map_id, key_dtype, &enum_enum_keys[i], value_dtype, &enum_enum_vals[i], H5P_DEFAULT) < 0) {
+            if(H5Mput(map_id, key_dtype, &enum_enum_keys[i], value_dtype, &enum_enum_vals[i], H5P_DEFAULT) < 0) {
                 H5_FAILED(); AT();
                 printf("failed to set key-value pair\n");
                 goto error;
@@ -209,7 +209,7 @@ test_map_set(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t value_d
     } else if(!strcmp(map_name, MAP_VL_VL_NAME)) {
         /* Set the values */
         for(i = 0; i < NUMB_KEYS; i++)
-            if(H5Mset(map_id, key_dtype, &vl_vl_keys[i], value_dtype, &vl_vl_vals[i], H5P_DEFAULT) < 0) {
+            if(H5Mput(map_id, key_dtype, &vl_vl_keys[i], value_dtype, &vl_vl_vals[i], H5P_DEFAULT) < 0) {
                 H5_FAILED(); AT();
                 printf("failed to set key-value pair\n");
                 goto error;
@@ -217,7 +217,7 @@ test_map_set(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t value_d
     } else if(!strcmp(map_name, MAP_COMP_COMP_NAME)) {
         /* Set the values */
         for(i = 0; i < NUMB_KEYS; i++)
-            if(H5Mset(map_id, key_dtype, &comp_comp_keys[i], value_dtype, &comp_comp_vals[i], H5P_DEFAULT) < 0) {
+            if(H5Mput(map_id, key_dtype, &comp_comp_keys[i], value_dtype, &comp_comp_vals[i], H5P_DEFAULT) < 0) {
                 H5_FAILED(); AT();
                 printf("failed to set key-value pair\n");
                 goto error;
@@ -225,7 +225,7 @@ test_map_set(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t value_d
     } else if(!strcmp(map_name, MAP_NESTED_COMP_NAME)) {
         /* Set the values */
         for(i = 0; i < NUMB_KEYS; i++)
-            if(H5Mset(map_id, key_dtype, &nested_comp_keys[i], value_dtype, &nested_comp_vals[i], H5P_DEFAULT) < 0) {
+            if(H5Mput(map_id, key_dtype, &nested_comp_keys[i], value_dtype, &nested_comp_vals[i], H5P_DEFAULT) < 0) {
                 H5_FAILED(); AT();
                 printf("failed to set key-value pair\n");
                 goto error;
@@ -233,7 +233,7 @@ test_map_set(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t value_d
     } else if(!strcmp(map_name, MAP_MANY_ENTRIES_NAME)) {
         /* Set the values */
         for(i = 0; i < LARGE_NUMB_KEYS; i++)
-            if(H5Mset(map_id, key_dtype, &large_int_int_keys[i], value_dtype, &large_int_int_vals[i], H5P_DEFAULT) < 0) {
+            if(H5Mput(map_id, key_dtype, &large_int_int_keys[i], value_dtype, &large_int_int_vals[i], H5P_DEFAULT) < 0) {
                 H5_FAILED(); AT();
                 printf("failed to set key-value pair\n");
                 goto error;
@@ -415,7 +415,7 @@ test_map_nonexistent_key(hid_t file_id, const char *map_name, hid_t key_dtype, h
         } /* end if */
 
         /* Deleting a non-existent key should succeed but do nothing */
-        if(H5Mdelete_key(map_id, key_dtype, &non_existent_key, H5P_DEFAULT) < 0) {
+        if(H5Mdelete(map_id, key_dtype, &non_existent_key, H5P_DEFAULT) < 0) {
             H5_FAILED(); AT();
             printf("failed with a non-existent key\n");
             goto error;
@@ -435,7 +435,7 @@ test_map_nonexistent_key(hid_t file_id, const char *map_name, hid_t key_dtype, h
         non_existent_value = rand();
 
         /* Try to set the non-existent key and value to make sure it works as expected */
-        if(H5Mset(map_id, key_dtype, &non_existent_key, value_dtype, &non_existent_value, H5P_DEFAULT) < 0) {
+        if(H5Mput(map_id, key_dtype, &non_existent_key, value_dtype, &non_existent_value, H5P_DEFAULT) < 0) {
             H5_FAILED(); AT();
             printf("failed to set key-value pair\n");
             goto error;
@@ -469,7 +469,7 @@ test_map_nonexistent_key(hid_t file_id, const char *map_name, hid_t key_dtype, h
         } /* end if */
 
         /* Deleting a non-existent key should succeed but do nothing */
-        if(H5Mdelete_key(map_id, key_dtype, &non_existent_key, H5P_DEFAULT) < 0) {
+        if(H5Mdelete(map_id, key_dtype, &non_existent_key, H5P_DEFAULT) < 0) {
             H5_FAILED(); AT();
             printf("failed with a non-existent key\n");
             goto error;
@@ -489,7 +489,7 @@ test_map_nonexistent_key(hid_t file_id, const char *map_name, hid_t key_dtype, h
         non_existent_value = YELLOW;
 
         /* Try to set the non-existent key and value to make sure it works as expected */
-        if(H5Mset(map_id, key_dtype, &non_existent_key, value_dtype, &non_existent_value, H5P_DEFAULT) < 0) {
+        if(H5Mput(map_id, key_dtype, &non_existent_key, value_dtype, &non_existent_value, H5P_DEFAULT) < 0) {
             H5_FAILED(); AT();
             printf("failed to set key-value pair\n");
             goto error;
@@ -528,7 +528,7 @@ test_map_nonexistent_key(hid_t file_id, const char *map_name, hid_t key_dtype, h
         } /* end if */
 
         /* Deleting a non-existent key should succeed but do nothing */
-        if(H5Mdelete_key(map_id, key_dtype, &non_existent_key, H5P_DEFAULT) < 0) {
+        if(H5Mdelete(map_id, key_dtype, &non_existent_key, H5P_DEFAULT) < 0) {
             H5_FAILED(); AT();
             printf("failed with a non-existent key\n");
             goto error;
@@ -552,7 +552,7 @@ test_map_nonexistent_key(hid_t file_id, const char *map_name, hid_t key_dtype, h
             ((int *)non_existent_value.p)[i] = rand();
 
         /* Try to set the non-existent key and value to make sure it works as expected */
-        if(H5Mset(map_id, key_dtype, &non_existent_key, value_dtype, &non_existent_value, H5P_DEFAULT) < 0) {
+        if(H5Mput(map_id, key_dtype, &non_existent_key, value_dtype, &non_existent_value, H5P_DEFAULT) < 0) {
             H5_FAILED(); AT();
             printf("failed to set key-value pair\n");
             goto error;
@@ -588,7 +588,7 @@ test_map_nonexistent_key(hid_t file_id, const char *map_name, hid_t key_dtype, h
         } /* end if */
 
         /* Deleting a non-existent key should succeed but do nothing */
-        if(H5Mdelete_key(map_id, key_dtype, &non_existent_key, H5P_DEFAULT) < 0) {
+        if(H5Mdelete(map_id, key_dtype, &non_existent_key, H5P_DEFAULT) < 0) {
             H5_FAILED(); AT();
             printf("failed with a non-existent key\n");
             goto error;
@@ -610,7 +610,7 @@ test_map_nonexistent_key(hid_t file_id, const char *map_name, hid_t key_dtype, h
         non_existent_value.b = (float)(rand());
 
         /* Try to set the non-existent key and value to make sure it works as expected */
-        if(H5Mset(map_id, key_dtype, &non_existent_key, value_dtype, &non_existent_value, H5P_DEFAULT) < 0) {
+        if(H5Mput(map_id, key_dtype, &non_existent_key, value_dtype, &non_existent_value, H5P_DEFAULT) < 0) {
             H5_FAILED(); AT();
             printf("failed to set key-value pair\n");
             goto error;
@@ -651,7 +651,7 @@ test_map_nonexistent_key(hid_t file_id, const char *map_name, hid_t key_dtype, h
         } /* end if */
 
         /* Deleting a non-existent key should succeed but do nothing */
-        if(H5Mdelete_key(map_id, key_dtype, &non_existent_key, H5P_DEFAULT) < 0) {
+        if(H5Mdelete(map_id, key_dtype, &non_existent_key, H5P_DEFAULT) < 0) {
             H5_FAILED(); AT();
             printf("failed with a non-existent key\n");
             goto error;
@@ -677,7 +677,7 @@ test_map_nonexistent_key(hid_t file_id, const char *map_name, hid_t key_dtype, h
             ((int *)non_existent_value.c.p)[i] = rand();
 
         /* Try to set the non-existent key and value to make sure it works as expected */
-        if(H5Mset(map_id, key_dtype, &non_existent_key, value_dtype, &non_existent_value, H5P_DEFAULT) < 0) {
+        if(H5Mput(map_id, key_dtype, &non_existent_key, value_dtype, &non_existent_value, H5P_DEFAULT) < 0) {
             H5_FAILED(); AT();
             printf("failed to set key-value pair\n");
             goto error;
@@ -742,7 +742,7 @@ test_map_update(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t valu
         for(i = 0; i < NUMB_KEYS; i++) {
             updated_values[i] = rand();
 
-            if(H5Mset(map_id, key_dtype, &int_int_keys[i], value_dtype, &updated_values[i], H5P_DEFAULT) < 0) {
+            if(H5Mput(map_id, key_dtype, &int_int_keys[i], value_dtype, &updated_values[i], H5P_DEFAULT) < 0) {
                 H5_FAILED(); AT();
                 printf("failed to set key-value pair\n");
                 goto error;
@@ -766,7 +766,7 @@ test_map_update(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t valu
         for(i = 0; i < NUMB_KEYS; i++) {
             updated_values[i] = NUMB_KEYS + 1 - i;
 
-            if(H5Mset(map_id, key_dtype, &enum_enum_keys[i], value_dtype, &updated_values[i], H5P_DEFAULT) < 0) {
+            if(H5Mput(map_id, key_dtype, &enum_enum_keys[i], value_dtype, &updated_values[i], H5P_DEFAULT) < 0) {
                 H5_FAILED(); AT();
                 printf("failed to set key-value pair\n");
                 goto error;
@@ -797,7 +797,7 @@ test_map_update(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t valu
             for(j=0; j<(i + 2*NUMB_KEYS); j++)
                 ((int *)updated_values[i].p)[j] = rand();
 
-            if(H5Mset(map_id, key_dtype, &vl_vl_keys[i], value_dtype, &updated_values[i], H5P_DEFAULT) < 0) {
+            if(H5Mput(map_id, key_dtype, &vl_vl_keys[i], value_dtype, &updated_values[i], H5P_DEFAULT) < 0) {
                 H5_FAILED(); AT();
                 printf("failed to set key-value pair\n");
                 goto error;
@@ -822,7 +822,7 @@ test_map_update(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t valu
             updated_values[i].a = rand();
             updated_values[i].b = (float)rand();
 
-            if(H5Mset(map_id, key_dtype, &comp_comp_keys[i], value_dtype, &updated_values[i], H5P_DEFAULT) < 0) {
+            if(H5Mput(map_id, key_dtype, &comp_comp_keys[i], value_dtype, &updated_values[i], H5P_DEFAULT) < 0) {
                 H5_FAILED(); AT();
                 printf("failed to set key-value pair\n");
                 goto error;
@@ -856,7 +856,7 @@ test_map_update(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t valu
             for(j=0; j<(i + 2*NUMB_KEYS); j++)
                 ((int *)updated_values[i].c.p)[j] = rand();
 
-            if(H5Mset(map_id, key_dtype, &comp_comp_keys[i], value_dtype, &updated_values[i], H5P_DEFAULT) < 0) {
+            if(H5Mput(map_id, key_dtype, &comp_comp_keys[i], value_dtype, &updated_values[i], H5P_DEFAULT) < 0) {
                 H5_FAILED(); AT();
                 printf("failed to set key-value pair\n");
                 goto error;
@@ -1498,7 +1498,7 @@ test_map_delete_key(hid_t file_id, const char *map_name, hid_t key_dtype)
     /* Check if the existing keys exist (should all be TRUE) */
     if(!strcmp(map_name, MAP_INT_INT_NAME)) {
         /* Delete the first entry */
-        if(H5Mdelete_key(map_id, key_dtype, &int_int_keys[0], H5P_DEFAULT) < 0) {
+        if(H5Mdelete(map_id, key_dtype, &int_int_keys[0], H5P_DEFAULT) < 0) {
             H5_FAILED(); AT();
             printf("failed to remove an entry by the key\n");
             goto error;
@@ -1533,7 +1533,7 @@ test_map_delete_key(hid_t file_id, const char *map_name, hid_t key_dtype)
         } /* end for */
     } else if(!strcmp(map_name, MAP_ENUM_ENUM_NAME)) {
         /* Delete the first entry */
-        if(H5Mdelete_key(map_id, key_dtype, &enum_enum_keys[0], H5P_DEFAULT) < 0) {
+        if(H5Mdelete(map_id, key_dtype, &enum_enum_keys[0], H5P_DEFAULT) < 0) {
             H5_FAILED(); AT();
             printf("failed to remove an entry by the key\n");
             goto error;
@@ -1568,7 +1568,7 @@ test_map_delete_key(hid_t file_id, const char *map_name, hid_t key_dtype)
         } /* end for */
     } else if(!strcmp(map_name, MAP_VL_VL_NAME)) {
         /* Delete the first entry */
-        if(H5Mdelete_key(map_id, key_dtype, &(vl_vl_keys[0]), H5P_DEFAULT) < 0) {
+        if(H5Mdelete(map_id, key_dtype, &(vl_vl_keys[0]), H5P_DEFAULT) < 0) {
             H5_FAILED(); AT();
             printf("failed to remove an entry by the key\n");
             goto error;
@@ -1603,7 +1603,7 @@ test_map_delete_key(hid_t file_id, const char *map_name, hid_t key_dtype)
         } /* end for */
     } else if(!strcmp(map_name, MAP_COMP_COMP_NAME)) {
         /* Delete the first entry */
-        if(H5Mdelete_key(map_id, key_dtype, &comp_comp_keys[0], H5P_DEFAULT) < 0) {
+        if(H5Mdelete(map_id, key_dtype, &comp_comp_keys[0], H5P_DEFAULT) < 0) {
             H5_FAILED(); AT();
             printf("failed to remove an entry by the key\n");
             goto error;
@@ -1638,7 +1638,7 @@ test_map_delete_key(hid_t file_id, const char *map_name, hid_t key_dtype)
         } /* end for */
     } else if(!strcmp(map_name, MAP_NESTED_COMP_NAME)) {
         /* Delete the first entry */
-        if(H5Mdelete_key(map_id, key_dtype, &nested_comp_keys[0], H5P_DEFAULT) < 0) {
+        if(H5Mdelete(map_id, key_dtype, &nested_comp_keys[0], H5P_DEFAULT) < 0) {
             H5_FAILED(); AT();
             printf("failed to remove an entry by the key\n");
             goto error;
@@ -1673,7 +1673,7 @@ test_map_delete_key(hid_t file_id, const char *map_name, hid_t key_dtype)
         } /* end for */
     } else if(!strcmp(map_name, MAP_MANY_ENTRIES_NAME)) {
         /* Delete the first entry */
-        if(H5Mdelete_key(map_id, key_dtype, &large_int_int_keys[0], H5P_DEFAULT) < 0) {
+        if(H5Mdelete(map_id, key_dtype, &large_int_int_keys[0], H5P_DEFAULT) < 0) {
             H5_FAILED(); AT();
             printf("failed to remove an entry by the key\n");
             goto error;

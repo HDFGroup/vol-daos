@@ -21,8 +21,13 @@
 static herr_t H5_daos_object_visit_link_iter_cb(hid_t group, const char *name, const H5L_info_t *info, void *op_data);
 static herr_t H5_daos_object_get_info(H5_daos_obj_t *target_obj, unsigned fields, H5O_info_t *obj_info_out);
 static hssize_t H5_daos_object_get_num_attrs(H5_daos_obj_t *target_obj);
+static herr_t H5_daos_object_copy_helper(H5_daos_obj_t *src_obj, H5I_type_t src_obj_type,
+    H5_daos_group_t *dst_obj, const char *dst_name, unsigned obj_copy_options,
+    hid_t lcpl_id, hid_t dxpl_id, void **req);
 static herr_t H5_daos_group_copy(H5_daos_group_t *src_obj, H5_daos_group_t *dst_obj, const char *dst_name,
     unsigned obj_copy_options, hid_t lcpl_id, hid_t dxpl_id, void **req);
+static H5_daos_group_t *H5_daos_group_copy_helper(H5_daos_group_t *src_obj, H5_daos_group_t *dst_obj,
+    const char *dst_name, unsigned obj_copy_options, hid_t lcpl_id, hid_t dxpl_id, void **req);
 static herr_t H5_daos_datatype_copy(H5_daos_dtype_t *src_obj, H5_daos_group_t *dst_obj, const char *dst_name,
     unsigned obj_copy_options, hid_t lcpl_id, hid_t dxpl_id, void **req);
 static herr_t H5_daos_dataset_copy(H5_daos_dset_t *src_obj, H5_daos_group_t *dst_obj, const char *dst_name,
@@ -305,6 +310,44 @@ H5_daos_object_copy(void *_src_obj, const H5VL_loc_params_t *loc_params1,
     if(NULL == (src_obj = H5_daos_object_open(_src_obj, &sub_loc_params, &src_obj_type, dxpl_id, req)))
         D_GOTO_ERROR(H5E_OHDR, H5E_CANTOPENOBJ, FAIL, "failed to open source object")
 
+    /* Perform the object copy */
+    if(H5_daos_object_copy_helper(src_obj, src_obj_type, dst_obj, dst_name, obj_copy_options,
+            lcpl_id, dxpl_id, req) < 0)
+        D_GOTO_ERROR(H5E_OHDR, H5E_CANTCOPY, FAIL, "failed to copy object")
+
+done:
+    if(src_obj)
+        if(H5_daos_object_close(src_obj, dxpl_id, req) < 0)
+            D_DONE_ERROR(H5E_OHDR, H5E_CLOSEERROR, FAIL, "can't close object")
+
+    D_FUNC_LEAVE_API
+} /* end H5_daos_object_copy() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_object_copy_helper
+ *
+ * Purpose:     Helper routine for H5_daos_object_copy that calls the
+ *              appropriate copying routine based upon the object type of
+ *              the object being copied. This routine separates out the
+ *              copying logic so that recursive group copying can re-use
+ *              it.
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ * Programmer:  Jordan Henderson
+ *              January, 2019
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_object_copy_helper(H5_daos_obj_t *src_obj, H5I_type_t src_obj_type,
+    H5_daos_group_t *dst_obj, const char *dst_name, unsigned obj_copy_options,
+    hid_t lcpl_id, hid_t dxpl_id, void **req)
+{
+    herr_t ret_value = SUCCEED;
+
     switch(src_obj_type) {
         case H5I_FILE:
         case H5I_GROUP:
@@ -322,11 +365,14 @@ H5_daos_object_copy(void *_src_obj, const H5VL_loc_params_t *loc_params1,
                     obj_copy_options, lcpl_id, dxpl_id, req) < 0)
                 D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, FAIL, "failed to copy dataset")
             break;
+        case H5I_MAP:
+            /* TODO: Add map copying support */
+            D_GOTO_ERROR(H5E_MAP, H5E_UNSUPPORTED, H5_ITER_ERROR, "map copying is unsupported")
+            break;
 
         case H5I_UNINIT:
         case H5I_BADID:
         case H5I_DATASPACE:
-        case H5I_MAP:
         case H5I_ATTR:
         case H5I_VFL:
         case H5I_VOL:
@@ -342,11 +388,7 @@ H5_daos_object_copy(void *_src_obj, const H5VL_loc_params_t *loc_params1,
     } /* end switch */
 
 done:
-    if(src_obj)
-        if(H5_daos_object_close(src_obj, dxpl_id, req) < 0)
-            D_DONE_ERROR(H5E_OHDR, H5E_CLOSEERROR, FAIL, "can't close object")
-
-    D_FUNC_LEAVE_API
+    D_FUNC_LEAVE
 } /* end H5_daos_object_copy() */
 
 
@@ -1049,8 +1091,10 @@ H5_daos_group_copy_cb(hid_t group, const char *name,
 {
     group_copy_op_data *copy_op_data = (group_copy_op_data *) op_data;
     H5VL_loc_params_t sub_loc_params;
+    H5_daos_group_t *copied_group = NULL;
     H5_daos_obj_t *grp_obj = NULL;
-    H5_daos_obj_t *target_obj = NULL;
+    H5_daos_obj_t *obj_to_copy = NULL;
+    H5I_type_t opened_obj_type;
     herr_t ret_value = H5_ITER_CONT;
 
     if(NULL == (grp_obj = H5VLobject(group)))
@@ -1063,20 +1107,49 @@ H5_daos_group_copy_cb(hid_t group, const char *name,
     switch (info->type) {
         case H5L_TYPE_HARD:
         {
-            /* Open the target object */
-            if(NULL == (target_obj = H5_daos_object_open(grp_obj, &sub_loc_params, NULL,
+            /* Open the object being copied */
+            if(NULL == (obj_to_copy = H5_daos_object_open(grp_obj, &sub_loc_params, &opened_obj_type,
                     copy_op_data->dxpl_id, copy_op_data->req)))
                 D_GOTO_ERROR(H5E_OHDR, H5E_CANTOPENOBJ, H5_ITER_ERROR, "failed to open object")
 
-            /* TODO: Copy the object */
+            /*
+             * If performing a shallow group copy, copy the group without its immediate members.
+             * Otherwise, continue on with a normal recursive object copy.
+             */
+            if((opened_obj_type == H5I_GROUP) && (copy_op_data->object_copy_opts & H5O_COPY_SHALLOW_HIERARCHY_FLAG)) {
+                if(NULL == (copied_group = H5_daos_group_copy_helper((H5_daos_group_t *) obj_to_copy,
+                        copy_op_data->new_group, name, copy_op_data->object_copy_opts,
+                        copy_op_data->lcpl_id, copy_op_data->dxpl_id, copy_op_data->req)))
+                    D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, H5_ITER_ERROR, "failed to perform shallow copy of group")
+            } /* end if */
+            else {
+                if(H5_daos_object_copy_helper(obj_to_copy, opened_obj_type, copy_op_data->new_group, name,
+                        copy_op_data->object_copy_opts, copy_op_data->lcpl_id, copy_op_data->dxpl_id,
+                        copy_op_data->req) < 0)
+                    D_GOTO_ERROR(H5E_OHDR, H5E_CANTCOPY, H5_ITER_ERROR, "failed to copy object")
+            } /* end else */
 
             break;
         } /* H5L_TYPE_HARD */
 
         case H5L_TYPE_SOFT:
         {
+            /*
+             * If the H5O_COPY_EXPAND_SOFT_LINK_FLAG flag was specified,
+             * expand the soft link into a new object. Otherwise, the link
+             * will be copied as-is.
+             */
             if (copy_op_data->object_copy_opts & H5O_COPY_EXPAND_SOFT_LINK_FLAG) {
-                /* TODO: Copy the object */
+                /* Open the object being copied */
+                if(NULL == (obj_to_copy = H5_daos_object_open(grp_obj, &sub_loc_params, &opened_obj_type,
+                        copy_op_data->dxpl_id, copy_op_data->req)))
+                    D_GOTO_ERROR(H5E_OHDR, H5E_CANTOPENOBJ, H5_ITER_ERROR, "failed to open object")
+
+                /* Copy the object */
+                if(H5_daos_object_copy_helper(obj_to_copy, opened_obj_type, copy_op_data->new_group, name,
+                        copy_op_data->object_copy_opts, copy_op_data->lcpl_id, copy_op_data->dxpl_id,
+                        copy_op_data->req) < 0)
+                    D_GOTO_ERROR(H5E_OHDR, H5E_CANTCOPY, H5_ITER_ERROR, "failed to copy object")
             } /* end if */
             else {
                 /* Copy the link as is */
@@ -1090,8 +1163,14 @@ H5_daos_group_copy_cb(hid_t group, const char *name,
 
         case H5L_TYPE_EXTERNAL:
         {
+            /*
+             * If the H5O_COPY_EXPAND_EXT_LINK_FLAG flag was specified,
+             * expand the external link into a new object. Otherwise, the
+             * link will be copied as-is.
+             */
             if (copy_op_data->object_copy_opts & H5O_COPY_EXPAND_EXT_LINK_FLAG) {
                 /* TODO: Copy the object */
+                D_GOTO_ERROR(H5E_LINK, H5E_UNSUPPORTED, H5_ITER_ERROR, "H5O_COPY_EXPAND_EXT_LINK_FLAG flag is currently unsupported")
             } /* end if */
             else {
                 /* Copy the link as is */
@@ -1110,6 +1189,13 @@ H5_daos_group_copy_cb(hid_t group, const char *name,
     } /* end switch */
 
 done:
+    if(copied_group)
+        if(H5_daos_group_close(copied_group, copy_op_data->dxpl_id, copy_op_data->req) < 0)
+            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, H5_ITER_ERROR, "can't close group")
+    if(obj_to_copy)
+        if(H5_daos_object_close(obj_to_copy, copy_op_data->dxpl_id, copy_op_data->req) < 0)
+            D_DONE_ERROR(H5E_OHDR, H5E_CLOSEERROR, H5_ITER_ERROR, "can't close object")
+
     D_FUNC_LEAVE
 } /* end H5_daos_group_copy_cb() */
 
@@ -1135,7 +1221,6 @@ H5_daos_group_copy(H5_daos_group_t *src_obj, H5_daos_group_t *dst_obj, const cha
 {
     H5_daos_iter_data_t iter_data;
     group_copy_op_data copy_op_data;
-    H5VL_loc_params_t dest_loc_params;
     H5_daos_group_t *new_group = NULL;
     hid_t target_group_id = H5I_INVALID_HID;
     herr_t ret_value = SUCCEED;
@@ -1145,11 +1230,9 @@ H5_daos_group_copy(H5_daos_group_t *src_obj, H5_daos_group_t *dst_obj, const cha
     assert(dst_name);
 
     /* Copy the group */
-    dest_loc_params.type = H5VL_OBJECT_BY_SELF;
-    dest_loc_params.obj_type = H5I_GROUP;
-    if(NULL == (new_group = H5_daos_group_create(dst_obj, &dest_loc_params, dst_name, lcpl_id,
-            src_obj->gcpl_id, src_obj->gapl_id, dxpl_id, req)))
-        D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, FAIL, "failed to create new group")
+    if(NULL == (new_group = H5_daos_group_copy_helper(src_obj, dst_obj, dst_name,
+            obj_copy_options, lcpl_id, dxpl_id, req)))
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, FAIL, "failed to copy group")
 
     /* Register an ID for the group to iterate over */
     if((target_group_id = H5VLwrap_register(src_obj, H5I_GROUP)) < 0)
@@ -1165,22 +1248,13 @@ H5_daos_group_copy(H5_daos_group_t *src_obj, H5_daos_group_t *dst_obj, const cha
 
     /* Initialize iteration data */
     H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_LINK, H5_INDEX_CRT_ORDER, H5_ITER_INC,
-            (obj_copy_options & H5O_COPY_SHALLOW_HIERARCHY_FLAG) ? 0 : 1, NULL,
-            target_group_id, &copy_op_data, dxpl_id, req);
+            FALSE, NULL, target_group_id, &copy_op_data, dxpl_id, req);
     iter_data.u.link_iter_data.link_iter_op = H5_daos_group_copy_cb;
 
     /* Copy the immediate members of the group. If the H5O_COPY_SHALLOW_HIERARCHY_FLAG wasn't
      * specified, this will also recursively copy the members of any groups found. */
     if(H5_daos_link_iterate(src_obj, &iter_data) < 0)
         D_GOTO_ERROR(H5E_SYM, H5E_BADITER, FAIL, "failed to iterate over group's links")
-
-    /*
-     * If the "without attribute copying" flag hasn't been specified,
-     * copy the group's attributes as well.
-     */
-    if((obj_copy_options & H5O_COPY_WITHOUT_ATTR_FLAG) == 0)
-        if(H5_daos_object_copy_attributes((H5_daos_obj_t *) src_obj, (H5_daos_obj_t *) new_group, dxpl_id, req) < 0)
-            D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, FAIL, "failed to copy group's attributes")
 
 done:
     if(new_group) {
@@ -1195,6 +1269,60 @@ done:
 
     D_FUNC_LEAVE
 } /* end H5_daos_group_copy() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_group_copy_helper
+ *
+ * Purpose:     Helper routine for H5_daos_group_copy that actually copies
+ *              the specified group. This routine is needed to split the
+ *              group copying logic away from the higher-level
+ *              H5_daos_group_copy, which also copies the immediate members
+ *              of a group during a shallow copy, or the entire hierarchy
+ *              during a deep copy.
+ *
+ *              When a shallow group copy is being done, the group copying
+ *              callback for link iteration can simply call this routine to
+ *              just copy the group. Otherwise, during a deep copy, it can
+ *              call H5_daos_group_copy to copy the group and its members
+ *              as well.
+ *
+ * Return:      Non-negative on success/NULL on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+static H5_daos_group_t *
+H5_daos_group_copy_helper(H5_daos_group_t *src_obj, H5_daos_group_t *dst_obj, const char *dst_name,
+    unsigned obj_copy_options, hid_t lcpl_id, hid_t dxpl_id, void **req)
+{
+    H5VL_loc_params_t dest_loc_params;
+    H5_daos_group_t *copied_group = NULL;
+    H5_daos_group_t *ret_value = NULL;
+
+    /* Copy the group */
+    dest_loc_params.type = H5VL_OBJECT_BY_SELF;
+    dest_loc_params.obj_type = H5I_GROUP;
+    if(NULL == (copied_group = H5_daos_group_create(dst_obj, &dest_loc_params, dst_name, lcpl_id,
+            src_obj->gcpl_id, src_obj->gapl_id, dxpl_id, req)))
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, NULL, "failed to create new group")
+
+    /*
+     * If the "without attribute copying" flag hasn't been specified,
+     * copy the group's attributes as well.
+     */
+    if((obj_copy_options & H5O_COPY_WITHOUT_ATTR_FLAG) == 0)
+        if(H5_daos_object_copy_attributes((H5_daos_obj_t *) src_obj, (H5_daos_obj_t *) copied_group, dxpl_id, req) < 0)
+            D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, NULL, "failed to copy group's attributes")
+
+    ret_value = copied_group;
+
+done:
+    if(!ret_value && copied_group)
+        if(H5_daos_group_close(copied_group, dxpl_id, req) < 0)
+            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, NULL, "can't close group")
+
+    D_FUNC_LEAVE
+} /* end H5_daos_group_copy_helper() */
 
 
 /*-------------------------------------------------------------------------
@@ -1287,8 +1415,7 @@ H5_daos_dataset_copy(H5_daos_dset_t *src_obj, H5_daos_group_t *dst_obj, const ch
     dest_loc_params.type = H5VL_OBJECT_BY_SELF;
     dest_loc_params.obj_type = H5I_GROUP;
     if(NULL == (new_dset = H5_daos_dataset_create(dst_obj, &dest_loc_params, dst_name, lcpl_id,
-            src_obj->type_id, src_obj->space_id, src_obj->dcpl_id, src_obj->dapl_id,
-            dxpl_id, req)))
+            src_obj->type_id, src_obj->space_id, src_obj->dcpl_id, src_obj->dapl_id, dxpl_id, req)))
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, FAIL, "failed to create new dataset")
 
     /*
@@ -1386,8 +1513,8 @@ H5_daos_object_copy_attributes(H5_daos_obj_t *src_obj, H5_daos_obj_t *dst_obj,
         D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, FAIL, "unable to atomize object handle")
     src_obj->item.rc++;
 
-    /* Initialize iteration data */
-    H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_ATTR, H5_INDEX_NAME, H5_ITER_INC,
+    /* Initialize iteration data. Attributes are re-created by creation order */
+    H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_ATTR, H5_INDEX_CRT_ORDER, H5_ITER_INC,
             FALSE, NULL, target_obj_id, dst_obj, dxpl_id, req);
     iter_data.u.attr_iter_data.attr_iter_op = H5_daos_object_copy_attributes_cb;
 

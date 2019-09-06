@@ -1159,7 +1159,7 @@ H5_daos_oid_generate(daos_obj_id_t *oid, uint64_t addr, H5I_type_t obj_type)
 
     /* Set the object feature flags */
     if(H5I_GROUP == obj_type)
-        object_feats = DAOS_OF_DKEY_LEXICAL | DAOS_OF_AKEY_HASHED;
+        object_feats = DAOS_OF_DKEY_LEXICAL | DAOS_OF_AKEY_LEXICAL;
     else
         object_feats = DAOS_OF_DKEY_HASHED | DAOS_OF_AKEY_LEXICAL;
 

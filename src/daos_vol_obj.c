@@ -856,7 +856,7 @@ H5_daos_object_visit(H5_daos_obj_t *target_obj, H5_daos_iter_data_t *iter_data)
         /*
          * Initialize the link iteration data with all of the fields from
          * the passed in object iteration data, with the exception that the
-         * link iteration data's is_recursive field is set to TRUE. The link
+         * link iteration data's is_recursive field is set to FALSE. The link
          * iteration data's op_data will be a pointer to the passed in
          * object iteration data so that the correct object iteration callback
          * operator function can be called for each link during H5_daos_link_iterate().

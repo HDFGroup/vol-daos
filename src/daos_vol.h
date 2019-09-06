@@ -265,11 +265,17 @@ typedef struct H5_daos_file_t {
     void *vol_info;
 } H5_daos_file_t;
 
+/* The GCPL cache struct */
+typedef struct H5_daos_gcpl_cache_t {
+    hbool_t track_corder;
+} H5_daos_gcpl_cache_t;
+
 /* The group struct */
 typedef struct H5_daos_group_t {
     H5_daos_obj_t obj; /* Must be first */
     hid_t gcpl_id;
     hid_t gapl_id;
+    H5_daos_gcpl_cache_t gcpl_cache;
 } H5_daos_group_t;
 
 /* The dataset struct */
@@ -342,9 +348,9 @@ typedef struct H5_daos_md_update_cb_ud_t {
     H5_daos_obj_t *obj;
     daos_key_t dkey;
     unsigned nr;
-    daos_iod_t iod[3];
-    daos_sg_list_t sgl[3];
-    daos_iov_t sg_iov[3];
+    daos_iod_t iod[4];
+    daos_sg_list_t sgl[4];
+    daos_iov_t sg_iov[4];
     hbool_t free_dkey;
     hbool_t free_akeys;
     const char *task_name;
@@ -477,6 +483,8 @@ extern H5VL_DAOS_PRIVATE const char H5_daos_int_md_key_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_max_oid_key_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_cpl_key_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_link_key_g[];
+extern H5VL_DAOS_PRIVATE const char H5_daos_link_corder_key_g[];
+extern H5VL_DAOS_PRIVATE const char H5_daos_nlinks_key_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_type_key_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_space_key_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_attr_key_g[];
@@ -488,6 +496,8 @@ extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_int_md_key_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_max_oid_key_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_cpl_key_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_link_key_size_g;
+extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_link_corder_key_size_g;
+extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_nlinks_key_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_type_key_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_space_key_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_attr_key_size_g;

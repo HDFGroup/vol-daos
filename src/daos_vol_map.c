@@ -1303,7 +1303,7 @@ H5_daos_map_iterate(H5_daos_map_t *map, hid_t map_id, hsize_t *idx,
 
     /* Loop to retrieve keys and make callbacks */
     do {
-        H5_DAOS_RETRIEVE_KEYS_LOOP(dkey_buf, dkey_buf_len, sg_iov, H5E_MAP, daos_obj_list_dkey,
+        H5_DAOS_RETRIEVE_KEYS_LOOP(dkey_buf, dkey_buf_len, sg_iov, nr, H5E_MAP, daos_obj_list_dkey,
                 map->obj.obj_oh, DAOS_TX_NONE, &nr, kds, &sgl, &anchor, NULL /*event*/);
 
         /* Loop over returned dkeys */

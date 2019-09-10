@@ -389,7 +389,7 @@ H5_daos_object_copy_helper(H5_daos_obj_t *src_obj, H5I_type_t src_obj_type,
 
 done:
     D_FUNC_LEAVE
-} /* end H5_daos_object_copy() */
+} /* end H5_daos_object_copy_helper() */
 
 
 /*-------------------------------------------------------------------------

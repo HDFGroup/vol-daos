@@ -170,33 +170,33 @@ typedef d_sg_list_t daos_sg_list_t;
  * necessary and try again. The variadic portion of this macro corresponds
  * to the arguments given to daos_obj_list_akey/dkey.
  */
-#define H5_DAOS_RETRIEVE_KEYS_LOOP(key_buf, key_buf_len, sg_iov, maj_err, daos_obj_list_func, ...)  \
-do {                                                                                                \
-    /* Reset nr */                                                                                  \
-    nr = H5_DAOS_ITER_LEN;                                                                          \
-                                                                                                    \
-    /* Ask DAOS for a list of keys, break out if we succeed */                                      \
-    if(0 == (ret = daos_obj_list_func(__VA_ARGS__)))                                                \
-        break;                                                                                      \
-                                                                                                    \
-    /*                                                                                              \
-     * Call failed - if the buffer is too small double it and                                       \
-     * try again, otherwise fail.                                                                   \
-     */                                                                                             \
-    if(ret == -DER_KEY2BIG) {                                                                       \
-        char *tmp_realloc;                                                                          \
-                                                                                                    \
-        /* Allocate larger buffer */                                                                \
-        key_buf_len *= 2;                                                                           \
-        if(NULL == (tmp_realloc = (char *)DV_realloc(key_buf, key_buf_len)))                        \
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't reallocate key buffer")          \
-        key_buf = tmp_realloc;                                                                      \
-                                                                                                    \
-        /* Update SGL */                                                                            \
-        daos_iov_set(&sg_iov, key_buf, (daos_size_t)(key_buf_len - 1));                             \
-    } /* end if */                                                                                  \
-    else                                                                                            \
-        D_GOTO_ERROR(maj_err, H5E_CANTGET, FAIL, "can't list keys: %s", H5_daos_err_to_string(ret)) \
+#define H5_DAOS_RETRIEVE_KEYS_LOOP(key_buf, key_buf_len, sg_iov, nr, maj_err, daos_obj_list_func, ...)  \
+do {                                                                                                    \
+    /* Reset nr */                                                                                      \
+    nr = H5_DAOS_ITER_LEN;                                                                              \
+                                                                                                        \
+    /* Ask DAOS for a list of keys, break out if we succeed */                                          \
+    if(0 == (ret = daos_obj_list_func(__VA_ARGS__)))                                                    \
+        break;                                                                                          \
+                                                                                                        \
+    /*                                                                                                  \
+     * Call failed - if the buffer is too small double it and                                           \
+     * try again, otherwise fail.                                                                       \
+     */                                                                                                 \
+    if(ret == -DER_KEY2BIG) {                                                                           \
+        char *tmp_realloc;                                                                              \
+                                                                                                        \
+        /* Allocate larger buffer */                                                                    \
+        key_buf_len *= 2;                                                                               \
+        if(NULL == (tmp_realloc = (char *)DV_realloc(key_buf, key_buf_len)))                            \
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't reallocate key buffer")              \
+        key_buf = tmp_realloc;                                                                          \
+                                                                                                        \
+        /* Update SGL */                                                                                \
+        daos_iov_set(&sg_iov, key_buf, (daos_size_t)(key_buf_len - 1));                                 \
+    } /* end if */                                                                                      \
+    else                                                                                                \
+        D_GOTO_ERROR(maj_err, H5E_CANTGET, FAIL, "can't list keys: %s", H5_daos_err_to_string(ret))     \
 } while(1)
 
 /* Macro to initialize all non-specific fields of an H5_daos_iter_data_t struct */
@@ -706,6 +706,11 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_datatype_flush(H5_daos_dtype_t *dtype);
 H5VL_DAOS_PRIVATE herr_t H5_daos_group_refresh(H5_daos_group_t *grp, hid_t dxpl_id, void **req);
 H5VL_DAOS_PRIVATE herr_t H5_daos_dataset_refresh(H5_daos_dset_t *dset, hid_t dxpl_id, void **req);
 H5VL_DAOS_PRIVATE herr_t H5_daos_datatype_refresh(H5_daos_dtype_t *dtype, hid_t dxpl_id, void **req);
+
+/* Debugging routines */
+#ifdef DV_PLUGIN_DEBUG
+herr_t H5_daos_dump_obj_keys(daos_handle_t obj);
+#endif
 
 #ifdef __cplusplus
 }

@@ -46,6 +46,8 @@ static herr_t H5_daos_link_get_info(H5_daos_item_t *item, const char *link_path,
     H5L_info_t *link_info, hid_t dxpl_id, void **req);
 static herr_t H5_daos_link_delete(H5_daos_item_t *item, const char *link_path,
     hid_t dxpl_id, void **req);
+static ssize_t H5_daos_link_get_name_by_idx(H5_daos_group_t *target_grp, uint64_t idx,
+    char *link_name_out, size_t link_name_out_size);
 
 static uint64_t H5_daos_hash_obj_id(dv_hash_table_key_t obj_id_lo);
 static int H5_daos_cmp_obj_id(dv_hash_table_key_t obj_id_lo1, dv_hash_table_key_t obj_id_lo2);
@@ -339,7 +341,7 @@ H5_daos_link_write(H5_daos_group_t *grp, const char *name,
 
         /* Read num links */
         if(0 != (ret = daos_obj_fetch(grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, iod, sgl, NULL /*maps*/, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't read num links: %s", H5_daos_err_to_string(ret))
+            D_GOTO_ERROR(H5E_SYM, H5E_READERROR, FAIL, "can't read num links: %s", H5_daos_err_to_string(ret))
 
         p = nlinks_old_buf;
         /* Check for no num links found, in this case it must be 0 */
@@ -362,7 +364,10 @@ H5_daos_link_write(H5_daos_group_t *grp, const char *name,
         corder_target_buf[8] = 0;
 
         /* Set up iod */
-        /* iod[0] already set up from read operation */
+
+        /* reset iod[0]'s iod_size in case it was modified; rest of iod[0] already set up from read operation */
+        iod[0].iod_size = (daos_size_t)8;
+
         daos_iov_set(&iod[1].iod_name, (void *)nlinks_old_buf, 8);
         daos_csum_set(&iod[1].iod_kcsum, NULL, 0);
         iod[1].iod_nr = 1u;
@@ -393,7 +398,7 @@ H5_daos_link_write(H5_daos_group_t *grp, const char *name,
 
         /* Issue write */
         if(0 != (ret = daos_obj_update(grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 3, iod, sgl, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't write link creation order information: %s", H5_daos_err_to_string(ret))
+            D_GOTO_ERROR(H5E_SYM, H5E_WRITEERROR, FAIL, "can't write link creation order information: %s", H5_daos_err_to_string(ret))
 
         /* Add link name->creation order mapping key-value pair to main write */
         /* Increment number of records */
@@ -1427,6 +1432,74 @@ done:
 
     D_FUNC_LEAVE
 } /* end H5_daos_link_delete() */
+
+
+static ssize_t
+H5_daos_link_get_name_by_idx(H5_daos_group_t *target_grp, uint64_t idx,
+    char *link_name_out, size_t link_name_out_size)
+{
+    daos_sg_list_t sgl;
+    daos_key_t dkey;
+    daos_iod_t iod;
+    daos_iov_t sg_iov;
+    char link_name_buf[H5_DAOS_LINK_NAME_BUF_SIZE];
+    char *link_name_buf_dyn = NULL;
+    char *link_name = link_name_buf;
+    int ret;
+    ssize_t ret_value = 0;
+
+    /* Set up dkey */
+    daos_iov_set(&dkey, (void *)H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
+
+    /* Set up iod */
+    memset(&iod, 0, sizeof(iod));
+    daos_iov_set(&iod.iod_name, (void *)&idx, sizeof(idx));
+    daos_csum_set(&iod.iod_kcsum, NULL, 0);
+    iod.iod_nr = 1u;
+    iod.iod_size = DAOS_REC_ANY;
+    iod.iod_type = DAOS_IOD_SINGLE;
+
+    /* Set up sgl */
+    daos_iov_set(&sg_iov, link_name, (daos_size_t)H5_DAOS_LINK_NAME_BUF_SIZE);
+    sgl.sg_nr = 1;
+    sgl.sg_nr_out = 0;
+    sgl.sg_iovs = &sg_iov;
+
+    /* Fetch the size of the link's name */
+    if(0 != (ret = daos_obj_fetch(target_grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, NULL, NULL /*maps*/, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_LINK, H5E_READERROR, FAIL, "can't fetch size of link name: %s", H5_daos_err_to_string(ret))
+
+    if(iod.iod_size == (daos_size_t)0)
+        D_GOTO_ERROR(H5E_LINK, H5E_NOTFOUND, FAIL, "link name record not found")
+
+    ret_value = (ssize_t)iod.iod_size;
+
+    if(link_name_out) {
+        /* Read the link's name */
+
+        /* Allocate a dynamic buffer if necessary */
+        if(iod.iod_size > H5_DAOS_LINK_NAME_BUF_SIZE - 1) {
+            if(NULL == (link_name_buf_dyn = DV_malloc(iod.iod_size + 1)))
+                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "failed to allocate buffer for link name")
+
+            /* Update SGL */
+            link_name = link_name_buf_dyn;
+            daos_iov_set(&sg_iov, link_name, iod.iod_size);
+        } /* end if */
+
+        if(0 != (ret = daos_obj_fetch(target_grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
+            D_GOTO_ERROR(H5E_LINK, H5E_READERROR, FAIL, "can't fetch link name: %s", H5_daos_err_to_string(ret))
+
+        memcpy(link_name_out, link_name, MIN(iod.iod_size, link_name_out_size));
+        link_name_out[MIN(iod.iod_size, link_name_out_size - 1)] = '\0';
+    } /* end if */
+
+done:
+    if(link_name_buf_dyn)
+        link_name_buf_dyn = DV_free(link_name_buf_dyn);
+
+    D_FUNC_LEAVE
+} /* end H5_daos_link_get_name_by_idx() */
 
 
 /*-------------------------------------------------------------------------

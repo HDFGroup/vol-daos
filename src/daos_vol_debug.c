@@ -133,7 +133,7 @@ H5_daos_dump_obj_keys(daos_handle_t obj)
 
                         snprintf(numeric_str_buf, 1024, "%lld", value);
 
-                        printf(" -> Akey '%s%s'\n", (akey_desc[j].kd_key_len == 9) ? "0-" : "", numeric_str_buf);
+                        printf(" -> Akey '%s%s'\n", numeric_str_buf, (akey_desc[j].kd_key_len == 9) ? "" : "-0");
                     } /* end if */
                     else
                         printf(" -> Akey '%s'\n", akey_p);

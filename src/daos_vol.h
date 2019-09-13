@@ -67,6 +67,7 @@ typedef d_sg_list_t daos_sg_list_t;
 /* Stack allocation sizes */
 #define H5_DAOS_GH_BUF_SIZE 1024
 #define H5_DAOS_FOI_BUF_SIZE 1024
+#define H5_DAOS_LINK_NAME_BUF_SIZE 2048
 #define H5_DAOS_LINK_VAL_BUF_SIZE 256
 #define H5_DAOS_GINFO_BUF_SIZE 256
 #define H5_DAOS_DINFO_BUF_SIZE 1024

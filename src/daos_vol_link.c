@@ -46,8 +46,8 @@ static herr_t H5_daos_link_get_info(H5_daos_item_t *item, const char *link_path,
     H5L_info_t *link_info, hid_t dxpl_id, void **req);
 static herr_t H5_daos_link_delete(H5_daos_item_t *item, const char *link_path,
     hid_t dxpl_id, void **req);
-static ssize_t H5_daos_link_get_name_by_idx(H5_daos_group_t *target_grp, uint64_t idx,
-    char *link_name_out, size_t link_name_out_size);
+static ssize_t H5_daos_link_get_name_by_idx(H5_daos_group_t *target_grp, H5_index_t index_type,
+    H5_iter_order_t iter_order, uint64_t idx, char *link_name_out, size_t link_name_out_size);
 
 static uint64_t H5_daos_hash_obj_id(dv_hash_table_key_t obj_id_lo);
 static int H5_daos_cmp_obj_id(dv_hash_table_key_t obj_id_lo1, dv_hash_table_key_t obj_id_lo2);
@@ -666,6 +666,7 @@ H5_daos_link_get(void *_item, const H5VL_loc_params_t *loc_params,
     H5VL_link_get_t get_type, hid_t dxpl_id, void **req, va_list arguments)
 {
     H5_daos_link_val_t  link_val;
+    H5_daos_group_t    *target_grp = NULL;
     H5_daos_item_t     *item = (H5_daos_item_t *)_item;
     hbool_t             link_val_alloc = FALSE;
     herr_t              ret_value = SUCCEED;
@@ -674,6 +675,45 @@ H5_daos_link_get(void *_item, const H5VL_loc_params_t *loc_params,
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL")
     if(!loc_params)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "location parameters object is NULL")
+
+    /* Determine group containing link in question */
+    switch (loc_params->type) {
+        case H5VL_OBJECT_BY_SELF:
+            /* Use item as link's parent group, or the root group if item is a file */
+            if(item->type == H5I_FILE)
+                target_grp = ((H5_daos_file_t *) item)->root_grp;
+            else
+                target_grp = (H5_daos_group_t *)item;
+            target_grp->obj.item.rc++;
+            break;
+
+        case H5VL_OBJECT_BY_NAME:
+            /* Open target group */
+            if(NULL == (target_grp = (H5_daos_group_t *)H5_daos_object_open(item, loc_params, NULL, dxpl_id, req)))
+                D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, FAIL, "can't open target group for link")
+            break;
+
+        case H5VL_OBJECT_BY_IDX:
+        {
+            H5VL_loc_params_t by_name_params;
+
+            /* Setup loc_params for opening target group */
+            by_name_params.type = H5VL_OBJECT_BY_NAME;
+            by_name_params.obj_type = H5I_GROUP;
+            by_name_params.loc_data.loc_by_name.name = loc_params->loc_data.loc_by_idx.name;
+            by_name_params.loc_data.loc_by_name.lapl_id = loc_params->loc_data.loc_by_idx.lapl_id;
+
+            /* Open target group */
+            if(NULL == (target_grp = (H5_daos_group_t *)H5_daos_object_open(item, &by_name_params, NULL, dxpl_id, req)))
+                D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, FAIL, "can't open target group for link")
+            break;
+        }
+
+        case H5VL_OBJECT_BY_ADDR:
+        case H5VL_OBJECT_BY_REF:
+        default:
+            D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, FAIL, "invalid loc_params type")
+    } /* end switch */
 
     switch (get_type) {
         case H5VL_LINK_GET_INFO:
@@ -690,7 +730,17 @@ H5_daos_link_get(void *_item, const H5VL_loc_params_t *loc_params,
         } /* H5VL_LINK_GET_INFO */
 
         case H5VL_LINK_GET_NAME:
-            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported link get operation")
+        {
+            char *name_out = va_arg(arguments, char *);
+            size_t name_out_size = va_arg(arguments, size_t);
+            ssize_t *ret_size = va_arg(arguments, ssize_t *);
+
+            if((*ret_size = H5_daos_link_get_name_by_idx(target_grp, loc_params->loc_data.loc_by_idx.idx_type,
+                    loc_params->loc_data.loc_by_idx.order, (uint64_t)loc_params->loc_data.loc_by_idx.n, name_out, name_out_size)) < 0)
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't retrieve link's name")
+
+            break;
+        } /* H5VL_LINK_GET_NAME */
 
         case H5VL_LINK_GET_VAL:
         {
@@ -701,7 +751,7 @@ H5_daos_link_get(void *_item, const H5VL_loc_params_t *loc_params,
                 D_GOTO_ERROR(H5E_LINK, H5E_UNSUPPORTED, FAIL, "H5Lget_val_by_idx is unsupported")
 
             if(H5_daos_link_read((H5_daos_group_t *) item, loc_params->loc_data.loc_by_name.name,
-                    strlen(loc_params->loc_data.loc_by_name.name), &link_val))
+                    strlen(loc_params->loc_data.loc_by_name.name), &link_val) < 0)
                 D_GOTO_ERROR(H5E_LINK, H5E_READERROR, FAIL, "failed to read link")
 
             if(H5L_TYPE_HARD == link_val.type)
@@ -730,6 +780,9 @@ done:
         assert(H5L_TYPE_SOFT == link_val.type);
         DV_free(link_val.target.soft);
     } /* end if */
+
+    if(target_grp && H5_daos_group_close(target_grp, dxpl_id, req) < 0)
+        D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group")
 
     D_FUNC_LEAVE_API
 } /* end H5_daos_link_get() */
@@ -844,10 +897,24 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
         /* H5Ldelete(_by_idx) */
         case H5VL_LINK_DELETE:
         {
-            if(H5VL_OBJECT_BY_IDX == loc_params->type)
-                D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "H5Ldelete_by_idx is unsupported")
+            char *link_path;
 
-            if(H5_daos_link_delete(item, loc_params->loc_data.loc_by_name.name, dxpl_id, req) < 0)
+            switch (loc_params->type) {
+                case H5VL_OBJECT_BY_NAME:
+                    link_path = loc_params->loc_data.loc_by_name.name;
+                    break;
+
+                case H5VL_OBJECT_BY_IDX:
+                    D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "H5Ldelete_by_idx is unsupported")
+
+                case H5VL_OBJECT_BY_SELF:
+                case H5VL_OBJECT_BY_ADDR:
+                case H5VL_OBJECT_BY_REF:
+                default:
+                    D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, FAIL, "invalid loc_params type")
+            } /* end switch */
+
+            if(H5_daos_link_delete(item, link_path, dxpl_id, req) < 0)
                 D_GOTO_ERROR(H5E_LINK, H5E_CANTREMOVE, FAIL, "failed to delete link")
 
             break;
@@ -1434,9 +1501,26 @@ done:
 } /* end H5_daos_link_delete() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_link_get_name_by_idx
+ *
+ * Purpose:     Given an index type, index iteration order and index value,
+ *              retrieves the name of the nth link (as specified by the
+ *              index value) within the given index (name index or creation
+ *              order index) according to the given order (increasing,
+ *              decreasing or native order).
+ *
+ *              The link_name_out parameter may be NULL, in which case the
+ *              length of the link's name is simply returned. If non-NULL,
+ *              the link's name is stored in link_name_out.
+ *
+ * Return:      Non-negative on Success/Negative on Failure
+ *
+ *-------------------------------------------------------------------------
+ */
 static ssize_t
-H5_daos_link_get_name_by_idx(H5_daos_group_t *target_grp, uint64_t idx,
-    char *link_name_out, size_t link_name_out_size)
+H5_daos_link_get_name_by_idx(H5_daos_group_t *target_grp, H5_index_t index_type,
+    H5_iter_order_t iter_order, uint64_t idx, char *link_name_out, size_t link_name_out_size)
 {
     daos_sg_list_t sgl;
     daos_key_t dkey;
@@ -1447,6 +1531,13 @@ H5_daos_link_get_name_by_idx(H5_daos_group_t *target_grp, uint64_t idx,
     char *link_name = link_name_buf;
     int ret;
     ssize_t ret_value = 0;
+
+    assert(target_grp);
+
+    if(H5_INDEX_NAME == index_type)
+        D_GOTO_ERROR(H5E_LINK, H5E_UNSUPPORTED, -1, "retrieval of link name by name index is unsupported")
+    if(H5_ITER_DEC == iter_order)
+        D_GOTO_ERROR(H5E_LINK, H5E_UNSUPPORTED, -1, "retrieval of link name in decreasing order is unsupported")
 
     /* Set up dkey */
     daos_iov_set(&dkey, (void *)H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);

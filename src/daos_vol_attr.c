@@ -53,9 +53,9 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
     char *space_key = NULL;
     char *acpl_key = NULL;
     char *acorder_key = NULL;
-    daos_iod_t iod[3];
-    daos_sg_list_t sgl[3];
-    daos_iov_t sg_iov[3];
+    daos_iod_t iod[6];
+    daos_sg_list_t sgl[6];
+    daos_iov_t sg_iov[6];
     size_t type_size = 0;
     size_t space_size = 0;
     size_t acpl_size = 0;
@@ -138,18 +138,22 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
 
     /* Set up iod */
     memset(iod, 0, sizeof(iod));
+
+    /* iod[0] contains the key for the datatype description */
     daos_iov_set(&iod[0].iod_name, (void *)type_key, (daos_size_t)akey_len);
     daos_csum_set(&iod[0].iod_kcsum, NULL, 0);
     iod[0].iod_nr = 1u;
     iod[0].iod_size = (uint64_t)type_size;
     iod[0].iod_type = DAOS_IOD_SINGLE;
 
+    /* iod[0] contains the key for the dataspace description */
     daos_iov_set(&iod[1].iod_name, (void *)space_key, (daos_size_t)akey_len);
     daos_csum_set(&iod[1].iod_kcsum, NULL, 0);
     iod[1].iod_nr = 1u;
     iod[1].iod_size = (uint64_t)space_size;
     iod[1].iod_type = DAOS_IOD_SINGLE;
 
+    /* iod[0] contains the key for the ACPL */
     daos_iov_set(&iod[2].iod_name, (void *)acpl_key, (daos_size_t)akey_len);
     daos_csum_set(&iod[2].iod_kcsum, NULL, 0);
     iod[2].iod_nr = 1u;
@@ -157,14 +161,19 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
     iod[2].iod_type = DAOS_IOD_SINGLE;
 
     /* Set up sgl */
+    /* sgl[0] contains the serialized datatype description */
     daos_iov_set(&sg_iov[0], type_buf, (daos_size_t)type_size);
     sgl[0].sg_nr = 1;
     sgl[0].sg_nr_out = 0;
     sgl[0].sg_iovs = &sg_iov[0];
+
+    /* sgl[1] contains the serialized dataspace description */
     daos_iov_set(&sg_iov[1], space_buf, (daos_size_t)space_size);
     sgl[1].sg_nr = 1;
     sgl[1].sg_nr_out = 0;
     sgl[1].sg_iovs = &sg_iov[1];
+
+    /* sgl[2] contains the serialized ACPL */
     daos_iov_set(&sg_iov[2], acpl_buf, (daos_size_t)acpl_size);
     sgl[2].sg_nr = 1;
     sgl[2].sg_nr_out = 0;
@@ -172,14 +181,25 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
 
     /* Check for creation order tracking */
     if(attr->parent->ocpl_cache.track_acorder) {
+        /* nattr_new_buf is the write buffer for the number of attributes,
+         * updated to include the attribute we're writing now.  Needs to be
+         * exactly 8 bytes long because it's filled with UINT64ENCODE. */
         uint8_t nattr_new_buf[8];
-        uint8_t nattr_old_buf[9]; /* Holds the previous number of attributes, which is also the creation order for this attribute */
+        /* nattr_old_buf is the read buffer for the number of attributes, which
+         * is also the creation order index for the attribute being created.
+         * This buffer is subsequently used as the akey for the creation order
+         * -> attribute name mapping key in iod[4]/sgl[4].  Needs to be exactly
+         * 9 bytes long to contain a leading 0 followed by the creation order
+         * data which is used with UINT64ENCODE/DECODE. */
+        uint8_t nattr_old_buf[9];
         uint64_t nattr;
         uint8_t *p;
         size_t name_len = strlen(name);
 
         /* Read num attributes */
         /* Set up iod */
+        /* iod[3] contains the key for the number of attributes.  We use index 3
+         * here to preserve the data in indices 0-2 set up above. */
         daos_iov_set(&iod[3].iod_name, (void *)H5_daos_nattr_key_g, H5_daos_nattr_key_size_g);
         daos_csum_set(&iod[3].iod_kcsum, NULL, 0);
         iod[3].iod_nr = 1u;
@@ -187,14 +207,16 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
         iod[3].iod_type = DAOS_IOD_SINGLE;
 
         /* Set up sgl */
-        /* Leading 0 in nlinks_old_buf so when it's written as the akey for the
-         * creation order it doesn't conflict with a string akey */
+        /* sgl[3] contains the read buffer for the number of attributes.  We
+         * will reuse this buffer in sgl[4] after the read operation.  When it's
+         * written to disk it needs to contain a leading 0 byte to guarantee it
+         * doesn't conflict with a string akey used in the attribute dkey, so we
+         * will read the number of attributes to the last 8 bytes of the buffer.
+         */
         daos_iov_set(&sg_iov[3], &nattr_old_buf[1], (daos_size_t)8);
         sgl[3].sg_nr = 1;
         sgl[3].sg_nr_out = 0;
         sgl[3].sg_iovs = &sg_iov[0];
-
-        assert(H5_daos_nattr_key_size_g != 8);
 
         /* Read num attributes */
         nattr_old_buf[0] = 0;
@@ -206,10 +228,18 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
         if(iod[3].iod_size == (uint64_t)0) {
             nattr = 0;
             UINT64ENCODE(p, nattr);
+
+            /* Reset iod size */
+            iod[3].iod_size = (uint64_t)8;
         } /* end if */
-        else
+        else {
+            /* Verify the iod size was 8 as expected */
+            if(iod[3].iod_size != (uint64_t)8)
+                D_GOTO_ERROR(H5E_ATTR, H5E_CANTDECODE, NULL, "invalid size of number of attributes value")
+
             /* Decode num attributes */
             UINT64DECODE(p, nattr);
+        } /* end else */
 
         /* Add new attribute to count */
         nattr++;
@@ -220,13 +250,20 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
         UINT64ENCODE(p, nattr);
 
         /* Set up iod */
-        /* iod[3] already set up from read operation */
+        /* iod[3] contains the key for the number of attributes.  Already set up
+         * from read operation. */
+
+        /* iod[4] contains the creation order of the new attribute, used as an
+         * akey for retrieving the attribute name to enable attribute lookup by
+         * creation order */
         daos_iov_set(&iod[4].iod_name, (void *)nattr_old_buf, 9);
         daos_csum_set(&iod[4].iod_kcsum, NULL, 0);
         iod[4].iod_nr = 1u;
         iod[4].iod_size = (uint64_t)name_len;
         iod[4].iod_type = DAOS_IOD_SINGLE;
 
+        /* iod[5] contains the key for the creation order, to enable attribute
+         * creation order lookup by name */
         daos_iov_set(&iod[5].iod_name, (void *)acorder_key, (daos_size_t)akey_len);
         daos_csum_set(&iod[5].iod_kcsum, NULL, 0);
         iod[5].iod_nr = 1u;
@@ -234,16 +271,22 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
         iod[5].iod_type = DAOS_IOD_SINGLE;
 
         /* Set up sgl */
+        /* sgl[3] contains the number of attributes, updated to include this
+         * attribute */
         daos_iov_set(&sg_iov[3], nattr_new_buf, (daos_size_t)8);
         sgl[3].sg_nr = 1;
         sgl[3].sg_nr_out = 0;
         sgl[3].sg_iovs = &sg_iov[3];
 
+        /* sgl[4] contains the attribute name, here indexed using the creation
+         * order as the akey to enable attribute lookup by creation order */
         daos_iov_set(&sg_iov[4], (void *)name, (daos_size_t)name_len);
         sgl[4].sg_nr = 1;
         sgl[4].sg_nr_out = 0;
         sgl[4].sg_iovs = &sg_iov[4];
 
+        /* sgl[5] contains the creation order (with no leading 0), to enable
+         * attribute creation order lookup by name */
         daos_iov_set(&sg_iov[5], &nattr_old_buf[1], (daos_size_t)8);
         sgl[5].sg_nr = 1;
         sgl[5].sg_nr_out = 0;

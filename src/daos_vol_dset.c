@@ -2066,7 +2066,7 @@ H5_daos_dataset_refresh(H5_daos_dset_t *dset, hid_t H5VL_DAOS_UNUSED dxpl_id,
 
     /* Read dataspace size from dataset */
     if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, NULL,
-                  NULL /*maps*/, NULL /*event*/)))
+            NULL /*maps*/, NULL /*event*/)))
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTDECODE, FAIL, "can't read dataspace size from dataset: %s", H5_daos_err_to_string(ret))
 
     /* Check for metadata not found */

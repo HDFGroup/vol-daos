@@ -19,7 +19,7 @@
 #include "util/daos_vol_mem.h"  /* DAOS connector memory management        */
 
 static herr_t H5_daos_group_fill_gcpl_cache(H5_daos_group_t *grp);
-static herr_t H5_daos_get_group_info(H5_daos_group_t *grp, H5G_info_t *group_info);
+static herr_t H5_daos_group_get_info(H5_daos_group_t *grp, H5G_info_t *group_info);
 
 
 /*-------------------------------------------------------------------------
@@ -919,7 +919,7 @@ H5_daos_group_get(void *_item, H5VL_group_get_t get_type, hid_t dxpl_id,
                     if(grp->obj.item.type == H5I_FILE)
                         grp = ((H5_daos_file_t *) grp)->root_grp;
 
-                    if((H5_daos_get_group_info(grp, group_info)) < 0)
+                    if((H5_daos_group_get_info(grp, group_info)) < 0)
                         D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, FAIL, "can't get group's info")
 
                     break;
@@ -963,7 +963,7 @@ H5_daos_group_get(void *_item, H5VL_group_get_t get_type, hid_t dxpl_id,
                             D_GOTO_ERROR(H5E_SYM, H5E_CANTOPENOBJ, FAIL, "can't open group")
                     } /* end else */
 
-                    if((H5_daos_get_group_info(target_group, group_info)) < 0)
+                    if((H5_daos_group_get_info(target_group, group_info)) < 0)
                         D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, FAIL, "can't get group's info")
 
                     break;
@@ -1146,7 +1146,7 @@ done:
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_get_group_info
+ * Function:    H5_daos_group_get_info
  *
  * Purpose:     Retrieves a group's info, storing the results in the
  *              supplied H5G_info_t.
@@ -1160,10 +1160,11 @@ done:
  *-------------------------------------------------------------------------
  */
 static herr_t
-H5_daos_get_group_info(H5_daos_group_t *grp, H5G_info_t *group_info)
+H5_daos_group_get_info(H5_daos_group_t *grp, H5G_info_t *group_info)
 {
     H5_daos_iter_data_t iter_data;
     H5G_info_t local_grp_info;
+    uint64_t max_corder;
     hid_t target_grp_id = -1;
     herr_t ret_value = SUCCEED;
 
@@ -1172,8 +1173,13 @@ H5_daos_get_group_info(H5_daos_group_t *grp, H5G_info_t *group_info)
 
     local_grp_info.storage_type = H5G_STORAGE_TYPE_UNKNOWN;
     local_grp_info.nlinks = 0;
-    local_grp_info.max_corder = 0; /* TODO: retrieve max creation order of group */
+    local_grp_info.max_corder = 0;
     local_grp_info.mounted = FALSE; /* DSINC - will file mounting be supported? */
+
+    /* Retrieve group's max creation order value */
+    if(H5_daos_group_get_max_crt_order(grp, &max_corder) < 0)
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, FAIL, "can't get group's max creation order value")
+    local_grp_info.max_corder = (int64_t)max_corder; /* DSINC - no check for overflow! */
 
     /* Register id for grp */
     if((target_grp_id = H5VLwrap_register(grp, H5I_GROUP)) < 0)
@@ -1199,4 +1205,62 @@ done:
     } /* end if */
 
     D_FUNC_LEAVE
-} /* end H5_daos_get_group_info() */
+} /* end H5_daos_group_get_info() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_group_get_max_crt_order
+ *
+ * Purpose:     Retrieves a group's current maximum creation order value.
+ *              Note that this value may not match the current number of
+ *              links within the group, as some of the links may have been
+ *              deleted.
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_group_get_max_crt_order(H5_daos_group_t *target_grp, uint64_t *max_corder)
+{
+    daos_sg_list_t sgl;
+    daos_key_t dkey;
+    daos_iod_t iod;
+    daos_iov_t sg_iov;
+    uint8_t max_corder_buf[sizeof(*max_corder)];
+    int ret;
+    herr_t ret_value = SUCCEED;
+
+    assert(target_grp);
+    assert(max_corder);
+
+    /* Set up dkey */
+    daos_iov_set(&dkey, (void *)H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
+
+    /* Set up iod */
+    memset(&iod, 0, sizeof(iod));
+    daos_iov_set(&iod.iod_name, (void *)H5_daos_nlinks_key_g, H5_daos_nlinks_key_size_g);
+    daos_csum_set(&iod.iod_kcsum, NULL, 0);
+    iod.iod_nr = 1u;
+    iod.iod_size = (uint64_t)8;
+    iod.iod_type = DAOS_IOD_SINGLE;
+
+    /* Set up sgl */
+    daos_iov_set(&sg_iov, max_corder_buf, (daos_size_t)sizeof(*max_corder));
+    sgl.sg_nr = 1;
+    sgl.sg_nr_out = 0;
+    sgl.sg_iovs = &sg_iov;
+
+    /* Read the max. creation order value */
+    if(0 != (ret = daos_obj_fetch(target_grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_SYM, H5E_READERROR, FAIL, "can't read max creation order: %s", H5_daos_err_to_string(ret))
+
+    if(iod.iod_size == 0)
+        *max_corder = 0;
+    else
+        memcpy(max_corder, max_corder_buf, sizeof(*max_corder));
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_group_get_max_crt_order() */

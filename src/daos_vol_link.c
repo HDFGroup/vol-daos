@@ -48,8 +48,6 @@ static herr_t H5_daos_link_iterate_by_name_order(H5_daos_group_t *target_grp, H5
 static herr_t H5_daos_link_iterate_by_crt_order(H5_daos_group_t *target_grp, H5_daos_iter_data_t *iter_data);
 static herr_t H5_daos_link_delete(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
     hid_t dxpl_id, void **req);
-static ssize_t H5_daos_link_get_name_by_idx(H5_daos_group_t *target_grp, H5_index_t index_type,
-    H5_iter_order_t iter_order, uint64_t idx, char *link_name_out, size_t link_name_out_size);
 static ssize_t H5_daos_link_get_name_by_crt_order(H5_daos_group_t *target_grp,
     uint64_t crt_order_idx, char *link_name_out, size_t link_name_out_size);
 #if 0
@@ -878,7 +876,7 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
                         sub_loc_params.obj_type = item->type;
                         sub_loc_params.type = H5VL_OBJECT_BY_SELF;
                         if(NULL == (target_grp = (H5_daos_group_t *)H5_daos_group_open(item, &sub_loc_params,
-                                loc_params->loc_data.loc_by_name.name, loc_params->loc_data.loc_by_name.lapl_id, dxpl_id, req)))
+                                loc_params->loc_data.loc_by_name.name, H5P_GROUP_ACCESS_DEFAULT, dxpl_id, req)))
                             D_GOTO_ERROR(H5E_SYM, H5E_CANTOPENOBJ, FAIL, "can't open group for link operation")
 
                         break;
@@ -1811,7 +1809,7 @@ H5_daos_link_delete(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params, h
         if(link_name_size > H5_DAOS_LINK_NAME_BUF_SIZE - 1) {
             if(NULL == (link_name_buf_dyn = DV_malloc(link_name_size + 1)))
                 D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "failed to allocate buffer for link name")
-            target_link_name = link_name_buf_static;
+            target_link_name = link_name_buf_dyn;
         } /* end if */
         else
             target_link_name = link_name_buf_static;
@@ -1861,7 +1859,7 @@ done:
  *
  *-------------------------------------------------------------------------
  */
-static ssize_t
+ssize_t
 H5_daos_link_get_name_by_idx(H5_daos_group_t *target_grp, H5_index_t index_type,
     H5_iter_order_t iter_order, uint64_t idx, char *link_name_out, size_t link_name_out_size)
 {

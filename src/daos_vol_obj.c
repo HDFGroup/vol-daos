@@ -703,8 +703,40 @@ H5_daos_object_close(void *_obj, hid_t dxpl_id, void **req)
         assert(0 && "Invalid object type");
 
 done:
-    D_FUNC_LEAVE_API
+    D_FUNC_LEAVE
 } /* end H5_daos_object_close() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_fill_ocpl_cache
+ *
+ * Purpose:     Fills the "ocpl_cache" field of the object struct, using
+ *              the object's OCPL.  Assumes obj->ocpl_cache has been
+ *              initialized to all zeros.
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_fill_ocpl_cache(H5_daos_obj_t *obj, hid_t ocpl_id)
+{
+    unsigned acorder_flags;
+    herr_t ret_value = SUCCEED;
+
+    assert(obj);
+
+    /* Determine if this object is tracking attribute creation order */
+    if(H5Pget_attr_creation_order(ocpl_id, &acorder_flags) < 0)
+        D_GOTO_ERROR(H5E_OHDR, H5E_CANTINIT, FAIL, "can't get attribute creation order flags")
+    assert(!obj->ocpl_cache.track_acorder);
+    if(acorder_flags & H5P_CRT_ORDER_TRACKED)
+        obj->ocpl_cache.track_acorder = TRUE;
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_fill_ocpl_cache() */
 
 
 /*-------------------------------------------------------------------------
@@ -868,7 +900,7 @@ H5_daos_object_get_num_attrs(H5_daos_obj_t *target_obj)
     memset(&anchor, 0, sizeof(anchor));
 
     /* Set up dkey */
-    daos_iov_set(&dkey, H5_daos_attr_key_g, H5_daos_attr_key_size_g);
+    daos_iov_set(&dkey, (void *)H5_daos_attr_key_g, H5_daos_attr_key_size_g);
 
     /* Allocate akey_buf */
     if(NULL == (akey_buf = (char *)DV_malloc(H5_DAOS_ITER_SIZE_INIT)))
@@ -1321,3 +1353,4 @@ done:
 
     D_FUNC_LEAVE
 } /* end H5_daos_object_copy_attributes() */
+

@@ -481,6 +481,10 @@ H5_daos_datatype_commit(void *_item,
     if((dtype->tapl_id = H5Pcopy(tapl_id)) < 0)
         D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, NULL, "failed to copy tapl")
 
+    /* Fill OCPL cache */
+    if(H5_daos_fill_ocpl_cache(&dtype->obj, dtype->tcpl_id) < 0)
+        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "failed to fill OCPL cache")
+
     /* Set return value */
     ret_value = (void *)dtype;
 
@@ -765,7 +769,11 @@ H5_daos_datatype_open(void *_item,
 
     /* Finish setting up datatype struct */
     if((dtype->tapl_id = H5Pcopy(tapl_id)) < 0)
-        D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, NULL, "failed to copy tapl");
+        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTCOPY, NULL, "failed to copy tapl");
+
+    /* Fill OCPL cache */
+    if(H5_daos_fill_ocpl_cache(&dtype->obj, dtype->tcpl_id) < 0)
+        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "failed to fill OCPL cache")
 
     /* Set return value */
     ret_value = (void *)dtype;

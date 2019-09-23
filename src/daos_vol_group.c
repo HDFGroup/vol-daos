@@ -333,6 +333,10 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
     if(H5_daos_group_fill_gcpl_cache(grp) < 0)
         D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "failed to fill GCPL cache")
 
+    /* Fill OCPL cache */
+    if(H5_daos_fill_ocpl_cache(&grp->obj, grp->gcpl_id) < 0)
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "failed to fill OCPL cache")
+
     ret_value = (void *)grp;
 
 done:
@@ -571,6 +575,10 @@ H5_daos_group_open_helper(H5_daos_file_t *file, daos_obj_id_t oid,
     if(H5_daos_group_fill_gcpl_cache(grp) < 0)
         D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "failed to fill GCPL cache")
 
+    /* Fill OCPL cache */
+    if(H5_daos_fill_ocpl_cache(&grp->obj, grp->gcpl_id) < 0)
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "failed to fill OCPL cache")
+
     /* Return GCPL info if requested, relinquish ownership of gcpl_buf if so */
     if(gcpl_buf_out) {
         assert(gcpl_len_out);
@@ -648,6 +656,10 @@ H5_daos_group_reconstitute(H5_daos_file_t *file, daos_obj_id_t oid,
     /* Fill GCPL cache */
     if(H5_daos_group_fill_gcpl_cache(grp) < 0)
         D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "failed to fill GCPL cache")
+
+    /* Fill OCPL cache */
+    if(H5_daos_fill_ocpl_cache(&grp->obj, grp->gcpl_id) < 0)
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "failed to fill OCPL cache")
 
     ret_value = (void *)grp;
 

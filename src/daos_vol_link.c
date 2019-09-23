@@ -21,6 +21,7 @@
 /* Macros */
 #define H5_DAOS_HARD_LINK_VAL_SIZE 17
 #define H5_DAOS_RECURSE_LINK_PATH_BUF_INIT 1024
+#define H5_DAOS_CRT_ORDER_TO_LINK_TRGT_BUF_SIZE 9
 
 /*
  * Given an H5_daos_link_val_t, uses this to fill out the
@@ -48,16 +49,21 @@ static herr_t H5_daos_link_iterate_by_name_order(H5_daos_group_t *target_grp, H5
 static herr_t H5_daos_link_iterate_by_crt_order(H5_daos_group_t *target_grp, H5_daos_iter_data_t *iter_data);
 static herr_t H5_daos_link_delete(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
     hid_t dxpl_id, void **req);
-static ssize_t H5_daos_link_get_name_by_crt_order(H5_daos_group_t *target_grp,
-    uint64_t crt_order_idx, char *link_name_out, size_t link_name_out_size);
-#if 0
-static uint64_t H5_daos_link_idx_adjust(H5_daos_group_t *target_grp, H5_index_t index_type,
-    H5_iter_order_t iter_order, uint64_t idx);
-#endif
-
+static ssize_t H5_daos_link_get_name_by_crt_order(H5_daos_group_t *target_grp, H5_iter_order_t iter_order,
+    uint64_t index, char *link_name_out, size_t link_name_out_size);
+static ssize_t H5_daos_link_get_name_by_name_order(H5_daos_group_t *target_grp, H5_iter_order_t iter_order,
+    uint64_t index, char *link_name_out, size_t link_name_out_size);
+static herr_t H5_daos_link_remove_from_crt_idx(H5_daos_group_t *target_grp, const H5VL_loc_params_t *loc_params);
+static herr_t H5_daos_link_remove_from_crt_idx_name_cb(hid_t group, const char *name, const H5L_info_t *info, void *op_data);
 static uint64_t H5_daos_hash_obj_id(dv_hash_table_key_t obj_id_lo);
 static int H5_daos_cmp_obj_id(dv_hash_table_key_t obj_id_lo1, dv_hash_table_key_t obj_id_lo2);
 static void H5_daos_free_visited_link_hash_table_key(dv_hash_table_key_t value);
+
+/* TODO */
+typedef struct H5_daos_link_crt_idx_iter_ud_t {
+    const char *target_link_name;
+    uint64_t *link_idx_out;
+} H5_daos_link_crt_idx_iter_ud_t;
 
 
 /*-------------------------------------------------------------------------
@@ -318,7 +324,7 @@ H5_daos_link_write(H5_daos_group_t *grp, const char *name,
         daos_sg_list_t sgl[3];
         daos_iov_t sg_iov[3];
         uint8_t nlinks_new_buf[8];
-        uint8_t corder_target_buf[9];
+        uint8_t corder_target_buf[H5_DAOS_CRT_ORDER_TO_LINK_TRGT_BUF_SIZE];
         uint64_t nlinks;
 
         /* Read num links */
@@ -380,7 +386,7 @@ H5_daos_link_write(H5_daos_group_t *grp, const char *name,
         iod[1].iod_size = (uint64_t)name_len;
         iod[1].iod_type = DAOS_IOD_SINGLE;
 
-        daos_iov_set(&iod[2].iod_name, (void *)corder_target_buf, 9);
+        daos_iov_set(&iod[2].iod_name, (void *)corder_target_buf, H5_DAOS_CRT_ORDER_TO_LINK_TRGT_BUF_SIZE);
         daos_csum_set(&iod[2].iod_kcsum, NULL, 0);
         iod[2].iod_nr = 1u;
         iod[2].iod_size = update_cb_ud->iod[0].iod_size;
@@ -1474,8 +1480,8 @@ H5_daos_link_iterate_by_crt_order(H5_daos_group_t *target_grp, H5_daos_iter_data
     H5_daos_link_val_t link_val = { 0 };
     H5_daos_group_t *subgroup = NULL;
     H5L_info_t linfo;
-    uint64_t grp_max_corder;
-    uint64_t crt_order_idx;
+    uint64_t cur_idx;
+    ssize_t grp_nlinks;
     ssize_t link_name_size;
     herr_t op_ret;
     size_t link_name_buf_size = H5_DAOS_LINK_NAME_BUF_SIZE;
@@ -1494,12 +1500,12 @@ H5_daos_link_iterate_by_crt_order(H5_daos_group_t *target_grp, H5_daos_iter_data
     if(!target_grp->gcpl_cache.track_corder)
         D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, FAIL, "creation order is not tracked for group")
 
-    /* Retrieve the group's maximum creation order value */
-    if(H5_daos_group_get_max_crt_order(target_grp, &grp_max_corder) < 0)
-        D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, FAIL, "can't get group's max creation order value")
+    /* Retrieve the number of links in the group */
+    if((grp_nlinks = H5_daos_group_get_num_links(target_grp)) < 0)
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, FAIL, "can't get number of links in group")
 
     /* Check if there are no links to process */
-    if(grp_max_corder == 0)
+    if(grp_nlinks == 0)
         D_GOTO_DONE(SUCCEED);
 
     /*
@@ -1531,15 +1537,13 @@ H5_daos_link_iterate_by_crt_order(H5_daos_group_t *target_grp, H5_daos_iter_data
     linfo.corder = 0;
     linfo.cset = H5T_CSET_ASCII;
 
-    crt_order_idx = (H5_ITER_DEC == iter_data->iter_order) ? grp_max_corder - 1 : 0;
-
     link_name = link_name_buf_static;
-    do {
+    for(cur_idx = 0; cur_idx < (uint64_t)grp_nlinks; cur_idx++) {
         htri_t link_exists;
 
         /* Retrieve the link's name length + the link's name if the buffer is large enough */
         if((link_name_size = H5_daos_link_get_name_by_idx(target_grp, iter_data->index_type,
-                iter_data->iter_order, crt_order_idx, link_name, link_name_buf_size)) < 0)
+                iter_data->iter_order, cur_idx, link_name, link_name_buf_size)) < 0)
             D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't get link name")
 
         if((size_t)link_name_size > link_name_buf_size - 1) {
@@ -1558,11 +1562,11 @@ H5_daos_link_iterate_by_crt_order(H5_daos_group_t *target_grp, H5_daos_iter_data
 
             /* Re-issue the call to fetch the link's name with a larger buffer */
             if(H5_daos_link_get_name_by_idx(target_grp, iter_data->index_type,
-                    iter_data->iter_order, crt_order_idx, link_name, link_name_buf_size) < 0)
+                    iter_data->iter_order, cur_idx, link_name, link_name_buf_size) < 0)
                 D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't get link name")
         } /* end if */
 
-        /* Check if a link exists for this creation order index */
+        /* Check if a link exists for this index value */
         if((link_exists = H5_daos_link_exists((H5_daos_item_t *) target_grp, link_name, iter_data->dxpl_id, iter_data->req)) < 0)
             D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't determine if link exists")
 
@@ -1577,7 +1581,7 @@ H5_daos_link_iterate_by_crt_order(H5_daos_group_t *target_grp, H5_daos_iter_data
 
             /* Update linfo, then free soft link value if necessary */
             H5_DAOS_LINK_VAL_TO_INFO(link_val, linfo);
-            linfo.corder = (int64_t)crt_order_idx; /* DSINC - no check for overflow! */
+            linfo.corder = (int64_t)-1; /* TODO */
             if(H5L_TYPE_SOFT == link_val.type)
                 link_val.target.soft = (char *)DV_free(link_val.target.soft);
 
@@ -1694,18 +1698,10 @@ H5_daos_link_iterate_by_crt_order(H5_daos_group_t *target_grp, H5_daos_iter_data
             } /* end if */
         } /* end if */
 
-        if(H5_ITER_DEC == iter_data->iter_order) {
-            if(crt_order_idx == 0) break;
-            crt_order_idx--;
-        } /* end if */
-        else {
-            if(++crt_order_idx >= grp_max_corder) break;
-        } /* end else */
-
         /* Update iteration index */
         if(iter_data->idx_p)
-            (*iter_data->idx_p) = (hsize_t)crt_order_idx;
-    } while (TRUE);
+            (*iter_data->idx_p) = (hsize_t)cur_idx; /* TODO handle correct value for decreasing order iteration */
+    } /* end for */
 
     ret_value = op_ret;
 
@@ -1756,7 +1752,7 @@ herr_t
 H5_daos_link_iterate_count_links_callback(hid_t H5VL_DAOS_UNUSED group, const char H5VL_DAOS_UNUSED *name,
     const H5L_info_t H5VL_DAOS_UNUSED *info, void *op_data)
 {
-    (*((hsize_t *) op_data))++;
+    (*((ssize_t *) op_data))++;
     return 0;
 } /* end H5_daos_link_iterate_count_links_callback() */
 
@@ -1764,10 +1760,9 @@ H5_daos_link_iterate_count_links_callback(hid_t H5VL_DAOS_UNUSED group, const ch
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_link_delete
  *
- * Purpose:     Deletes the link specified by the given link pathname from
- *              the specified object.
- *
- *              TODO: updates for _by_idx
+ * Purpose:     Deletes the link from the specified group according to
+ *              either the given link pathname or the given index into the
+ *              group's link creation order/link name index.
  *
  * Return:      Success:        SUCCEED or positive
  *              Failure:        FAIL
@@ -1826,11 +1821,16 @@ H5_daos_link_delete(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params, h
 
     /* Punch the link's dkey, along with all of its akeys */
     if(0 != (ret = daos_obj_punch_dkeys(target_grp->obj.obj_oh, DAOS_TX_NONE, 1, &dkey, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_SYM, H5E_CANTREMOVE, FAIL, "failed to punch link dkey: %s", H5_daos_err_to_string(ret))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTREMOVE, FAIL, "failed to punch link dkey: %s", H5_daos_err_to_string(ret))
 
     /* TODO: If no more hard links point to the object in question, it should be
      * removed from the file, or at least marked to be removed.
      */
+
+    /* Remove the link from the group's creation order index */
+    if(target_grp->gcpl_cache.track_corder)
+        if(H5_daos_link_remove_from_crt_idx(target_grp, loc_params) < 0)
+            D_GOTO_ERROR(H5E_LINK, H5E_CANTREMOVE, FAIL, "failed to remove link from creation order index")
 
 done:
     if(link_name_buf_dyn)
@@ -1855,7 +1855,8 @@ done:
  *              length of the link's name is simply returned. If non-NULL,
  *              the link's name is stored in link_name_out.
  *
- * Return:      Non-negative on Success/Negative on Failure
+ * Return:      Success:        The length of the link's name
+ *              Failure:        Negative
  *
  *-------------------------------------------------------------------------
  */
@@ -1868,38 +1869,70 @@ H5_daos_link_get_name_by_idx(H5_daos_group_t *target_grp, H5_index_t index_type,
     assert(target_grp);
 
     if(H5_INDEX_CRT_ORDER == index_type) {
-        if((ret_value = H5_daos_link_get_name_by_crt_order(target_grp, idx, link_name_out, link_name_out_size)) < 0)
-            D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, -1, "can't retrieve link name by creation order index")
+        if((ret_value = H5_daos_link_get_name_by_crt_order(target_grp, iter_order, idx, link_name_out, link_name_out_size)) < 0)
+            D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, (-1), "can't retrieve link name from creation order index")
     } /* end if */
     else if(H5_INDEX_NAME == index_type) {
-        D_GOTO_ERROR(H5E_LINK, H5E_UNSUPPORTED, -1, "retrieval of link name by name index is unsupported")
+        if((ret_value = H5_daos_link_get_name_by_name_order(target_grp, iter_order, idx, link_name_out, link_name_out_size)) < 0)
+            D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, (-1), "can't retrieve link name from name order index")
     } /* end else */
     else
-        D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, -1, "invalid or unsupported index type")
+        D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, (-1), "invalid or unsupported index type")
 
 done:
     D_FUNC_LEAVE
 } /* end H5_daos_link_get_name_by_idx() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_link_get_name_by_crt_order
+ *
+ * Purpose:     Given an index iteration order and index value, retrieves
+ *              the name of the nth link (as specified by the index value)
+ *              within the specified group's link creation order index,
+ *              according to the given order (increasing, decreasing or
+ *              native order).
+ *
+ *              The link_name_out parameter may be NULL, in which case the
+ *              length of the link's name is simply returned. If non-NULL,
+ *              the link's name is stored in link_name_out.
+ *
+ * Return:      Success:        The length of the link's name
+ *              Failure:        Negative
+ *
+ */
 static ssize_t
-H5_daos_link_get_name_by_crt_order(H5_daos_group_t *target_grp,
-    uint64_t crt_order_idx, char *link_name_out, size_t link_name_out_size)
+H5_daos_link_get_name_by_crt_order(H5_daos_group_t *target_grp, H5_iter_order_t iter_order,
+    uint64_t index, char *link_name_out, size_t link_name_out_size)
 {
     daos_key_t dkey;
     daos_iod_t iod;
     daos_iov_t sg_iov;
+    uint64_t fetch_idx = 0;
     int ret;
     ssize_t ret_value = 0;
 
     assert(target_grp);
+
+    /* Calculate the correct index of the link, based upon the iteration order */
+    if(H5_ITER_DEC == iter_order) {
+        ssize_t grp_nlinks;
+
+        /* Retrieve the current number of links in the group */
+        if((grp_nlinks = H5_daos_group_get_num_links(target_grp)) < 0)
+            D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, (-1), "can't get number of links in group")
+
+        fetch_idx = grp_nlinks - index - 1;
+    } /* end if */
+    else
+        fetch_idx = index;
 
     /* Set up dkey */
     daos_iov_set(&dkey, (void *)H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
 
     /* Set up iod */
     memset(&iod, 0, sizeof(iod));
-    daos_iov_set(&iod.iod_name, (void *)&crt_order_idx, sizeof(crt_order_idx));
+    daos_iov_set(&iod.iod_name, (void *)&fetch_idx, sizeof(fetch_idx));
     daos_csum_set(&iod.iod_kcsum, NULL, 0);
     iod.iod_nr = 1u;
     iod.iod_size = DAOS_REC_ANY;
@@ -1934,54 +1967,193 @@ done:
     D_FUNC_LEAVE
 } /* end H5_daos_link_get_name_by_crt_order() */
 
-#if 0
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_link_idx_adjust
+ * Function:    H5_daos_link_get_name_by_name_order
  *
- * Purpose:     Given an index value (as provided by an HDF5 _by_idx API
- *              call), adjusts the index value to the correct value after
- *              accounting for any "holes" in the given index.
+ * Purpose:     Given an index iteration order and index value, retrieves
+ *              the name of the nth link (as specified by the index value)
+ *              within the specified group's link name index, according to
+ *              the given order (increasing, decreasing or native order).
  *
- *              For example, calling H5Ldelete_by_idx on a group with an
- *              index value of 0 would leave a "hole" in the group's link
- *              creation order or name order index where the value of 0
- *              still exists, but no longer maps to a link. If
- *              H5Ldelete_by_idx was called again with an index value of 0,
- *              the link at an index value of 1 should then be deleted.
+ *              The link_name_out parameter may be NULL, in which case the
+ *              length of the link's name is simply returned. If non-NULL,
+ *              the link's name is stored in link_name_out.
  *
- * Return:      The adjusted index value within the given index type
+ * Return:      Success:        The length of the link's name
+ *              Failure:        Negative
  *
  */
-static uint64_t
-H5_daos_link_idx_adjust(H5_daos_group_t *target_grp, H5_index_t index_type,
-    H5_iter_order_t iter_order, uint64_t idx)
+static ssize_t
+H5_daos_link_get_name_by_name_order(H5_daos_group_t *target_grp, H5_iter_order_t iter_order,
+    uint64_t index, char *link_name_out, size_t link_name_out_size)
 {
-    uint64_t ret_value = idx;
+    ssize_t ret_value = 0;
 
     assert(target_grp);
-    assert(H5_INDEX_NAME == index_type || H5_INDEX_CRT_ORDER == index_type);
 
-    if(H5_INDEX_CRT_ORDER == index_type) {
-        htri_t link_exists;
-
-        /* Check if a link exists at the current index value */
-        do {
-
-
-            if((link_exists = H5_daos_link_exists()))
-
-
-        } while();
-    } /* end if */
-    else {
-
-    } /* end else */
+    /* TODO */
+    D_GOTO_ERROR(H5E_LINK, H5E_UNSUPPORTED, (-1), "retrieval of link name by name order is unsupported")
 
 done:
     D_FUNC_LEAVE
-} /* end H5_daos_link_idx_adjust() */
+} /* end H5_daos_link_get_name_by_name_order() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_link_remove_from_crt_idx
+ *
+ * Purpose:     Removes the target link from the target group's link
+ *              creation order index by locating the relevant akeys and
+ *              then removing them.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ */
+static herr_t
+H5_daos_link_remove_from_crt_idx(H5_daos_group_t *target_grp, const H5VL_loc_params_t *loc_params)
+{
+    daos_key_t dkey;
+    daos_key_t akeys[2];
+    uint64_t delete_idx = 0;
+    uint8_t crt_order_target_buf[H5_DAOS_CRT_ORDER_TO_LINK_TRGT_BUF_SIZE];
+    ssize_t grp_nlinks;
+    size_t i;
+    size_t nlinks_shift = 0;
+    hid_t target_grp_id = H5I_INVALID_HID;
+    int ret;
+    herr_t ret_value = SUCCEED;
+
+    assert(target_grp);
+    assert(loc_params);
+    assert(H5VL_OBJECT_BY_NAME == loc_params->type || H5VL_OBJECT_BY_IDX == loc_params->type);
+
+    /* Retrieve the current number of links in the group */
+    if((grp_nlinks = H5_daos_group_get_num_links(target_grp)) < 0)
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't get the number of links in group")
+
+    if(H5VL_OBJECT_BY_IDX == loc_params->type) {
+        /* DSINC - no check for safe cast here */
+        /*
+         * Note that this assumes this routine is always called after a link's
+         * dkey is punched during deletion, so the number of links in the group
+         * should reflect the number after the link has been removed.
+         */
+        delete_idx = (H5_ITER_DEC == loc_params->loc_data.loc_by_idx.order) ?
+                (uint64_t)grp_nlinks - (uint64_t)loc_params->loc_data.loc_by_idx.n :
+                (uint64_t)loc_params->loc_data.loc_by_idx.n;
+    } /* end if */
+    else {
+        H5_daos_link_crt_idx_iter_ud_t iter_cb_ud;
+        H5_daos_iter_data_t iter_data;
+
+        /* Register ID for group for link iteration */
+        if((target_grp_id = H5VLwrap_register(target_grp, H5I_GROUP)) < 0)
+            D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, FAIL, "unable to atomize object handle")
+        target_grp->obj.item.rc++;
+
+        /* Initialize iteration data */
+        iter_cb_ud.target_link_name = loc_params->loc_data.loc_by_name.name;
+        iter_cb_ud.link_idx_out = &delete_idx;
+        H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_LINK, H5_INDEX_CRT_ORDER, H5_ITER_INC,
+                FALSE, NULL, target_grp_id, &iter_cb_ud, H5P_DATASET_XFER_DEFAULT, NULL);
+        iter_data.u.link_iter_data.link_iter_op = H5_daos_link_remove_from_crt_idx_name_cb;
+
+        /*
+         * TODO: Currently, deleting a link by name means that we need to iterate through
+         *       the link creation order index until we find the value corresponding to
+         *       the link being deleted. This is especially important because the deletion
+         *       of links might cause the target link's index value to shift downwards.
+         *
+         *       Once iteration restart is supported for link iteration, performance can
+         *       be improved here by first looking up the original, permanent creation order
+         *       value of the link using the 'link name -> creation order' mapping and then
+         *       using that value as the starting point for iteration. In this case, the
+         *       iteration order MUST be switched to H5_ITER_DEC or the key will not be
+         *       found by the iteration.
+         */
+        if(H5_daos_link_iterate(target_grp, &iter_data) < 0)
+            D_GOTO_ERROR(H5E_SYM, H5E_BADITER, FAIL, "link iteration failed")
+    } /* end else */
+
+    /* Set up dkey */
+    daos_iov_set(&dkey, (void *)H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
+
+    /* Set up akeys */
+
+    /* Remove the akey which maps creation order -> link name */
+    daos_iov_set(&akeys[0], (void *)&delete_idx, sizeof(delete_idx));
+
+    /* Remove the akey which maps creation order -> link target */
+    memcpy(crt_order_target_buf, &delete_idx, H5_DAOS_CRT_ORDER_TO_LINK_TRGT_BUF_SIZE - 1);
+    crt_order_target_buf[H5_DAOS_CRT_ORDER_TO_LINK_TRGT_BUF_SIZE - 1] = 0;
+    daos_iov_set(&akeys[1], (void *)crt_order_target_buf, H5_DAOS_CRT_ORDER_TO_LINK_TRGT_BUF_SIZE);
+
+#ifdef DV_PLUGIN_DEBUG
+    printf("Group's current dkey/akey listing:\n");
+    H5_daos_dump_obj_keys(target_grp->obj.obj_oh);
+    printf("Deleting akeys for index value %lld\n", (long long) delete_idx);
 #endif
+
+    /* Remove the akeys */
+    if(0 != (ret = daos_obj_punch_akeys(target_grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 2, akeys, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTREMOVE, FAIL, "failed to punch link akeys: %s", H5_daos_err_to_string(ret))
+
+#ifdef DV_PLUGIN_DEBUG
+    printf("Group's dkey/akey listing after delete operation:\n");
+    H5_daos_dump_obj_keys(target_grp->obj.obj_oh);
+#endif
+
+#ifdef DV_PLUGIN_DEBUG
+    printf("Group currently contains %lld links; shifting %lld indices down\n", grp_nlinks, grp_nlinks - delete_idx - 1);
+#endif
+
+    /* Shift the indices of all akeys past the removed akeys down by one */
+    if(grp_nlinks > 0) {
+        nlinks_shift = grp_nlinks - delete_idx - 1;
+
+        for(i = 0; i < nlinks_shift; i++) {
+
+        } /* end for */
+    } /* end if */
+
+#ifdef DV_PLUGIN_DEBUG
+    printf("Group's dkey/akey listing after shift operation:\n");
+    H5_daos_dump_obj_keys(target_grp->obj.obj_oh);
+#endif
+
+done:
+    if((target_grp_id >= 0) && (H5Idec_ref(target_grp_id) < 0))
+        D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group ID")
+
+    D_FUNC_LEAVE
+} /* end H5_daos_link_remove_from_crt_idx() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_link_remove_from_crt_idx_name_cb
+ *
+ * Purpose:     Link iteration callback for
+ *              H5_daos_link_remove_from_crt_idx which iterates through
+ *              links by creation order until the current link name matches
+ *              the target link name, at which point the creation order
+ *              index value for the target link has been found.
+ *
+ * Return:      Non-negative (can't fail)
+ *
+ */
+static herr_t
+H5_daos_link_remove_from_crt_idx_name_cb(hid_t H5VL_DAOS_UNUSED group, const char H5VL_DAOS_UNUSED *name,
+    const H5L_info_t H5VL_DAOS_UNUSED *info, void *op_data)
+{
+    H5_daos_link_crt_idx_iter_ud_t *cb_ud = (H5_daos_link_crt_idx_iter_ud_t *) op_data;
+
+    if(!strcmp(name, cb_ud->target_link_name))
+        return 1;
+
+    (*cb_ud->link_idx_out)++;
+    return 0;
+} /* end H5_daos_link_remove_from_crt_idx_name_cb() */
 
 
 /*-------------------------------------------------------------------------

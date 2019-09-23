@@ -1095,11 +1095,10 @@ static herr_t
 H5_daos_group_get_info(H5_daos_group_t *grp, const H5VL_loc_params_t *loc_params,
     H5G_info_t *group_info, hid_t dxpl_id, void **req)
 {
-    H5_daos_iter_data_t iter_data;
     H5_daos_group_t *target_grp = NULL;
     H5G_info_t local_grp_info;
     uint64_t max_corder;
-    hid_t target_grp_id = H5I_INVALID_HID;
+    ssize_t grp_nlinks;
     herr_t ret_value = SUCCEED;
 
     assert(grp);
@@ -1169,30 +1168,60 @@ H5_daos_group_get_info(H5_daos_group_t *grp, const H5VL_loc_params_t *loc_params
     else
         local_grp_info.max_corder = 0;
 
-    /* Register ID for group for link iteration */
-    if((target_grp_id = H5VLwrap_register(target_grp, H5I_GROUP)) < 0)
-        D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, FAIL, "unable to atomize object handle")
-    target_grp->obj.item.rc++;
-
-    /* Initialize iteration data */
-    H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_LINK, H5_INDEX_NAME, H5_ITER_NATIVE,
-            FALSE, NULL, target_grp_id, &local_grp_info.nlinks, H5P_DATASET_XFER_DEFAULT, NULL);
-    iter_data.u.link_iter_data.link_iter_op = H5_daos_link_iterate_count_links_callback;
-
     /* Retrieve the number of links in the group. */
-    if(H5_daos_link_iterate(target_grp, &iter_data) < 0)
-        D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, FAIL, "can't retrieve the number of links in group")
+    if((grp_nlinks = H5_daos_group_get_num_links(target_grp)) < 0)
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, FAIL, "can't get the number of links in group")
+    local_grp_info.nlinks = (hsize_t)grp_nlinks;
 
     memcpy(group_info, &local_grp_info, sizeof(*group_info));
 
 done:
-    if((target_grp_id >= 0) && (H5Idec_ref(target_grp_id) < 0))
-        D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group ID")
     if(target_grp && H5_daos_group_close(target_grp, dxpl_id, req) < 0)
         D_DONE_ERROR(H5E_SYM, H5E_CANTCLOSEOBJ, FAIL, "can't close group")
 
     D_FUNC_LEAVE
 } /* end H5_daos_group_get_info() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_group_get_num_links
+ *
+ * Purpose:     Retrieves the current number of links within the target
+ *              group.
+ *
+ * Return:      Success:        The number of links within the group
+ *              Failure:        Negative
+ *
+ *-------------------------------------------------------------------------
+ */
+ssize_t
+H5_daos_group_get_num_links(H5_daos_group_t *target_grp)
+{
+    H5_daos_iter_data_t iter_data;
+    hid_t target_grp_id = H5I_INVALID_HID;
+    ssize_t ret_value = 0;
+
+    assert(target_grp);
+
+    /* Register ID for group for link iteration */
+    if((target_grp_id = H5VLwrap_register(target_grp, H5I_GROUP)) < 0)
+        D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, (-1), "unable to atomize object handle")
+    target_grp->obj.item.rc++;
+
+    /* Initialize iteration data */
+    H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_LINK, H5_INDEX_NAME, H5_ITER_NATIVE,
+            FALSE, NULL, target_grp_id, &ret_value, H5P_DATASET_XFER_DEFAULT, NULL);
+    iter_data.u.link_iter_data.link_iter_op = H5_daos_link_iterate_count_links_callback;
+
+    if(H5_daos_link_iterate(target_grp, &iter_data) < 0)
+        D_GOTO_ERROR(H5E_SYM, H5E_BADITER, (-1), "link iteration failed")
+
+done:
+    if((target_grp_id >= 0) && (H5Idec_ref(target_grp_id) < 0))
+        D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, (-1), "can't close group ID")
+
+    D_FUNC_LEAVE
+} /* end H5_daos_group_get_num_links() */
 
 
 /*-------------------------------------------------------------------------

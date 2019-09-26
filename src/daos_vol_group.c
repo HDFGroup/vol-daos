@@ -1166,7 +1166,7 @@ H5_daos_group_get_info(H5_daos_group_t *grp, const H5VL_loc_params_t *loc_params
         local_grp_info.max_corder = (int64_t)max_corder; /* DSINC - no check for overflow! */
     }
     else
-        local_grp_info.max_corder = 0;
+        local_grp_info.max_corder = -1;
 
     /* Retrieve the number of links in the group. */
     if((grp_nlinks = H5_daos_group_get_num_links(target_grp)) < 0)
@@ -1275,12 +1275,12 @@ H5_daos_group_set_num_links(H5_daos_group_t *target_grp, uint64_t new_nlinks)
 
     assert(target_grp);
 
-    /* Set up dkey */
-    daos_iov_set(&dkey, (void *)H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
-
     /* Encode buffer */
     p = nlinks_new_buf;
     UINT64ENCODE(p, new_nlinks);
+
+    /* Set up dkey */
+    daos_iov_set(&dkey, (void *)H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
 
     /* Set up iod */
     memset(&iod, 0, sizeof(iod));
@@ -1325,22 +1325,28 @@ H5_daos_group_get_max_crt_order(H5_daos_group_t *target_grp, uint64_t *max_corde
     daos_key_t dkey;
     daos_iod_t iod;
     daos_iov_t sg_iov;
+    uint64_t max_crt_order;
     uint8_t max_corder_buf[sizeof(*max_corder)];
+    uint8_t *p;
     int ret;
     herr_t ret_value = SUCCEED;
 
     assert(target_grp);
     assert(max_corder);
 
+    /* Check that creation order is tracked for target group */
+    if(!target_grp->gcpl_cache.track_corder)
+        D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, FAIL, "creation order is not tracked for group")
+
     /* Set up dkey */
     daos_iov_set(&dkey, (void *)H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
 
     /* Set up iod */
     memset(&iod, 0, sizeof(iod));
-    daos_iov_set(&iod.iod_name, (void *)H5_daos_nlinks_key_g, H5_daos_nlinks_key_size_g);
+    daos_iov_set(&iod.iod_name, (void *)H5_daos_max_corder_key_g, H5_daos_max_corder_key_size_g);
     daos_csum_set(&iod.iod_kcsum, NULL, 0);
     iod.iod_nr = 1u;
-    iod.iod_size = (uint64_t)8;
+    iod.iod_size = (daos_size_t)sizeof(uint64_t);
     iod.iod_type = DAOS_IOD_SINGLE;
 
     /* Set up sgl */
@@ -1353,11 +1359,85 @@ H5_daos_group_get_max_crt_order(H5_daos_group_t *target_grp, uint64_t *max_corde
     if(0 != (ret = daos_obj_fetch(target_grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
         D_GOTO_ERROR(H5E_SYM, H5E_READERROR, FAIL, "can't read max creation order: %s", H5_daos_err_to_string(ret))
 
-    if(iod.iod_size == 0)
-        *max_corder = 0;
+    p = max_corder_buf;
+    /* Check for no max creation order found, in this case it must be 0 */
+    if(iod.iod_size == (uint64_t)0) {
+        max_crt_order = 0;
+    } /* end if */
     else
-        memcpy(max_corder, max_corder_buf, sizeof(*max_corder));
+        /* Decode num links */
+        UINT64DECODE(p, max_crt_order);
+
+    *max_corder = max_crt_order;
 
 done:
     D_FUNC_LEAVE
 } /* end H5_daos_group_get_max_crt_order() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_group_set_max_crt_order
+ *
+ * Purpose:     Updates the target group's maximum creation order value
+ *              tracking akey by setting its value to the specified value.
+ *
+ *              CAUTION: This routine is 'dangerous' in that the maximum
+ *              creation order tracking akey is used in various places.
+ *              Only call this routine if it is certain that the maximum
+ *              creation order value for the group has changed to the
+ *              specified value. This routine should also never be used to
+ *              decrease the group's maximum creation order value; this
+ *              value should only ever increase as new links are created
+ *              in the group.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_group_set_max_crt_order(H5_daos_group_t *target_grp, uint64_t new_max_corder)
+{
+    daos_sg_list_t sgl;
+    daos_key_t dkey;
+    daos_iod_t iod;
+    daos_iov_t sg_iov;
+    uint8_t new_max_corder_buf[sizeof(uint64_t)];
+    uint8_t *p;
+    int ret;
+    herr_t ret_value = SUCCEED;
+
+    assert(target_grp);
+
+    /* Check that creation order is tracked for target group */
+    if(!target_grp->gcpl_cache.track_corder)
+        D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, FAIL, "creation order is not tracked for group")
+
+    /* Encode buffer */
+    p = new_max_corder_buf;
+    UINT64ENCODE(p, new_max_corder);
+
+    /* Set up dkey */
+    daos_iov_set(&dkey, (void *)H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
+
+    /* Set up iod */
+    memset(&iod, 0, sizeof(iod));
+    daos_iov_set(&iod.iod_name, (void *)H5_daos_max_corder_key_g, H5_daos_max_corder_key_size_g);
+    daos_csum_set(&iod.iod_kcsum, NULL, 0);
+    iod.iod_nr = 1u;
+    iod.iod_size = (daos_size_t)sizeof(uint64_t);
+    iod.iod_type = DAOS_IOD_SINGLE;
+
+    /* Set up sgl */
+    daos_iov_set(&sg_iov, new_max_corder_buf, (daos_size_t)sizeof(uint64_t));
+    sgl.sg_nr = 1;
+    sgl.sg_nr_out = 0;
+    sgl.sg_iovs = &sg_iov;
+
+    /* Issue write */
+    if(0 != (ret = daos_obj_update(target_grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_SYM, H5E_WRITEERROR, FAIL, "can't write maximum creation order value to group: %s", H5_daos_err_to_string(ret))
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_group_set_max_crt_order() */
+

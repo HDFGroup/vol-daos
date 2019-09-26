@@ -486,6 +486,7 @@ extern H5VL_DAOS_PRIVATE const char H5_daos_cpl_key_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_link_key_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_link_corder_key_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_nlinks_key_g[];
+extern H5VL_DAOS_PRIVATE const char H5_daos_max_corder_key_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_type_key_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_space_key_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_attr_key_g[];
@@ -499,6 +500,7 @@ extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_cpl_key_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_link_key_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_link_corder_key_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_nlinks_key_size_g;
+extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_max_corder_key_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_type_key_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_space_key_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_attr_key_size_g;
@@ -570,6 +572,8 @@ H5VL_DAOS_PRIVATE htri_t H5_daos_link_follow(H5_daos_group_t *grp, const char *n
 H5VL_DAOS_PRIVATE herr_t H5_daos_link_iterate(H5_daos_group_t *target_grp, H5_daos_iter_data_t *link_iter_data);
 H5VL_DAOS_PRIVATE ssize_t H5_daos_link_get_name_by_idx(H5_daos_group_t *target_grp, H5_index_t index_type,
     H5_iter_order_t iter_order, uint64_t idx, char *link_name_out, size_t link_name_out_size);
+H5VL_DAOS_PRIVATE herr_t H5_daos_link_get_crt_order_by_name(H5_daos_group_t *target_grp, const char *link_name,
+    uint64_t *crt_order);
 
 /* Group callbacks */
 H5VL_DAOS_PRIVATE void *H5_daos_group_create(void *_item, const H5VL_loc_params_t *loc_params,
@@ -596,8 +600,8 @@ H5VL_DAOS_PRIVATE void *H5_daos_group_reconstitute(H5_daos_file_t *file, daos_ob
     uint8_t *gcpl_buf, hid_t gapl_id, hid_t dxpl_id, H5_daos_req_t *req);
 H5VL_DAOS_PRIVATE ssize_t H5_daos_group_get_num_links(H5_daos_group_t *target_grp);
 H5VL_DAOS_PRIVATE herr_t H5_daos_group_set_num_links(H5_daos_group_t *target_grp, uint64_t new_nlinks);
-H5VL_DAOS_PRIVATE herr_t H5_daos_group_get_max_crt_order(H5_daos_group_t *target_grp,
-    uint64_t *max_corder);
+H5VL_DAOS_PRIVATE herr_t H5_daos_group_get_max_crt_order(H5_daos_group_t *target_grp, uint64_t *max_corder);
+H5VL_DAOS_PRIVATE herr_t H5_daos_group_set_max_crt_order(H5_daos_group_t *target_grp, uint64_t new_max_corder);
 
 /* Dataset callbacks */
 H5VL_DAOS_PRIVATE void *H5_daos_dataset_create(void *_item, const H5VL_loc_params_t *loc_params,

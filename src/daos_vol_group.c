@@ -1197,31 +1197,112 @@ done:
 ssize_t
 H5_daos_group_get_num_links(H5_daos_group_t *target_grp)
 {
-    H5_daos_iter_data_t iter_data;
-    hid_t target_grp_id = H5I_INVALID_HID;
+    daos_sg_list_t sgl;
+    daos_key_t dkey;
+    daos_iod_t iod;
+    daos_iov_t sg_iov;
+    uint64_t nlinks;
+    uint8_t *p;
+    uint8_t nlinks_buf[sizeof(uint64_t)];
+    int ret;
     ssize_t ret_value = 0;
 
     assert(target_grp);
 
-    /* Register ID for group for link iteration */
-    if((target_grp_id = H5VLwrap_register(target_grp, H5I_GROUP)) < 0)
-        D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, (-1), "unable to atomize object handle")
-    target_grp->obj.item.rc++;
+    /* Set up dkey */
+    daos_iov_set(&dkey, (void *)H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
 
-    /* Initialize iteration data */
-    H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_LINK, H5_INDEX_NAME, H5_ITER_NATIVE,
-            FALSE, NULL, target_grp_id, &ret_value, H5P_DATASET_XFER_DEFAULT, NULL);
-    iter_data.u.link_iter_data.link_iter_op = H5_daos_link_iterate_count_links_callback;
+    /* Set up iod */
+    memset(&iod, 0, sizeof(iod));
+    daos_iov_set(&iod.iod_name, (void *)H5_daos_nlinks_key_g, H5_daos_nlinks_key_size_g);
+    daos_csum_set(&iod.iod_kcsum, NULL, 0);
+    iod.iod_nr = 1u;
+    iod.iod_size = (daos_size_t)sizeof(uint64_t);
+    iod.iod_type = DAOS_IOD_SINGLE;
 
-    if(H5_daos_link_iterate(target_grp, &iter_data) < 0)
-        D_GOTO_ERROR(H5E_SYM, H5E_BADITER, (-1), "link iteration failed")
+    /* Set up sgl */
+    daos_iov_set(&sg_iov, nlinks_buf, (daos_size_t)sizeof(uint64_t));
+    sgl.sg_nr = 1;
+    sgl.sg_nr_out = 0;
+    sgl.sg_iovs = &sg_iov;
+
+    /* Read num links */
+    if(0 != (ret = daos_obj_fetch(target_grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_SYM, H5E_READERROR, (-1), "can't read num links: %s", H5_daos_err_to_string(ret))
+
+    p = nlinks_buf;
+    /* Check for no num links found, in this case it must be 0 */
+    if(iod.iod_size == (uint64_t)0) {
+        nlinks = 0;
+    } /* end if */
+    else
+        /* Decode num links */
+        UINT64DECODE(p, nlinks);
+
+    ret_value = (ssize_t)nlinks;
 
 done:
-    if((target_grp_id >= 0) && (H5Idec_ref(target_grp_id) < 0))
-        D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, (-1), "can't close group ID")
-
     D_FUNC_LEAVE
 } /* end H5_daos_group_get_num_links() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_group_set_num_links
+ *
+ * Purpose:     Updates the target group's link number tracking akey by
+ *              setting its value to the specified value.
+ *
+ *              CAUTION: This routine is 'dangerous' in that the link
+ *              number tracking akey is used in various places. Only call
+ *              this routine if it is certain that the number of links in
+ *              the group has changed to the specified value.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_group_set_num_links(H5_daos_group_t *target_grp, uint64_t new_nlinks)
+{
+    daos_sg_list_t sgl;
+    daos_key_t dkey;
+    daos_iod_t iod;
+    daos_iov_t sg_iov;
+    uint8_t nlinks_new_buf[sizeof(uint64_t)];
+    uint8_t *p;
+    int ret;
+    herr_t ret_value = SUCCEED;
+
+    assert(target_grp);
+
+    /* Set up dkey */
+    daos_iov_set(&dkey, (void *)H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
+
+    /* Encode buffer */
+    p = nlinks_new_buf;
+    UINT64ENCODE(p, new_nlinks);
+
+    /* Set up iod */
+    memset(&iod, 0, sizeof(iod));
+    daos_iov_set(&iod.iod_name, (void *)H5_daos_nlinks_key_g, H5_daos_nlinks_key_size_g);
+    daos_csum_set(&iod.iod_kcsum, NULL, 0);
+    iod.iod_nr = 1u;
+    iod.iod_size = (daos_size_t)sizeof(uint64_t);
+    iod.iod_type = DAOS_IOD_SINGLE;
+
+    /* Set up sgl */
+    daos_iov_set(&sg_iov, nlinks_new_buf, (daos_size_t)sizeof(uint64_t));
+    sgl.sg_nr = 1;
+    sgl.sg_nr_out = 0;
+    sgl.sg_iovs = &sg_iov;
+
+    /* Issue write */
+    if(0 != (ret = daos_obj_update(target_grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_SYM, H5E_WRITEERROR, FAIL, "can't write number of links to group: %s", H5_daos_err_to_string(ret))
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_group_set_num_links() */
 
 
 /*-------------------------------------------------------------------------

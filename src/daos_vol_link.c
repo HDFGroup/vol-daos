@@ -53,11 +53,21 @@ static ssize_t H5_daos_link_get_name_by_crt_order(H5_daos_group_t *target_grp, H
     uint64_t index, char *link_name_out, size_t link_name_out_size);
 static ssize_t H5_daos_link_get_name_by_name_order(H5_daos_group_t *target_grp, H5_iter_order_t iter_order,
     uint64_t index, char *link_name_out, size_t link_name_out_size);
+static herr_t H5_daos_link_get_name_by_name_order_cb(hid_t group, const char *name, const H5L_info_t *info, void *op_data);
 static herr_t H5_daos_link_remove_from_crt_idx(H5_daos_group_t *target_grp, const H5VL_loc_params_t *loc_params);
 static herr_t H5_daos_link_remove_from_crt_idx_name_cb(hid_t group, const char *name, const H5L_info_t *info, void *op_data);
+static herr_t H5_daos_link_shift_crt_idx_keys_down(H5_daos_group_t *target_grp, uint64_t idx_begin, uint64_t idx_end);
 static uint64_t H5_daos_hash_obj_id(dv_hash_table_key_t obj_id_lo);
 static int H5_daos_cmp_obj_id(dv_hash_table_key_t obj_id_lo1, dv_hash_table_key_t obj_id_lo2);
 static void H5_daos_free_visited_link_hash_table_key(dv_hash_table_key_t value);
+
+/* TODO */
+typedef struct H5_daos_link_find_name_by_idx_ud_t {
+    char *link_name_out;
+    size_t link_name_out_size;
+    uint64_t target_link_idx;
+    uint64_t cur_link_idx;
+} H5_daos_link_find_name_by_idx_ud_t;
 
 /* TODO */
 typedef struct H5_daos_link_crt_idx_iter_ud_t {
@@ -325,60 +335,44 @@ H5_daos_link_write(H5_daos_group_t *grp, const char *name,
         daos_iov_t sg_iov[3];
         uint8_t nlinks_new_buf[8];
         uint8_t corder_target_buf[H5_DAOS_CRT_ORDER_TO_LINK_TRGT_BUF_SIZE];
-        uint64_t nlinks;
+        ssize_t nlinks;
+        uint64_t uint_nlinks;
 
         /* Read num links */
+        if((nlinks = H5_daos_group_get_num_links(grp)) < 0)
+            D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, FAIL, "can't get number of links in group")
+        uint_nlinks = (uint64_t)nlinks;
+
         /* Allocate buffer */
         if(NULL == (nlinks_old_buf = (uint8_t *)DV_malloc(8)))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for number of links")
 
+        p = nlinks_old_buf;
+        UINT64ENCODE(p, uint_nlinks);
+
+        assert(H5_daos_nlinks_key_size_g != 8);
+
+        /* Add new link to count */
+        uint_nlinks++;
+
+        /* Write new info to creation order index */
+
         /* Set up dkey */
         daos_iov_set(&dkey, (void *)H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
+
+        /* Encode buffers */
+        p = nlinks_new_buf;
+        UINT64ENCODE(p, uint_nlinks);
+        memcpy(corder_target_buf, nlinks_old_buf, 8);
+        corder_target_buf[8] = 0;
 
         /* Set up iod */
         memset(iod, 0, sizeof(iod));
         daos_iov_set(&iod[0].iod_name, (void *)H5_daos_nlinks_key_g, H5_daos_nlinks_key_size_g);
         daos_csum_set(&iod[0].iod_kcsum, NULL, 0);
         iod[0].iod_nr = 1u;
-        iod[0].iod_size = (uint64_t)8;
-        iod[0].iod_type = DAOS_IOD_SINGLE;
-
-        /* Set up sgl */
-        daos_iov_set(&sg_iov[0], nlinks_old_buf, (daos_size_t)8);
-        sgl[0].sg_nr = 1;
-        sgl[0].sg_nr_out = 0;
-        sgl[0].sg_iovs = &sg_iov[0];
-
-        assert(H5_daos_nlinks_key_size_g != 8);
-
-        /* Read num links */
-        if(0 != (ret = daos_obj_fetch(grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, iod, sgl, NULL /*maps*/, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_SYM, H5E_READERROR, FAIL, "can't read num links: %s", H5_daos_err_to_string(ret))
-
-        p = nlinks_old_buf;
-        /* Check for no num links found, in this case it must be 0 */
-        if(iod[0].iod_size == (uint64_t)0) {
-            nlinks = 0;
-            UINT64ENCODE(p, nlinks);
-        } /* end if */
-        else
-            /* Decode num links */
-            UINT64DECODE(p, nlinks);
-
-        /* Add new link to count */
-        nlinks++;
-
-        /* Write new info to creation order index */
-        /* Encode buffers */
-        p = nlinks_new_buf;
-        UINT64ENCODE(p, nlinks);
-        memcpy(corder_target_buf, nlinks_old_buf, 8);
-        corder_target_buf[8] = 0;
-
-        /* Set up iod */
-
-        /* reset iod[0]'s iod_size in case it was modified; rest of iod[0] already set up from read operation */
         iod[0].iod_size = (daos_size_t)8;
+        iod[0].iod_type = DAOS_IOD_SINGLE;
 
         daos_iov_set(&iod[1].iod_name, (void *)nlinks_old_buf, 8);
         daos_csum_set(&iod[1].iod_kcsum, NULL, 0);
@@ -1736,28 +1730,6 @@ done:
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_link_iterate_count_links_callback
- *
- * Purpose:     A callback for H5_daos_link_iterate() that simply counts
- *              the number of links in the given group.
- *
- * Return:      0 (can't fail)
- *
- * Programmer:  Jordan Henderson
- *              February, 2019
- *
- *-------------------------------------------------------------------------
- */
-herr_t
-H5_daos_link_iterate_count_links_callback(hid_t H5VL_DAOS_UNUSED group, const char H5VL_DAOS_UNUSED *name,
-    const H5L_info_t H5VL_DAOS_UNUSED *info, void *op_data)
-{
-    (*((ssize_t *) op_data))++;
-    return 0;
-} /* end H5_daos_link_iterate_count_links_callback() */
-
-
-/*-------------------------------------------------------------------------
  * Function:    H5_daos_link_delete
  *
  * Purpose:     Deletes the link from the specified group according to
@@ -1778,6 +1750,7 @@ H5_daos_link_delete(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params, h
     const char *target_link_name = NULL;
     char *link_name_buf_dyn = NULL;
     char link_name_buf_static[H5_DAOS_LINK_NAME_BUF_SIZE];
+    ssize_t grp_nlinks;
     int ret;
     herr_t ret_value = SUCCEED;
 
@@ -1822,6 +1795,12 @@ H5_daos_link_delete(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params, h
     /* Punch the link's dkey, along with all of its akeys */
     if(0 != (ret = daos_obj_punch_dkeys(target_grp->obj.obj_oh, DAOS_TX_NONE, 1, &dkey, NULL /*event*/)))
         D_GOTO_ERROR(H5E_LINK, H5E_CANTREMOVE, FAIL, "failed to punch link dkey: %s", H5_daos_err_to_string(ret))
+
+    /* Update the number of links in the group */
+    if((grp_nlinks = H5_daos_group_get_num_links(target_grp)) < 0)
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't get number of links in group")
+    if(H5_daos_group_set_num_links(target_grp, (uint64_t)(grp_nlinks - 1)) < 0)
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTMODIFY, FAIL, "can't update number of links in group")
 
     /* TODO: If no more hard links point to the object in question, it should be
      * removed from the file, or at least marked to be removed.
@@ -1988,16 +1967,75 @@ static ssize_t
 H5_daos_link_get_name_by_name_order(H5_daos_group_t *target_grp, H5_iter_order_t iter_order,
     uint64_t index, char *link_name_out, size_t link_name_out_size)
 {
+    H5_daos_link_find_name_by_idx_ud_t iter_cb_ud;
+    H5_daos_iter_data_t iter_data;
+    hid_t target_grp_id = H5I_INVALID_HID;
     ssize_t ret_value = 0;
 
     assert(target_grp);
 
-    /* TODO */
-    D_GOTO_ERROR(H5E_LINK, H5E_UNSUPPORTED, (-1), "retrieval of link name by name order is unsupported")
+    if(H5_ITER_DEC == iter_order)
+        D_GOTO_ERROR(H5E_LINK, H5E_UNSUPPORTED, (-1), "decreasing order iteration is unsupported")
+
+    /* Register ID for target group */
+    if((target_grp_id = H5VLwrap_register(target_grp, H5I_GROUP)) < 0)
+        D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, (-1), "unable to atomize object handle")
+    target_grp->obj.item.rc++;
+
+    /* Initialize iteration data */
+    iter_cb_ud.target_link_idx = index;
+    iter_cb_ud.cur_link_idx = 0;
+    iter_cb_ud.link_name_out = link_name_out;
+    iter_cb_ud.link_name_out_size = link_name_out_size;
+    H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_LINK, H5_INDEX_NAME, iter_order,
+            FALSE, NULL, target_grp_id, &iter_cb_ud, H5P_DATASET_XFER_DEFAULT, NULL);
+    iter_data.u.link_iter_data.link_iter_op = H5_daos_link_get_name_by_name_order_cb;
+
+    if(H5_daos_link_iterate(target_grp, &iter_data) < 0)
+        D_GOTO_ERROR(H5E_LINK, H5E_BADITER, (-1), "link iteration failed")
+
+    ret_value = (ssize_t)iter_cb_ud.link_name_out_size;
 
 done:
+    if((target_grp_id >= 0) && (H5Idec_ref(target_grp_id) < 0))
+        D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, (-1), "can't close group ID")
+
     D_FUNC_LEAVE
 } /* end H5_daos_link_get_name_by_name_order() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_link_get_name_by_name_order_cb
+ *
+ * Purpose:     Link iteration callback for
+ *              H5_daos_link_get_name_by_name_order which iterates through
+ *              links by name order until the specified index value is
+ *              reached, at which point the target link has been found and
+ *              its name is copied back.
+ *
+ * Return:      Non-negative (can't fail)
+ *
+ */
+static herr_t
+H5_daos_link_get_name_by_name_order_cb(hid_t H5VL_DAOS_UNUSED group, const char *name,
+    const H5L_info_t H5VL_DAOS_UNUSED *info, void *op_data)
+{
+    H5_daos_link_find_name_by_idx_ud_t *cb_ud = (H5_daos_link_find_name_by_idx_ud_t *) op_data;
+
+    if(cb_ud->cur_link_idx == cb_ud->target_link_idx) {
+        if(cb_ud->link_name_out) {
+            memcpy(cb_ud->link_name_out, name, cb_ud->link_name_out_size - 1);
+            cb_ud->link_name_out[cb_ud->link_name_out_size - 1] = '\0';
+        }
+
+        cb_ud->link_name_out_size = strlen(name);
+
+        return 1;
+    }
+
+    cb_ud->cur_link_idx++;
+    return 0;
+} /* end H5_daos_link_get_name_by_name_order_cb() */
 
 
 /*-------------------------------------------------------------------------
@@ -2017,9 +2055,7 @@ H5_daos_link_remove_from_crt_idx(H5_daos_group_t *target_grp, const H5VL_loc_par
     daos_key_t akeys[2];
     uint64_t delete_idx = 0;
     uint8_t crt_order_target_buf[H5_DAOS_CRT_ORDER_TO_LINK_TRGT_BUF_SIZE];
-    ssize_t grp_nlinks;
-    size_t i;
-    size_t nlinks_shift = 0;
+    ssize_t grp_nlinks_remaining;
     hid_t target_grp_id = H5I_INVALID_HID;
     int ret;
     herr_t ret_value = SUCCEED;
@@ -2029,7 +2065,7 @@ H5_daos_link_remove_from_crt_idx(H5_daos_group_t *target_grp, const H5VL_loc_par
     assert(H5VL_OBJECT_BY_NAME == loc_params->type || H5VL_OBJECT_BY_IDX == loc_params->type);
 
     /* Retrieve the current number of links in the group */
-    if((grp_nlinks = H5_daos_group_get_num_links(target_grp)) < 0)
+    if((grp_nlinks_remaining = H5_daos_group_get_num_links(target_grp)) < 0)
         D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't get the number of links in group")
 
     if(H5VL_OBJECT_BY_IDX == loc_params->type) {
@@ -2040,7 +2076,7 @@ H5_daos_link_remove_from_crt_idx(H5_daos_group_t *target_grp, const H5VL_loc_par
          * should reflect the number after the link has been removed.
          */
         delete_idx = (H5_ITER_DEC == loc_params->loc_data.loc_by_idx.order) ?
-                (uint64_t)grp_nlinks - (uint64_t)loc_params->loc_data.loc_by_idx.n :
+                (uint64_t)grp_nlinks_remaining - (uint64_t)loc_params->loc_data.loc_by_idx.n :
                 (uint64_t)loc_params->loc_data.loc_by_idx.n;
     } /* end if */
     else {
@@ -2089,38 +2125,19 @@ H5_daos_link_remove_from_crt_idx(H5_daos_group_t *target_grp, const H5VL_loc_par
     crt_order_target_buf[H5_DAOS_CRT_ORDER_TO_LINK_TRGT_BUF_SIZE - 1] = 0;
     daos_iov_set(&akeys[1], (void *)crt_order_target_buf, H5_DAOS_CRT_ORDER_TO_LINK_TRGT_BUF_SIZE);
 
-#ifdef DV_PLUGIN_DEBUG
-    printf("Group's current dkey/akey listing:\n");
-    H5_daos_dump_obj_keys(target_grp->obj.obj_oh);
-    printf("Deleting akeys for index value %lld\n", (long long) delete_idx);
-#endif
-
     /* Remove the akeys */
     if(0 != (ret = daos_obj_punch_akeys(target_grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 2, akeys, NULL /*event*/)))
         D_GOTO_ERROR(H5E_LINK, H5E_CANTREMOVE, FAIL, "failed to punch link akeys: %s", H5_daos_err_to_string(ret))
 
-#ifdef DV_PLUGIN_DEBUG
-    printf("Group's dkey/akey listing after delete operation:\n");
-    H5_daos_dump_obj_keys(target_grp->obj.obj_oh);
-#endif
-
-#ifdef DV_PLUGIN_DEBUG
-    printf("Group currently contains %lld links; shifting %lld indices down\n", grp_nlinks, grp_nlinks - delete_idx - 1);
-#endif
-
-    /* Shift the indices of all akeys past the removed akeys down by one */
-    if(grp_nlinks > 0) {
-        nlinks_shift = grp_nlinks - delete_idx - 1;
-
-        for(i = 0; i < nlinks_shift; i++) {
-
-        } /* end for */
-    } /* end if */
-
-#ifdef DV_PLUGIN_DEBUG
-    printf("Group's dkey/akey listing after shift operation:\n");
-    H5_daos_dump_obj_keys(target_grp->obj.obj_oh);
-#endif
+    /*
+     * If there are still links remaining in the group and we didn't delete the
+     * link currently at the end of the creation order index, shift the indices
+     * of all akeys past the removed link's akeys down by one. This maintains
+     * the ability to directly index into the link creation order index.
+     */
+    if((grp_nlinks_remaining > 0) && (delete_idx < (uint64_t)grp_nlinks_remaining))
+        if(H5_daos_link_shift_crt_idx_keys_down(target_grp, delete_idx + 1, (uint64_t)grp_nlinks_remaining) < 0)
+            D_GOTO_ERROR(H5E_LINK, H5E_CANTMODIFY, FAIL, "failed to update link creation order index")
 
 done:
     if((target_grp_id >= 0) && (H5Idec_ref(target_grp_id) < 0))
@@ -2143,7 +2160,7 @@ done:
  *
  */
 static herr_t
-H5_daos_link_remove_from_crt_idx_name_cb(hid_t H5VL_DAOS_UNUSED group, const char H5VL_DAOS_UNUSED *name,
+H5_daos_link_remove_from_crt_idx_name_cb(hid_t H5VL_DAOS_UNUSED group, const char *name,
     const H5L_info_t H5VL_DAOS_UNUSED *info, void *op_data)
 {
     H5_daos_link_crt_idx_iter_ud_t *cb_ud = (H5_daos_link_crt_idx_iter_ud_t *) op_data;
@@ -2154,6 +2171,180 @@ H5_daos_link_remove_from_crt_idx_name_cb(hid_t H5VL_DAOS_UNUSED group, const cha
     (*cb_ud->link_idx_out)++;
     return 0;
 } /* end H5_daos_link_remove_from_crt_idx_name_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_link_shift_crt_idx_keys_down
+ *
+ * Purpose:     After a link has been deleted in a group, this routine
+ *              is used to update a group's link creation order index. All
+ *              of the index's akeys within the range specified by the
+ *              begin and end index parameters are read and then re-written
+ *              to the index under new akeys whose integer 'name' values
+ *              are one less than the akeys' original values.
+ *
+ *              By shifting these indices downward, the creation order
+ *              index will not contain any holes and will maintain its
+ *              ability to be directly indexed into.
+ *
+ * Return:      Non-negative on success/negative on failure
+ *
+ */
+static herr_t
+H5_daos_link_shift_crt_idx_keys_down(H5_daos_group_t *target_grp,
+    uint64_t idx_begin, uint64_t idx_end)
+{
+    daos_sg_list_t *sgls = NULL;
+    daos_iod_t *iods = NULL;
+    daos_iov_t *sg_iovs = NULL;
+    daos_key_t dkey;
+    daos_key_t tail_akeys[2];
+    uint64_t *crt_order_link_name_buf = NULL;
+    uint8_t *crt_order_link_trgt_buf = NULL;
+    size_t nlinks_shift;
+    size_t i;
+    char *tmp_buf = NULL;
+    int ret;
+    herr_t ret_value = SUCCEED;
+
+    assert(target_grp);
+    assert(idx_end >= idx_begin);
+
+    nlinks_shift = idx_end - idx_begin + 1;
+
+    /*
+     * Allocate space for the 2 akeys per link, one akey that maps the link's
+     * creation order value to the link's name and one akey that maps the link's
+     * creation order value to the link's target.
+     */
+    if(NULL == (iods = DV_malloc(2 * nlinks_shift * sizeof(*iods))))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate IOD buffer")
+    if(NULL == (sgls = DV_malloc(2 * nlinks_shift * sizeof(*sgls))))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate SGL buffer")
+    if(NULL == (sg_iovs = DV_calloc(2 * nlinks_shift * sizeof(*sg_iovs))))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate IOV buffer")
+    if(NULL == (crt_order_link_name_buf = DV_malloc(nlinks_shift * sizeof(uint64_t))))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate akey data buffer")
+    /*
+     * The 'creation order -> link target' akey's integer 'name' value is a 9-byte buffer:
+     * 8 bytes for the integer creation order value + 1 0-byte at the end of the buffer.
+     */
+    if(NULL == (crt_order_link_trgt_buf = DV_malloc(9 * nlinks_shift * sizeof(uint8_t))))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate akey data buffer")
+
+    /* Set up dkey */
+    daos_iov_set(&dkey, (void *)H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
+
+    /* Set up iods */
+    for(i = 0; i < nlinks_shift; i++) {
+        /* Setup the integer 'name' value for the current 'creation order -> link name' akey */
+        crt_order_link_name_buf[i] = idx_begin + i;
+
+        /* Set up iods for the current 'creation order -> link name' akey */
+        memset(&iods[2 * i], 0, sizeof(*iods));
+        daos_iov_set(&iods[2 * i].iod_name, &crt_order_link_name_buf[i], sizeof(uint64_t));
+        iods[2 * i].iod_nr = 1u;
+        iods[2 * i].iod_size = DAOS_REC_ANY;
+        iods[2 * i].iod_type = DAOS_IOD_SINGLE;
+
+        /* Setup the integer 'name' value for the current 'creation order -> link target' akey */
+        memcpy(&crt_order_link_trgt_buf[i * (sizeof(uint64_t) + 1)], &crt_order_link_name_buf[i], sizeof(uint64_t));
+        crt_order_link_trgt_buf[(i * (sizeof(uint64_t) + 1)) + sizeof(uint64_t)] = 0;
+
+        /* Set up iods for the current 'creation order -> link target' akey */
+        memset(&iods[(2 * i) + 1], 0, sizeof(*iods));
+        daos_iov_set(&iods[(2 * i) + 1].iod_name, &crt_order_link_trgt_buf[i * (sizeof(uint64_t) + 1)], sizeof(uint64_t) + 1);
+        iods[(2 * i) + 1].iod_nr = 1u;
+        iods[(2 * i) + 1].iod_size = DAOS_REC_ANY;
+        iods[(2 * i) + 1].iod_type = DAOS_IOD_SINGLE;
+    } /* end for */
+
+    /* Fetch the data size for each akey */
+    if(0 != (ret = daos_obj_fetch(target_grp->obj.obj_oh, DAOS_TX_NONE, &dkey, (unsigned) 2 * nlinks_shift,
+            iods, NULL, NULL /*maps*/, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_LINK, H5E_READERROR, FAIL, "can't read akey data sizes: %s", H5_daos_err_to_string(ret))
+
+    /* Allocate buffers and setup sgls for each akey */
+    for(i = 0; i < nlinks_shift; i++) {
+        /* Allocate buffer for the current 'creation order -> link name' akey */
+        if(iods[2 * i].iod_size == 0)
+            D_GOTO_ERROR(H5E_SYM, H5E_BADSIZE, FAIL, "invalid iod size - missing metadata")
+        if(NULL == (tmp_buf = DV_malloc(iods[2 * i].iod_size)))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akey data")
+
+        /* Set up sgls for the current 'creation order -> link name' akey */
+        daos_iov_set(&sg_iovs[2 * i], tmp_buf, iods[2 * i].iod_size);
+        sgls[2 * i].sg_nr = 1;
+        sgls[2 * i].sg_nr_out = 0;
+        sgls[2 * i].sg_iovs = &sg_iovs[2 * i];
+
+        /* Allocate buffer for the current 'creation order -> link target' akey */
+        if(iods[(2 * i) + 1].iod_size == 0)
+            D_GOTO_ERROR(H5E_SYM, H5E_BADSIZE, FAIL, "invalid iod size - missing metadata")
+        if(NULL == (tmp_buf = DV_malloc(iods[(2 * i) + 1].iod_size)))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akey data")
+
+        /* Set up sgls for the current 'creation order -> link target' akey */
+        daos_iov_set(&sg_iovs[(2 * i) + 1], tmp_buf, iods[(2 * i) + 1].iod_size);
+        sgls[(2 * i) + 1].sg_nr = 1;
+        sgls[(2 * i) + 1].sg_nr_out = 0;
+        sgls[(2 * i) + 1].sg_iovs = &sg_iovs[(2 * i) + 1];
+    } /* end for */
+
+    /* Read the akey's data */
+    if(0 != (ret = daos_obj_fetch(target_grp->obj.obj_oh, DAOS_TX_NONE, &dkey, (unsigned) 2 * nlinks_shift,
+            iods, sgls, NULL /*maps*/, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_LINK, H5E_READERROR, FAIL, "can't read akey data: %s", H5_daos_err_to_string(ret))
+
+    /*
+     * Adjust the akeys down by setting their integer 'name' values to
+     * one less than their original values
+     */
+    for(i = 0; i < nlinks_shift; i++) {
+        /* Setup the integer 'name' value for the current 'creation order -> link name' akey */
+        crt_order_link_name_buf[i]--;
+
+        /* Setup the integer 'name' value for the current 'creation order -> link target' akey */
+        memcpy(&crt_order_link_trgt_buf[i * (sizeof(uint64_t) + 1)], &crt_order_link_name_buf[i], sizeof(uint64_t));
+        crt_order_link_trgt_buf[(i * (sizeof(uint64_t) + 1)) + sizeof(uint64_t)] = 0;
+    } /* end for */
+
+    /* Write the akeys back */
+    if(0 != (ret = daos_obj_update(target_grp->obj.obj_oh, DAOS_TX_NONE, &dkey, (unsigned) 2 * nlinks_shift,
+            iods, sgls, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_LINK, H5E_WRITEERROR, FAIL, "can't write akey data: %s", H5_daos_err_to_string(ret))
+
+    /* Delete the (now invalid) akeys at the end of the creation index */
+    daos_iov_set(&tail_akeys[0], (void *)&idx_end, sizeof(idx_end));
+
+    memcpy(&crt_order_link_trgt_buf[0], &idx_end, sizeof(idx_end));
+    crt_order_link_trgt_buf[sizeof(idx_end)] = 0;
+    daos_iov_set(&tail_akeys[1], (void *)&crt_order_link_trgt_buf[0], sizeof(idx_end) + 1);
+
+    if(0 != (ret = daos_obj_punch_akeys(target_grp->obj.obj_oh, DAOS_TX_NONE, &dkey,
+            2, tail_akeys, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTDELETE, FAIL, "can't trim tail akeys from link creation order index")
+
+done:
+    for(i = 0; i < nlinks_shift; i++) {
+        if(sg_iovs[2 * i].iov_buf)
+            sg_iovs[2 * i].iov_buf = DV_free(sg_iovs[2 * i].iov_buf);
+        if(sg_iovs[(2 * i) + 1].iov_buf)
+            sg_iovs[(2 * i) + 1].iov_buf = DV_free(sg_iovs[(2 * i) + 1].iov_buf);
+    } /* end for */
+    if(crt_order_link_trgt_buf)
+        crt_order_link_trgt_buf = DV_free(crt_order_link_trgt_buf);
+    if(crt_order_link_name_buf)
+        crt_order_link_name_buf = DV_free(crt_order_link_name_buf);
+    if(sg_iovs)
+        sg_iovs = DV_free(sg_iovs);
+    if(sgls)
+        sgls = DV_free(sgls);
+    if(iods)
+        iods = DV_free(iods);
+
+    D_FUNC_LEAVE
+} /* end H5_daos_link_shift_crt_idx_keys_down() */
 
 
 /*-------------------------------------------------------------------------

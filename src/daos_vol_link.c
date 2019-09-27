@@ -43,7 +43,7 @@ do {                                                             \
 /* Prototypes */
 static herr_t H5_daos_link_read(H5_daos_group_t *grp, const char *name,
     size_t name_len, H5_daos_link_val_t *val);
-static herr_t H5_daos_link_get_info(H5_daos_item_t *item, const char *link_path,
+static herr_t H5_daos_link_get_info(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
     H5L_info_t *link_info, hid_t dxpl_id, void **req);
 static herr_t H5_daos_link_iterate_by_name_order(H5_daos_group_t *target_grp, H5_daos_iter_data_t *iter_data);
 static herr_t H5_daos_link_iterate_by_crt_order(H5_daos_group_t *target_grp, H5_daos_iter_data_t *iter_data);
@@ -61,7 +61,11 @@ static uint64_t H5_daos_hash_obj_id(dv_hash_table_key_t obj_id_lo);
 static int H5_daos_cmp_obj_id(dv_hash_table_key_t obj_id_lo1, dv_hash_table_key_t obj_id_lo2);
 static void H5_daos_free_visited_link_hash_table_key(dv_hash_table_key_t value);
 
-/* TODO */
+/*
+ * A link iteration callback function data structure. It is
+ * passed during link iteration when retrieving a link's name
+ * by a given creation order index value.
+ */
 typedef struct H5_daos_link_find_name_by_idx_ud_t {
     char *link_name_out;
     size_t link_name_out_size;
@@ -69,7 +73,11 @@ typedef struct H5_daos_link_find_name_by_idx_ud_t {
     uint64_t cur_link_idx;
 } H5_daos_link_find_name_by_idx_ud_t;
 
-/* TODO */
+/*
+ * A link iteration callback function data structure. It is
+ * passed during link iteration when retrieving a link's
+ * creation order index value by the given link's name.
+ */
 typedef struct H5_daos_link_crt_idx_iter_ud_t {
     const char *target_link_name;
     uint64_t *link_idx_out;
@@ -383,7 +391,7 @@ H5_daos_link_write(H5_daos_group_t *grp, const char *name,
 
         /* Set up iod */
         memset(iod, 0, sizeof(iod));
-        daos_iov_set(&iod[0].iod_name, (void *)H5_daos_max_corder_key_g, H5_daos_max_corder_key_size_g);
+        daos_iov_set(&iod[0].iod_name, (void *)H5_daos_max_link_corder_key_g, H5_daos_max_link_corder_key_size_g);
         daos_csum_set(&iod[0].iod_kcsum, NULL, 0);
         iod[0].iod_nr = 1u;
         iod[0].iod_size = (daos_size_t)sizeof(uint64_t);
@@ -755,10 +763,7 @@ H5_daos_link_get(void *_item, const H5VL_loc_params_t *loc_params,
         {
             H5L_info_t *link_info = va_arg(arguments, H5L_info_t *);
 
-            if(H5VL_OBJECT_BY_IDX == loc_params->type)
-                D_GOTO_ERROR(H5E_LINK, H5E_UNSUPPORTED, FAIL, "H5Lget_info_by_idx is unsupported")
-
-            if(H5_daos_link_get_info(item, loc_params->loc_data.loc_by_name.name, link_info, dxpl_id, req) < 0)
+            if(H5_daos_link_get_info(item, loc_params, link_info, dxpl_id, req) < 0)
                 D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't retrieve link's info")
 
             break;
@@ -1062,23 +1067,78 @@ done:
  *-------------------------------------------------------------------------
  */
 static herr_t
-H5_daos_link_get_info(H5_daos_item_t *item, const char *link_path,
+H5_daos_link_get_info(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
     H5L_info_t *link_info, hid_t dxpl_id, void **req)
 {
     H5_daos_link_val_t link_val = { 0 };
     H5_daos_group_t *target_grp = NULL;
     H5L_info_t local_link_info;
-    const char *target_name;
+    ssize_t link_name_size;
+    const char *target_name = NULL;
+    char *link_name_buf_dyn = NULL;
+    char link_name_buf_static[H5_DAOS_LINK_NAME_BUF_SIZE];
     uint64_t link_crt_order;
     herr_t ret_value = SUCCEED;
 
     assert(item);
-    assert(link_path);
+    assert(loc_params);
     assert(link_info);
 
-    /* Traverse the path */
-    if(NULL == (target_grp = H5_daos_group_traverse(item, link_path, dxpl_id, req, &target_name, NULL, NULL)))
-        D_GOTO_ERROR(H5E_SYM, H5E_TRAVERSE, FAIL, "failed to traverse path")
+    /* Determine the target group */
+    switch (loc_params->type) {
+        /* H5Lget_info */
+        case H5VL_OBJECT_BY_NAME:
+        {
+            /* Traverse the path */
+            if(NULL == (target_grp = H5_daos_group_traverse(item, loc_params->loc_data.loc_by_name.name,
+                    dxpl_id, req, &target_name, NULL, NULL)))
+                D_GOTO_ERROR(H5E_SYM, H5E_TRAVERSE, FAIL, "failed to traverse path")
+
+            break;
+        } /* H5VL_OBJECT_BY_NAME */
+
+        case H5VL_OBJECT_BY_IDX:
+        {
+            H5VL_loc_params_t sub_loc_params;
+
+            /* Open the group containing the target link */
+            sub_loc_params.type = H5VL_OBJECT_BY_SELF;
+            sub_loc_params.obj_type = H5I_GROUP;
+            if(NULL == (target_grp = (H5_daos_group_t *)H5_daos_group_open(item, &sub_loc_params,
+                    loc_params->loc_data.loc_by_idx.name, loc_params->loc_data.loc_by_idx.lapl_id, dxpl_id, req)))
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTOPENOBJ, FAIL, "can't open group containing target link")
+
+            /* Retrieve the link's name length + the link's name if the buffer is large enough */
+            if((link_name_size = H5_daos_link_get_name_by_idx(target_grp, loc_params->loc_data.loc_by_idx.idx_type,
+                    loc_params->loc_data.loc_by_idx.order, (uint64_t)loc_params->loc_data.loc_by_idx.n,
+                    link_name_buf_static, H5_DAOS_LINK_NAME_BUF_SIZE)) < 0)
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't get link name")
+
+            /* Check that buffer was large enough to fit link name */
+            if(link_name_size > H5_DAOS_LINK_NAME_BUF_SIZE - 1) {
+                if(NULL == (link_name_buf_dyn = DV_malloc(link_name_size + 1)))
+                    D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate link name buffer")
+
+                /* Re-issue the call with a larger buffer */
+                if(H5_daos_link_get_name_by_idx(target_grp, loc_params->loc_data.loc_by_idx.idx_type,
+                        loc_params->loc_data.loc_by_idx.order, (uint64_t)loc_params->loc_data.loc_by_idx.n,
+                        link_name_buf_dyn, link_name_size + 1) < 0)
+                    D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't get link name")
+
+                target_name = link_name_buf_dyn;
+            } /* end if */
+            else
+                target_name = link_name_buf_static;
+
+            break;
+        } /* H5VL_OBJECT_BY_IDX */
+
+        case H5VL_OBJECT_BY_SELF:
+        case H5VL_OBJECT_BY_ADDR:
+        case H5VL_OBJECT_BY_REF:
+        default:
+            D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, FAIL, "invalid loc_params type")
+    } /* end switch */
 
     if(H5_daos_link_read(target_grp, target_name, strlen(target_name), &link_val) < 0)
         D_GOTO_ERROR(H5E_LINK, H5E_READERROR, FAIL, "failed to read link")
@@ -1111,6 +1171,9 @@ H5_daos_link_get_info(H5_daos_item_t *item, const char *link_path,
 done:
     if(H5L_TYPE_SOFT == link_val.type)
         DV_free(link_val.target.soft);
+
+    if(link_name_buf_dyn)
+        link_name_buf_dyn = DV_free(link_name_buf_dyn);
 
     if(target_grp) {
         if(H5_daos_group_close(target_grp, dxpl_id, req) < 0)
@@ -1806,24 +1869,27 @@ H5_daos_link_delete(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params, h
     if(H5VL_OBJECT_BY_IDX == loc_params->type) {
         ssize_t link_name_size;
 
-        /* Retrieve the length of the link's name */
+        /* Retrieve the name of the link at the given index */
         if((link_name_size = H5_daos_link_get_name_by_idx(target_grp, loc_params->loc_data.loc_by_idx.idx_type,
-                loc_params->loc_data.loc_by_idx.order, (uint64_t)loc_params->loc_data.loc_by_idx.n, NULL, 0)) < 0)
-            D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't get link name length")
+                loc_params->loc_data.loc_by_idx.order, (uint64_t)loc_params->loc_data.loc_by_idx.n,
+                link_name_buf_static, H5_DAOS_LINK_NAME_BUF_SIZE)) < 0)
+            D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't get link name")
 
+        /* Check that buffer was large enough to fit link name */
         if(link_name_size > H5_DAOS_LINK_NAME_BUF_SIZE - 1) {
             if(NULL == (link_name_buf_dyn = DV_malloc(link_name_size + 1)))
                 D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "failed to allocate buffer for link name")
+
+            /* Re-issue the call with a larger buffer */
+            if(H5_daos_link_get_name_by_idx(target_grp, loc_params->loc_data.loc_by_idx.idx_type,
+                    loc_params->loc_data.loc_by_idx.order, (uint64_t)loc_params->loc_data.loc_by_idx.n,
+                    link_name_buf_dyn, link_name_size + 1) < 0)
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't get link name")
+
             target_link_name = link_name_buf_dyn;
         } /* end if */
         else
             target_link_name = link_name_buf_static;
-
-        /* Retrieve the link's name */
-        if(H5_daos_link_get_name_by_idx(target_grp, loc_params->loc_data.loc_by_idx.idx_type,
-                loc_params->loc_data.loc_by_idx.order, (uint64_t)loc_params->loc_data.loc_by_idx.n,
-                target_link_name, link_name_size + 1) < 0)
-            D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't get link name by index")
     } /* end if */
 
     /* Setup dkey */
@@ -2008,6 +2074,26 @@ H5_daos_link_remove_from_crt_idx_name_cb(hid_t H5VL_DAOS_UNUSED group, const cha
  *              By shifting these indices downward, the creation order
  *              index will not contain any holes and will maintain its
  *              ability to be directly indexed into.
+ *
+ *              TODO: Currently, this routine attempts to avoid calls to
+ *                    the server by allocating buffers for all of the keys
+ *                    and then reading/writing them at once. However, this
+ *                    leads to several tiny allocations and the potential
+ *                    for a very large amount of memory usage, which could
+ *                    be improved upon.
+ *
+ *                    One improvement would be to allocate a single large
+ *                    buffer for the key data and then set indices into the
+ *                    buffer appropriately in each of the SGLs. This would
+ *                    help in avoiding the tiny allocations for the data
+ *                    buffers for each key.
+ *
+ *                    Another improvement would be to pick a sensible upper
+ *                    bound on the amount of keys handled at a single time
+ *                    and then perform several rounds of reading/writing
+ *                    until all of the keys have been processed. This
+ *                    should help to minimize the total amount of memory
+ *                    that is used at any point in time.
  *
  * Return:      Non-negative on success/negative on failure
  *
@@ -2242,6 +2328,10 @@ H5_daos_link_get_name_by_crt_order(H5_daos_group_t *target_grp, H5_iter_order_t 
     ssize_t ret_value = 0;
 
     assert(target_grp);
+
+    /* Check that creation order is tracked for target group */
+    if(!target_grp->gcpl_cache.track_corder)
+        D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, FAIL, "creation order is not tracked for group")
 
     /* Calculate the correct index of the link, based upon the iteration order */
     if(H5_ITER_DEC == iter_order) {

@@ -45,6 +45,8 @@ static herr_t H5_daos_link_read(H5_daos_group_t *grp, const char *name,
     size_t name_len, H5_daos_link_val_t *val);
 static herr_t H5_daos_link_get_info(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
     H5L_info_t *link_info, hid_t dxpl_id, void **req);
+static herr_t H5_daos_link_get_val(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
+    H5_daos_link_val_t *link_val_out, hid_t dxpl_id, void **req);
 static herr_t H5_daos_link_iterate_by_name_order(H5_daos_group_t *target_grp, H5_daos_iter_data_t *iter_data);
 static herr_t H5_daos_link_iterate_by_crt_order(H5_daos_group_t *target_grp, H5_daos_iter_data_t *iter_data);
 static herr_t H5_daos_link_delete(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
@@ -787,23 +789,17 @@ H5_daos_link_get(void *_item, const H5VL_loc_params_t *loc_params,
             void *out_buf = va_arg(arguments, void *);
             size_t out_buf_size = va_arg(arguments, size_t);
 
-            if(H5VL_OBJECT_BY_IDX == loc_params->type)
-                D_GOTO_ERROR(H5E_LINK, H5E_UNSUPPORTED, FAIL, "H5Lget_val_by_idx is unsupported")
+            if(H5_daos_link_get_val(item, loc_params, &link_val, dxpl_id, req) < 0)
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't get link's value")
 
-            if(H5_daos_link_read((H5_daos_group_t *) item, loc_params->loc_data.loc_by_name.name,
-                    strlen(loc_params->loc_data.loc_by_name.name), &link_val) < 0)
-                D_GOTO_ERROR(H5E_LINK, H5E_READERROR, FAIL, "failed to read link")
-
-            if(H5L_TYPE_HARD == link_val.type)
-                D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, FAIL, "link value cannot be retrieved from a hard link")
-            else if(H5L_TYPE_SOFT == link_val.type)
+            if(H5L_TYPE_SOFT == link_val.type)
                 link_val_alloc = TRUE;
 
             /*
-             * H5Lget_val specifically says that if the size of the buffer
-             * given is smaller than the size of the link's value, then
-             * the link's value will be truncated to 'size' bytes and will
-             * not be null-terminated.
+             * H5Lget_val(_by_idx) specifically says that if the size of
+             * the buffer given is smaller than the size of the link's
+             * value, then the link's value will be truncated to 'size'
+             * bytes and will not be null-terminated.
              */
             if(out_buf)
                 memcpy(out_buf, link_val.target.soft, out_buf_size);
@@ -1073,7 +1069,6 @@ H5_daos_link_get_info(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
     H5_daos_link_val_t link_val = { 0 };
     H5_daos_group_t *target_grp = NULL;
     H5L_info_t local_link_info;
-    ssize_t link_name_size;
     const char *target_name = NULL;
     char *link_name_buf_dyn = NULL;
     char link_name_buf_static[H5_DAOS_LINK_NAME_BUF_SIZE];
@@ -1100,10 +1095,11 @@ H5_daos_link_get_info(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
         case H5VL_OBJECT_BY_IDX:
         {
             H5VL_loc_params_t sub_loc_params;
+            ssize_t link_name_size;
 
             /* Open the group containing the target link */
             sub_loc_params.type = H5VL_OBJECT_BY_SELF;
-            sub_loc_params.obj_type = H5I_GROUP;
+            sub_loc_params.obj_type = item->type;
             if(NULL == (target_grp = (H5_daos_group_t *)H5_daos_group_open(item, &sub_loc_params,
                     loc_params->loc_data.loc_by_idx.name, loc_params->loc_data.loc_by_idx.lapl_id, dxpl_id, req)))
                 D_GOTO_ERROR(H5E_LINK, H5E_CANTOPENOBJ, FAIL, "can't open group containing target link")
@@ -1183,6 +1179,107 @@ done:
 
     D_FUNC_LEAVE
 } /* end H5_daos_link_get_info() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_link_get_val
+ *
+ * Purpose:     Helper routine to retrieve a symbolic or user-defined
+ *              link's value. The caller must remember to free the link's
+ *              value after using it.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_link_get_val(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
+    H5_daos_link_val_t *link_val_out, hid_t dxpl_id, void **req)
+{
+    H5_daos_group_t *target_grp = NULL;
+    const char *target_link_name;
+    char *link_name_buf_dyn = NULL;
+    char link_name_buf_static[H5_DAOS_LINK_NAME_BUF_SIZE];
+    herr_t ret_value = SUCCEED;
+
+    assert(item);
+    assert(loc_params);
+    assert(link_val_out);
+    assert(H5VL_OBJECT_BY_NAME == loc_params->type || H5VL_OBJECT_BY_IDX == loc_params->type);
+
+    /* Determine the target group */
+    switch (loc_params->type) {
+        /* H5Lget_val */
+        case H5VL_OBJECT_BY_NAME:
+        {
+            /* Traverse the path */
+            if(NULL == (target_grp = H5_daos_group_traverse(item, loc_params->loc_data.loc_by_name.name,
+                    dxpl_id, req, &target_link_name, NULL, NULL)))
+                D_GOTO_ERROR(H5E_SYM, H5E_TRAVERSE, FAIL, "failed to traverse path")
+
+            break;
+        } /* H5VL_OBJECT_BY_NAME */
+
+        case H5VL_OBJECT_BY_IDX:
+        {
+            H5VL_loc_params_t sub_loc_params;
+            ssize_t link_name_size;
+
+            /* Open the group containing the target link */
+            sub_loc_params.type = H5VL_OBJECT_BY_SELF;
+            sub_loc_params.obj_type = item->type;
+            if(NULL == (target_grp = (H5_daos_group_t *)H5_daos_group_open(item, &sub_loc_params,
+                    loc_params->loc_data.loc_by_idx.name, loc_params->loc_data.loc_by_idx.lapl_id, dxpl_id, req)))
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTOPENOBJ, FAIL, "can't open group containing target link")
+
+            /* Retrieve the link's name length + the link's name if the buffer is large enough */
+            if((link_name_size = H5_daos_link_get_name_by_idx(target_grp, loc_params->loc_data.loc_by_idx.idx_type,
+                    loc_params->loc_data.loc_by_idx.order, (uint64_t)loc_params->loc_data.loc_by_idx.n,
+                    link_name_buf_static, H5_DAOS_LINK_NAME_BUF_SIZE)) < 0)
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't get link name")
+
+            /* Check that buffer was large enough to fit link name */
+            if(link_name_size > H5_DAOS_LINK_NAME_BUF_SIZE - 1) {
+                if(NULL == (link_name_buf_dyn = DV_malloc(link_name_size + 1)))
+                    D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate link name buffer")
+
+                /* Re-issue the call with a larger buffer */
+                if(H5_daos_link_get_name_by_idx(target_grp, loc_params->loc_data.loc_by_idx.idx_type,
+                        loc_params->loc_data.loc_by_idx.order, (uint64_t)loc_params->loc_data.loc_by_idx.n,
+                        link_name_buf_dyn, link_name_size + 1) < 0)
+                    D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't get link name")
+
+                target_link_name = link_name_buf_dyn;
+            } /* end if */
+            else
+                target_link_name = link_name_buf_static;
+
+            break;
+        } /* H5VL_OBJECT_BY_IDX */
+
+        case H5VL_OBJECT_BY_SELF:
+        case H5VL_OBJECT_BY_ADDR:
+        case H5VL_OBJECT_BY_REF:
+        default:
+            D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, FAIL, "invalid loc_params type")
+    } /* end switch */
+
+    /* Read the link's value */
+    if(H5_daos_link_read(target_grp, target_link_name, strlen(target_link_name), link_val_out) < 0)
+        D_GOTO_ERROR(H5E_LINK, H5E_READERROR, FAIL, "failed to read link")
+
+    if(H5L_TYPE_HARD == link_val_out->type)
+        D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, FAIL, "link value cannot be retrieved from a hard link")
+
+done:
+    if(link_name_buf_dyn)
+        link_name_buf_dyn = DV_free(link_name_buf_dyn);
+
+    if(target_grp && H5_daos_group_close(target_grp, dxpl_id, req) < 0)
+        D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group")
+
+    D_FUNC_LEAVE
+} /* end H5_daos_link_get_val() */
 
 
 /*-------------------------------------------------------------------------
@@ -1573,7 +1670,6 @@ H5_daos_link_iterate_by_crt_order(H5_daos_group_t *target_grp, H5_daos_iter_data
     H5L_info_t linfo;
     uint64_t cur_idx;
     ssize_t grp_nlinks;
-    ssize_t link_name_size;
     herr_t op_ret;
     size_t link_name_buf_size = H5_DAOS_LINK_NAME_BUF_SIZE;
     char *link_name = NULL;
@@ -1630,6 +1726,7 @@ H5_daos_link_iterate_by_crt_order(H5_daos_group_t *target_grp, H5_daos_iter_data
 
     link_name = link_name_buf_static;
     for(cur_idx = 0; cur_idx < (uint64_t)grp_nlinks; cur_idx++) {
+        ssize_t link_name_size;
         htri_t link_exists;
 
         /* Retrieve the link's name length + the link's name if the buffer is large enough */

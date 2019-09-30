@@ -97,7 +97,8 @@ H5_daos_map_create(void *_item,
     map->mapl_id = FAIL;
 
     /* Generate map oid */
-    H5_daos_oid_encode(&map->obj.oid, item->file->max_oid + (uint64_t)1, H5I_MAP);
+    if(H5_daos_oid_generate(&map->obj.oid, H5I_MAP, item->file) < 0)
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't generate object id")
 
     /* Create map and write metadata if this process should */
     if(!collective || (item->file->my_rank == 0)) {
@@ -119,13 +120,6 @@ H5_daos_map_create(void *_item,
                 D_GOTO_ERROR(H5E_MAP, H5E_BADITER, NULL, "can't traverse path")
 
         /* Create map */
-        /* Update max_oid */
-        item->file->max_oid = H5_daos_oid_to_idx(map->obj.oid);
-
-        /* Write max OID */
-        if(H5_daos_write_max_oid(item->file) < 0)
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't write max OID")
-
         /* Allocate argument struct */
         if(NULL == (update_cb_ud = (H5_daos_md_update_cb_ud_t *)DV_calloc(sizeof(H5_daos_md_update_cb_ud_t))))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for update callback arguments")
@@ -248,9 +242,6 @@ H5_daos_map_create(void *_item,
         } /* end if */
     } /* end if */
     else {
-        /* Update max_oid */
-        item->file->max_oid = map->obj.oid.lo;
-
         /* Open map */
         if(0 != (ret = daos_obj_open(item->file->coh, map->obj.oid, DAOS_OO_RW, &map->obj.obj_oh, NULL /*event*/)))
             D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, NULL, "can't open map: %s", H5_daos_err_to_string(ret))
@@ -401,7 +392,7 @@ H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
         /* Check for open by address */
         if(H5VL_OBJECT_BY_ADDR == loc_params->type) {
             /* Generate oid from address */
-            H5_daos_oid_generate(&map->obj.oid, (uint64_t)loc_params->loc_data.loc_by_addr.addr, H5I_MAP);
+            H5_daos_addr_to_oid(&map->obj.oid, loc_params->loc_data.loc_by_addr.addr);
         } /* end if */
         else {
             htri_t link_resolved;

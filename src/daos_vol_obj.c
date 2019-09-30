@@ -88,15 +88,9 @@ H5_daos_object_open(void *_item, const H5VL_loc_params_t *loc_params,
     collective = item->file->is_collective_md_read;
 
     /* Check loc_params type */
-    if(H5VL_OBJECT_BY_ADDR == loc_params->type) {
-        /* Get object type */
-        if(H5I_BADID == (obj_type = H5_daos_addr_to_type((uint64_t)loc_params->loc_data.loc_by_addr.addr)))
-            D_GOTO_ERROR(H5E_OHDR, H5E_CANTINIT, NULL, "can't get object type")
-
+    if(H5VL_OBJECT_BY_ADDR == loc_params->type)
         /* Generate oid from address */
-        memset(&oid, 0, sizeof(oid));
-        H5_daos_oid_generate(&oid, (uint64_t)loc_params->loc_data.loc_by_addr.addr, obj_type);
-    } /* end if */
+        H5_daos_addr_to_oid(&oid, loc_params->loc_data.loc_by_addr.addr);
     else {
         assert(H5VL_OBJECT_BY_NAME == loc_params->type);
 
@@ -162,16 +156,18 @@ H5_daos_object_open(void *_item, const H5VL_loc_params_t *loc_params,
             if(oid.lo == 0)
                 D_GOTO_ERROR(H5E_OHDR, H5E_CANTINIT, NULL, "lead process failed to open object")
         } /* end else */
-
-        /* Get object type */
-        if(H5I_BADID == (obj_type = H5_daos_oid_to_type(oid)))
-            D_GOTO_ERROR(H5E_OHDR, H5E_CANTINIT, NULL, "can't get object type")
     } /* end else */
 
+    /* Get object type */
+    if(H5I_BADID == (obj_type = H5_daos_oid_to_type(oid)))
+        D_GOTO_ERROR(H5E_OHDR, H5E_CANTINIT, NULL, "can't get object type")
+
     /* Set up sub_loc_params */
+    /* Switch to using tokens instead of addresses when they're implemented so
+     * we don't trip the 30 bit limit here DSINC */
     sub_loc_params.obj_type = item->type;
     sub_loc_params.type = H5VL_OBJECT_BY_ADDR;
-    sub_loc_params.loc_data.loc_by_addr.addr = (haddr_t)oid.lo;
+    sub_loc_params.loc_data.loc_by_addr.addr = H5_daos_oid_to_addr(oid);
 
     /* Call type's open function */
     if(obj_type == H5I_GROUP) {
@@ -825,9 +821,9 @@ H5_daos_object_get_info(H5_daos_obj_t *target_obj, unsigned fields, H5O_info_t *
         UINT64DECODE(uuid_p, fileno64)
         obj_info_out->fileno = (unsigned long)fileno64;
 
-        /* Use lower 64 bits of oid as address - contains encoded object
-         * type */
-        obj_info_out->addr = (haddr_t)target_obj->oid.lo;
+        /* Encode oid to address.  Note that if the object index grows beyond 30
+         * bits this will return HADDR_UNDEF. */
+        obj_info_out->addr = H5_daos_oid_to_addr(target_obj->oid);
 
         /* Set object type */
         switch(target_obj->item.type) {
@@ -851,7 +847,7 @@ H5_daos_object_get_info(H5_daos_obj_t *target_obj, unsigned fields, H5O_info_t *
         }
 
         /* Reference count is always 1 - change this when
-         * H5Lcreate_hard() is implemented */
+         * H5Lcreate_hard() is implemented DSINC */
         obj_info_out->rc = 1;
     } /* end if */
 

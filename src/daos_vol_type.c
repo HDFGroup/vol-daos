@@ -603,7 +603,8 @@ H5_daos_datatype_open(void *_item,
         /* Check for open by address */
         if(H5VL_OBJECT_BY_ADDR == loc_params->type) {
             /* Generate oid from address */
-            H5_daos_addr_to_oid(&dtype->obj.oid, loc_params->loc_data.loc_by_addr.addr);
+            if(H5_daos_addr_to_oid(&dtype->obj.oid, loc_params->loc_data.loc_by_addr.addr) < 0)
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't convert address to OID")
         } /* end if */
         else {
             htri_t link_resolved;

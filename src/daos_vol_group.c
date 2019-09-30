@@ -722,7 +722,8 @@ H5_daos_group_open(void *_item, const H5VL_loc_params_t *loc_params,
         /* Check for open by address */
         if(H5VL_OBJECT_BY_ADDR == loc_params->type) {
             /* Generate oid from address */
-            H5_daos_addr_to_oid(&oid, loc_params->loc_data.loc_by_addr.addr);
+            if(H5_daos_addr_to_oid(&oid, loc_params->loc_data.loc_by_addr.addr) < 0)
+                D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't convert address to OID")
 
             /* Open group */
             if(NULL == (grp = (H5_daos_group_t *)H5_daos_group_open_helper(item->file, oid, gapl_id, dxpl_id, NULL, (collective && (item->file->num_procs > 1)) ? (void **)&gcpl_buf : NULL, &gcpl_len)))

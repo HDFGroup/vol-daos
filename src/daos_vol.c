@@ -1303,16 +1303,26 @@ H5_daos_oid_to_addr(daos_obj_id_t oid)
  *
  * Purpose:     Convert a compacted address to an OID
  *
- * Return:      void
+ * Return:      Success:    0
+ *              Failure:    -1
  *
  *-------------------------------------------------------------------------
  */
-void
+herr_t
 H5_daos_addr_to_oid(daos_obj_id_t *oid, haddr_t addr)
 {
+    int ret_value = SUCCEED;
+
+    /* Check for HADDR_UNDEF */
+    if(addr == HADDR_UNDEF)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "address is undefined")
+
     /* Build OID */
     oid->lo = addr & H5_DAOS_ADDR_OIDLO_MASK;
     oid->hi = addr & H5_DAOS_ADDR_OIDHI_MASK;
+
+done:
+    D_FUNC_LEAVE
 } /* end H5_daos_addr_to_oid() */
 
 

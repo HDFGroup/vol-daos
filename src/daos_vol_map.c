@@ -268,6 +268,10 @@ H5_daos_map_create(void *_item,
     if((map->mapl_id = H5Pcopy(mapl_id)) < 0)
         D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, NULL, "failed to copy gapl");
 
+    /* Fill OCPL cache */
+    if(H5_daos_fill_ocpl_cache(&map->obj, map->mcpl_id) < 0)
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "failed to fill OCPL cache")
+
     /* Set return value */
     ret_value = (void *)map;
 
@@ -573,6 +577,10 @@ H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
     /* Finish setting up map struct */
     if((map->mapl_id = H5Pcopy(mapl_id)) < 0)
         D_GOTO_ERROR(H5E_MAP, H5E_CANTCOPY, NULL, "failed to copy mapl");
+
+    /* Fill OCPL cache */
+    if(H5_daos_fill_ocpl_cache(&map->obj, map->mcpl_id) < 0)
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "failed to fill OCPL cache")
 
     /* Set return value */
     ret_value = (void *)map;

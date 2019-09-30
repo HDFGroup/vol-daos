@@ -19,7 +19,7 @@
 #include "util/daos_vol_mem.h"  /* DAOS connector memory management        */
 
 /* Macros */
-#define H5_DAOS_HARD_LINK_VAL_SIZE 17
+#define H5_DAOS_HARD_LINK_VAL_SIZE (sizeof(daos_obj_id_t) + 1)
 #define H5_DAOS_RECURSE_LINK_PATH_BUF_INIT 1024
 
 /*

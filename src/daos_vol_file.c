@@ -25,7 +25,6 @@ static herr_t H5_daos_cont_get_fapl_info(hid_t fapl_id, H5_daos_fapl_t *fa_out);
 static herr_t H5_daos_cont_set_mpi_info(H5_daos_file_t *file, H5_daos_fapl_t *fa);
 static herr_t H5_daos_cont_create(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *int_req);
 static herr_t H5_daos_cont_open(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *int_req);
-static herr_t H5_daos_cont_root_grp_open(H5_daos_file_t *file, daos_obj_id_t root_grp_oid, hid_t dxpl_id, void **gcpl_buf, uint64_t *gcpl_len);
 static herr_t H5_daos_cont_handle_bcast(H5_daos_file_t *file);
 static herr_t H5_daos_cont_gcpl_bcast(H5_daos_file_t *file, void **gcpl_buf, uint64_t *gcpl_len);
 
@@ -259,60 +258,6 @@ done:
 } /* end H5_daos_cont_open() */
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_cont_root_grp_open
- *
- * Purpose:     Open the root group.
- *
- * Return:      Non-negative on success/Negative on failure
- *
- *-------------------------------------------------------------------------
- */
-static herr_t
-H5_daos_cont_root_grp_open(H5_daos_file_t *file, daos_obj_id_t root_grp_oid,
-    hid_t dxpl_id, void **gcpl_buf, uint64_t *gcpl_len)
-{
-    daos_key_t dkey;
-    daos_iod_t iod;
-    daos_sg_list_t sgl;
-    daos_iov_t sg_iov;
-    herr_t ret_value = SUCCEED;
-    int ret;
-
-    assert(file);
-    assert(gcpl_buf);
-    assert(gcpl_len);
-
-    /* Read max OID from gmd obj */
-    /* Set up dkey */
-    daos_iov_set(&dkey, H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
-
-    /* Set up iod */
-    memset(&iod, 0, sizeof(iod));
-    daos_iov_set(&iod.iod_name, H5_daos_max_oid_key_g, H5_daos_max_oid_key_size_g);
-    daos_csum_set(&iod.iod_kcsum, NULL, 0);
-    iod.iod_nr = 1u;
-    iod.iod_size = (uint64_t)8;
-    iod.iod_type = DAOS_IOD_SINGLE;
-
-    /* Set up sgl */
-    daos_iov_set(&sg_iov, &file->max_oid, (daos_size_t)8);
-    sgl.sg_nr = 1;
-    sgl.sg_nr_out = 0;
-    sgl.sg_iovs = &sg_iov;
-
-    /* Read max OID from gmd obj */
-    if(0 != (ret = daos_obj_fetch(file->glob_md_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTDECODE, FAIL, "can't read max OID from global metadata object: %s", H5_daos_err_to_string(ret))
-
-    /* Open root group */
-    if(NULL == (file->root_grp = (H5_daos_group_t *)H5_daos_group_open_helper(file, root_grp_oid, H5P_GROUP_ACCESS_DEFAULT, dxpl_id, NULL, (file->num_procs > 1) ? gcpl_buf : NULL, gcpl_len)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't open root group")
-
-done:
-    D_FUNC_LEAVE
-} /* end H5_daos_cont_root_grp_open() */
-
-/*-------------------------------------------------------------------------
  * Function:    H5_daos_cont_handle_bcast
  *
  * Purpose:     Broadcast the container handle.
@@ -406,7 +351,7 @@ H5_daos_cont_gcpl_bcast(H5_daos_file_t *file, void **gcpl_buf, uint64_t *gcpl_le
     assert(gcpl_len);
 
     /* Bcast size */
-    buf_size = 2 * sizeof(uint64_t) + *gcpl_len;
+    buf_size = sizeof(uint64_t) + *gcpl_len;
     if(MPI_SUCCESS != MPI_Bcast(&buf_size, 1, MPI_UINT64_T, 0, file->comm))
         D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't broadcast gcpl size")
 
@@ -419,9 +364,6 @@ H5_daos_cont_gcpl_bcast(H5_daos_file_t *file, void **gcpl_buf, uint64_t *gcpl_le
 
         /* Encode GCPL length */
         UINT64ENCODE(p, *gcpl_len)
-
-        /* Encode max OID */
-        UINT64ENCODE(p, file->max_oid)
 
         /* Copy GCPL buffer */
         memcpy(p, *gcpl_buf, *gcpl_len);
@@ -436,9 +378,6 @@ H5_daos_cont_gcpl_bcast(H5_daos_file_t *file, void **gcpl_buf, uint64_t *gcpl_le
 
         /* Decode GCPL length */
         UINT64DECODE(p, *gcpl_len)
-
-        /* Decode max OID */
-        UINT64DECODE(p, file->max_oid)
 
         /* Copy GCPL buffer */
         if(NULL == (*gcpl_buf = DV_malloc(*gcpl_len)))
@@ -539,7 +478,9 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
             D_GOTO_ERROR(H5E_FILE, H5E_CANTGET, NULL, "can't get collective metadata reads property")
 
     /* Generate oid for global metadata object */
-    H5_daos_obj_generate_id(&gmd_oid, DAOS_OF_DKEY_HASHED | DAOS_OF_AKEY_HASHED, DAOS_OC_TINY_RW);
+    /* Use H5I_MAP temporarily here, the way DAOS object features and classes
+     * work will be changing soon so this will go away */
+    H5_daos_oid_encode(&gmd_oid, H5_DAOS_OIDX_GMD, H5I_MAP);
 
     /* Start H5 operation */
     if(NULL == (int_req = H5_daos_req_create(file)))
@@ -558,9 +499,8 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
         D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENFILE, NULL, "can't open global metadata object: %s", H5_daos_err_to_string(ret))
 
     /* Create root group */
-    if(NULL == (file->root_grp = (H5_daos_group_t *)H5_daos_group_create_helper(file, fcpl_id, H5P_GROUP_ACCESS_DEFAULT, dxpl_id, int_req, NULL, NULL, 0, TRUE)))
+    if(NULL == (file->root_grp = (H5_daos_group_t *)H5_daos_group_create_helper(file, fcpl_id, H5P_GROUP_ACCESS_DEFAULT, dxpl_id, int_req, NULL, NULL, 0, H5_DAOS_OIDX_ROOT, TRUE)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create root group")
-    assert(file->root_grp->obj.oid.lo == (uint64_t)1);
 
     ret_value = (void *)file;
 
@@ -675,10 +615,12 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     H5_daos_hash128(name, &file->uuid);
 
     /* Generate oid for global metadata object */
-    H5_daos_obj_generate_id(&gmd_oid, DAOS_OF_DKEY_HASHED | DAOS_OF_AKEY_HASHED, DAOS_OC_TINY_RW);
+    /* Use H5I_MAP temporarily here, the way DAOS object features and classes
+     * work will be changing soon so this will go away */
+    H5_daos_oid_encode(&gmd_oid, H5_DAOS_OIDX_GMD, H5I_MAP);
 
     /* Generate root group oid */
-    H5_daos_oid_encode(&root_grp_oid, (uint64_t)1, H5I_GROUP);
+    H5_daos_oid_encode(&root_grp_oid, H5_DAOS_OIDX_ROOT, H5I_GROUP);
 
     /* Determine if we requested collective metadata reads for the file */
     file->is_collective_md_read = FALSE;
@@ -699,8 +641,8 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
         D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENFILE, NULL, "can't open global metadata object: %s", H5_daos_err_to_string(ret))
 
     /* Open root group */
-    if((file->my_rank == 0) && H5_daos_cont_root_grp_open(file, root_grp_oid, dxpl_id, &gcpl_buf, &gcpl_len) < 0)
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENFILE, NULL, "can't open root group")
+    if((file->my_rank == 0) && (NULL == (file->root_grp = (H5_daos_group_t *)H5_daos_group_open_helper(file, root_grp_oid, H5P_GROUP_ACCESS_DEFAULT, dxpl_id, NULL, (file->num_procs > 1) ? &gcpl_buf : NULL, &gcpl_len))))
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENOBJ, NULL, "can't open root group")
 
     /* Broadcast GCPL info to other procs if any */
     if((file->num_procs > 1) && (H5_daos_cont_gcpl_bcast(file, &gcpl_buf, &gcpl_len) < 0))

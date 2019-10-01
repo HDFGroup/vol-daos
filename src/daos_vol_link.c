@@ -1003,7 +1003,7 @@ H5_daos_link_iterate(H5_daos_group_t *target_grp, H5_daos_iter_data_t *iter_data
                 /* Update linfo */
                 linfo.type = link_val.type;
                 if(link_val.type == H5L_TYPE_HARD)
-                    linfo.u.address = (haddr_t)link_val.target.hard.lo;
+                    linfo.u.address = H5_daos_oid_to_addr(link_val.target.hard);
                 else {
                     assert(link_val.type == H5L_TYPE_SOFT);
                     linfo.u.val_size = strlen(link_val.target.soft) + 1;

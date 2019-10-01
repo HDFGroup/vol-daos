@@ -1197,57 +1197,85 @@ done:
 ssize_t
 H5_daos_group_get_num_links(H5_daos_group_t *target_grp)
 {
-    daos_sg_list_t sgl;
-    daos_key_t dkey;
-    daos_iod_t iod;
-    daos_iov_t sg_iov;
-    uint64_t nlinks;
-    uint8_t *p;
-    uint8_t nlinks_buf[sizeof(uint64_t)];
+    uint64_t nlinks = 0;
+    hid_t target_grp_id = -1;
     int ret;
     ssize_t ret_value = 0;
 
     assert(target_grp);
 
-    /* Set up dkey */
-    daos_iov_set(&dkey, (void *)H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
+    if(target_grp->gcpl_cache.track_corder) {
+        daos_sg_list_t sgl;
+        daos_key_t dkey;
+        daos_iod_t iod;
+        daos_iov_t sg_iov;
+        uint8_t *p;
+        uint8_t nlinks_buf[sizeof(uint64_t)];
 
-    /* Set up iod */
-    memset(&iod, 0, sizeof(iod));
-    daos_iov_set(&iod.iod_name, (void *)H5_daos_nlinks_key_g, H5_daos_nlinks_key_size_g);
-    daos_csum_set(&iod.iod_kcsum, NULL, 0);
-    iod.iod_nr = 1u;
-    iod.iod_size = (daos_size_t)sizeof(uint64_t);
-    iod.iod_type = DAOS_IOD_SINGLE;
+        /* Read the "number of links" key from the target group */
 
-    /* Set up sgl */
-    daos_iov_set(&sg_iov, nlinks_buf, (daos_size_t)sizeof(uint64_t));
-    sgl.sg_nr = 1;
-    sgl.sg_nr_out = 0;
-    sgl.sg_iovs = &sg_iov;
+        /* Set up dkey */
+        daos_iov_set(&dkey, (void *)H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
 
-    /* Read num links */
-    if(0 != (ret = daos_obj_fetch(target_grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_SYM, H5E_READERROR, (-1), "can't read num links: %s", H5_daos_err_to_string(ret))
+        /* Set up iod */
+        memset(&iod, 0, sizeof(iod));
+        daos_iov_set(&iod.iod_name, (void *)H5_daos_nlinks_key_g, H5_daos_nlinks_key_size_g);
+        daos_csum_set(&iod.iod_kcsum, NULL, 0);
+        iod.iod_nr = 1u;
+        iod.iod_size = (daos_size_t)sizeof(uint64_t);
+        iod.iod_type = DAOS_IOD_SINGLE;
 
-    p = nlinks_buf;
-    /* Check for no num links found, in this case it must be 0 */
-    if(iod.iod_size == (uint64_t)0) {
-        nlinks = 0;
+        /* Set up sgl */
+        daos_iov_set(&sg_iov, nlinks_buf, (daos_size_t)sizeof(uint64_t));
+        sgl.sg_nr = 1;
+        sgl.sg_nr_out = 0;
+        sgl.sg_iovs = &sg_iov;
+
+        /* Read num links */
+        if(0 != (ret = daos_obj_fetch(target_grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
+            D_GOTO_ERROR(H5E_SYM, H5E_READERROR, (-1), "can't read number of links in group: %s", H5_daos_err_to_string(ret))
+
+        p = nlinks_buf;
+        /* Check for no num links found, in this case it must be 0 */
+        if(iod.iod_size == (uint64_t)0) {
+            nlinks = 0;
+        } /* end if */
+        else
+            /* Decode num links */
+            UINT64DECODE(p, nlinks);
     } /* end if */
-    else
-        /* Decode num links */
-        UINT64DECODE(p, nlinks);
+    else {
+        H5_daos_iter_data_t iter_data;
+
+        /* Iterate through links */
+
+        /* Register id for grp */
+        if((target_grp_id = H5VLwrap_register(target_grp, H5I_GROUP)) < 0)
+            D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, FAIL, "unable to atomize object handle")
+        target_grp->obj.item.rc++;
+
+        /* Initialize iteration data */
+        H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_LINK, H5_INDEX_NAME, H5_ITER_NATIVE,
+                FALSE, NULL, target_grp_id, &nlinks, H5P_DATASET_XFER_DEFAULT, NULL);
+        iter_data.u.link_iter_data.link_iter_op = H5_daos_link_iterate_count_links_callback;
+
+        /* Retrieve the number of links in the group. */
+        if(H5_daos_link_iterate(target_grp, &iter_data) < 0)
+            D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, FAIL, "can't retrieve the number of links in group")
+    } /* end else */
 
     ret_value = (ssize_t)nlinks;
 
 done:
+    if((target_grp_id >= 0) && (H5Idec_ref(target_grp_id) < 0))
+        D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group ID")
+
     D_FUNC_LEAVE
 } /* end H5_daos_group_get_num_links() */
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_group_set_num_links
+ * Function:    H5_daos_group_update_num_links_key
  *
  * Purpose:     Updates the target group's link number tracking akey by
  *              setting its value to the specified value.
@@ -1262,7 +1290,7 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_group_set_num_links(H5_daos_group_t *target_grp, uint64_t new_nlinks)
+H5_daos_group_update_num_links_key(H5_daos_group_t *target_grp, uint64_t new_nlinks)
 {
     daos_sg_list_t sgl;
     daos_key_t dkey;
@@ -1274,6 +1302,10 @@ H5_daos_group_set_num_links(H5_daos_group_t *target_grp, uint64_t new_nlinks)
     herr_t ret_value = SUCCEED;
 
     assert(target_grp);
+
+    /* Check that creation order is tracked for target group */
+    if(!target_grp->gcpl_cache.track_corder)
+        D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, FAIL, "creation order is not tracked for group")
 
     /* Encode buffer */
     p = nlinks_new_buf;
@@ -1302,7 +1334,7 @@ H5_daos_group_set_num_links(H5_daos_group_t *target_grp, uint64_t new_nlinks)
 
 done:
     D_FUNC_LEAVE
-} /* end H5_daos_group_set_num_links() */
+} /* end H5_daos_group_update_num_links_key() */
 
 
 /*-------------------------------------------------------------------------
@@ -1376,7 +1408,7 @@ done:
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_group_set_max_crt_order
+ * Function:    H5_daos_group_update_max_crt_order_key
  *
  * Purpose:     Updates the target group's maximum creation order value
  *              tracking akey by setting its value to the specified value.
@@ -1395,7 +1427,7 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_group_set_max_crt_order(H5_daos_group_t *target_grp, uint64_t new_max_corder)
+H5_daos_group_update_max_crt_order_key(H5_daos_group_t *target_grp, uint64_t new_max_corder)
 {
     daos_sg_list_t sgl;
     daos_key_t dkey;
@@ -1439,5 +1471,4 @@ H5_daos_group_set_max_crt_order(H5_daos_group_t *target_grp, uint64_t new_max_co
 
 done:
     D_FUNC_LEAVE
-} /* end H5_daos_group_set_max_crt_order() */
-
+} /* end H5_daos_group_update_max_crt_order_key() */

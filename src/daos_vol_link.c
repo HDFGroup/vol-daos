@@ -1304,6 +1304,9 @@ H5_daos_link_exists(H5_daos_item_t *item, const char *link_path, hid_t dxpl_id, 
     int ret;
     htri_t ret_value = FALSE;
 
+    assert(item);
+    assert(link_path);
+
     /* Traverse the path */
     if(NULL == (target_grp = H5_daos_group_traverse(item, link_path, dxpl_id, req, &target_name, NULL, NULL)))
         D_GOTO_ERROR(H5E_SYM, H5E_TRAVERSE, FAIL, "can't traverse path")
@@ -1927,6 +1930,28 @@ done:
 
 
 /*-------------------------------------------------------------------------
+ * Function:    H5_daos_link_iterate_count_links_callback
+ *
+ * Purpose:     A callback for H5_daos_link_iterate() that simply counts
+ *              the number of links in the given group.
+ *
+ * Return:      0 (can't fail)
+ *
+ * Programmer:  Jordan Henderson
+ *              February, 2019
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_link_iterate_count_links_callback(hid_t H5VL_DAOS_UNUSED group, const char H5VL_DAOS_UNUSED *name,
+    const H5L_info_t H5VL_DAOS_UNUSED *info, void *op_data)
+{
+    (*((uint64_t *) op_data))++;
+    return 0;
+} /* end H5_daos_link_iterate_count_links_callback() */
+
+
+/*-------------------------------------------------------------------------
  * Function:    H5_daos_link_delete
  *
  * Purpose:     Deletes the link from the specified group according to
@@ -1996,20 +2021,22 @@ H5_daos_link_delete(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params, h
     if(0 != (ret = daos_obj_punch_dkeys(target_grp->obj.obj_oh, DAOS_TX_NONE, 1, &dkey, NULL /*event*/)))
         D_GOTO_ERROR(H5E_LINK, H5E_CANTREMOVE, FAIL, "failed to punch link dkey: %s", H5_daos_err_to_string(ret))
 
-    /* Update the number of links in the group */
-    if((grp_nlinks = H5_daos_group_get_num_links(target_grp)) < 0)
-        D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't get number of links in group")
-    if(H5_daos_group_set_num_links(target_grp, (uint64_t)(grp_nlinks - 1)) < 0)
-        D_GOTO_ERROR(H5E_SYM, H5E_CANTMODIFY, FAIL, "can't update number of links in group")
-
     /* TODO: If no more hard links point to the object in question, it should be
      * removed from the file, or at least marked to be removed.
      */
 
-    /* Remove the link from the group's creation order index */
-    if(target_grp->gcpl_cache.track_corder)
+    /* If link creation order is tracked, perform some bookkeeping */
+    if(target_grp->gcpl_cache.track_corder) {
+        /* Update the "number of links" key in the group */
+        if((grp_nlinks = H5_daos_group_get_num_links(target_grp)) < 0)
+            D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't get number of links in group")
+        if(H5_daos_group_update_num_links_key(target_grp, (uint64_t)(grp_nlinks - 1)) < 0)
+            D_GOTO_ERROR(H5E_SYM, H5E_CANTMODIFY, FAIL, "can't update number of links in group")
+
+        /* Remove the link from the group's creation order index */
         if(H5_daos_link_remove_from_crt_idx(target_grp, loc_params) < 0)
             D_GOTO_ERROR(H5E_LINK, H5E_CANTREMOVE, FAIL, "failed to remove link from creation order index")
+    } /* end if */
 
 done:
     if(link_name_buf_dyn)
@@ -2580,7 +2607,8 @@ H5_daos_link_get_name_by_name_order_cb(hid_t H5VL_DAOS_UNUSED group, const char 
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_link_get_crt_order_by_name
  *
- * Purpose:
+ * Purpose:     Retrieves the creation order value for a link given the
+ *              group containing the link and the link's name.
  *
  * Return:      Non-negative on success/Negative on failure
  *
@@ -2601,6 +2629,8 @@ H5_daos_link_get_crt_order_by_name(H5_daos_group_t *target_grp, const char *link
     herr_t ret_value = SUCCEED;
 
     assert(target_grp);
+    assert(link_name);
+    assert(crt_order);
 
     /* Check that creation order is tracked for target group */
     if(!target_grp->gcpl_cache.track_corder)

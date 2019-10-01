@@ -77,12 +77,23 @@ typedef d_sg_list_t daos_sg_list_t;
 #define H5_DAOS_ATTR_NUM_AKEYS 4
 
 /* Definitions for building oids */
-#define H5_DAOS_IDX_MASK   0x3fffffffffffffffull
-#define H5_DAOS_TYPE_MASK  0xc000000000000000ull
-#define H5_DAOS_TYPE_GRP   0x0000000000000000ull
-#define H5_DAOS_TYPE_DSET  0x4000000000000000ull
-#define H5_DAOS_TYPE_DTYPE 0x8000000000000000ull
-#define H5_DAOS_TYPE_MAP   0xc000000000000000ull
+#define H5_DAOS_TYPE_MASK   0x00000000c0000000ull
+#define H5_DAOS_TYPE_GRP    0x0000000000000000ull
+#define H5_DAOS_TYPE_DSET   0x0000000040000000ull
+#define H5_DAOS_TYPE_DTYPE  0x0000000080000000ull
+#define H5_DAOS_TYPE_MAP    0x00000000c0000000ull
+
+/* Predefined object indices */
+#define H5_DAOS_OIDX_GMD    0ull
+#define H5_DAOS_OIDX_ROOT   1ull
+#define H5_DAOS_OIDX_FIRST_USER 2ull
+
+/* Bits of oid.lo and oid.hi that are added to compacted adresses */
+#define H5_DAOS_ADDR_OIDLO_MASK 0x000000003fffffffll
+#define H5_DAOS_ADDR_OIDHI_MASK 0xffffffffc0000000ll
+
+/* Number of object indices to allocate at a time */
+#define H5_DAOS_OIDX_NALLOC 1024
 
 /* Private error codes for asynchronous operations */
 #define H5_DAOS_INCOMPLETE -1   /* Operation has not yet completed (should only be in the item struct) */
@@ -258,8 +269,6 @@ typedef struct H5_daos_file_t {
     hbool_t closed;
     daos_handle_t glob_md_oh;
     struct H5_daos_group_t *root_grp;
-    uint64_t max_oid;
-    hbool_t max_oid_dirty;
     hid_t fcpl_id;
     hid_t fapl_id;
     MPI_Comm comm;
@@ -267,6 +276,8 @@ typedef struct H5_daos_file_t {
     int my_rank;
     int num_procs;
     hbool_t is_collective_md_read;
+    uint64_t next_oidx;
+    uint64_t max_oidx;
     hid_t vol_id;
     void *vol_info;
 } H5_daos_file_t;
@@ -486,7 +497,6 @@ extern H5VL_DAOS_PRIVATE MPI_Comm H5_daos_pool_comm_g;
 
 /* Constant Keys */
 extern H5VL_DAOS_PRIVATE const char H5_daos_int_md_key_g[];
-extern H5VL_DAOS_PRIVATE const char H5_daos_max_oid_key_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_cpl_key_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_link_key_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_link_corder_key_g[];
@@ -500,7 +510,6 @@ extern H5VL_DAOS_PRIVATE const char H5_daos_vtype_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_map_key_g[];
 
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_int_md_key_size_g;
-extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_max_oid_key_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_cpl_key_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_link_key_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_link_corder_key_size_g;
@@ -522,14 +531,16 @@ extern "C" {
 #endif
 
 /* General routines */
-H5VL_DAOS_PRIVATE void H5_daos_oid_generate(daos_obj_id_t *oid, uint64_t addr,
+H5VL_DAOS_PRIVATE herr_t H5_daos_oidx_generate(uint64_t *oidx,
+    H5_daos_file_t *file);
+H5VL_DAOS_PRIVATE void H5_daos_oid_encode(daos_obj_id_t *oid, uint64_t oidx,
     H5I_type_t obj_type);
-H5VL_DAOS_PRIVATE void H5_daos_oid_encode(daos_obj_id_t *oid, uint64_t idx, H5I_type_t obj_type);
-H5VL_DAOS_PRIVATE H5I_type_t H5_daos_addr_to_type(uint64_t addr);
+H5VL_DAOS_PRIVATE herr_t H5_daos_oid_generate(daos_obj_id_t *oid,
+    H5I_type_t obj_type, H5_daos_file_t *file);
+H5VL_DAOS_PRIVATE haddr_t H5_daos_oid_to_addr(daos_obj_id_t oid);
+H5VL_DAOS_PRIVATE herr_t H5_daos_addr_to_oid(daos_obj_id_t *oid, haddr_t addr);
 H5VL_DAOS_PRIVATE H5I_type_t H5_daos_oid_to_type(daos_obj_id_t oid);
-H5VL_DAOS_PRIVATE uint64_t H5_daos_oid_to_idx(daos_obj_id_t oid);
 H5VL_DAOS_PRIVATE void H5_daos_hash128(const char *name, void *hash);
-H5VL_DAOS_PRIVATE herr_t H5_daos_write_max_oid(H5_daos_file_t *file);
 H5VL_DAOS_PRIVATE int H5_daos_h5op_finalize(tse_task_t *task);
 H5VL_DAOS_PRIVATE int H5_daos_md_update_prep_cb(tse_task_t *task, void *args);
 H5VL_DAOS_PRIVATE int H5_daos_md_update_comp_cb(tse_task_t *task, void *args);
@@ -597,7 +608,7 @@ H5VL_DAOS_PRIVATE H5_daos_group_t *H5_daos_group_traverse(H5_daos_item_t *item, 
     uint64_t *gcpl_len_out);
 H5VL_DAOS_PRIVATE void *H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
     hid_t gapl_id, hid_t dxpl_id, H5_daos_req_t *req, H5_daos_group_t *parent_grp,
-    const char *name, size_t name_len, hbool_t collective);
+    const char *name, size_t name_len, uint64_t oidx, hbool_t collective);
 H5VL_DAOS_PRIVATE void *H5_daos_group_open_helper(H5_daos_file_t *file, daos_obj_id_t oid,
     hid_t gapl_id, hid_t dxpl_id, H5_daos_req_t *req, void **gcpl_buf_out,
     uint64_t *gcpl_len_out);

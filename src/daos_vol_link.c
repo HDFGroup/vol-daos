@@ -2444,10 +2444,12 @@ static ssize_t
 H5_daos_link_get_name_by_crt_order(H5_daos_group_t *target_grp, H5_iter_order_t iter_order,
     uint64_t index, char *link_name_out, size_t link_name_out_size)
 {
+    daos_sg_list_t sgl;
     daos_key_t dkey;
     daos_iod_t iod;
     daos_iov_t sg_iov;
     uint64_t fetch_idx = 0;
+    ssize_t grp_nlinks;
     int ret;
     ssize_t ret_value = 0;
 
@@ -2455,18 +2457,19 @@ H5_daos_link_get_name_by_crt_order(H5_daos_group_t *target_grp, H5_iter_order_t 
 
     /* Check that creation order is tracked for target group */
     if(!target_grp->gcpl_cache.track_corder)
-        D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, FAIL, "creation order is not tracked for group")
+        D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, (-1), "creation order is not tracked for group")
+
+    /* Retrieve the current number of links in the group */
+    if((grp_nlinks = H5_daos_group_get_num_links(target_grp)) < 0)
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, (-1), "can't get number of links in group")
+
+    /* Ensure the index is within range */
+    if(index >= grp_nlinks)
+        D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, (-1), "index value out of range")
 
     /* Calculate the correct index of the link, based upon the iteration order */
-    if(H5_ITER_DEC == iter_order) {
-        ssize_t grp_nlinks;
-
-        /* Retrieve the current number of links in the group */
-        if((grp_nlinks = H5_daos_group_get_num_links(target_grp)) < 0)
-            D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, (-1), "can't get number of links in group")
-
+    if(H5_ITER_DEC == iter_order)
         fetch_idx = grp_nlinks - index - 1;
-    } /* end if */
     else
         fetch_idx = index;
 
@@ -2481,30 +2484,26 @@ H5_daos_link_get_name_by_crt_order(H5_daos_group_t *target_grp, H5_iter_order_t 
     iod.iod_size = DAOS_REC_ANY;
     iod.iod_type = DAOS_IOD_SINGLE;
 
-    /* Fetch the size of the link's name */
-    if(0 != (ret = daos_obj_fetch(target_grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, NULL, NULL /*maps*/, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_LINK, H5E_READERROR, -1, "can't fetch size of link name: %s", H5_daos_err_to_string(ret))
-
-    if(iod.iod_size == (daos_size_t)0)
-        D_GOTO_ERROR(H5E_LINK, H5E_NOTFOUND, -1, "link name record not found")
-
-    ret_value = (ssize_t)iod.iod_size;
-
+    /* Set up sgl if link_name_out buffer is supplied */
     if(link_name_out) {
-        daos_sg_list_t sgl;
-
-        /* Set up sgl */
         daos_iov_set(&sg_iov, link_name_out, link_name_out_size - 1);
         sgl.sg_nr = 1;
         sgl.sg_nr_out = 0;
         sgl.sg_iovs = &sg_iov;
-
-        /* Read the link's name */
-        if(0 != (ret = daos_obj_fetch(target_grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_LINK, H5E_READERROR, -1, "can't fetch link name: %s", H5_daos_err_to_string(ret))
-
-        link_name_out[MIN(iod.iod_size, link_name_out_size - 1)] = '\0';
     } /* end if */
+
+    /* Fetch the size of the link's name + link's name if link_name_out is supplied */
+    if(0 != (ret = daos_obj_fetch(target_grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod,
+            link_name_out ? &sgl : NULL, NULL /*maps*/, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_LINK, H5E_READERROR, (-1), "can't fetch%s link name: %s", link_name_out ? "" : " size of", H5_daos_err_to_string(ret))
+
+    if(iod.iod_size == (daos_size_t)0)
+        D_GOTO_ERROR(H5E_LINK, H5E_NOTFOUND, (-1), "link name record not found")
+
+    if(link_name_out)
+        link_name_out[MIN(iod.iod_size, link_name_out_size - 1)] = '\0';
+
+    ret_value = (ssize_t)iod.iod_size;
 
 done:
     D_FUNC_LEAVE
@@ -2534,6 +2533,7 @@ H5_daos_link_get_name_by_name_order(H5_daos_group_t *target_grp, H5_iter_order_t
 {
     H5_daos_link_find_name_by_idx_ud_t iter_cb_ud;
     H5_daos_iter_data_t iter_data;
+    ssize_t grp_nlinks;
     hid_t target_grp_id = H5I_INVALID_HID;
     ssize_t ret_value = 0;
 
@@ -2541,6 +2541,14 @@ H5_daos_link_get_name_by_name_order(H5_daos_group_t *target_grp, H5_iter_order_t
 
     if(H5_ITER_DEC == iter_order)
         D_GOTO_ERROR(H5E_LINK, H5E_UNSUPPORTED, (-1), "decreasing order iteration is unsupported")
+
+    /* Retrieve the current number of links in the group */
+    if((grp_nlinks = H5_daos_group_get_num_links(target_grp)) < 0)
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, (-1), "can't get number of links in group")
+
+    /* Ensure the index is within range */
+    if(index >= grp_nlinks)
+        D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, (-1), "index value out of range")
 
     /* Register ID for target group */
     if((target_grp_id = H5VLwrap_register(target_grp, H5I_GROUP)) < 0)

@@ -18,13 +18,46 @@
 #include "util/daos_vol_err.h"  /* DAOS connector error handling           */
 #include "util/daos_vol_mem.h"  /* DAOS connector memory management        */
 
+static ssize_t H5_daos_attribute_get_name(H5_daos_obj_t *target_obj, const H5VL_loc_params_t *loc_params,
+    char *attr_name_out, size_t attr_name_out_size, hid_t dxpl_id, void **req);
+static herr_t H5_daos_attribute_get_info(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
+    const char *attr_name, H5A_info_t *attr_info, hid_t dxpl_id, void **req);
 static herr_t H5_daos_attribute_delete(H5_daos_obj_t *attr_container_obj, const char *attr_name);
 static htri_t H5_daos_attribute_exists(H5_daos_obj_t *attr_container_obj, const char *attr_name);
 static herr_t H5_daos_attribute_rename(H5_daos_obj_t *attr_container_obj, const char *cur_attr_name,
     const char *new_attr_name);
+static ssize_t H5_daos_attribute_get_name_by_crt_order(H5_daos_obj_t *target_obj, H5_iter_order_t iter_order,
+    uint64_t index, char *attr_name_out, size_t attr_name_out_size);
+static ssize_t H5_daos_attribute_get_name_by_name_order(H5_daos_obj_t *target_obj, H5_iter_order_t iter_order,
+    uint64_t index, char *attr_name_out, size_t attr_name_out_size);
+static herr_t H5_daos_attribute_get_name_by_name_order_cb(hid_t loc_id, const char *attr_name,
+    const H5A_info_t *attr_info, void *op_data);
 static herr_t H5_daos_attribute_get_akey_strings(const char *attr_name, char **datatype_key_out,
     char **dataspace_key_out, char **acpl_key_out, char **acorder_key_out, char **raw_data_key_out,
     size_t *akey_len_out);
+
+/*
+ * An attribute iteration callback function data structure. It
+ * is passed during attribute iteration when retrieving an
+ * attribute's name by a given creation order index value.
+ */
+typedef struct H5_daos_attr_find_name_by_idx_ud_t {
+    char *attr_name_out;
+    size_t attr_name_out_size;
+    uint64_t target_attr_idx;
+    uint64_t cur_attr_idx;
+} H5_daos_attr_find_name_by_idx_ud_t;
+
+/*
+ * An attribute iteration callback function data structure. It
+ * is passed during attribute iteration when retrieving an
+ * attribute's creation order index value by the given attribute's
+ * name.
+ */
+typedef struct H5_daos_attr_crt_idx_iter_ud_t {
+    const char *target_attr_name;
+    uint64_t *attr_idx_out;
+} H5_daos_attr_crt_idx_iter_ud_t;
 
 
 /*-------------------------------------------------------------------------
@@ -216,14 +249,14 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
         daos_iov_set(&sg_iov[3], &nattr_old_buf[1], (daos_size_t)8);
         sgl[3].sg_nr = 1;
         sgl[3].sg_nr_out = 0;
-        sgl[3].sg_iovs = &sg_iov[0];
+        sgl[3].sg_iovs = &sg_iov[3];
 
         /* Read num attributes */
         nattr_old_buf[0] = 0;
         if(0 != (ret = daos_obj_fetch(attr->parent->obj_oh, DAOS_TX_NONE, &dkey, 1, &iod[3], &sgl[3], NULL /*maps*/, NULL /*event*/)))
             D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't read num attributes: %s", H5_daos_err_to_string(ret))
 
-         p = &nattr_old_buf[1];
+        p = &nattr_old_buf[1];
         /* Check for no num attributes found, in this case it must be 0 */
         if(iod[3].iod_size == (uint64_t)0) {
             nattr = 0;
@@ -319,6 +352,7 @@ done:
     type_key = (char *)DV_free(type_key);
     space_key = (char *)DV_free(space_key);
     acpl_key = (char *)DV_free(acpl_key);
+    acorder_key = (char *)DV_free(acorder_key);
 
     /* Cleanup on failure */
     /* Destroy DAOS object if created before failure DSINC */
@@ -1072,7 +1106,6 @@ herr_t
 H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
     hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req, va_list arguments)
 {
-    H5_daos_attr_t *target_attr = NULL;
     herr_t ret_value = SUCCEED;    /* Return value */
 
     if(!_item)
@@ -1112,38 +1145,18 @@ H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
                     D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute creation property list");
                 break;
             } /* end block */
-        /* H5Aget_name */
+        /* H5Aget_name(_by_idx) */
         case H5VL_ATTR_GET_NAME:
             {
                 H5VL_loc_params_t *loc_params = va_arg(arguments, H5VL_loc_params_t *);
                 size_t buf_size = va_arg(arguments, size_t);
                 char *buf = va_arg(arguments, char *);
                 ssize_t *ret_val = va_arg(arguments, ssize_t *);
-                H5_daos_attr_t *attr = (H5_daos_attr_t *)_item;
 
-                if(H5VL_OBJECT_BY_SELF == loc_params->type) {
-                    size_t copy_len;
-                    size_t nbytes;
+                if((*ret_val = H5_daos_attribute_get_name((H5_daos_obj_t *)_item, loc_params,
+                        buf, buf_size, dxpl_id, req)) < 0)
+                    D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute name")
 
-                    nbytes = strlen(attr->name);
-                    assert((ssize_t)nbytes >= 0); /*overflow, pretty unlikely --rpm*/
-
-                    /* compute the string length which will fit into the user's buffer */
-                    copy_len = MIN(buf_size - 1, nbytes);
-
-                    /* Copy all/some of the name */
-                    if(buf && copy_len > 0) {
-                        memcpy(buf, attr->name, copy_len);
-
-                        /* Terminate the string */
-                        buf[copy_len]='\0';
-                    } /* end if */
-                    *ret_val = (ssize_t)nbytes;
-                } /* end if */
-                else if(H5VL_OBJECT_BY_IDX == loc_params->type) {
-                    *ret_val = -1;
-                    D_GOTO_ERROR(H5E_ATTR, H5E_UNSUPPORTED, FAIL, "get attribute name by index unsupported");
-                } /* end else */
                 break;
             } /* end block */
         /* H5Aget_info */
@@ -1151,40 +1164,11 @@ H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
             {
                 H5VL_loc_params_t *loc_params = va_arg(arguments, H5VL_loc_params_t *);
                 H5A_info_t *attr_info = va_arg(arguments, H5A_info_t *);
-                H5A_info_t local_attr_info;
-                hssize_t dataspace_nelmts = 0;
-                size_t datatype_size = 0;
+                const char *attr_name = (H5VL_OBJECT_BY_NAME == loc_params->type) ?
+                        va_arg(arguments, const char *) : NULL;
 
-                if(loc_params->type == H5VL_OBJECT_BY_SELF) {
-                    target_attr = (H5_daos_attr_t *)_item;
-                    target_attr->item.rc++;
-                }
-                else if(loc_params->type == H5VL_OBJECT_BY_NAME) {
-                    const char *attr_name = va_arg(arguments, const char *);
-
-                    /* Open the target attribute */
-                    if(NULL == (target_attr = (H5_daos_attr_t *)H5_daos_attribute_open(_item, loc_params,
-                            attr_name, H5P_DEFAULT, dxpl_id, req)))
-                        D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, FAIL, "can't open target attribute")
-                }
-                else
-                    D_GOTO_ERROR(H5E_ATTR, H5E_UNSUPPORTED, FAIL, "get attribute info by index is unsupported")
-
-                memset(&local_attr_info, 0, sizeof(local_attr_info));
-
-                if(0 == (datatype_size = H5Tget_size(target_attr->type_id)))
-                    D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't retrieve attribute's datatype size")
-
-                if((dataspace_nelmts = H5Sget_simple_extent_npoints(target_attr->space_id)) < 0)
-                    D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't retrieve number of elements in attribute's dataspace")
-
-                /* DSINC - data_size will likely be incorrect currently for VLEN types */
-                local_attr_info.corder_valid = FALSE;
-                local_attr_info.corder = 0;
-                local_attr_info.cset = H5T_CSET_ASCII;
-                local_attr_info.data_size = datatype_size * dataspace_nelmts;
-
-                *attr_info = local_attr_info;
+                if(H5_daos_attribute_get_info(_item, loc_params, attr_name, attr_info, dxpl_id, req) < 0)
+                    D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute info")
 
                 break;
             } /* H5VL_ATTR_GET_INFO */
@@ -1194,12 +1178,6 @@ H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
     } /* end switch */
 
 done:
-    if(target_attr) {
-        if(H5_daos_attribute_close(target_attr, dxpl_id, req) < 0)
-            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close attribute")
-        target_attr = NULL;
-    } /* end else */
-
     D_FUNC_LEAVE_API
 } /* end H5_daos_attribute_get() */
 
@@ -1378,6 +1356,182 @@ done:
 
 
 /*-------------------------------------------------------------------------
+ * Function:    H5_daos_attribute_get_name
+ *
+ * Purpose:     Helper routine to retrieve an HDF5 attribute's name.
+ *
+ * Return:      Success:        The length of the attribute's name
+ *              Failure:        Negative
+ *
+ *-------------------------------------------------------------------------
+ */
+static ssize_t
+H5_daos_attribute_get_name(H5_daos_obj_t *target_obj, const H5VL_loc_params_t *loc_params,
+    char *attr_name_out, size_t attr_name_out_size, hid_t dxpl_id, void **req)
+{
+    H5_daos_obj_t *parent_obj = NULL;
+    ssize_t ret_value = 0;
+
+    assert(target_obj);
+    assert(loc_params);
+
+    switch (loc_params->type) {
+        /* H5Aget_name */
+        case H5VL_OBJECT_BY_SELF:
+        {
+            H5_daos_attr_t *attr = (H5_daos_attr_t *)target_obj;
+            size_t copy_len;
+            size_t nbytes;
+
+            nbytes = strlen(attr->name);
+            assert((ssize_t)nbytes >= 0); /*overflow, pretty unlikely --rpm*/
+
+            /* compute the string length which will fit into the user's buffer */
+            copy_len = MIN(attr_name_out_size - 1, nbytes);
+
+            /* Copy all/some of the name */
+            if(attr_name_out && copy_len > 0) {
+                memcpy(attr_name_out, attr->name, copy_len);
+
+                /* Terminate the string */
+                attr_name_out[copy_len] = '\0';
+            } /* end if */
+
+            ret_value = (ssize_t)nbytes;
+
+            break;
+        } /* H5VL_OBJECT_BY_SELF */
+
+        /* H5Aget_name_by_idx */
+        case H5VL_OBJECT_BY_IDX:
+        {
+            H5VL_loc_params_t sub_loc_params;
+
+            /* Open object that the attribute is attached to */
+            sub_loc_params.type = H5VL_OBJECT_BY_NAME;
+            sub_loc_params.obj_type = target_obj->item.type;
+            sub_loc_params.loc_data.loc_by_name.name = loc_params->loc_data.loc_by_idx.name;
+            sub_loc_params.loc_data.loc_by_name.lapl_id = loc_params->loc_data.loc_by_idx.lapl_id;
+            if(NULL == (parent_obj = (H5_daos_obj_t *)H5_daos_object_open(target_obj, &sub_loc_params,
+                    NULL, dxpl_id, req)))
+                D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, (-1), "can't open attribute's parent object")
+
+            if((ret_value = H5_daos_attribute_get_name_by_idx(parent_obj, loc_params->loc_data.loc_by_idx.idx_type,
+                    loc_params->loc_data.loc_by_idx.order, (uint64_t)loc_params->loc_data.loc_by_idx.n,
+                    attr_name_out, attr_name_out_size)) < 0)
+                D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, (-1), "can't get attribute name by index")
+
+            break;
+        } /* H5VL_OBJECT_BY_IDX */
+
+        case H5VL_OBJECT_BY_NAME:
+        case H5VL_OBJECT_BY_ADDR:
+        case H5VL_OBJECT_BY_REF:
+        default:
+            D_GOTO_ERROR(H5E_ATTR, H5E_BADVALUE, (-1), "invalid loc_params type")
+    } /* end switch */
+
+done:
+    if(parent_obj && H5_daos_object_close(parent_obj, dxpl_id, req) < 0)
+        D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, (-1), "can't close object")
+
+    D_FUNC_LEAVE
+} /* end H5_daos_attribute_get_name() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_attribute_get_info
+ *
+ * Purpose:     Helper routine to retrieve info about an HDF5 attribute
+ *              stored on a DAOS server.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_attribute_get_info(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
+    const char *attr_name, H5A_info_t *attr_info, hid_t dxpl_id, void **req)
+{
+    H5_daos_attr_t *target_attr = NULL;
+    H5A_info_t local_attr_info;
+    hssize_t dataspace_nelmts = 0;
+    size_t datatype_size = 0;
+    herr_t ret_value = SUCCEED;
+
+    assert(item);
+    assert(loc_params);
+    assert(attr_info);
+
+    /* Determine the target object */
+    switch (loc_params->type) {
+        /* H5Aget_info */
+        case H5VL_OBJECT_BY_SELF:
+        {
+            target_attr = (H5_daos_attr_t *)item;
+            item->rc++;
+            break;
+        } /* H5VL_OBJECT_BY_SELF */
+
+        /* H5Aget_info_by_name */
+        case H5VL_OBJECT_BY_NAME:
+        /* H5Aget_info_by_idx */
+        case H5VL_OBJECT_BY_IDX:
+        {
+            /* Open the target attribute */
+            if(NULL == (target_attr = (H5_daos_attr_t *)H5_daos_attribute_open(item, loc_params,
+                    attr_name, H5P_DEFAULT, dxpl_id, req)))
+                D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, FAIL, "can't open target attribute")
+
+            break;
+        } /* H5VL_OBJECT_BY_IDX */
+
+        case H5VL_OBJECT_BY_ADDR:
+        case H5VL_OBJECT_BY_REF:
+        default:
+            D_GOTO_ERROR(H5E_ATTR, H5E_BADVALUE, FAIL, "invalid loc_params type")
+    } /* end switch */
+
+    /* Retrieve the attribute's info */
+
+    /* Retrieve attribute's creation order value */
+    if(target_attr->parent->ocpl_cache.track_acorder) {
+        uint64_t attr_crt_order = 0;
+
+        if(H5_daos_attribute_get_crt_order_by_name(target_attr->parent, target_attr->name, &attr_crt_order) < 0)
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute's creation order value")
+        local_attr_info.corder = (H5O_msg_crt_idx_t)attr_crt_order; /* DSINC - no check for overflow */
+        local_attr_info.corder_valid = TRUE;
+    } /* end if */
+    else {
+        local_attr_info.corder = 0;
+        local_attr_info.corder_valid = FALSE;
+    } /* end else */
+
+    /* Only ASCII character set is supported currently */
+    local_attr_info.cset = H5T_CSET_ASCII;
+
+    /* Retrieve attribute's data size */
+    if(0 == (datatype_size = H5Tget_size(target_attr->type_id)))
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't retrieve attribute's datatype size")
+
+    if((dataspace_nelmts = H5Sget_simple_extent_npoints(target_attr->space_id)) < 0)
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't retrieve number of elements in attribute's dataspace")
+
+    /* DSINC - data_size will likely be incorrect currently for VLEN types */
+    local_attr_info.data_size = datatype_size * dataspace_nelmts;
+
+    memcpy(attr_info, &local_attr_info, sizeof(*attr_info));
+
+done:
+    if(target_attr && H5_daos_attribute_close(target_attr, dxpl_id, req) < 0)
+        D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close attribute")
+
+    D_FUNC_LEAVE
+} /* end H5_daos_attribute_get_info() */
+
+
+/*-------------------------------------------------------------------------
  * Function:    H5_daos_attribute_delete
  *
  * Purpose:     Helper routine to delete an HDF5 attribute stored on a DAOS
@@ -1433,6 +1587,7 @@ done:
     type_key = (char *)DV_free(type_key);
     space_key = (char *)DV_free(space_key);
     acpl_key = (char *)DV_free(acpl_key);
+    acorder_key = (char *)DV_free(acorder_key);
     data_key = (char *)DV_free(data_key);
 
     D_FUNC_LEAVE
@@ -1624,8 +1779,6 @@ H5_daos_attribute_iterate(H5_daos_obj_t *attr_container_obj, H5_daos_iter_data_t
             /* Check for invalid key */
             if(kds[i].kd_key_len < 3)
                 D_GOTO_ERROR(H5E_ATTR, H5E_CANTDECODE, FAIL, "attribute akey too short")
-            if(p[1] != '-')
-                D_GOTO_ERROR(H5E_ATTR, H5E_CANTDECODE, FAIL, "invalid attribute akey format")
 
             /* Only do callbacks for "S-" (dataspace) keys, to avoid
              * duplication */
@@ -1687,6 +1840,26 @@ done:
 
     D_FUNC_LEAVE
 } /* end H5_daos_attribute_iterate() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_attribute_iterate_count_attrs_cb
+ *
+ * Purpose:     A callback for H5_daos_attribute_iterate() that simply
+ *              counts the number of attributes attached to the given
+ *              object.
+ *
+ * Return:      0 (can't fail)
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_attribute_iterate_count_attrs_cb(hid_t H5VL_DAOS_UNUSED loc_id, const char H5VL_DAOS_UNUSED *attr_name,
+    const H5A_info_t H5VL_DAOS_UNUSED *attr_info, void *op_data)
+{
+    (*((uint64_t *) op_data))++;
+    return 0;
+} /* end H5_daos_attribute_iterate_count_attrs_cb() */
 
 
 /*-------------------------------------------------------------------------
@@ -1776,6 +1949,8 @@ done:
  *              HDF5 attribute. The caller is responsible for freeing the
  *              memory allocated for each akey string.
  *
+ *              TODO: just allocate one large buffer
+ *
  * Return:      Success:        0
  *              Failure:        -1
  *
@@ -1824,8 +1999,8 @@ H5_daos_attribute_get_akey_strings(const char *attr_name, char **datatype_key_ou
     if(acorder_key_out) {
         if(NULL == (acorder_key = (char *)DV_malloc(akey_len + 1)))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akey")
-        data_key[0] = 'C';
-        data_key[1] = '-';
+        acorder_key[0] = 'C';
+        acorder_key[1] = '-';
         (void)strcpy(acorder_key + 2, attr_name);
     }
     if(raw_data_key_out) {
@@ -1860,3 +2035,326 @@ done:
 
     D_FUNC_LEAVE
 } /* end H5_daos_attribute_get_akey_strings() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_attribute_get_name_by_idx
+ *
+ * Purpose:     Given an index type, index iteration order and index value,
+ *              retrieves the name of the nth attribute (as specified by
+ *              the index value) within the given index (name index or
+ *              creation order index) according to the given order
+ *              (increasing, decreasing or native order).
+ *
+ *              The attr_name_out parameter may be NULL, in which case the
+ *              length of the attribute's name is simply returned. If
+ *              non-NULL, the attribute's name is stored in attr_name_out.
+ *
+ * Return:      Success:        The length of the attribute's name
+ *              Failure:        Negative
+ *
+ *-------------------------------------------------------------------------
+ */
+ssize_t
+H5_daos_attribute_get_name_by_idx(H5_daos_obj_t *target_obj, H5_index_t index_type,
+    H5_iter_order_t iter_order, uint64_t idx, char *attr_name_out, size_t attr_name_out_size)
+{
+    ssize_t ret_value = 0;
+
+    assert(target_obj);
+
+    if(H5_INDEX_CRT_ORDER == index_type) {
+        if((ret_value = H5_daos_attribute_get_name_by_crt_order(target_obj, iter_order, idx, attr_name_out, attr_name_out_size)) < 0)
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, (-1), "can't retrieve attribute name from creation order index")
+    } /* end if */
+    else if(H5_INDEX_NAME == index_type) {
+        if((ret_value = H5_daos_attribute_get_name_by_name_order(target_obj, iter_order, idx, attr_name_out, attr_name_out_size)) < 0)
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, (-1), "can't retrieve attribute name from name order index")
+    } /* end else */
+    else
+        D_GOTO_ERROR(H5E_ATTR, H5E_BADVALUE, (-1), "invalid or unsupported index type")
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_attribute_get_name_by_idx() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_attribute_get_name_by_crt_order
+ *
+ * Purpose:     Given an index iteration order and index value, retrieves
+ *              the name of the nth attribute (as specified by the index
+ *              value) within the specified object's attribute creation
+ *              order index, according to the given order (increasing,
+ *              decreasing or native order).
+ *
+ *              The attr_name_out parameter may be NULL, in which case the
+ *              length of the attribute's name is simply returned. If
+ *              non-NULL, the attribute's name is stored in attr_name_out.
+ *
+ *              TODO: refactor to make one call to server
+ *
+ * Return:      Success:        The length of the attribute's name
+ *              Failure:        Negative
+ *
+ *-------------------------------------------------------------------------
+ */
+static ssize_t
+H5_daos_attribute_get_name_by_crt_order(H5_daos_obj_t *target_obj, H5_iter_order_t iter_order,
+    uint64_t index, char *attr_name_out, size_t attr_name_out_size)
+{
+    daos_key_t dkey;
+    daos_iod_t iod;
+    daos_iov_t sg_iov;
+    hssize_t obj_nattrs;
+    uint64_t fetch_idx = 0;
+    uint8_t idx_buf[sizeof(uint64_t) + 1];
+    uint8_t *p;
+    int ret;
+    ssize_t ret_value = 0;
+
+    assert(target_obj);
+
+    /* Check that creation order is tracked for the attribute's parent object */
+    if(!target_obj->ocpl_cache.track_acorder)
+        D_GOTO_ERROR(H5E_ATTR, H5E_BADVALUE, (-1), "creation order is not tracked for attribute's parent object")
+
+    /* Retrieve the current number of attributes attached to the target object */
+    if((obj_nattrs = H5_daos_object_get_num_attrs(target_obj)) < 0)
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, (-1), "can't get number of attributes attached to object")
+
+    /* Ensure the index is within range */
+    if(index >= (uint64_t)obj_nattrs)
+        D_GOTO_ERROR(H5E_ATTR, H5E_BADVALUE, (-1), "index value out of range")
+
+    /* Calculate the correct index of the attribute, based upon the iteration order */
+    if(H5_ITER_DEC == iter_order)
+        fetch_idx = obj_nattrs - index - 1;
+    else
+        fetch_idx = index;
+
+    p = idx_buf;
+    *p++ = 0;
+    UINT64ENCODE(p, fetch_idx);
+
+    /* Set up dkey */
+    daos_iov_set(&dkey, (void *)H5_daos_attr_key_g, H5_daos_attr_key_size_g);
+
+    /* Set up iod */
+    memset(&iod, 0, sizeof(iod));
+    daos_iov_set(&iod.iod_name, (void *)idx_buf, sizeof(uint64_t) + 1);
+    daos_csum_set(&iod.iod_kcsum, NULL, 0);
+    iod.iod_nr = 1u;
+    iod.iod_size = DAOS_REC_ANY;
+    iod.iod_type = DAOS_IOD_SINGLE;
+
+    /* Fetch the size of the attribute's name */
+    if(0 != (ret = daos_obj_fetch(target_obj->obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, NULL, NULL /*maps*/, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, (-1), "can't fetch size of attribute's name: %s", H5_daos_err_to_string(ret))
+
+    if(iod.iod_size == (daos_size_t)0)
+        D_GOTO_ERROR(H5E_ATTR, H5E_NOTFOUND, (-1), "attribute name record not found")
+
+    ret_value = (ssize_t)iod.iod_size;
+
+    if(attr_name_out) {
+        daos_sg_list_t sgl;
+
+        /* Set up sgl */
+        daos_iov_set(&sg_iov, attr_name_out, attr_name_out_size - 1);
+        sgl.sg_nr = 1;
+        sgl.sg_nr_out = 0;
+        sgl.sg_iovs = &sg_iov;
+
+        /* Read the attribute's name */
+        if(0 != (ret = daos_obj_fetch(target_obj->obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
+            D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, (-1), "can't fetch attribute name: %s", H5_daos_err_to_string(ret))
+
+        attr_name_out[MIN(iod.iod_size, attr_name_out_size - 1)] = '\0';
+    } /* end if */
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_attribute_get_name_by_crt_order() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_attribute_get_name_by_name_order
+ *
+ * Purpose:     Given an index iteration order and index value, retrieves
+ *              the name of the nth attribute (as specified by the index
+ *              value) within the specified object's attribute name index,
+ *              according to the given order (increasing, decreasing or
+ *              native order).
+ *
+ *              The attr_name_out parameter may be NULL, in which case the
+ *              length of the attribute's name is simply returned. If
+ *              non-NULL, the attribute's name is stored in attr_name_out.
+ *
+ * Return:      Success:        The length of the attribute's name
+ *              Failure:        Negative
+ *
+ *-------------------------------------------------------------------------
+ */
+static ssize_t
+H5_daos_attribute_get_name_by_name_order(H5_daos_obj_t *target_obj, H5_iter_order_t iter_order,
+    uint64_t index, char *attr_name_out, size_t attr_name_out_size)
+{
+    H5_daos_attr_find_name_by_idx_ud_t iter_cb_ud;
+    H5_daos_iter_data_t iter_data;
+    hssize_t obj_nattrs;
+    hid_t target_obj_id = H5I_INVALID_HID;
+    ssize_t ret_value = 0;
+
+    assert(target_obj);
+
+    if(H5_ITER_DEC == iter_order)
+        D_GOTO_ERROR(H5E_ATTR, H5E_UNSUPPORTED, (-1), "decreasing order iteration is unsupported")
+
+    /* Retrieve the current number of attributes attached to the target object */
+    if((obj_nattrs = H5_daos_object_get_num_attrs(target_obj)) < 0)
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, (-1), "can't get number of attributes attached to object")
+
+    /* Ensure the index is within range */
+    if(index >= (uint64_t)obj_nattrs)
+        D_GOTO_ERROR(H5E_ATTR, H5E_BADVALUE, (-1), "index value out of range")
+
+    /* Register ID for target object */
+    if((target_obj_id = H5VLwrap_register(target_obj, target_obj->item.type)) < 0)
+        D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, (-1), "unable to atomize object handle")
+    target_obj->item.rc++;
+
+    /* Initialize iteration data */
+    iter_cb_ud.target_attr_idx = index;
+    iter_cb_ud.cur_attr_idx = 0;
+    iter_cb_ud.attr_name_out = attr_name_out;
+    iter_cb_ud.attr_name_out_size = attr_name_out_size;
+    H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_ATTR, H5_INDEX_NAME, iter_order,
+            FALSE, NULL, target_obj_id, &iter_cb_ud, H5P_DATASET_XFER_DEFAULT, NULL);
+    iter_data.u.attr_iter_data.attr_iter_op = H5_daos_attribute_get_name_by_name_order_cb;
+
+    if(H5_daos_attribute_iterate(target_obj, &iter_data, H5P_DATASET_XFER_DEFAULT, NULL) < 0)
+        D_GOTO_ERROR(H5E_ATTR, H5E_BADITER, (-1), "attribute iteration failed")
+
+    ret_value = (ssize_t)iter_cb_ud.attr_name_out_size;
+
+done:
+    if((target_obj_id >= 0) && (H5Idec_ref(target_obj_id) < 0))
+        D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, (-1), "can't close attribute's parent object")
+
+    D_FUNC_LEAVE
+} /* end H5_daos_attribute_get_name_by_name_order() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_attribute_get_name_by_name_order_cb
+ *
+ * Purpose:     Attribute iteration callback for
+ *              H5_daos_attribute_get_name_by_name_order which iterates
+ *              through attributes by name order until the specified index
+ *              value is reached, at which point the target attribute has
+ *              been found and its name is copied back.
+ *
+ * Return:      Non-negative (can't fail)
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_attribute_get_name_by_name_order_cb(hid_t H5VL_DAOS_UNUSED loc_id, const char *attr_name,
+    const H5A_info_t H5VL_DAOS_UNUSED *attr_info, void *op_data)
+{
+    H5_daos_attr_find_name_by_idx_ud_t *cb_ud = (H5_daos_attr_find_name_by_idx_ud_t *) op_data;
+
+    /*
+     * Once the target index has been reached, set the size of the attribute
+     * name to be returned and copy the attribute name if the attribute name
+     * output buffer is not NULL.
+     */
+    if(cb_ud->cur_attr_idx == cb_ud->target_attr_idx) {
+        if(cb_ud->attr_name_out) {
+            memcpy(cb_ud->attr_name_out, attr_name, cb_ud->attr_name_out_size - 1);
+            cb_ud->attr_name_out[cb_ud->attr_name_out_size - 1] = '\0';
+        }
+
+        cb_ud->attr_name_out_size = strlen(attr_name);
+
+        return 1;
+    }
+
+    cb_ud->cur_attr_idx++;
+    return 0;
+} /* end H5_daos_attribute_get_name_by_name_order_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_attribute_get_crt_order_by_name
+ *
+ * Purpose:     Retrieves the creation order value for an attribute given
+ *              the attribute's parent object and the attribute's name.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_attribute_get_crt_order_by_name(H5_daos_obj_t *target_obj, const char *attr_name,
+    uint64_t *crt_order)
+{
+    daos_sg_list_t sgl;
+    daos_key_t dkey;
+    daos_iod_t iod;
+    daos_iov_t sg_iov;
+    uint64_t crt_order_val;
+    uint8_t crt_order_buf[sizeof(uint64_t)];
+    uint8_t *p;
+    size_t akey_len;
+    char *acorder_key = NULL;
+    int ret;
+    herr_t ret_value = SUCCEED;
+
+    assert(target_obj);
+    assert(attr_name);
+    assert(crt_order);
+
+    /* Check that creation order is tracked for the attribute's parent object */
+    if(!target_obj->ocpl_cache.track_acorder)
+        D_GOTO_ERROR(H5E_ATTR, H5E_BADVALUE, FAIL, "creation order is not tracked for attribute's parent object")
+
+    /* Retrieve akey string for creation order */
+    if(H5_daos_attribute_get_akey_strings(attr_name, NULL, NULL, NULL, &acorder_key, NULL, &akey_len) < 0)
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTALLOC, FAIL, "can't generate creation order akey string")
+
+    /* Set up dkey */
+    daos_iov_set(&dkey, (void *)H5_daos_attr_key_g, H5_daos_attr_key_size_g);
+
+    /* Set up iod */
+    memset(&iod, 0, sizeof(iod));
+    daos_iov_set(&iod.iod_name, (void *)acorder_key, (daos_size_t)akey_len);
+    daos_csum_set(&iod.iod_kcsum, NULL, 0);
+    iod.iod_nr = 1u;
+    iod.iod_size = (daos_size_t)sizeof(uint64_t);
+    iod.iod_type = DAOS_IOD_SINGLE;
+
+    /* Set up sgl */
+    daos_iov_set(&sg_iov, crt_order_buf, (daos_size_t)sizeof(uint64_t));
+    sgl.sg_nr = 1;
+    sgl.sg_nr_out = 0;
+    sgl.sg_iovs = &sg_iov;
+
+    /* Read attribute creation order value */
+    if(0 != (ret = daos_obj_fetch(target_obj->obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, FAIL, "can't read attribute's creation order value: %s", H5_daos_err_to_string(ret))
+
+    if(iod.iod_size == 0)
+        D_GOTO_ERROR(H5E_ATTR, H5E_NOTFOUND, FAIL, "attribute creation order value record is missing")
+
+    p = crt_order_buf;
+    UINT64DECODE(p, crt_order_val);
+
+    *crt_order = crt_order_val;
+
+done:
+    acorder_key = (char *)DV_free(acorder_key);
+
+    D_FUNC_LEAVE
+} /* end H5_daos_attribute_get_crt_order_by_name() */

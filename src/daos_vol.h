@@ -451,6 +451,7 @@ extern H5VL_DAOS_PRIVATE const char H5_daos_type_key_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_space_key_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_attr_key_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_nattr_key_g[];
+extern H5VL_DAOS_PRIVATE const char H5_daos_max_attr_corder_key_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_ktype_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_vtype_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_map_key_g[];
@@ -465,6 +466,7 @@ extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_type_key_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_space_key_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_attr_key_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_nattr_key_size_g;
+extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_max_attr_corder_key_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_ktype_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_vtype_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_map_key_size_g;
@@ -610,6 +612,7 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_object_optional(void *_item, hid_t dxpl_id, voi
 H5VL_DAOS_PRIVATE herr_t H5_daos_object_visit(H5_daos_obj_t *target_obj, H5_daos_iter_data_t *obj_iter_data);
 H5VL_DAOS_PRIVATE herr_t H5_daos_object_close(void *_obj, hid_t dxpl_id, void **req);
 H5VL_DAOS_PRIVATE herr_t H5_daos_fill_ocpl_cache(H5_daos_obj_t *obj, hid_t ocpl_id);
+H5VL_DAOS_PRIVATE hssize_t H5_daos_object_get_num_attrs(H5_daos_obj_t *target_obj);
 
 /* Attribute callbacks */
 H5VL_DAOS_PRIVATE void *H5_daos_attribute_create(void *_obj, const H5VL_loc_params_t *loc_params,
@@ -631,6 +634,14 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_attribute_close(void *_attr, hid_t dxpl_id, voi
 /* Other attribute routines */
 H5VL_DAOS_PRIVATE herr_t H5_daos_attribute_iterate(H5_daos_obj_t *attr_container_obj,
     H5_daos_iter_data_t *attr_iter_data, hid_t dxpl_id, void **req);
+H5VL_DAOS_PRIVATE ssize_t H5_daos_attribute_get_name_by_idx(H5_daos_obj_t *target_obj, H5_index_t index_type,
+    H5_iter_order_t iter_order, uint64_t idx, char *attr_name_out, size_t attr_name_out_size);
+H5VL_DAOS_PRIVATE herr_t H5_daos_attribute_get_crt_order_by_name(H5_daos_obj_t *target_obj, const char *attr_name,
+    uint64_t *crt_order);
+
+/* Attribute iteration callbacks */
+H5VL_DAOS_PRIVATE herr_t H5_daos_attribute_iterate_count_attrs_cb(hid_t loc_id, const char *attr_name,
+    const H5A_info_t *attr_info, void *op_data);
 
 /* Request callback */
 H5VL_DAOS_PRIVATE herr_t H5_daos_req_free(void *req);

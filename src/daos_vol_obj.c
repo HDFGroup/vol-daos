@@ -946,7 +946,7 @@ H5_daos_object_get_num_attrs(H5_daos_obj_t *target_obj)
         iter_data.u.attr_iter_data.attr_iter_op = H5_daos_attribute_iterate_count_attrs_cb;
 
         /* Retrieve the number of attributes attached to the object */
-        if(H5_daos_attribute_iterate(target_obj, &iter_data, H5P_DATASET_XFER_DEFAULT, NULL) < 0)
+        if(H5_daos_attribute_iterate(target_obj, &iter_data) < 0)
             D_GOTO_ERROR(H5E_ATTR, H5E_BADITER, FAIL, "attribute iteration failed")
     } /* end else */
 
@@ -1336,7 +1336,7 @@ H5_daos_object_copy_attributes(H5_daos_obj_t *src_obj, H5_daos_obj_t *dst_obj,
             FALSE, NULL, target_obj_id, dst_obj, dxpl_id, req);
     iter_data.u.attr_iter_data.attr_iter_op = H5_daos_object_copy_attributes_cb;
 
-    if(H5_daos_attribute_iterate(src_obj, &iter_data, dxpl_id, req) < 0)
+    if(H5_daos_attribute_iterate(src_obj, &iter_data) < 0)
         D_GOTO_ERROR(H5E_ATTR, H5E_BADITER, FAIL, "failed to iterate over object's attributes")
 
 done:

@@ -961,6 +961,70 @@ done:
 
 
 /*-------------------------------------------------------------------------
+ * Function:    H5_daos_object_update_num_attrs_key
+ *
+ * Purpose:     Updates the target object's attribute number tracking akey
+ *              by setting its value to the specified value.
+ *
+ *              CAUTION: This routine is 'dangerous' in that the attribute
+ *              number tracking akey is used in various places. Only call
+ *              this routine if it is certain that the number of attributes
+ *              attached to the target object has changed to the specified
+ *              value.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_object_update_num_attrs_key(H5_daos_obj_t *target_obj, uint64_t new_nattrs)
+{
+    daos_sg_list_t sgl;
+    daos_key_t dkey;
+    daos_iod_t iod;
+    daos_iov_t sg_iov;
+    uint8_t nattrs_new_buf[sizeof(uint64_t)];
+    uint8_t *p;
+    int ret;
+    herr_t ret_value = SUCCEED;
+
+    assert(target_obj);
+
+    /* Ensure that attribute creation order is tracked for the target object */
+    if(!target_obj->ocpl_cache.track_acorder)
+        D_GOTO_ERROR(H5E_ATTR, H5E_BADVALUE, FAIL, "attribute creation order is not tracked for target object")
+
+    /* Encode buffer */
+    p = nattrs_new_buf;
+    UINT64ENCODE(p, new_nattrs);
+
+    /* Set up dkey */
+    daos_iov_set(&dkey, (void *)H5_daos_attr_key_g, H5_daos_attr_key_size_g);
+
+    /* Set up iod */
+    memset(&iod, 0, sizeof(iod));
+    daos_iov_set(&iod.iod_name, (void *)H5_daos_nattr_key_g, H5_daos_nattr_key_size_g);
+    daos_csum_set(&iod.iod_kcsum, NULL, 0);
+    iod.iod_nr = 1u;
+    iod.iod_size = (daos_size_t)sizeof(uint64_t);
+    iod.iod_type = DAOS_IOD_SINGLE;
+
+    /* Set up sgl */
+    daos_iov_set(&sg_iov, nattrs_new_buf, (daos_size_t)sizeof(uint64_t));
+    sgl.sg_nr = 1;
+    sgl.sg_nr_out = 0;
+    sgl.sg_iovs = &sg_iov;
+
+    /* Issue write */
+    if(0 != (ret = daos_obj_update(target_obj->obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_ATTR, H5E_WRITEERROR, FAIL, "can't write number of attributes to object: %s", H5_daos_err_to_string(ret))
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_object_update_num_attrs_key() */
+
+
+/*-------------------------------------------------------------------------
  * Function:    H5_daos_group_copy_cb
  *
  * Purpose:     Helper routine to deal with the copying of a single link

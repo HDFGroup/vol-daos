@@ -614,6 +614,7 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_object_visit(H5_daos_obj_t *target_obj, H5_daos
 H5VL_DAOS_PRIVATE herr_t H5_daos_object_close(void *_obj, hid_t dxpl_id, void **req);
 H5VL_DAOS_PRIVATE herr_t H5_daos_fill_ocpl_cache(H5_daos_obj_t *obj, hid_t ocpl_id);
 H5VL_DAOS_PRIVATE hssize_t H5_daos_object_get_num_attrs(H5_daos_obj_t *target_obj);
+H5VL_DAOS_PRIVATE herr_t H5_daos_object_update_num_attrs_key(H5_daos_obj_t *target_obj, uint64_t new_nattrs);
 
 /* Attribute callbacks */
 H5VL_DAOS_PRIVATE void *H5_daos_attribute_create(void *_obj, const H5VL_loc_params_t *loc_params,

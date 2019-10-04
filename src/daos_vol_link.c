@@ -44,7 +44,7 @@ do {                                                             \
 static herr_t H5_daos_link_read(H5_daos_group_t *grp, const char *name,
     size_t name_len, H5_daos_link_val_t *val);
 static herr_t H5_daos_link_get_info(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
-    H5L_info_t *link_info, hid_t dxpl_id, void **req);
+    H5L_info_t *link_info_out, H5_daos_link_val_t *link_val_out, hid_t dxpl_id, void **req);
 static herr_t H5_daos_link_get_val(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
     H5_daos_link_val_t *link_val_out, hid_t dxpl_id, void **req);
 static herr_t H5_daos_link_iterate_by_name_order(H5_daos_group_t *target_grp, H5_daos_iter_data_t *iter_data);
@@ -765,7 +765,7 @@ H5_daos_link_get(void *_item, const H5VL_loc_params_t *loc_params,
         {
             H5L_info_t *link_info = va_arg(arguments, H5L_info_t *);
 
-            if(H5_daos_link_get_info(item, loc_params, link_info, dxpl_id, req) < 0)
+            if(H5_daos_link_get_info(item, loc_params, link_info, NULL, dxpl_id, req) < 0)
                 D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't retrieve link's info")
 
             break;
@@ -1057,6 +1057,11 @@ done:
  * Purpose:     Helper routine to retrieve a link's info and populate a
  *              H5L_info_t struct.
  *
+ *              If the link_val_out parameter is non-NULL, the link's value
+ *              is returned through it. If the link in question is a soft
+ *              link, this means the caller is responsible for freeing the
+ *              allocated link value.
+ *
  * Return:      Success:        SUCCEED
  *              Failure:        FAIL
  *
@@ -1064,9 +1069,10 @@ done:
  */
 static herr_t
 H5_daos_link_get_info(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
-    H5L_info_t *link_info, hid_t dxpl_id, void **req)
+    H5L_info_t *link_info_out, H5_daos_link_val_t *link_val_out, hid_t dxpl_id,
+    void **req)
 {
-    H5_daos_link_val_t link_val = { 0 };
+    H5_daos_link_val_t local_link_val = { 0 };
     H5_daos_group_t *target_grp = NULL;
     H5L_info_t local_link_info;
     const char *target_name = NULL;
@@ -1077,7 +1083,7 @@ H5_daos_link_get_info(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
 
     assert(item);
     assert(loc_params);
-    assert(link_info);
+    assert(link_info_out);
 
     /* Determine the target group */
     switch (loc_params->type) {
@@ -1136,17 +1142,18 @@ H5_daos_link_get_info(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
             D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, FAIL, "invalid loc_params type")
     } /* end switch */
 
-    if(H5_daos_link_read(target_grp, target_name, strlen(target_name), &link_val) < 0)
+    if(H5_daos_link_read(target_grp, target_name, strlen(target_name), &local_link_val) < 0)
         D_GOTO_ERROR(H5E_LINK, H5E_READERROR, FAIL, "failed to read link")
 
     /*
      * Fill in link type and link object address (hard link) or
      * link value size (soft link) fields, then free the link
-     * value if this is a soft link.
+     * value if this is a soft link and the link's value is not
+     * being returned through link_val_out.
      */
-    H5_DAOS_LINK_VAL_TO_INFO(link_val, local_link_info);
-    if(H5L_TYPE_SOFT == link_val.type)
-        link_val.target.soft = (char *)DV_free(link_val.target.soft);
+    H5_DAOS_LINK_VAL_TO_INFO(local_link_val, local_link_info);
+    if(!link_val_out && (H5L_TYPE_SOFT == local_link_val.type))
+        local_link_val.target.soft = (char *)DV_free(local_link_val.target.soft);
 
     if(target_grp->gcpl_cache.track_corder) {
         if(H5_daos_link_get_crt_order_by_name(target_grp, target_name, &link_crt_order) < 0)
@@ -1162,11 +1169,15 @@ H5_daos_link_get_info(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
     /* Only ASCII character set is supported currently */
     local_link_info.cset = H5T_CSET_ASCII;
 
-    memcpy(link_info, &local_link_info, sizeof(*link_info));
+    memcpy(link_info_out, &local_link_info, sizeof(*link_info_out));
+
+    if(link_val_out)
+        memcpy(link_val_out, &local_link_val, sizeof(*link_val_out));
 
 done:
-    if(H5L_TYPE_SOFT == link_val.type)
-        DV_free(link_val.target.soft);
+    /* Only free the link value if it isn't being returned through link_val_out */
+    if(!link_val_out && (H5L_TYPE_SOFT == local_link_val.type))
+        DV_free(local_link_val.target.soft);
 
     if(link_name_buf_dyn)
         link_name_buf_dyn = DV_free(link_name_buf_dyn);
@@ -1367,16 +1378,22 @@ H5_daos_link_iterate(H5_daos_group_t *target_grp, H5_daos_iter_data_t *iter_data
     if(iter_data->idx_p && (*iter_data->idx_p != 0))
         D_GOTO_ERROR(H5E_SYM, H5E_UNSUPPORTED, FAIL, "iteration restart not supported (must start from 0)")
 
-    if(H5_INDEX_NAME == iter_data->index_type) {
-        if((ret_value = H5_daos_link_iterate_by_name_order(target_grp, iter_data)) < 0)
-            D_GOTO_ERROR(H5E_LINK, H5E_BADITER, FAIL, "link iteration by name order failed")
-    } /* end if */
-    else {
-        assert(H5_INDEX_CRT_ORDER == iter_data->index_type);
+    switch (iter_data->index_type) {
+        case H5_INDEX_NAME:
+            if((ret_value = H5_daos_link_iterate_by_name_order(target_grp, iter_data)) < 0)
+                D_GOTO_ERROR(H5E_LINK, H5E_BADITER, FAIL, "link iteration by name order failed")
+            break;
 
-        if((ret_value = H5_daos_link_iterate_by_crt_order(target_grp, iter_data)) < 0)
-            D_GOTO_ERROR(H5E_LINK, H5E_BADITER, FAIL, "link iteration by creation order failed")
-    } /* end else */
+        case H5_INDEX_CRT_ORDER:
+            if((ret_value = H5_daos_link_iterate_by_crt_order(target_grp, iter_data)) < 0)
+                D_GOTO_ERROR(H5E_LINK, H5E_BADITER, FAIL, "link iteration by creation order failed")
+            break;
+
+        case H5_INDEX_UNKNOWN:
+        case H5_INDEX_N:
+        default:
+            D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, FAIL, "invalid or unsupported index type")
+    } /* end switch */
 
 done:
     D_FUNC_LEAVE
@@ -1399,6 +1416,7 @@ static herr_t
 H5_daos_link_iterate_by_name_order(H5_daos_group_t *target_grp, H5_daos_iter_data_t *iter_data)
 {
     H5_daos_link_val_t link_val = { 0 };
+    H5VL_loc_params_t sub_loc_params;
     H5_daos_group_t *subgroup = NULL;
     daos_anchor_t anchor;
     daos_sg_list_t sgl;
@@ -1489,12 +1507,16 @@ H5_daos_link_iterate_by_name_order(H5_daos_group_t *target_grp, H5_daos_iter_dat
                 tmp_char = p[kds[i].kd_key_len];
                 p[kds[i].kd_key_len] = '\0';
 
-                /* Read link */
-                if(H5_daos_link_read(target_grp, p, (size_t)kds[i].kd_key_len, &link_val) < 0)
-                    D_GOTO_ERROR(H5E_SYM, H5E_READERROR, FAIL, "can't read link")
+                /* Retrieve link's info and value */
+                sub_loc_params.obj_type = target_grp->obj.item.type;
+                sub_loc_params.type = H5VL_OBJECT_BY_NAME;
+                sub_loc_params.loc_data.loc_by_name.lapl_id = H5P_LINK_ACCESS_DEFAULT;
+                sub_loc_params.loc_data.loc_by_name.name = p;
+                if(H5_daos_link_get_info((H5_daos_item_t *)target_grp, &sub_loc_params,
+                        &linfo, &link_val, iter_data->dxpl_id, iter_data->req) < 0)
+                    D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't get link info")
 
-                /* Update linfo, then free soft link value if necessary */
-                H5_DAOS_LINK_VAL_TO_INFO(link_val, linfo);
+                /* Free soft link value if necessary */
                 if(H5L_TYPE_SOFT == link_val.type)
                     link_val.target.soft = (char *)DV_free(link_val.target.soft);
 
@@ -1545,7 +1567,6 @@ H5_daos_link_iterate_by_name_order(H5_daos_group_t *target_grp, H5_daos_iter_dat
                     /* If the current link points to a group that hasn't been visited yet, iterate over its links as well. */
                     if((H5L_TYPE_HARD == link_val.type) && (H5I_GROUP == H5_daos_oid_to_type(link_val.target.hard))
                             && (DV_HASH_TABLE_NULL == dv_hash_table_lookup(iter_data->u.link_iter_data.visited_link_table, &link_val.target.hard.lo))) {
-                        H5VL_loc_params_t sub_loc_params;
                         uint64_t *oid_lo_copy;
                         size_t cur_link_path_len;
                         herr_t recurse_ret;
@@ -2030,7 +2051,8 @@ H5_daos_link_delete(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params, h
         /* Update the "number of links" key in the group */
         if((grp_nlinks = H5_daos_group_get_num_links(target_grp)) < 0)
             D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't get number of links in group")
-        grp_nlinks = (grp_nlinks > 0) ? grp_nlinks-- : 0;
+        if(grp_nlinks > 0)
+            grp_nlinks--;
 
         if(H5_daos_group_update_num_links_key(target_grp, (uint64_t)grp_nlinks) < 0)
             D_GOTO_ERROR(H5E_SYM, H5E_CANTMODIFY, FAIL, "can't update number of links in group")
@@ -2466,7 +2488,7 @@ H5_daos_link_get_name_by_crt_order(H5_daos_group_t *target_grp, H5_iter_order_t 
         D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, (-1), "can't get number of links in group")
 
     /* Ensure the index is within range */
-    if(index >= grp_nlinks)
+    if(index >= (uint64_t)grp_nlinks)
         D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, (-1), "index value out of range")
 
     /* Calculate the correct index of the link, based upon the iteration order */
@@ -2549,7 +2571,7 @@ H5_daos_link_get_name_by_name_order(H5_daos_group_t *target_grp, H5_iter_order_t
         D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, (-1), "can't get number of links in group")
 
     /* Ensure the index is within range */
-    if(index >= grp_nlinks)
+    if(index >= (uint64_t)grp_nlinks)
         D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, (-1), "index value out of range")
 
     /* Register ID for target group */

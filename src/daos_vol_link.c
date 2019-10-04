@@ -2030,7 +2030,9 @@ H5_daos_link_delete(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params, h
         /* Update the "number of links" key in the group */
         if((grp_nlinks = H5_daos_group_get_num_links(target_grp)) < 0)
             D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't get number of links in group")
-        if(H5_daos_group_update_num_links_key(target_grp, (uint64_t)(grp_nlinks - 1)) < 0)
+        grp_nlinks = (grp_nlinks > 0) ? grp_nlinks-- : 0;
+
+        if(H5_daos_group_update_num_links_key(target_grp, (uint64_t)grp_nlinks) < 0)
             D_GOTO_ERROR(H5E_SYM, H5E_CANTMODIFY, FAIL, "can't update number of links in group")
 
         /* Remove the link from the group's creation order index */

@@ -1942,7 +1942,9 @@ H5_daos_attribute_shift_crt_idx_keys_down(H5_daos_obj_t *target_obj,
     daos_iov_t *sg_iovs = NULL;
     daos_key_t dkey;
     daos_key_t tail_akey;
-    uint64_t *crt_order_attr_name_buf = NULL;
+    uint64_t tmp_uint;
+    uint8_t *crt_order_attr_name_buf = NULL;
+    uint8_t *p;
     size_t nattrs_shift;
     size_t i;
     char *tmp_buf = NULL;
@@ -1964,7 +1966,7 @@ H5_daos_attribute_shift_crt_idx_keys_down(H5_daos_obj_t *target_obj,
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate SGL buffer")
     if(NULL == (sg_iovs = DV_calloc(nattrs_shift * sizeof(*sg_iovs))))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate IOV buffer")
-    if(NULL == (crt_order_attr_name_buf = DV_malloc(nattrs_shift * sizeof(uint64_t))))
+    if(NULL == (crt_order_attr_name_buf = DV_malloc(nattrs_shift * (sizeof(uint64_t) + 1))))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate akey data buffer")
 
     /* Set up dkey */
@@ -1972,12 +1974,16 @@ H5_daos_attribute_shift_crt_idx_keys_down(H5_daos_obj_t *target_obj,
 
     /* Set up iods */
     for(i = 0; i < nattrs_shift; i++) {
+        tmp_uint = idx_begin + i;
+
         /* Setup the integer 'name' value for the current 'creation order -> attribute name' akey */
-        crt_order_attr_name_buf[i] = idx_begin + i;
+        p = &crt_order_attr_name_buf[i * (sizeof(uint64_t) + 1)];
+        *p++ = 0;
+        UINT64ENCODE(p, tmp_uint);
 
         /* Set up iods for the current 'creation order -> attribute name' akey */
         memset(&iods[i], 0, sizeof(*iods));
-        daos_iov_set(&iods[i].iod_name, &crt_order_attr_name_buf[i], sizeof(uint64_t));
+        daos_iov_set(&iods[i].iod_name, &crt_order_attr_name_buf[i * (sizeof(uint64_t) + 1)], sizeof(uint64_t) + 1);
         iods[i].iod_nr = 1u;
         iods[i].iod_size = DAOS_REC_ANY;
         iods[i].iod_type = DAOS_IOD_SINGLE;
@@ -2014,7 +2020,12 @@ H5_daos_attribute_shift_crt_idx_keys_down(H5_daos_obj_t *target_obj,
      */
     for(i = 0; i < nattrs_shift; i++) {
         /* Setup the integer 'name' value for the current 'creation order -> attribute name' akey */
-        crt_order_attr_name_buf[i]--;
+        p = &crt_order_attr_name_buf[i * (sizeof(uint64_t) + 1) + 1];
+        UINT64DECODE(p, tmp_uint);
+
+        tmp_uint--;
+        p = &crt_order_attr_name_buf[i * (sizeof(uint64_t) + 1) + 1];
+        UINT64ENCODE(p, tmp_uint);
     } /* end for */
 
     /* Write the akeys back */
@@ -2023,7 +2034,10 @@ H5_daos_attribute_shift_crt_idx_keys_down(H5_daos_obj_t *target_obj,
         D_GOTO_ERROR(H5E_ATTR, H5E_WRITEERROR, FAIL, "can't write akey data: %s", H5_daos_err_to_string(ret))
 
     /* Delete the (now invalid) akey at the end of the creation index */
-    daos_iov_set(&tail_akey, (void *)&idx_end, sizeof(idx_end));
+    tmp_uint = idx_end;
+    p = &crt_order_attr_name_buf[1];
+    UINT64ENCODE(p, tmp_uint);
+    daos_iov_set(&tail_akey, (void *)&crt_order_attr_name_buf[0], sizeof(uint64_t) + 1);
 
     if(0 != (ret = daos_obj_punch_akeys(target_obj->obj_oh, DAOS_TX_NONE, &dkey,
             1, &tail_akey, NULL /*event*/)))

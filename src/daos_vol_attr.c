@@ -1835,6 +1835,8 @@ H5_daos_attribute_remove_from_crt_idx(H5_daos_obj_t *target_obj, const H5VL_loc_
     daos_key_t dkey;
     daos_key_t crt_akey;
     uint64_t delete_idx = 0;
+    uint8_t idx_buf[sizeof(uint64_t)];
+    uint8_t *p;
     ssize_t obj_nattrs_remaining;
     hid_t target_obj_id = H5I_INVALID_HID;
     int ret;
@@ -1897,7 +1899,9 @@ H5_daos_attribute_remove_from_crt_idx(H5_daos_obj_t *target_obj, const H5VL_loc_
     daos_iov_set(&dkey, (void *)H5_daos_attr_key_g, H5_daos_attr_key_size_g);
 
     /* Remove the akey which maps creation order -> attribute name */
-    daos_iov_set(&crt_akey, (void *)&delete_idx, sizeof(delete_idx));
+    p = idx_buf;
+    UINT64ENCODE(p, delete_idx);
+    daos_iov_set(&crt_akey, (void *)idx_buf, sizeof(uint64_t));
 
     /* Remove the akey */
     if(0 != (ret = daos_obj_punch_akeys(target_obj->obj_oh, DAOS_TX_NONE, &dkey, 1, &crt_akey, NULL /*event*/)))

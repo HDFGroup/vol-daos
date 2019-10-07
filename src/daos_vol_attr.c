@@ -96,9 +96,9 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
     char *space_key = NULL;
     char *acpl_key = NULL;
     char *acorder_key = NULL;
-    daos_iod_t iod[6];
-    daos_sg_list_t sgl[6];
-    daos_iov_t sg_iov[6];
+    daos_iod_t iod[7];
+    daos_sg_list_t sgl[7];
+    daos_iov_t sg_iov[7];
     size_t type_size = 0;
     size_t space_size = 0;
     size_t acpl_size = 0;
@@ -117,6 +117,8 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
      * 9 bytes long to contain a leading 0 followed by the creation order
      * data which is used with UINT64ENCODE/DECODE. */
     uint8_t nattr_old_buf[9];
+    uint8_t max_corder_old_buf[8];
+    uint8_t max_corder_new_buf[8];
     void *ret_value = NULL;
 
     if(!_item)
@@ -235,35 +237,54 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
 
     /* Check for creation order tracking */
     if(attr->parent->ocpl_cache.track_acorder) {
+        uint64_t max_corder;
         uint64_t nattr;
         uint8_t *p;
         size_t name_len = strlen(name);
 
-        /* Read num attributes */
-        /* Set up iod */
-        /* iod[3] contains the key for the number of attributes.  We use index 3
-         * here to preserve the data in indices 0-2 set up above. */
+        /* Read object's current number of attributes and maximum attribute creation order value */
+
+        /* Set up iod. iod[3] contains the key for the number of attributes. iod[4] contains the key
+         * for the object's max. attribute creation order value.  We use index 3 & 4 here to preserve
+         * the data in indices 0-2 set up above.
+         */
         daos_iov_set(&iod[3].iod_name, (void *)H5_daos_nattr_key_g, H5_daos_nattr_key_size_g);
         daos_csum_set(&iod[3].iod_kcsum, NULL, 0);
         iod[3].iod_nr = 1u;
         iod[3].iod_size = (uint64_t)8;
         iod[3].iod_type = DAOS_IOD_SINGLE;
 
-        /* Set up sgl */
-        /* sgl[3] contains the read buffer for the number of attributes.  We
-         * will reuse this buffer in sgl[4] after the read operation.  When it's
+        daos_iov_set(&iod[4].iod_name, (void *)H5_daos_max_attr_corder_key_g, H5_daos_max_attr_corder_key_size_g);
+        daos_csum_set(&iod[4].iod_kcsum, NULL, 0);
+        iod[4].iod_nr = 1u;
+        iod[4].iod_size = (uint64_t)8;
+        iod[4].iod_type = DAOS_IOD_SINGLE;
+
+        /* Set up sgl.
+         *
+         * sgl[3] contains the read buffer for the number of attributes.
+         * We will reuse this buffer in sgl[5] after the read operation.  When it's
          * written to disk it needs to contain a leading 0 byte to guarantee it
          * doesn't conflict with a string akey used in the attribute dkey, so we
          * will read the number of attributes to the last 8 bytes of the buffer.
+         *
+         * sgl[4] contains the read buffer for the object's max. attribute creation
+         * order value. It is used to determine an attribute's permanent creation
+         * order value.
          */
+        nattr_old_buf[0] = 0;
         daos_iov_set(&sg_iov[3], &nattr_old_buf[1], (daos_size_t)8);
         sgl[3].sg_nr = 1;
         sgl[3].sg_nr_out = 0;
         sgl[3].sg_iovs = &sg_iov[3];
 
-        /* Read num attributes */
-        nattr_old_buf[0] = 0;
-        if(0 != (ret = daos_obj_fetch(attr->parent->obj_oh, DAOS_TX_NONE, &dkey, 1, &iod[3], &sgl[3], NULL /*maps*/, NULL /*event*/)))
+        daos_iov_set(&sg_iov[4], max_corder_old_buf, (daos_size_t)8);
+        sgl[4].sg_nr = 1;
+        sgl[4].sg_nr_out = 0;
+        sgl[4].sg_iovs = &sg_iov[4];
+
+        /* Read num attributes and max creation order */
+        if(0 != (ret = daos_obj_fetch(attr->parent->obj_oh, DAOS_TX_NONE, &dkey, 2, &iod[3], &sgl[3], NULL /*maps*/, NULL /*event*/)))
             D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't read num attributes: %s", H5_daos_err_to_string(ret))
 
         p = &nattr_old_buf[1];
@@ -287,31 +308,58 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
         /* Add new attribute to count */
         nattr++;
 
+        /* Check for no max creation order record found, in which case it must be 0 */
+        p = max_corder_old_buf;
+        if(iod[4].iod_size == (uint64_t)0) {
+            max_corder = 0;
+            UINT64ENCODE(p, max_corder);
+
+            /* Reset iod size */
+            iod[4].iod_size = (uint64_t)8;
+        } /* end if */
+        else {
+            /* Verify the iod size was 8 as expected */
+            if(iod[4].iod_size != (uint64_t)8)
+                D_GOTO_ERROR(H5E_ATTR, H5E_CANTDECODE, NULL, "invalid size of maximum attribute creation order record")
+
+            /* Decode max. attribute creation order */
+            UINT64DECODE(p, max_corder);
+        } /* end else */
+
+        /* Increase max. creation order value */
+        max_corder++;
+
         /* Add creation order info to write command */
-        /* Encode new num attributes */
+        /* Encode new num attributes and max. creation order */
         p = nattr_new_buf;
         UINT64ENCODE(p, nattr);
+        p = max_corder_new_buf;
+        UINT64ENCODE(p, max_corder);
 
         /* Set up iod */
         /* iod[3] contains the key for the number of attributes.  Already set up
          * from read operation. */
 
-        /* iod[4] contains the creation order of the new attribute, used as an
+        /* iod[4] contains the key for the object's maximum attribute creation
+         * order value. Already set up from read operation.
+         */
+
+        /* iod[5] contains the creation order of the new attribute, used as an
          * akey for retrieving the attribute name to enable attribute lookup by
          * creation order */
-        daos_iov_set(&iod[4].iod_name, (void *)nattr_old_buf, 9);
-        daos_csum_set(&iod[4].iod_kcsum, NULL, 0);
-        iod[4].iod_nr = 1u;
-        iod[4].iod_size = (uint64_t)name_len;
-        iod[4].iod_type = DAOS_IOD_SINGLE;
-
-        /* iod[5] contains the key for the creation order, to enable attribute
-         * creation order lookup by name */
-        daos_iov_set(&iod[5].iod_name, (void *)acorder_key, (daos_size_t)akey_len);
+        daos_iov_set(&iod[5].iod_name, (void *)nattr_old_buf, 9);
         daos_csum_set(&iod[5].iod_kcsum, NULL, 0);
         iod[5].iod_nr = 1u;
-        iod[5].iod_size = (uint64_t)8;
+        iod[5].iod_size = (uint64_t)name_len;
         iod[5].iod_type = DAOS_IOD_SINGLE;
+
+        /* iod[6] contains the key for the creation order, to enable attribute
+         * creation order lookup by name */
+        daos_iov_set(&iod[6].iod_name, (void *)acorder_key, (daos_size_t)akey_len);
+        daos_csum_set(&iod[6].iod_kcsum, NULL, 0);
+        iod[6].iod_nr = 1u;
+        iod[6].iod_size = (uint64_t)8;
+        iod[6].iod_type = DAOS_IOD_SINGLE;
 
         /* Set up sgl */
         /* sgl[3] contains the number of attributes, updated to include this
@@ -321,23 +369,31 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
         sgl[3].sg_nr_out = 0;
         sgl[3].sg_iovs = &sg_iov[3];
 
-        /* sgl[4] contains the attribute name, here indexed using the creation
-         * order as the akey to enable attribute lookup by creation order */
-        daos_iov_set(&sg_iov[4], (void *)name, (daos_size_t)name_len);
+        /* sgl[4] contains the object's maximum creation order value, updated
+         * to include this attribute
+         */
+        daos_iov_set(&sg_iov[4], max_corder_new_buf, (daos_size_t)8);
         sgl[4].sg_nr = 1;
         sgl[4].sg_nr_out = 0;
         sgl[4].sg_iovs = &sg_iov[4];
 
-        /* sgl[5] contains the creation order (with no leading 0), to enable
-         * attribute creation order lookup by name */
-        daos_iov_set(&sg_iov[5], &nattr_old_buf[1], (daos_size_t)8);
+        /* sgl[5] contains the attribute name, here indexed using the creation
+         * order as the akey to enable attribute lookup by creation order */
+        daos_iov_set(&sg_iov[5], (void *)name, (daos_size_t)name_len);
         sgl[5].sg_nr = 1;
         sgl[5].sg_nr_out = 0;
         sgl[5].sg_iovs = &sg_iov[5];
+
+        /* sgl[6] contains the creation order (with no leading 0), to enable
+         * attribute creation order lookup by name */
+        daos_iov_set(&sg_iov[6], max_corder_old_buf, (daos_size_t)8);
+        sgl[6].sg_nr = 1;
+        sgl[6].sg_nr_out = 0;
+        sgl[6].sg_iovs = &sg_iov[6];
     } /* end if */
 
     /* Write attribute metadata to parent object */
-    if(0 != (ret = daos_obj_update(attr->parent->obj_oh, DAOS_TX_NONE, &dkey, attr->parent->ocpl_cache.track_acorder ? 6 : 3, iod, sgl, NULL /*event*/)))
+    if(0 != (ret = daos_obj_update(attr->parent->obj_oh, DAOS_TX_NONE, &dkey, attr->parent->ocpl_cache.track_acorder ? 7 : 3, iod, sgl, NULL /*event*/)))
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't write attribute metadata: %s", H5_daos_err_to_string(ret))
 
     /* Finish setting up attribute struct */

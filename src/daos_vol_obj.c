@@ -23,11 +23,11 @@
 #include "util/daos_vol_mem.h"  /* DAOS connector memory management        */
 
 static herr_t H5_daos_object_open_by_addr(H5_daos_obj_t *loc_obj, const H5VL_loc_params_t *loc_params,
-    daos_obj_id_t *opened_obj_id, H5I_type_t *opened_obj_type, hid_t dxpl_id, void **req);
+    daos_obj_id_t *opened_obj_id, hid_t dxpl_id, void **req);
 static herr_t H5_daos_object_open_by_name(H5_daos_obj_t *loc_obj, const H5VL_loc_params_t *loc_params,
-    daos_obj_id_t *opened_obj_id, H5I_type_t *opened_obj_type, hid_t dxpl_id, void **req);
+    daos_obj_id_t *opened_obj_id, hid_t dxpl_id, void **req);
 static herr_t H5_daos_object_open_by_idx(H5_daos_obj_t *loc_obj, const H5VL_loc_params_t *loc_params,
-    daos_obj_id_t *opened_obj_id, H5I_type_t *opened_obj_type, hid_t dxpl_id, void **req);
+    daos_obj_id_t *opened_obj_id, hid_t dxpl_id, void **req);
 static herr_t H5_daos_object_visit_link_iter_cb(hid_t group, const char *name, const H5L_info_t *info, void *op_data);
 static herr_t H5_daos_object_get_info(H5_daos_obj_t *target_obj, unsigned fields, H5O_info_t *obj_info_out);
 static hssize_t H5_daos_object_get_num_attrs(H5_daos_obj_t *target_obj);
@@ -87,17 +87,17 @@ H5_daos_object_open(void *_item, const H5VL_loc_params_t *loc_params,
     /* Retrieve the OID of the target object */
     switch (loc_params->type) {
         case H5VL_OBJECT_BY_ADDR:
-            if(H5_daos_object_open_by_addr((H5_daos_obj_t *)item, loc_params, &oid, &obj_type, dxpl_id, req) < 0)
+            if(H5_daos_object_open_by_addr((H5_daos_obj_t *)item, loc_params, &oid, dxpl_id, req) < 0)
                 D_GOTO_ERROR(H5E_OHDR, H5E_CANTOPENOBJ, NULL, "can't open object by address")
             break;
 
         case H5VL_OBJECT_BY_NAME:
-            if(H5_daos_object_open_by_name((H5_daos_obj_t *)item, loc_params, &oid, &obj_type, dxpl_id, req) < 0)
+            if(H5_daos_object_open_by_name((H5_daos_obj_t *)item, loc_params, &oid, dxpl_id, req) < 0)
                 D_GOTO_ERROR(H5E_OHDR, H5E_CANTOPENOBJ, NULL, "can't open object by name")
             break;
 
         case H5VL_OBJECT_BY_IDX:
-            if(H5_daos_object_open_by_idx((H5_daos_obj_t *)item, loc_params, &oid, &obj_type, dxpl_id, req) < 0)
+            if(H5_daos_object_open_by_idx((H5_daos_obj_t *)item, loc_params, &oid, dxpl_id, req) < 0)
                 D_GOTO_ERROR(H5E_OHDR, H5E_CANTOPENOBJ, NULL, "can't open object by index")
             break;
 
@@ -107,10 +107,16 @@ H5_daos_object_open(void *_item, const H5VL_loc_params_t *loc_params,
             D_GOTO_ERROR(H5E_OHDR, H5E_BADVALUE, NULL, "invalid loc_params type")
     } /* end switch */
 
+    /* Get object type */
+    if(H5I_BADID == (obj_type = H5_daos_oid_to_type(oid)))
+        D_GOTO_ERROR(H5E_OHDR, H5E_CANTINIT, NULL, "can't get object type")
+
     /* Set up sub_loc_params */
+    /* Switch to using tokens instead of addresses when they're implemented so
+     * we don't trip the 30 bit limit here DSINC */
     sub_loc_params.obj_type = item->type;
     sub_loc_params.type = H5VL_OBJECT_BY_ADDR;
-    sub_loc_params.loc_data.loc_by_addr.addr = (haddr_t)oid.lo;
+    sub_loc_params.loc_data.loc_by_addr.addr = H5_daos_oid_to_addr(oid);
 
     /* Call type's open function */
     if(obj_type == H5I_GROUP) {
@@ -168,11 +174,9 @@ done:
  */
 static herr_t
 H5_daos_object_open_by_addr(H5_daos_obj_t H5VL_DAOS_UNUSED *loc_obj, const H5VL_loc_params_t *loc_params,
-    daos_obj_id_t *opened_obj_id, H5I_type_t *opened_obj_type,
-    hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req)
+    daos_obj_id_t *opened_obj_id, hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req)
 {
     daos_obj_id_t oid;
-    H5I_type_t obj_type;
     herr_t ret_value = SUCCEED;
 
     assert(loc_obj);
@@ -180,16 +184,11 @@ H5_daos_object_open_by_addr(H5_daos_obj_t H5VL_DAOS_UNUSED *loc_obj, const H5VL_
     assert(opened_obj_id);
     assert(H5VL_OBJECT_BY_ADDR == loc_params->type);
 
-    /* Get object type */
-    if(H5I_BADID == (obj_type = H5_daos_addr_to_type((uint64_t)loc_params->loc_data.loc_by_addr.addr)))
-        D_GOTO_ERROR(H5E_OHDR, H5E_CANTGET, FAIL, "can't get object type")
-
     /* Generate oid from address */
-    memset(&oid, 0, sizeof(oid));
-    H5_daos_oid_generate(&oid, (uint64_t)loc_params->loc_data.loc_by_addr.addr, obj_type);
+    if(H5_daos_addr_to_oid(&oid, loc_params->loc_data.loc_by_addr.addr) < 0)
+        D_GOTO_ERROR(H5E_OHDR, H5E_CANTINIT, FAIL, "can't convert address to OID")
 
     *opened_obj_id = oid;
-    *opened_obj_type = obj_type;
 
 done:
     D_FUNC_LEAVE
@@ -209,11 +208,10 @@ done:
  */
 static herr_t
 H5_daos_object_open_by_name(H5_daos_obj_t *loc_obj, const H5VL_loc_params_t *loc_params,
-    daos_obj_id_t *opened_obj_id, H5I_type_t *opened_obj_type, hid_t dxpl_id, void **req)
+    daos_obj_id_t *opened_obj_id, hid_t dxpl_id, void **req)
 {
     H5_daos_group_t *target_grp = NULL;
     daos_obj_id_t oid;
-    H5I_type_t obj_type;
     const char *target_name = NULL;
     uint8_t oid_buf[2 * sizeof(uint64_t)];
     uint8_t *p;
@@ -300,12 +298,7 @@ H5_daos_object_open_by_name(H5_daos_obj_t *loc_obj, const H5VL_loc_params_t *loc
             D_GOTO_ERROR(H5E_OHDR, H5E_CANTOPENOBJ, FAIL, "lead process failed to open object")
     } /* end else */
 
-    /* Get object type */
-    if(H5I_BADID == (obj_type = H5_daos_oid_to_type(oid)))
-        D_GOTO_ERROR(H5E_OHDR, H5E_CANTGET, FAIL, "can't get object type")
-
     *opened_obj_id = oid;
-    *opened_obj_type = obj_type;
 
 done:
     /* Cleanup on failure */
@@ -340,12 +333,11 @@ done:
  */
 static herr_t
 H5_daos_object_open_by_idx(H5_daos_obj_t *loc_obj, const H5VL_loc_params_t *loc_params,
-    daos_obj_id_t *opened_obj_id, H5I_type_t *opened_obj_type, hid_t dxpl_id, void **req)
+    daos_obj_id_t *opened_obj_id, hid_t dxpl_id, void **req)
 {
     H5VL_loc_params_t sub_loc_params;
     H5_daos_group_t *container_group = NULL;
     daos_obj_id_t oid;
-    H5I_type_t obj_type;
     ssize_t link_name_size;
     htri_t link_resolved;
     char *link_name = NULL;
@@ -391,11 +383,6 @@ H5_daos_object_open_by_idx(H5_daos_obj_t *loc_obj, const H5VL_loc_params_t *loc_
     if(!link_resolved)
         D_GOTO_ERROR(H5E_OHDR, H5E_TRAVERSE, FAIL, "link to object did not resolve")
 
-    /* Get object type */
-    if(H5I_BADID == (obj_type = H5_daos_oid_to_type(oid)))
-        D_GOTO_ERROR(H5E_OHDR, H5E_CANTGET, FAIL, "can't get object type")
-
-    *opened_obj_type = obj_type;
     *opened_obj_id = oid;
 
 done:
@@ -922,76 +909,40 @@ H5_daos_object_close(void *_obj, hid_t dxpl_id, void **req)
         assert(0 && "Invalid object type");
 
 done:
-    D_FUNC_LEAVE_API
+    D_FUNC_LEAVE
 } /* end H5_daos_object_close() */
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_object_visit_link_iter_cb
+ * Function:    H5_daos_fill_ocpl_cache
  *
- * Purpose:     Link iteration callback (H5L_iterate_t) which is
- *              recursively called for each link in a group during a call
- *              to H5Ovisit(_by_name).
- *
- *              The callback expects to receive an H5_daos_iter_data_t
- *              which contains a pointer to the object iteration operator
- *              callback function (H5O_iterate_t) to call on the object
- *              which each link points to.
+ * Purpose:     Fills the "ocpl_cache" field of the object struct, using
+ *              the object's OCPL.  Assumes obj->ocpl_cache has been
+ *              initialized to all zeros.
  *
  * Return:      Success:        0
  *              Failure:        -1
  *
  *-------------------------------------------------------------------------
  */
-static herr_t
-H5_daos_object_visit_link_iter_cb(hid_t group, const char *name, const H5L_info_t *info,
-    void *op_data)
+herr_t
+H5_daos_fill_ocpl_cache(H5_daos_obj_t *obj, hid_t ocpl_id)
 {
-    H5_daos_iter_data_t *iter_data = (H5_daos_iter_data_t *)op_data;
-    H5_daos_group_t *target_grp;
-    H5_daos_obj_t *target_obj = NULL;
-    htri_t link_resolves = TRUE;
-    herr_t ret_value = H5_ITER_CONT;
+    unsigned acorder_flags;
+    herr_t ret_value = SUCCEED;
 
-    assert(iter_data);
-    assert(H5_DAOS_ITER_TYPE_OBJ == iter_data->iter_type);
+    assert(obj);
 
-    if(NULL == (target_grp = (H5_daos_group_t *) H5VLobject(group)))
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, H5_ITER_ERROR, "failed to retrieve VOL object for group ID")
-
-    if(H5L_TYPE_SOFT == info->type)
-        /* Check that the soft link resolves before opening the target object */
-        if((link_resolves = H5_daos_link_follow(target_grp, name, strlen(name), iter_data->dxpl_id, NULL, NULL)) < 0)
-            D_GOTO_ERROR(H5E_LINK, H5E_TRAVERSE, H5_ITER_ERROR, "can't follow link")
-
-    if(link_resolves) {
-        H5VL_loc_params_t loc_params;
-
-        /* Open the target object */
-        loc_params.type = H5VL_OBJECT_BY_NAME;
-        loc_params.loc_data.loc_by_name.name = name;
-        loc_params.loc_data.loc_by_name.lapl_id = H5P_LINK_ACCESS_DEFAULT;
-        if(NULL == (target_obj = H5_daos_object_open(target_grp, &loc_params, NULL, iter_data->dxpl_id, iter_data->req)))
-            D_GOTO_ERROR(H5E_OHDR, H5E_CANTOPENOBJ, H5_ITER_ERROR, "can't open object")
-
-        iter_data->u.obj_iter_data.obj_name = name;
-        if(H5_daos_object_visit(target_obj, iter_data) < 0)
-            D_GOTO_ERROR(H5E_OHDR, H5E_BADITER, H5_ITER_ERROR, "failed to visit object")
-
-        if(H5_daos_object_close(target_obj, iter_data->dxpl_id, iter_data->req) < 0)
-            D_GOTO_ERROR(H5E_OHDR, H5E_CLOSEERROR, H5_ITER_ERROR, "can't close object")
-        target_obj = NULL;
-    } /* end if */
+    /* Determine if this object is tracking attribute creation order */
+    if(H5Pget_attr_creation_order(ocpl_id, &acorder_flags) < 0)
+        D_GOTO_ERROR(H5E_OHDR, H5E_CANTINIT, FAIL, "can't get attribute creation order flags")
+    assert(!obj->ocpl_cache.track_acorder);
+    if(acorder_flags & H5P_CRT_ORDER_TRACKED)
+        obj->ocpl_cache.track_acorder = TRUE;
 
 done:
-    if(target_obj) {
-        if(H5_daos_object_close(target_obj, iter_data->dxpl_id, iter_data->req) < 0)
-            D_DONE_ERROR(H5E_OHDR, H5E_CLOSEERROR, H5_ITER_ERROR, "can't close object")
-        target_obj = NULL;
-    } /* end if */
-
     D_FUNC_LEAVE
-} /* end H5_daos_object_visit_link_iter_cb() */
+} /* end H5_daos_fill_ocpl_cache() */
 
 
 /*-------------------------------------------------------------------------
@@ -1053,6 +1004,73 @@ done:
 
 
 /*-------------------------------------------------------------------------
+ * Function:    H5_daos_object_visit_link_iter_cb
+ *
+ * Purpose:     Link iteration callback (H5L_iterate_t) which is
+ *              recursively called for each link in a group during a call
+ *              to H5Ovisit(_by_name).
+ *
+ *              The callback expects to receive an H5_daos_iter_data_t
+ *              which contains a pointer to the object iteration operator
+ *              callback function (H5O_iterate_t) to call on the object
+ *              which each link points to.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_object_visit_link_iter_cb(hid_t group, const char *name, const H5L_info_t *info,
+    void *op_data)
+{
+    H5_daos_iter_data_t *iter_data = (H5_daos_iter_data_t *)op_data;
+    H5_daos_group_t *target_grp;
+    H5_daos_obj_t *target_obj = NULL;
+    htri_t link_resolves = TRUE;
+    herr_t ret_value = H5_ITER_CONT;
+
+    assert(iter_data);
+    assert(H5_DAOS_ITER_TYPE_OBJ == iter_data->iter_type);
+
+    if(NULL == (target_grp = (H5_daos_group_t *) H5VLobject(group)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, H5_ITER_ERROR, "failed to retrieve VOL object for group ID")
+
+    if(H5L_TYPE_SOFT == info->type)
+        /* Check that the soft link resolves before opening the target object */
+        if((link_resolves = H5_daos_link_follow(target_grp, name, strlen(name), iter_data->dxpl_id, NULL, NULL)) < 0)
+            D_GOTO_ERROR(H5E_LINK, H5E_TRAVERSE, H5_ITER_ERROR, "can't follow link")
+
+    if(link_resolves) {
+        H5VL_loc_params_t loc_params;
+
+        /* Open the target object */
+        loc_params.type = H5VL_OBJECT_BY_NAME;
+        loc_params.loc_data.loc_by_name.name = name;
+        loc_params.loc_data.loc_by_name.lapl_id = H5P_LINK_ACCESS_DEFAULT;
+        if(NULL == (target_obj = H5_daos_object_open(target_grp, &loc_params, NULL, iter_data->dxpl_id, iter_data->req)))
+            D_GOTO_ERROR(H5E_OHDR, H5E_CANTOPENOBJ, H5_ITER_ERROR, "can't open object")
+
+        iter_data->u.obj_iter_data.obj_name = name;
+        if(H5_daos_object_visit(target_obj, iter_data) < 0)
+            D_GOTO_ERROR(H5E_OHDR, H5E_BADITER, H5_ITER_ERROR, "failed to visit object")
+
+        if(H5_daos_object_close(target_obj, iter_data->dxpl_id, iter_data->req) < 0)
+            D_GOTO_ERROR(H5E_OHDR, H5E_CLOSEERROR, H5_ITER_ERROR, "can't close object")
+        target_obj = NULL;
+    } /* end if */
+
+done:
+    if(target_obj) {
+        if(H5_daos_object_close(target_obj, iter_data->dxpl_id, iter_data->req) < 0)
+            D_DONE_ERROR(H5E_OHDR, H5E_CLOSEERROR, H5_ITER_ERROR, "can't close object")
+        target_obj = NULL;
+    } /* end if */
+
+    D_FUNC_LEAVE
+} /* end H5_daos_object_visit_link_iter_cb() */
+
+
+/*-------------------------------------------------------------------------
  * Function:    H5_daos_object_get_info
  *
  * Purpose:     Helper routine to retrieve the info for an object when
@@ -1091,9 +1109,9 @@ H5_daos_object_get_info(H5_daos_obj_t *target_obj, unsigned fields, H5O_info_t *
         UINT64DECODE(uuid_p, fileno64)
         obj_info_out->fileno = (unsigned long)fileno64;
 
-        /* Use lower 64 bits of oid as address - contains encoded object
-         * type */
-        obj_info_out->addr = (haddr_t)target_obj->oid.lo;
+        /* Encode oid to address.  Note that if the object index grows beyond 30
+         * bits this will return HADDR_UNDEF. */
+        obj_info_out->addr = H5_daos_oid_to_addr(target_obj->oid);
 
         /* Set object type */
         switch(target_obj->item.type) {
@@ -1117,7 +1135,7 @@ H5_daos_object_get_info(H5_daos_obj_t *target_obj, unsigned fields, H5O_info_t *
         }
 
         /* Reference count is always 1 - change this when
-         * H5Lcreate_hard() is implemented */
+         * H5Lcreate_hard() is implemented DSINC */
         obj_info_out->rc = 1;
     } /* end if */
 
@@ -1166,7 +1184,7 @@ H5_daos_object_get_num_attrs(H5_daos_obj_t *target_obj)
     memset(&anchor, 0, sizeof(anchor));
 
     /* Set up dkey */
-    daos_iov_set(&dkey, H5_daos_attr_key_g, H5_daos_attr_key_size_g);
+    daos_iov_set(&dkey, (void *)H5_daos_attr_key_g, H5_daos_attr_key_size_g);
 
     /* Allocate akey_buf */
     if(NULL == (akey_buf = (char *)DV_malloc(H5_DAOS_ITER_SIZE_INIT)))
@@ -1711,3 +1729,4 @@ done:
 
     D_FUNC_LEAVE
 } /* end H5_daos_object_copy_attributes() */
+

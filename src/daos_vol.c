@@ -195,7 +195,6 @@ static const unsigned int   H5_daos_pool_default_svc_nreplicas_g = 1;           
 
 /* Constant Keys */
 const char H5_daos_int_md_key_g[]           = "/Internal Metadata";
-const char H5_daos_max_oid_key_g[]          = "Max OID";
 const char H5_daos_cpl_key_g[]              = "Creation Property List";
 const char H5_daos_link_key_g[]             = "Link";
 const char H5_daos_link_corder_key_g[]      = "/Link Creation Order";
@@ -204,12 +203,12 @@ const char H5_daos_max_link_corder_key_g[]  = "Max Link Creation Order";
 const char H5_daos_type_key_g[]             = "Datatype";
 const char H5_daos_space_key_g[]            = "Dataspace";
 const char H5_daos_attr_key_g[]             = "/Attribute";
+const char H5_daos_nattr_key_g[]            = "Num Attributes";
 const char H5_daos_ktype_g[]                = "Key Datatype";
 const char H5_daos_vtype_g[]                = "Value Datatype";
 const char H5_daos_map_key_g[]              = "Map Record";
 
 const daos_size_t H5_daos_int_md_key_size_g           = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
-const daos_size_t H5_daos_max_oid_key_size_g          = (daos_size_t)(sizeof(H5_daos_max_oid_key_g) - 1);
 const daos_size_t H5_daos_cpl_key_size_g              = (daos_size_t)(sizeof(H5_daos_cpl_key_g) - 1);
 const daos_size_t H5_daos_link_key_size_g             = (daos_size_t)(sizeof(H5_daos_link_key_g) - 1);
 const daos_size_t H5_daos_link_corder_key_size_g      = (daos_size_t)(sizeof(H5_daos_link_corder_key_g) - 1);
@@ -218,6 +217,7 @@ const daos_size_t H5_daos_max_link_corder_key_size_g  = (daos_size_t)(sizeof(H5_
 const daos_size_t H5_daos_type_key_size_g             = (daos_size_t)(sizeof(H5_daos_type_key_g) - 1);
 const daos_size_t H5_daos_space_key_size_g            = (daos_size_t)(sizeof(H5_daos_space_key_g) - 1);
 const daos_size_t H5_daos_attr_key_size_g             = (daos_size_t)(sizeof(H5_daos_attr_key_g) - 1);
+const daos_size_t H5_daos_nattr_key_size_g            = (daos_size_t)(sizeof(H5_daos_nattr_key_g) - 1);
 const daos_size_t H5_daos_ktype_size_g                = (daos_size_t)(sizeof(H5_daos_ktype_g) - 1);
 const daos_size_t H5_daos_vtype_size_g                = (daos_size_t)(sizeof(H5_daos_vtype_g) - 1);
 const daos_size_t H5_daos_map_key_size_g              = (daos_size_t)(sizeof(H5_daos_map_key_g) - 1);
@@ -1150,18 +1150,81 @@ done:
 } /* end H5_daos_optional() */
 
 
-/* Create a DAOS OID given the object type and a 64 bit address (with the object
- * type already encoded) */
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_oidx_generate
+ *
+ * Purpose:     Generate a unique 64 bit object index.  This index will be
+ *              used as the lower 64 bits of the DAOS object ID.
+ *
+ * Return:      Success:    0
+ *              Failure:    -1
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_oidx_generate(uint64_t *oidx, H5_daos_file_t *file)
+{
+    int ret;
+    int ret_value = SUCCEED;
+
+    /* Allocate more object indices for this process if necessary */
+    if((file->max_oidx == 0) || (file->next_oidx > file->max_oidx)) {
+        /* Allocate oidxs */
+        if((ret = daos_cont_alloc_oids(file->coh, H5_DAOS_OIDX_NALLOC, &file->next_oidx, NULL /*event*/)))
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTALLOC, FAIL, "can't allocate object indices: %s", H5_daos_err_to_string(ret))
+
+        /* Set max oidx */
+        file->max_oidx = file->next_oidx + H5_DAOS_OIDX_NALLOC - 1;
+
+        /* Skip over reserved indices */
+        assert(H5_DAOS_OIDX_NALLOC > H5_DAOS_OIDX_FIRST_USER);
+        if(file->next_oidx < H5_DAOS_OIDX_FIRST_USER)
+            file->next_oidx = H5_DAOS_OIDX_FIRST_USER;
+    } /* end if */
+
+    /* Allocate oidx from local allocation */
+    assert(file->next_oidx <= file->max_oidx);
+    *oidx = file->next_oidx;
+    file->next_oidx++;
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_oidx_generate() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_oid_encode
+ *
+ * Purpose:     Create a DAOS OID given the object type and a 64 bit index
+ *
+ * Return:      void
+ *
+ *-------------------------------------------------------------------------
+ */
 void
-H5_daos_oid_generate(daos_obj_id_t *oid, uint64_t addr, H5I_type_t obj_type)
+H5_daos_oid_encode(daos_obj_id_t *oid, uint64_t oidx, H5I_type_t obj_type)
 {
     daos_oclass_id_t object_class;
     daos_ofeat_t object_feats;
 
-    assert(oid);
+    /* Initialize oid.lo to oidx */
+    oid->lo = oidx;
 
-    /* Encode type and address */
-    oid->lo = addr;
+    /* Set type bits in the upper 2 bits of of the lower 32 of oid.hi (for
+     * simplicity so they're in the same location as in the compacted haddr_t
+     * form) */
+    if(obj_type == H5I_GROUP)
+        oid->hi = H5_DAOS_TYPE_GRP;
+    else if(obj_type == H5I_DATASET)
+        oid->hi = H5_DAOS_TYPE_DSET;
+    else if(obj_type == H5I_DATATYPE)
+        oid->hi = H5_DAOS_TYPE_DTYPE;
+    else {
+#ifdef DV_HAVE_MAP
+        assert(obj_type == H5I_MAP);
+#endif
+        oid->hi = H5_DAOS_TYPE_MAP;
+    } /* end else */
 
     /* Set the object feature flags */
     if(H5I_GROUP == obj_type)
@@ -1176,45 +1239,112 @@ H5_daos_oid_generate(daos_obj_id_t *oid, uint64_t addr, H5I_type_t obj_type)
     H5_daos_obj_generate_id(oid, object_feats, object_class);
 
     return;
-} /* end H5_daos_oid_generate() */
-
-
-/* Create a DAOS OID given the object type and a 64 bit index (top 2 bits are
- * ignored) */
-void
-H5_daos_oid_encode(daos_obj_id_t *oid, uint64_t idx, H5I_type_t obj_type)
-{
-    uint64_t type_bits;
-
-    /* Set type_bits */
-    if(obj_type == H5I_GROUP)
-        type_bits = H5_DAOS_TYPE_GRP;
-    else if(obj_type == H5I_DATASET)
-        type_bits = H5_DAOS_TYPE_DSET;
-    else if(obj_type == H5I_DATATYPE)
-        type_bits = H5_DAOS_TYPE_DTYPE;
-    else {
-#ifdef DV_HAVE_MAP
-        assert(obj_type == H5I_MAP);
-#endif
-        type_bits = H5_DAOS_TYPE_MAP;
-    } /* end else */
-
-    /* Encode type and address and generate oid */
-    H5_daos_oid_generate(oid, type_bits | (idx & H5_DAOS_IDX_MASK), obj_type);
-
-    return;
 } /* end H5_daos_oid_encode() */
 
 
-/* Retrieve the 64 bit address from a DAOS OID */
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_oid_generate
+ *
+ * Purpose:     Generate a DAOS OID given the object type and file
+ *
+ * Return:      Success:    0
+ *              Failure:    -1
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_oid_generate(daos_obj_id_t *oid, H5I_type_t obj_type,
+    H5_daos_file_t *file)
+{
+    uint64_t oidx;
+    int ret_value = SUCCEED;
+
+    /* Generate oidx */
+    if(H5_daos_oidx_generate(&oidx, file) < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTALLOC, FAIL, "can't generate object index")
+
+    /* Encode oid */
+    H5_daos_oid_encode(oid, oidx, obj_type);
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_oid_generate() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_oid_to_addr
+ *
+ * Purpose:     Convert an OID to a compacted "address", which is a unique
+ *              haddr_t type value that can be used later to reconstruct
+ *              this OID.  If oid.lo uses more than the lower 30 bits, the
+ *              address will overflow, so this function will return
+ *              HADDR_UNDEF.
+ *
+ * Return:      Address that maps to oid, or HADDR_UNDEF in the case of
+ *              overflow
+ *
+ *-------------------------------------------------------------------------
+ */
+haddr_t
+H5_daos_oid_to_addr(daos_obj_id_t oid)
+{
+    /* Check if the oidx goes beyond the maximum value that can be represented
+     * in an haddr_t, in this case return HADDR_UNDEF */
+    if(oid.lo & ~H5_DAOS_ADDR_OIDLO_MASK)
+        return HADDR_UNDEF;
+
+    /* Build address from the 32 internal DAOS bits, 2 object type bits, and 30
+     * object index bits */
+    return (haddr_t)((oid.lo & H5_DAOS_ADDR_OIDLO_MASK)
+            | (oid.hi & H5_DAOS_ADDR_OIDHI_MASK));
+} /* end H5_daos_oid_to_addr() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_addr_to_oid
+ *
+ * Purpose:     Convert a compacted address to an OID
+ *
+ * Return:      Success:    0
+ *              Failure:    -1
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_addr_to_oid(daos_obj_id_t *oid, haddr_t addr)
+{
+    int ret_value = SUCCEED;
+
+    /* Check for HADDR_UNDEF */
+    if(addr == HADDR_UNDEF)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "address is undefined")
+
+    /* Build OID */
+    oid->lo = addr & H5_DAOS_ADDR_OIDLO_MASK;
+    oid->hi = addr & H5_DAOS_ADDR_OIDHI_MASK;
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_addr_to_oid() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_oid_to_type
+ *
+ * Purpose:     Retrieve the HDF5 object type from an OID
+ *
+ * Return:      Success:    Object type
+ *              Failure:    H5I_BADID
+ *
+ *-------------------------------------------------------------------------
+ */
 H5I_type_t
-H5_daos_addr_to_type(uint64_t addr)
+H5_daos_oid_to_type(daos_obj_id_t oid)
 {
     uint64_t type_bits;
 
     /* Retrieve type */
-    type_bits = addr & H5_DAOS_TYPE_MASK;
+    type_bits = oid.hi & H5_DAOS_TYPE_MASK;
     if(type_bits == H5_DAOS_TYPE_GRP)
         return(H5I_GROUP);
     else if(type_bits == H5_DAOS_TYPE_DSET)
@@ -1227,27 +1357,19 @@ H5_daos_addr_to_type(uint64_t addr)
 #endif
     else
         return(H5I_BADID);
-} /* end H5_daos_addr_to_type() */
-
-
-/* Retrieve the 64 bit address from a DAOS OID */
-H5I_type_t
-H5_daos_oid_to_type(daos_obj_id_t oid)
-{
-    /* Retrieve type */
-    return H5_daos_addr_to_type(oid.lo);
 } /* end H5_daos_oid_to_type() */
 
 
-/* Retrieve the 64 bit object index from a DAOS OID */
-uint64_t
-H5_daos_oid_to_idx(daos_obj_id_t oid)
-{
-    return oid.lo & H5_DAOS_IDX_MASK;
-} /* end H5_daos_oid_to_idx() */
-
-
-/* Multiply two 128 bit unsigned integers to yield a 128 bit unsigned integer */
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_mult128
+ *
+ * Purpose:     Multiply two 128 bit unsigned integers to yield a 128 bit
+ *              unsigned integer
+ *
+ * Return:      void
+ *
+ *-------------------------------------------------------------------------
+ */
 static void
 H5_daos_mult128(uint64_t x_lo, uint64_t x_hi, uint64_t y_lo, uint64_t y_hi,
     uint64_t *ans_lo, uint64_t *ans_hi)
@@ -1303,7 +1425,16 @@ H5_daos_mult128(uint64_t x_lo, uint64_t x_hi, uint64_t y_lo, uint64_t y_hi,
 } /* end H5_daos_mult128() */
 
 
-/* Implementation of the FNV hash algorithm */
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_hash128
+ *
+ * Purpose:     Hashes the string name to a 128 bit buffer (hash).
+ *              Implementation of the FNV hash algorithm.
+ *
+ * Return:      void
+ *
+ *-------------------------------------------------------------------------
+ */
 void
 H5_daos_hash128(const char *name, void *hash)
 {
@@ -1366,57 +1497,6 @@ H5_daos_hash128(const char *name, void *hash)
 
     return;
 } /* end H5_daos_hash128() */
-
-
-/*-------------------------------------------------------------------------
- * Function:    H5_daos_write_max_oid
- *
- * Purpose:     Writes the max OID (object index) to the global metadata
- *              object
- *
- * Return:      Success:        0
- *              Failure:        -1
- *
- * Programmer:  Neil Fortner
- *              December, 2016
- *
- *-------------------------------------------------------------------------
- */
-herr_t
-H5_daos_write_max_oid(H5_daos_file_t *file)
-{
-    daos_key_t dkey;
-    daos_iod_t iod;
-    daos_sg_list_t sgl;
-    daos_iov_t sg_iov;
-    int ret;
-    herr_t ret_value = SUCCEED;
-
-    assert(file);
-
-    /* Set up dkey */
-    daos_iov_set(&dkey, H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
-
-    /* Set up iod */
-    memset(&iod, 0, sizeof(iod));
-    daos_iov_set(&iod.iod_name, H5_daos_max_oid_key_g, H5_daos_max_oid_key_size_g);
-    daos_csum_set(&iod.iod_kcsum, NULL, 0);
-    iod.iod_nr = 1u;
-    iod.iod_size = (uint64_t)8;
-    iod.iod_type = DAOS_IOD_SINGLE;
-
-    /* Set up sgl */
-    daos_iov_set(&sg_iov, &file->max_oid, (daos_size_t)8);
-    sgl.sg_nr = 1;
-    sgl.sg_nr_out = 0;
-    sgl.sg_iovs = &sg_iov;
-
-    /* Write max OID to gmd obj */
-    if(0 != (ret = daos_obj_update(file->glob_md_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTENCODE, FAIL, "can't write max OID to global metadata object: %s", H5_daos_err_to_string(ret))
-done:
-    D_FUNC_LEAVE
-} /* end H5_daos_write_max_oid() */
 
 
 /*-------------------------------------------------------------------------

@@ -171,7 +171,8 @@ H5_daos_dataset_create(void *_item,
     dset->dapl_id = FAIL;
 
     /* Generate dataset oid */
-    H5_daos_oid_encode(&dset->obj.oid, item->file->max_oid + (uint64_t)1, H5I_DATASET);
+    if(H5_daos_oid_generate(&dset->obj.oid, H5I_DATASET, item->file) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't generate object id")
 
     /* Create dataset and write metadata if this process should */
     if(!collective || (item->file->my_rank == 0)) {
@@ -191,13 +192,6 @@ H5_daos_dataset_create(void *_item,
                 D_GOTO_ERROR(H5E_DATASET, H5E_BADITER, NULL, "can't traverse path")
 
         /* Create dataset */
-        /* Update max_oid */
-        item->file->max_oid = H5_daos_oid_to_idx(dset->obj.oid);
-
-        /* Write max OID */
-        if(H5_daos_write_max_oid(item->file) < 0)
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't write max OID")
-
         /* Open dataset */
         if(0 != (ret = daos_obj_open(item->file->coh, dset->obj.oid, DAOS_OO_RW, &dset->obj.obj_oh, NULL /*event*/)))
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTOPENOBJ, NULL, "can't open dataset: %s", H5_daos_err_to_string(ret))
@@ -228,23 +222,23 @@ H5_daos_dataset_create(void *_item,
 
         /* Set up operation to write datatype, dataspace, and DCPL to dataset */
         /* Set up dkey */
-        daos_iov_set(&dkey, H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
+        daos_iov_set(&dkey, (void *)H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
 
         /* Set up iod */
         memset(iod, 0, sizeof(iod));
-        daos_iov_set(&iod[0].iod_name, H5_daos_type_key_g, H5_daos_type_key_size_g);
+        daos_iov_set(&iod[0].iod_name, (void *)H5_daos_type_key_g, H5_daos_type_key_size_g);
         daos_csum_set(&iod[0].iod_kcsum, NULL, 0);
         iod[0].iod_nr = 1u;
         iod[0].iod_size = (uint64_t)type_size;
         iod[0].iod_type = DAOS_IOD_SINGLE;
 
-        daos_iov_set(&iod[1].iod_name, H5_daos_space_key_g, H5_daos_space_key_size_g);
+        daos_iov_set(&iod[1].iod_name, (void *)H5_daos_space_key_g, H5_daos_space_key_size_g);
         daos_csum_set(&iod[1].iod_kcsum, NULL, 0);
         iod[1].iod_nr = 1u;
         iod[1].iod_size = (uint64_t)space_size;
         iod[1].iod_type = DAOS_IOD_SINGLE;
 
-        daos_iov_set(&iod[2].iod_name, H5_daos_cpl_key_g, H5_daos_cpl_key_size_g);
+        daos_iov_set(&iod[2].iod_name, (void *)H5_daos_cpl_key_g, H5_daos_cpl_key_size_g);
         daos_csum_set(&iod[2].iod_kcsum, NULL, 0);
         iod[2].iod_nr = 1u;
         iod[2].iod_size = (uint64_t)dcpl_size;
@@ -281,9 +275,6 @@ H5_daos_dataset_create(void *_item,
         } /* end if */
     } /* end if */
     else {
-        /* Update max_oid */
-        item->file->max_oid = dset->obj.oid.lo;
-
         /* Note no barrier is currently needed here, daos_obj_open is a local
          * operation and can occur before the lead process writes metadata.  For
          * app-level synchronization we could add a barrier or bcast though it
@@ -307,6 +298,10 @@ H5_daos_dataset_create(void *_item,
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, NULL, "failed to copy dcpl")
     if((dset->dapl_id = H5Pcopy(dapl_id)) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, NULL, "failed to copy dapl")
+
+    /* Fill OCPL cache */
+    if(H5_daos_fill_ocpl_cache(&dset->obj, dset->dcpl_id) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "failed to fill OCPL cache")
 
     /* Set return value */
     ret_value = (void *)dset;
@@ -438,7 +433,8 @@ H5_daos_dataset_open(void *_item,
         /* Check for open by address */
         if(H5VL_OBJECT_BY_ADDR == loc_params->type) {
             /* Generate oid from address */
-            H5_daos_oid_generate(&dset->obj.oid, (uint64_t)loc_params->loc_data.loc_by_addr.addr, H5I_DATASET);
+            if(H5_daos_addr_to_oid(&dset->obj.oid, loc_params->loc_data.loc_by_addr.addr) < 0)
+                D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't convert address to OID")
         } /* end if */
         else {
             htri_t link_resolved;
@@ -467,17 +463,17 @@ H5_daos_dataset_open(void *_item,
         /* Set up operation to read datatype, dataspace, and DCPL sizes from
          * dataset */
         /* Set up dkey */
-        daos_iov_set(&dkey, H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
+        daos_iov_set(&dkey, (void *)H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
 
         /* Set up iod */
         memset(iod, 0, sizeof(iod));
-        daos_iov_set(&iod[0].iod_name, H5_daos_type_key_g, H5_daos_type_key_size_g);
+        daos_iov_set(&iod[0].iod_name, (void *)H5_daos_type_key_g, H5_daos_type_key_size_g);
         daos_csum_set(&iod[0].iod_kcsum, NULL, 0);
         iod[0].iod_nr = 1u;
         iod[0].iod_size = DAOS_REC_ANY;
         iod[0].iod_type = DAOS_IOD_SINGLE;
 
-        daos_iov_set(&iod[1].iod_name, H5_daos_space_key_g, H5_daos_space_key_size_g);
+        daos_iov_set(&iod[1].iod_name, (void *)H5_daos_space_key_g, H5_daos_space_key_size_g);
         daos_csum_set(&iod[1].iod_kcsum, NULL, 0);
         iod[1].iod_nr = 1u;
         iod[1].iod_size = DAOS_REC_ANY;
@@ -617,6 +613,10 @@ H5_daos_dataset_open(void *_item,
     /* Finish setting up dataset struct */
     if((dset->dapl_id = H5Pcopy(dapl_id)) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, NULL, "failed to copy dapl");
+
+    /* Fill OCPL cache */
+    if(H5_daos_fill_ocpl_cache(&dset->obj, dset->dcpl_id) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "failed to fill OCPL cache")
 
     /* Set return value */
     ret_value = (void *)dset;
@@ -1768,7 +1768,7 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
         if((num_elem = H5Sget_select_npoints(chunk_info[i].fspace_id)) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get number of points in selection")
 
-        if(single_chunk_write_func(dset, dkey, num_elem, mem_type_id, chunk_info[i].mspace_id, chunk_info[i].fspace_id, dxpl_id, IO_WRITE, buf) < 0)
+        if(single_chunk_write_func(dset, dkey, num_elem, mem_type_id, chunk_info[i].mspace_id, chunk_info[i].fspace_id, dxpl_id, IO_WRITE, (void *)buf) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_WRITEERROR, FAIL, "dataset write failed")
     } /* end for */
 

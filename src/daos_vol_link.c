@@ -19,7 +19,7 @@
 #include "util/daos_vol_mem.h"  /* DAOS connector memory management        */
 
 /* Macros */
-#define H5_DAOS_HARD_LINK_VAL_SIZE 17
+#define H5_DAOS_HARD_LINK_VAL_SIZE (8 + 8 + 1)
 #define H5_DAOS_RECURSE_LINK_PATH_BUF_INIT 1024
 #define H5_DAOS_CRT_ORDER_TO_LINK_TRGT_BUF_SIZE 9
 
@@ -29,15 +29,15 @@
  * value size (soft/external link) fields of an H5L_info_t
  * for a link.
  */
-#define H5_DAOS_LINK_VAL_TO_INFO(link_val, link_info)            \
-do {                                                             \
-    link_info.type = link_val.type;                              \
-    if(link_val.type == H5L_TYPE_HARD)                           \
-        link_info.u.address = (haddr_t)link_val.target.hard.lo;  \
-    else {                                                       \
-        assert(link_val.type == H5L_TYPE_SOFT);                  \
-        link_info.u.val_size = strlen(link_val.target.soft) + 1; \
-    }                                                            \
+#define H5_DAOS_LINK_VAL_TO_INFO(link_val, link_info)                    \
+do {                                                                     \
+    link_info.type = link_val.type;                                      \
+    if(link_val.type == H5L_TYPE_HARD)                                   \
+        link_info.u.address = H5_daos_oid_to_addr(link_val.target.hard); \
+    else {                                                               \
+        assert(link_val.type == H5L_TYPE_SOFT);                          \
+        link_info.u.val_size = strlen(link_val.target.soft) + 1;         \
+    }                                                                    \
 } while(0)
 
 /* Prototypes */
@@ -564,7 +564,9 @@ H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
             }
             else {
                 /* H5Olink */
-                assert(H5VL_OBJECT_BY_SELF == target_obj_loc_params->type);
+                if(H5VL_OBJECT_BY_SELF == target_obj_loc_params->type)
+                    D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, FAIL, "invalid loc_params type")
+
                 link_val.target.hard = target_obj_loc->oid;
             }
 

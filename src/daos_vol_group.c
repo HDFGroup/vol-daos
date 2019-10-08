@@ -180,7 +180,7 @@ void *
 H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
     hid_t gapl_id, hid_t dxpl_id, H5_daos_req_t *req,
     H5_daos_group_t *parent_grp, const char *name, size_t name_len,
-    hbool_t collective)
+    uint64_t oidx, hbool_t collective)
 {
     H5_daos_group_t *grp = NULL;
     void *gcpl_buf = NULL;
@@ -207,8 +207,8 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
     grp->gcpl_id = FAIL;
     grp->gapl_id = FAIL;
 
-    /* Generate group oid */
-    H5_daos_oid_encode(&grp->obj.oid, file->max_oid + (uint64_t)1, H5I_GROUP);
+    /* Encode group oid */
+    H5_daos_oid_encode(&grp->obj.oid, oidx, H5I_GROUP);
 
     /* Create group and write metadata if this process should */
     if(!collective || (file->my_rank == 0)) {
@@ -217,13 +217,6 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
         tse_task_t *link_write_task;
 
         /* Create group */
-        /* Update max_oid */
-        file->max_oid = H5_daos_oid_to_idx(grp->obj.oid);
-
-        /* Write max OID */
-        if(H5_daos_write_max_oid(file) < 0)
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't write max OID")
-
         /* Allocate argument struct */
         if(NULL == (update_cb_ud = (H5_daos_md_update_cb_ud_t *)DV_calloc(sizeof(H5_daos_md_update_cb_ud_t))))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for update callback arguments")
@@ -306,9 +299,6 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
         } /* end if */
     } /* end if */
     else {
-        /* Update max_oid */
-        file->max_oid = grp->obj.oid.lo;
-
         /* Note no barrier is currently needed here, daos_obj_open is a local
          * operation and can occur before the lead process writes metadata.  For
          * app-level synchronization we could add a barrier or bcast to the
@@ -333,6 +323,10 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
     /* Fill GCPL cache */
     if(H5_daos_group_fill_gcpl_cache(grp) < 0)
         D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "failed to fill GCPL cache")
+
+    /* Fill OCPL cache */
+    if(H5_daos_fill_ocpl_cache(&grp->obj, grp->gcpl_id) < 0)
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "failed to fill OCPL cache")
 
     ret_value = (void *)grp;
 
@@ -395,6 +389,7 @@ H5_daos_group_create(void *_item,
     H5_daos_group_t *grp = NULL;
     H5_daos_group_t *target_grp = NULL;
     const char *target_name = NULL;
+    uint64_t oidx;
     hbool_t collective;
     H5_daos_req_t *int_req = NULL;
     int ret;
@@ -438,8 +433,12 @@ H5_daos_group_create(void *_item,
                 D_GOTO_ERROR(H5E_SYM, H5E_BADITER, NULL, "can't traverse path")
     } /* end if */
 
+    /* Generate object index */
+    if(H5_daos_oidx_generate(&oidx, item->file) < 0)
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't generate object index")
+
     /* Create group and link to group */
-    if(NULL == (grp = (H5_daos_group_t *)H5_daos_group_create_helper(item->file, gcpl_id, gapl_id, dxpl_id, int_req, target_grp, target_name, target_name ? strlen(target_name) : 0, collective)))
+    if(NULL == (grp = (H5_daos_group_t *)H5_daos_group_create_helper(item->file, gcpl_id, gapl_id, dxpl_id, int_req, target_grp, target_name, target_name ? strlen(target_name) : 0, oidx, collective)))
         D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't create group")
 
     /* Set return value */
@@ -572,6 +571,10 @@ H5_daos_group_open_helper(H5_daos_file_t *file, daos_obj_id_t oid,
     if(H5_daos_group_fill_gcpl_cache(grp) < 0)
         D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "failed to fill GCPL cache")
 
+    /* Fill OCPL cache */
+    if(H5_daos_fill_ocpl_cache(&grp->obj, grp->gcpl_id) < 0)
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "failed to fill OCPL cache")
+
     /* Return GCPL info if requested, relinquish ownership of gcpl_buf if so */
     if(gcpl_buf_out) {
         assert(gcpl_len_out);
@@ -650,6 +653,10 @@ H5_daos_group_reconstitute(H5_daos_file_t *file, daos_obj_id_t oid,
     if(H5_daos_group_fill_gcpl_cache(grp) < 0)
         D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "failed to fill GCPL cache")
 
+    /* Fill OCPL cache */
+    if(H5_daos_fill_ocpl_cache(&grp->obj, grp->gcpl_id) < 0)
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "failed to fill OCPL cache")
+
     ret_value = (void *)grp;
 
 done:
@@ -716,8 +723,8 @@ H5_daos_group_open(void *_item, const H5VL_loc_params_t *loc_params,
         /* Check for open by address */
         if(H5VL_OBJECT_BY_ADDR == loc_params->type) {
             /* Generate oid from address */
-            memset(&oid, 0, sizeof(oid));
-            H5_daos_oid_generate(&oid, (uint64_t)loc_params->loc_data.loc_by_addr.addr, H5I_GROUP);
+            if(H5_daos_addr_to_oid(&oid, loc_params->loc_data.loc_by_addr.addr) < 0)
+                D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't convert address to OID")
 
             /* Open group */
             if(NULL == (grp = (H5_daos_group_t *)H5_daos_group_open_helper(item->file, oid, gapl_id, dxpl_id, NULL, (collective && (item->file->num_procs > 1)) ? (void **)&gcpl_buf : NULL, &gcpl_len)))

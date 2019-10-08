@@ -2090,6 +2090,8 @@ H5_daos_link_remove_from_crt_idx(H5_daos_group_t *target_grp, const H5VL_loc_par
     daos_key_t akeys[2];
     uint64_t delete_idx = 0;
     uint8_t crt_order_target_buf[H5_DAOS_CRT_ORDER_TO_LINK_TRGT_BUF_SIZE];
+    uint8_t idx_buf[sizeof(uint64_t)];
+    uint8_t *p;
     ssize_t grp_nlinks_remaining;
     hid_t target_grp_id = H5I_INVALID_HID;
     int ret;
@@ -2153,10 +2155,13 @@ H5_daos_link_remove_from_crt_idx(H5_daos_group_t *target_grp, const H5VL_loc_par
     /* Set up akeys */
 
     /* Remove the akey which maps creation order -> link name */
-    daos_iov_set(&akeys[0], (void *)&delete_idx, sizeof(delete_idx));
+    p = idx_buf;
+    UINT64ENCODE(p, delete_idx);
+    daos_iov_set(&akeys[0], (void *)idx_buf, sizeof(uint64_t));
 
     /* Remove the akey which maps creation order -> link target */
-    memcpy(crt_order_target_buf, &delete_idx, H5_DAOS_CRT_ORDER_TO_LINK_TRGT_BUF_SIZE - 1);
+    p = crt_order_target_buf;
+    UINT64ENCODE(p, delete_idx);
     crt_order_target_buf[H5_DAOS_CRT_ORDER_TO_LINK_TRGT_BUF_SIZE - 1] = 0;
     daos_iov_set(&akeys[1], (void *)crt_order_target_buf, H5_DAOS_CRT_ORDER_TO_LINK_TRGT_BUF_SIZE);
 
@@ -2256,8 +2261,10 @@ H5_daos_link_shift_crt_idx_keys_down(H5_daos_group_t *target_grp,
     daos_iov_t *sg_iovs = NULL;
     daos_key_t dkey;
     daos_key_t tail_akeys[2];
-    uint64_t *crt_order_link_name_buf = NULL;
+    uint64_t tmp_uint;
+    uint8_t *crt_order_link_name_buf = NULL;
     uint8_t *crt_order_link_trgt_buf = NULL;
+    uint8_t *p;
     size_t nlinks_shift;
     size_t i;
     char *tmp_buf = NULL;
@@ -2286,7 +2293,7 @@ H5_daos_link_shift_crt_idx_keys_down(H5_daos_group_t *target_grp,
      * The 'creation order -> link target' akey's integer 'name' value is a 9-byte buffer:
      * 8 bytes for the integer creation order value + 1 0-byte at the end of the buffer.
      */
-    if(NULL == (crt_order_link_trgt_buf = DV_malloc(9 * nlinks_shift * sizeof(uint8_t))))
+    if(NULL == (crt_order_link_trgt_buf = DV_malloc(nlinks_shift * (sizeof(uint8_t) + 1))))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate akey data buffer")
 
     /* Set up dkey */
@@ -2294,19 +2301,23 @@ H5_daos_link_shift_crt_idx_keys_down(H5_daos_group_t *target_grp,
 
     /* Set up iods */
     for(i = 0; i < nlinks_shift; i++) {
+        tmp_uint = idx_begin + i;
+
         /* Setup the integer 'name' value for the current 'creation order -> link name' akey */
-        crt_order_link_name_buf[i] = idx_begin + i;
+        p = &crt_order_link_name_buf[i * sizeof(uint64_t)];
+        UINT64ENCODE(p, tmp_uint);
 
         /* Set up iods for the current 'creation order -> link name' akey */
         memset(&iods[2 * i], 0, sizeof(*iods));
-        daos_iov_set(&iods[2 * i].iod_name, &crt_order_link_name_buf[i], sizeof(uint64_t));
+        daos_iov_set(&iods[2 * i].iod_name, &crt_order_link_name_buf[i * sizeof(uint64_t)], sizeof(uint64_t));
         iods[2 * i].iod_nr = 1u;
         iods[2 * i].iod_size = DAOS_REC_ANY;
         iods[2 * i].iod_type = DAOS_IOD_SINGLE;
 
         /* Setup the integer 'name' value for the current 'creation order -> link target' akey */
-        memcpy(&crt_order_link_trgt_buf[i * (sizeof(uint64_t) + 1)], &crt_order_link_name_buf[i], sizeof(uint64_t));
-        crt_order_link_trgt_buf[(i * (sizeof(uint64_t) + 1)) + sizeof(uint64_t)] = 0;
+        p = &crt_order_link_trgt_buf[i * (sizeof(uint64_t) + 1)];
+        UINT64ENCODE(p, tmp_uint);
+        *p++ = 0;
 
         /* Set up iods for the current 'creation order -> link target' akey */
         memset(&iods[(2 * i) + 1], 0, sizeof(*iods));
@@ -2359,11 +2370,17 @@ H5_daos_link_shift_crt_idx_keys_down(H5_daos_group_t *target_grp,
      */
     for(i = 0; i < nlinks_shift; i++) {
         /* Setup the integer 'name' value for the current 'creation order -> link name' akey */
-        crt_order_link_name_buf[i]--;
+        p = &crt_order_link_name_buf[i * sizeof(uint64_t)];
+        UINT64DECODE(p, tmp_uint);
+
+        tmp_uint--;
+        p = &crt_order_link_name_buf[i * sizeof(uint64_t)];
+        UINT64ENCODE(p, tmp_uint);
 
         /* Setup the integer 'name' value for the current 'creation order -> link target' akey */
-        memcpy(&crt_order_link_trgt_buf[i * (sizeof(uint64_t) + 1)], &crt_order_link_name_buf[i], sizeof(uint64_t));
-        crt_order_link_trgt_buf[(i * (sizeof(uint64_t) + 1)) + sizeof(uint64_t)] = 0;
+        p = &crt_order_link_trgt_buf[i * (sizeof(uint64_t) + 1)];
+        UINT64ENCODE(p, tmp_uint);
+        *p++ = 0;
     } /* end for */
 
     /* Write the akeys back */
@@ -2372,11 +2389,15 @@ H5_daos_link_shift_crt_idx_keys_down(H5_daos_group_t *target_grp,
         D_GOTO_ERROR(H5E_LINK, H5E_WRITEERROR, FAIL, "can't write akey data: %s", H5_daos_err_to_string(ret))
 
     /* Delete the (now invalid) akeys at the end of the creation index */
-    daos_iov_set(&tail_akeys[0], (void *)&idx_end, sizeof(idx_end));
+    tmp_uint = idx_end;
+    p = &crt_order_link_name_buf[0];
+    UINT64ENCODE(p, tmp_uint);
+    daos_iov_set(&tail_akeys[0], (void *)crt_order_link_name_buf, sizeof(uint64_t));
 
-    memcpy(&crt_order_link_trgt_buf[0], &idx_end, sizeof(idx_end));
-    crt_order_link_trgt_buf[sizeof(idx_end)] = 0;
-    daos_iov_set(&tail_akeys[1], (void *)&crt_order_link_trgt_buf[0], sizeof(idx_end) + 1);
+    p = &crt_order_link_trgt_buf[0];
+    UINT64ENCODE(p, tmp_uint);
+    *p++ = 0;
+    daos_iov_set(&tail_akeys[1], (void *)crt_order_link_trgt_buf, sizeof(uint64_t) + 1);
 
     if(0 != (ret = daos_obj_punch_akeys(target_grp->obj.obj_oh, DAOS_TX_NONE, &dkey,
             2, tail_akeys, NULL /*event*/)))
@@ -2473,6 +2494,8 @@ H5_daos_link_get_name_by_crt_order(H5_daos_group_t *target_grp, H5_iter_order_t 
     daos_iod_t iod;
     daos_iov_t sg_iov;
     uint64_t fetch_idx = 0;
+    uint8_t idx_buf[sizeof(uint64_t)];
+    uint8_t *p;
     ssize_t grp_nlinks;
     int ret;
     ssize_t ret_value = 0;
@@ -2497,12 +2520,15 @@ H5_daos_link_get_name_by_crt_order(H5_daos_group_t *target_grp, H5_iter_order_t 
     else
         fetch_idx = index;
 
+    p = idx_buf;
+    UINT64ENCODE(p, fetch_idx);
+
     /* Set up dkey */
     daos_iov_set(&dkey, (void *)H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
 
     /* Set up iod */
     memset(&iod, 0, sizeof(iod));
-    daos_iov_set(&iod.iod_name, (void *)&fetch_idx, sizeof(fetch_idx));
+    daos_iov_set(&iod.iod_name, (void *)idx_buf, sizeof(uint64_t));
     daos_csum_set(&iod.iod_kcsum, NULL, 0);
     iod.iod_nr = 1u;
     iod.iod_size = DAOS_REC_ANY;

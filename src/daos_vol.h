@@ -31,6 +31,9 @@
 /* System headers */
 #include <assert.h>
 
+/* Hash table */
+#include "util/daos_vol_hash_table.h"
+
 /* For DAOS compatibility */
 #ifdef H5VL_DAOS_NEW_API
 typedef d_iov_t daos_iov_t;
@@ -75,12 +78,23 @@ typedef d_sg_list_t daos_sg_list_t;
 #define H5_DAOS_ATTR_NAME_BUF_SIZE 2048
 
 /* Definitions for building oids */
-#define H5_DAOS_IDX_MASK   0x3fffffffffffffffull
-#define H5_DAOS_TYPE_MASK  0xc000000000000000ull
-#define H5_DAOS_TYPE_GRP   0x0000000000000000ull
-#define H5_DAOS_TYPE_DSET  0x4000000000000000ull
-#define H5_DAOS_TYPE_DTYPE 0x8000000000000000ull
-#define H5_DAOS_TYPE_MAP   0xc000000000000000ull
+#define H5_DAOS_TYPE_MASK   0x00000000c0000000ull
+#define H5_DAOS_TYPE_GRP    0x0000000000000000ull
+#define H5_DAOS_TYPE_DSET   0x0000000040000000ull
+#define H5_DAOS_TYPE_DTYPE  0x0000000080000000ull
+#define H5_DAOS_TYPE_MAP    0x00000000c0000000ull
+
+/* Predefined object indices */
+#define H5_DAOS_OIDX_GMD    0ull
+#define H5_DAOS_OIDX_ROOT   1ull
+#define H5_DAOS_OIDX_FIRST_USER 2ull
+
+/* Bits of oid.lo and oid.hi that are added to compacted adresses */
+#define H5_DAOS_ADDR_OIDLO_MASK 0x000000003fffffffll
+#define H5_DAOS_ADDR_OIDHI_MASK 0xffffffffc0000000ll
+
+/* Number of object indices to allocate at a time */
+#define H5_DAOS_OIDX_NALLOC 1024
 
 /* Private error codes for asynchronous operations */
 #define H5_DAOS_INCOMPLETE -1   /* Operation has not yet completed (should only be in the item struct) */
@@ -161,10 +175,47 @@ typedef d_sg_list_t daos_sg_list_t;
  */
 #undef DV_HAVE_SNAP_OPEN_ID
 
+/*
+ * Macro to loop over asking DAOS for a list of akeys/dkeys for an object
+ * and stop as soon as at least one key is retrieved. If DAOS returns
+ * -DER_KEY2BIG, the loop will re-allocate the specified key buffer as
+ * necessary and try again. The variadic portion of this macro corresponds
+ * to the arguments given to daos_obj_list_akey/dkey.
+ */
+#define H5_DAOS_RETRIEVE_KEYS_LOOP(key_buf, key_buf_len, sg_iov, maj_err, daos_obj_list_func, ...)  \
+do {                                                                                                \
+    /* Reset nr */                                                                                  \
+    nr = H5_DAOS_ITER_LEN;                                                                          \
+                                                                                                    \
+    /* Ask DAOS for a list of keys, break out if we succeed */                                      \
+    if(0 == (ret = daos_obj_list_func(__VA_ARGS__)))                                                \
+        break;                                                                                      \
+                                                                                                    \
+    /*                                                                                              \
+     * Call failed - if the buffer is too small double it and                                       \
+     * try again, otherwise fail.                                                                   \
+     */                                                                                             \
+    if(ret == -DER_KEY2BIG) {                                                                       \
+        char *tmp_realloc;                                                                          \
+                                                                                                    \
+        /* Allocate larger buffer */                                                                \
+        key_buf_len *= 2;                                                                           \
+        if(NULL == (tmp_realloc = (char *)DV_realloc(key_buf, key_buf_len)))                        \
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't reallocate key buffer")          \
+        key_buf = tmp_realloc;                                                                      \
+                                                                                                    \
+        /* Update SGL */                                                                            \
+        daos_iov_set(&sg_iov, key_buf, (daos_size_t)(key_buf_len - 1));                             \
+    } /* end if */                                                                                  \
+    else                                                                                            \
+        D_GOTO_ERROR(maj_err, H5E_CANTGET, FAIL, "can't list keys: %s", H5_daos_err_to_string(ret)) \
+} while(1)
+
 /* Macro to initialize all non-specific fields of an H5_daos_iter_data_t struct */
 #define H5_DAOS_ITER_DATA_INIT(_iter_data, _iter_type, _idx_type, _iter_order, \
     _is_recursive, _idx_p, _iter_root_obj, _op_data, _dxpl_id, _req)           \
     do {                                                                       \
+        memset(&_iter_data, 0, sizeof(H5_daos_iter_data_t));                   \
         _iter_data.iter_type = _iter_type;                                     \
         _iter_data.index_type = _idx_type;                                     \
         _iter_data.iter_order = _iter_order;                                   \
@@ -219,8 +270,6 @@ typedef struct H5_daos_file_t {
     hbool_t closed;
     daos_handle_t glob_md_oh;
     struct H5_daos_group_t *root_grp;
-    uint64_t max_oid;
-    hbool_t max_oid_dirty;
     hid_t fcpl_id;
     hid_t fapl_id;
     MPI_Comm comm;
@@ -228,6 +277,8 @@ typedef struct H5_daos_file_t {
     int my_rank;
     int num_procs;
     hbool_t is_collective_md_read;
+    uint64_t next_oidx;
+    uint64_t max_oidx;
     hid_t vol_id;
     void *vol_info;
 } H5_daos_file_t;
@@ -355,7 +406,11 @@ typedef struct H5_daos_iter_data_t {
         } attr_iter_data;
 
         struct {
-            H5L_iterate_t   link_iter_op;
+            H5L_iterate_t    link_iter_op;
+            dv_hash_table_t *visited_link_table;
+            char            *recursive_link_path;
+            size_t           recursive_link_path_nalloc;
+            unsigned         recurse_depth;
         } link_iter_data;
 
         struct {
@@ -443,7 +498,6 @@ extern H5VL_DAOS_PRIVATE MPI_Comm H5_daos_pool_comm_g;
 
 /* Constant Keys */
 extern H5VL_DAOS_PRIVATE const char H5_daos_int_md_key_g[];
-extern H5VL_DAOS_PRIVATE const char H5_daos_max_oid_key_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_cpl_key_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_link_key_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_link_corder_key_g[];
@@ -458,7 +512,6 @@ extern H5VL_DAOS_PRIVATE const char H5_daos_vtype_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_map_key_g[];
 
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_int_md_key_size_g;
-extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_max_oid_key_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_cpl_key_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_link_key_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_link_corder_key_size_g;
@@ -481,14 +534,16 @@ extern "C" {
 #endif
 
 /* General routines */
-H5VL_DAOS_PRIVATE void H5_daos_oid_generate(daos_obj_id_t *oid, uint64_t addr,
+H5VL_DAOS_PRIVATE herr_t H5_daos_oidx_generate(uint64_t *oidx,
+    H5_daos_file_t *file);
+H5VL_DAOS_PRIVATE void H5_daos_oid_encode(daos_obj_id_t *oid, uint64_t oidx,
     H5I_type_t obj_type);
-H5VL_DAOS_PRIVATE void H5_daos_oid_encode(daos_obj_id_t *oid, uint64_t idx, H5I_type_t obj_type);
-H5VL_DAOS_PRIVATE H5I_type_t H5_daos_addr_to_type(uint64_t addr);
+H5VL_DAOS_PRIVATE herr_t H5_daos_oid_generate(daos_obj_id_t *oid,
+    H5I_type_t obj_type, H5_daos_file_t *file);
+H5VL_DAOS_PRIVATE haddr_t H5_daos_oid_to_addr(daos_obj_id_t oid);
+H5VL_DAOS_PRIVATE herr_t H5_daos_addr_to_oid(daos_obj_id_t *oid, haddr_t addr);
 H5VL_DAOS_PRIVATE H5I_type_t H5_daos_oid_to_type(daos_obj_id_t oid);
-H5VL_DAOS_PRIVATE uint64_t H5_daos_oid_to_idx(daos_obj_id_t oid);
 H5VL_DAOS_PRIVATE void H5_daos_hash128(const char *name, void *hash);
-H5VL_DAOS_PRIVATE herr_t H5_daos_write_max_oid(H5_daos_file_t *file);
 H5VL_DAOS_PRIVATE int H5_daos_h5op_finalize(tse_task_t *task);
 H5VL_DAOS_PRIVATE int H5_daos_md_update_prep_cb(tse_task_t *task, void *args);
 H5VL_DAOS_PRIVATE int H5_daos_md_update_comp_cb(tse_task_t *task, void *args);
@@ -556,7 +611,7 @@ H5VL_DAOS_PRIVATE H5_daos_group_t *H5_daos_group_traverse(H5_daos_item_t *item, 
     uint64_t *gcpl_len_out);
 H5VL_DAOS_PRIVATE void *H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
     hid_t gapl_id, hid_t dxpl_id, H5_daos_req_t *req, H5_daos_group_t *parent_grp,
-    const char *name, size_t name_len, hbool_t collective);
+    const char *name, size_t name_len, uint64_t oidx, hbool_t collective);
 H5VL_DAOS_PRIVATE void *H5_daos_group_open_helper(H5_daos_file_t *file, daos_obj_id_t oid,
     hid_t gapl_id, hid_t dxpl_id, H5_daos_req_t *req, void **gcpl_buf_out,
     uint64_t *gcpl_len_out);

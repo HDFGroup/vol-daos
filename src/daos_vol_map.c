@@ -97,7 +97,8 @@ H5_daos_map_create(void *_item,
     map->mapl_id = FAIL;
 
     /* Generate map oid */
-    H5_daos_oid_encode(&map->obj.oid, item->file->max_oid + (uint64_t)1, H5I_MAP);
+    if(H5_daos_oid_generate(&map->obj.oid, H5I_MAP, item->file) < 0)
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't generate object id")
 
     /* Create map and write metadata if this process should */
     if(!collective || (item->file->my_rank == 0)) {
@@ -119,13 +120,6 @@ H5_daos_map_create(void *_item,
                 D_GOTO_ERROR(H5E_MAP, H5E_BADITER, NULL, "can't traverse path")
 
         /* Create map */
-        /* Update max_oid */
-        item->file->max_oid = H5_daos_oid_to_idx(map->obj.oid);
-
-        /* Write max OID */
-        if(H5_daos_write_max_oid(item->file) < 0)
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't write max OID")
-
         /* Allocate argument struct */
         if(NULL == (update_cb_ud = (H5_daos_md_update_cb_ud_t *)DV_calloc(sizeof(H5_daos_md_update_cb_ud_t))))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for update callback arguments")
@@ -248,9 +242,6 @@ H5_daos_map_create(void *_item,
         } /* end if */
     } /* end if */
     else {
-        /* Update max_oid */
-        item->file->max_oid = map->obj.oid.lo;
-
         /* Open map */
         if(0 != (ret = daos_obj_open(item->file->coh, map->obj.oid, DAOS_OO_RW, &map->obj.obj_oh, NULL /*event*/)))
             D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, NULL, "can't open map: %s", H5_daos_err_to_string(ret))
@@ -401,7 +392,8 @@ H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
         /* Check for open by address */
         if(H5VL_OBJECT_BY_ADDR == loc_params->type) {
             /* Generate oid from address */
-            H5_daos_oid_generate(&map->obj.oid, (uint64_t)loc_params->loc_data.loc_by_addr.addr, H5I_MAP);
+            if(H5_daos_addr_to_oid(&map->obj.oid, loc_params->loc_data.loc_by_addr.addr) < 0)
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't convert address to OID")
         } /* end if */
         else {
             htri_t link_resolved;
@@ -1311,32 +1303,8 @@ H5_daos_map_iterate(H5_daos_map_t *map, hid_t map_id, hsize_t *idx,
 
     /* Loop to retrieve keys and make callbacks */
     do {
-        /* Loop to retrieve keys (exit as soon as we get at least 1
-         * key) */
-        do {
-            /* Reset nr */
-            nr = H5_DAOS_ITER_LEN;
-
-            /* Ask daos for a list of dkeys, break out if we succeed
-             */
-            if(0 == (ret = daos_obj_list_dkey(map->obj.obj_oh, DAOS_TX_NONE, &nr, kds, &sgl, &anchor, NULL /*event*/)))
-                break;
-
-            /* Call failed, if the buffer is too small double it and
-             * try again, otherwise fail */
-            if(ret == -DER_KEY2BIG) {
-                /* Allocate larger buffer */
-                DV_free(dkey_buf);
-                dkey_buf_len *= 2;
-                if(NULL == (dkey_buf = (char *)DV_malloc(dkey_buf_len)))
-                    D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for dkeys")
-
-                /* Update sgl */
-                daos_iov_set(&sg_iov, dkey_buf, (daos_size_t)(dkey_buf_len - 1));
-            } /* end if */
-            else
-                D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, FAIL, "can't retrieve attributes: %s", H5_daos_err_to_string(ret))
-        } while(1);
+        H5_DAOS_RETRIEVE_KEYS_LOOP(dkey_buf, dkey_buf_len, sg_iov, H5E_MAP, daos_obj_list_dkey,
+                map->obj.obj_oh, DAOS_TX_NONE, &nr, kds, &sgl, &anchor, NULL /*event*/);
 
         /* Loop over returned dkeys */
         p = dkey_buf;

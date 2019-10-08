@@ -1382,22 +1382,29 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "location parameters object is NULL")
 
     /* Determine attribute object */
-    if(loc_params->type == H5VL_OBJECT_BY_SELF) {
-        /* Use item as attribute parent object, or the root group if item is a
-         * file */
-        if(item->type == H5I_FILE)
-            target_obj = (H5_daos_obj_t *)((H5_daos_file_t *)item)->root_grp;
-        else
-            target_obj = (H5_daos_obj_t *)item;
-        target_obj->item.rc++;
-    } /* end if */
-    else if(loc_params->type == H5VL_OBJECT_BY_NAME) {
-        /* Open target_obj */
-        if(NULL == (target_obj = (H5_daos_obj_t *)H5_daos_object_open(item, loc_params, NULL, dxpl_id, req)))
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, FAIL, "can't open object for attribute")
-    } /* end else */
-    else
-        D_GOTO_ERROR(H5E_ATTR, H5E_UNSUPPORTED, FAIL, "unsupported attribute operation location parameters type")
+    switch (loc_params->type) {
+        case H5VL_OBJECT_BY_SELF:
+            /* Use item as attribute parent object, or the root group if item is a
+             * file */
+            if(item->type == H5I_FILE)
+                target_obj = (H5_daos_obj_t *)((H5_daos_file_t *)item)->root_grp;
+            else
+                target_obj = (H5_daos_obj_t *)item;
+            target_obj->item.rc++;
+            break;
+
+        case H5VL_OBJECT_BY_NAME:
+        case H5VL_OBJECT_BY_IDX:
+            /* Open target_obj */
+            if(NULL == (target_obj = (H5_daos_obj_t *)H5_daos_object_open(item, loc_params, NULL, dxpl_id, req)))
+                D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, FAIL, "can't open object for attribute")
+            break;
+
+        case H5VL_OBJECT_BY_ADDR:
+        case H5VL_OBJECT_BY_REF:
+        default:
+            D_GOTO_ERROR(H5E_ATTR, H5E_BADVALUE, FAIL, "invalid or unsupported attribute operation location parameters type")
+    } /* end switch */
 
     switch (specific_type) {
         /* H5Adelete(_by_name/_by_idx) */
@@ -2358,30 +2365,8 @@ H5_daos_attribute_iterate_by_name_order(H5_daos_obj_t *attr_container_obj, H5_da
     /* Loop to retrieve keys and make callbacks */
     do {
         /* Loop to retrieve keys (exit as soon as we get at least 1 key) */
-        do {
-            /* Reset nr */
-            nr = H5_DAOS_ITER_LEN;
-
-            /* Ask daos for a list of akeys, break out if we succeed
-             */
-            if(0 == (ret = daos_obj_list_akey(attr_container_obj->obj_oh, DAOS_TX_NONE, &dkey, &nr, kds, &sgl, &anchor, NULL /*event*/)))
-                break;
-
-            /* Call failed, if the buffer is too small double it and
-             * try again, otherwise fail */
-            if(ret == -DER_KEY2BIG) {
-                /* Allocate larger buffer */
-                DV_free(akey_buf);
-                akey_buf_len *= 2;
-                if(NULL == (akey_buf = (char *)DV_malloc(akey_buf_len)))
-                    D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akeys")
-
-                /* Update sgl */
-                daos_iov_set(&sg_iov, akey_buf, (daos_size_t)(akey_buf_len - 1));
-            } /* end if */
-            else
-                D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't retrieve attributes: %s", H5_daos_err_to_string(ret))
-        } while(1);
+        H5_DAOS_RETRIEVE_KEYS_LOOP(akey_buf, akey_buf_len, sg_iov, H5E_ATTR, daos_obj_list_akey,
+                attr_container_obj->obj_oh, DAOS_TX_NONE, &dkey, &nr, kds, &sgl, &anchor, NULL /*event*/);
 
         /* Loop over returned akeys */
         p = akey_buf;

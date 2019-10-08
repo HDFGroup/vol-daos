@@ -2328,6 +2328,9 @@ H5_daos_attribute_iterate_by_name_order(H5_daos_obj_t *attr_container_obj, H5_da
 
     assert(attr_container_obj);
     assert(iter_data);
+    assert(H5_INDEX_NAME == iter_data->index_type);
+    assert(H5_ITER_NATIVE == iter_data->iter_order || H5_ITER_INC == iter_data->iter_order
+            || H5_ITER_DEC == iter_data->iter_order);
 
     /* Native iteration order is currently associated with increasing order; decreasing order iteration is not currently supported */
     if(iter_data->iter_order == H5_ITER_DEC)
@@ -2432,14 +2435,96 @@ done:
 static herr_t
 H5_daos_attribute_iterate_by_crt_order(H5_daos_obj_t *attr_container_obj, H5_daos_iter_data_t *iter_data)
 {
+    H5VL_loc_params_t sub_loc_params;
+    H5A_info_t ainfo;
+    hssize_t obj_nattrs;
+    uint64_t cur_idx;
+    herr_t op_ret;
+    size_t attr_name_buf_size = H5_DAOS_ATTR_NAME_BUF_SIZE;
+    char *attr_name = NULL;
+    char *attr_name_buf_dyn = NULL;
+    char attr_name_buf_static[H5_DAOS_ATTR_NAME_BUF_SIZE];
     herr_t ret_value = SUCCEED;
 
     assert(attr_container_obj);
     assert(iter_data);
+    assert(H5_INDEX_CRT_ORDER == iter_data->index_type);
+    assert(H5_ITER_NATIVE == iter_data->iter_order || H5_ITER_INC == iter_data->iter_order
+            || H5_ITER_DEC == iter_data->iter_order);
 
-    /* TODO */
+    /* Check that creation order is tracked for the attribute's parent object */
+    if(!attr_container_obj->ocpl_cache.track_acorder)
+        D_GOTO_ERROR(H5E_ATTR, H5E_BADVALUE, FAIL, "creation order is not tracked for attribute's parent object")
+
+    /* Retrieve the number of attributes attached to the target object */
+    if((obj_nattrs = H5_daos_object_get_num_attrs(attr_container_obj)) < 0)
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get number of attributes attached to object")
+
+    /* Check if there are no attributes to process */
+    if(obj_nattrs == 0)
+        D_GOTO_DONE(SUCCEED);
+
+    /* Initialize sub_loc_params */
+    sub_loc_params.obj_type = attr_container_obj->item.type;
+    sub_loc_params.type = H5VL_OBJECT_BY_NAME;
+    sub_loc_params.loc_data.loc_by_name.name = ".";
+    sub_loc_params.loc_data.loc_by_name.lapl_id = H5P_LINK_ACCESS_DEFAULT;
+
+    /* Initialize const attribute info */
+    ainfo.corder_valid = FALSE;
+    ainfo.corder = 0;
+    ainfo.cset = H5T_CSET_ASCII;
+
+    attr_name = attr_name_buf_static;
+    for(cur_idx = 0; cur_idx < (uint64_t)obj_nattrs; cur_idx++) {
+        ssize_t attr_name_size;
+
+        /* Retrieve the attribute's name length + the attribute's name if the buffer is large enough */
+        if((attr_name_size = H5_daos_attribute_get_name_by_idx(attr_container_obj, iter_data->index_type,
+                iter_data->iter_order, cur_idx, attr_name, attr_name_buf_size)) < 0)
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute name")
+
+        /* Check if the buffer was large enough */
+        if((size_t)attr_name_size > attr_name_buf_size - 1) {
+            char *tmp_realloc;
+
+            /*
+             * Double the buffer size or re-allocate to fit the current
+             * attribute's name, depending on which allocation is larger.
+             */
+            attr_name_buf_size = ((size_t)attr_name_size > (2 * attr_name_buf_size)) ?
+                    (size_t)attr_name_size + 1 : (2 * attr_name_buf_size);
+
+            if(NULL == (tmp_realloc = DV_realloc(attr_name_buf_dyn, attr_name_buf_size)))
+                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "failed to allocate attribute name buffer")
+            attr_name = attr_name_buf_dyn = tmp_realloc;
+
+            /* Re-issue the call to fetch the attribute's name with a larger buffer */
+            if(H5_daos_attribute_get_name_by_idx(attr_container_obj, iter_data->index_type,
+                    iter_data->iter_order, cur_idx, attr_name, attr_name_buf_size) < 0)
+                D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute name")
+        } /* end if */
+
+        /* Retrieve the attribute's info */
+        if(H5_daos_attribute_get_info((H5_daos_item_t *)attr_container_obj, &sub_loc_params,
+                attr_name, &ainfo, iter_data->dxpl_id, iter_data->req) < 0)
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute's info")
+
+        /* Make callback */
+        if((op_ret = iter_data->u.attr_iter_data.attr_iter_op(iter_data->iter_root_obj, attr_name, &ainfo, iter_data->op_data)) < 0)
+            D_GOTO_ERROR(H5E_ATTR, H5E_BADITER, op_ret, "operator function returned failure")
+
+        /* Advance idx */
+        if(iter_data->idx_p)
+            (*iter_data->idx_p)++;
+    } /* end for */
+
+    ret_value = op_ret;
 
 done:
+    if(attr_name_buf_dyn)
+        attr_name_buf_dyn = DV_free(attr_name_buf_dyn);
+
     D_FUNC_LEAVE
 } /* end H5_daos_attribute_iterate_by_crt_order() */
 

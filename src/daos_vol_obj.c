@@ -116,23 +116,32 @@ H5_daos_object_open(void *_item, const H5VL_loc_params_t *loc_params,
             if(collective && (item->file->num_procs > 1))
                 must_bcast = TRUE;
 
-            /* Traverse the path */
-            if(NULL == (target_grp = H5_daos_group_traverse(item, loc_params->loc_data.loc_by_name.name, dxpl_id, req, &target_name, NULL, NULL)))
-                D_GOTO_ERROR(H5E_OHDR, H5E_BADITER, NULL, "can't traverse path")
-
-            /* Check for no target_name, in this case just reopen target_grp */
-            if(target_name[0] == '\0'
-                    || (target_name[0] == '.' && target_name[1] == '\0'))
-                oid = target_grp->obj.oid;
+            /* Check for simple case of '.' for object name */
+            if(!strncmp(loc_params->loc_data.loc_by_name.name, ".", 2)) {
+                if(item->type == H5I_FILE)
+                    oid = ((H5_daos_file_t *)item)->root_grp->obj.oid;
+                else
+                    oid = ((H5_daos_obj_t *)item)->oid;
+            } /* end if */
             else {
-                htri_t link_resolved;
+                /* Traverse the path */
+                if(NULL == (target_grp = H5_daos_group_traverse(item, loc_params->loc_data.loc_by_name.name, dxpl_id, req, &target_name, NULL, NULL)))
+                    D_GOTO_ERROR(H5E_OHDR, H5E_BADITER, NULL, "can't traverse path")
 
-                /* Follow link to object */
-                if((link_resolved = H5_daos_link_follow(target_grp, target_name, strlen(target_name), dxpl_id, req, &oid)) < 0)
-                    D_GOTO_ERROR(H5E_OHDR, H5E_TRAVERSE, NULL, "can't follow link to group")
-                if(!link_resolved)
-                    D_GOTO_ERROR(H5E_OHDR, H5E_TRAVERSE, NULL, "link to group did not resolve")
-            }
+                /* Check for no target_name, in this case just reopen target_grp */
+                if(target_name[0] == '\0'
+                        || (target_name[0] == '.' && target_name[1] == '\0'))
+                    oid = target_grp->obj.oid;
+                else {
+                    htri_t link_resolved;
+
+                    /* Follow link to object */
+                    if((link_resolved = H5_daos_link_follow(target_grp, target_name, strlen(target_name), dxpl_id, req, &oid)) < 0)
+                        D_GOTO_ERROR(H5E_OHDR, H5E_TRAVERSE, NULL, "can't follow link to group")
+                    if(!link_resolved)
+                        D_GOTO_ERROR(H5E_OHDR, H5E_TRAVERSE, NULL, "link to group did not resolve")
+                } /* end else */
+            } /* end else */
 
             /* Broadcast group info if there are other processes that need it */
             if(collective && (item->file->num_procs > 1)) {

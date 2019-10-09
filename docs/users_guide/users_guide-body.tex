@@ -146,23 +146,24 @@ The following sections serve to illustrate the DAOS VOL connector's support for 
 
 H5Acreate(1/2) & \\ \hline
 H5Acreate\_by\_name & \\ \hline
-H5Aopen(\_by\_name) & \\ \hline
-H5Aopen\_name & \\ \hline
+H5Aopen(\_by\_name/\_by\_idx) & \\ \hline
+H5Aopen\_idx & Deprecated in favor of H5A\_open\_by\_idx\\ \hline
+H5Aopen\_name & Deprecated in favor of H5A\_open\_by\_name\\ \hline
 H5Awrite & \\ \hline
 H5Aread & \\ \hline
 H5Aclose & \\ \hline
 H5Aiterate(2) & \begin{itemize}
                     \item Restarting iteration from an index value is currently unsupported
-                    \item Only \texttt{H5\_ITER\_INC} and \texttt{H5\_ITER\_NATIVE} are supported for the iteration order
+                    \item \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type
                 \end{itemize}\\ \hline
 H5Aiterate\_by\_name & \begin{itemize}
                            \item Restarting iteration from an index value is currently unsupported
-                           \item Only \texttt{H5\_ITER\_INC} and \texttt{H5\_ITER\_NATIVE} are supported for the iteration order
+                           \item \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type
                        \end{itemize}\\ \hline
 H5Aexists(\_by\_name) & \\ \hline
 H5Arename(\_by\_name) & \\ \hline
-H5Adelete(\_by\_name) & \\ \hline
-H5Aget\_name & \\ \hline
+H5Adelete(\_by\_name/\_by\_idx) & \\ \hline
+H5Aget\_name(\_by\_idx) & \\ \hline
 H5Aget\_space & \\ \hline
 H5Aget\_type & \\ \hline
 \end{tabularx}
@@ -174,8 +175,8 @@ H5Aget\_type & \\ \hline
 
 H5Aget\_info(\_by\_name/\_by\_idx) & Of the four fields in the \texttt{H5A\_info\_t} struct:
                                      \begin{itemize}
-                                         \item \texttt{corder\_valid} is currently always set to \texttt{FALSE}
-                                         \item \texttt{corder} is currently always set to 0 (no support for creation order yet)
+                                         \item \texttt{corder\_valid} is set to TRUE only if attribute creation order tracking is enabled for the object containing the attribute; it is set to FALSE otherwise
+                                         \item \texttt{corder} is set appropriately if attribute creation order tracking is enabled for the object containing the attribute; it is set to 0 otherwise
                                          \item \texttt{cset} is currently always set to \texttt{H5T\_CSET\_ASCII}
                                          \item \texttt{data\_size} is set appropriately
                                      \end{itemize}\\ \hline
@@ -191,10 +192,6 @@ H5Aget\_create\_plist & \\ \hline
 % Center just the header row
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
-H5Aopen\_by\_idx & Currently no support for attribute creation order \\ \hline
-H5Aopen\_idx & Currently no support for attribute creation order \\ \hline
-H5Adelete\_by\_idx & Currently no support for attribute creation order \\ \hline
-H5Aget\_name\_by\_idx & Currently no support for attribute creation order \\ \hline
 H5Aget\_storage\_size & \\ \hline
 
 \end{tabularx}

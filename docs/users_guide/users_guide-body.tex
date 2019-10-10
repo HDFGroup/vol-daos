@@ -369,7 +369,30 @@ H5Lvisit(\_by\_name) & \begin{itemize}
                              \item Only \texttt{H5\_ITER\_INC} and \texttt{H5\_ITER\_NATIVE} are supported for the iteration order
                          \end{itemize}\\ \hline
 H5Ldelete & Reference count tracking is not currently implemented, so objects will not be removed when the last hard link pointing to them is removed\\ \hline
-
+H5Lcopy & Currently no support for the following properties: \begin{itemize}
+                                                                 \item LCPL
+                                                                 \begin{itemize}
+                                                                     \item H5Pset\_create\_intermediate\_group
+                                                                 \end{itemize}
+                                                                 \item LAPL
+                                                                 \begin{itemize}
+                                                                     \item H5Pset\_char\_encoding
+                                                                     \item H5Pset\_nlinks
+                                                                     \item H5Pset\_elink\_prefix
+                                                                 \end{itemize}
+                                                             \end{itemize}\\ \hline
+H5Lmove & Currently no support for the following properties: \begin{itemize}
+                                                                 \item LCPL
+                                                                 \begin{itemize}
+                                                                     \item H5Pset\_create\_intermediate\_group
+                                                                 \end{itemize}
+                                                                 \item LAPL
+                                                                 \begin{itemize}
+                                                                     \item H5Pset\_char\_encoding
+                                                                     \item H5Pset\_nlinks
+                                                                     \item H5Pset\_elink\_prefix
+                                                                 \end{itemize}
+                                                             \end{itemize}\\ \hline
 \end{tabularx}
 
 \begin{tabularx}{\linewidth}{| X | X |}
@@ -397,8 +420,6 @@ H5Lget\_val & \\ \hline
 % Center just the header row
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
-H5Lcopy & \\ \hline
-H5Lmove & \\ \hline
 H5Lcreate\_external & \\ \hline
 H5Lcreate\_ud & \\ \hline
 H5Ldelete\_by\_idx & Currently no support for link creation order\\ \hline

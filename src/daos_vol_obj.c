@@ -1117,10 +1117,7 @@ H5_daos_object_update_num_attrs_key(H5_daos_obj_t *target_obj, uint64_t new_natt
     herr_t ret_value = SUCCEED;
 
     assert(target_obj);
-
-    /* Ensure that attribute creation order is tracked for the target object */
-    if(!target_obj->ocpl_cache.track_acorder)
-        D_GOTO_ERROR(H5E_ATTR, H5E_BADVALUE, FAIL, "attribute creation order is not tracked for target object")
+    assert(target_obj->ocpl_cache.track_acorder);
 
     /* Encode buffer */
     p = nattrs_new_buf;

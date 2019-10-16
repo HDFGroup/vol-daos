@@ -691,10 +691,6 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_attribute_close(void *_attr, hid_t dxpl_id, voi
 /* Other attribute routines */
 H5VL_DAOS_PRIVATE herr_t H5_daos_attribute_iterate(H5_daos_obj_t *attr_container_obj,
     H5_daos_iter_data_t *attr_iter_data);
-H5VL_DAOS_PRIVATE ssize_t H5_daos_attribute_get_name_by_idx(H5_daos_obj_t *target_obj, H5_index_t index_type,
-    H5_iter_order_t iter_order, uint64_t idx, char *attr_name_out, size_t attr_name_out_size);
-H5VL_DAOS_PRIVATE herr_t H5_daos_attribute_get_crt_order_by_name(H5_daos_obj_t *target_obj, const char *attr_name,
-    uint64_t *crt_order);
 
 /* Attribute iteration callbacks */
 H5VL_DAOS_PRIVATE herr_t H5_daos_attribute_iterate_count_attrs_cb(hid_t loc_id, const char *attr_name,

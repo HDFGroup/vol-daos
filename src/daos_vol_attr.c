@@ -36,10 +36,14 @@ static herr_t H5_daos_attribute_iterate_by_name_order(H5_daos_obj_t *attr_contai
 static herr_t H5_daos_attribute_iterate_by_crt_order(H5_daos_obj_t *attr_container_obj, H5_daos_iter_data_t *iter_data);
 static herr_t H5_daos_attribute_rename(H5_daos_obj_t *attr_container_obj, const char *cur_attr_name,
     const char *new_attr_name);
+static ssize_t H5_daos_attribute_get_name_by_idx(H5_daos_obj_t *target_obj, H5_index_t index_type,
+    H5_iter_order_t iter_order, uint64_t idx, char *attr_name_out, size_t attr_name_out_size);
 static ssize_t H5_daos_attribute_get_name_by_crt_order(H5_daos_obj_t *target_obj, H5_iter_order_t iter_order,
     uint64_t index, char *attr_name_out, size_t attr_name_out_size);
 static ssize_t H5_daos_attribute_get_name_by_name_order(H5_daos_obj_t *target_obj, H5_iter_order_t iter_order,
     uint64_t index, char *attr_name_out, size_t attr_name_out_size);
+static herr_t H5_daos_attribute_get_crt_order_by_name(H5_daos_obj_t *target_obj, const char *attr_name,
+    uint64_t *crt_order);
 static herr_t H5_daos_attribute_get_name_by_name_order_cb(hid_t loc_id, const char *attr_name,
     const H5A_info_t *attr_info, void *op_data);
 static herr_t H5_daos_attribute_get_akey_strings(const char *attr_name, char **datatype_key_out,
@@ -2742,7 +2746,7 @@ done:
  *
  *-------------------------------------------------------------------------
  */
-ssize_t
+static ssize_t
 H5_daos_attribute_get_name_by_idx(H5_daos_obj_t *target_obj, H5_index_t index_type,
     H5_iter_order_t iter_order, uint64_t idx, char *attr_name_out, size_t attr_name_out_size)
 {
@@ -2978,7 +2982,7 @@ H5_daos_attribute_get_name_by_name_order_cb(hid_t H5VL_DAOS_UNUSED loc_id, const
  *
  *-------------------------------------------------------------------------
  */
-herr_t
+static herr_t
 H5_daos_attribute_get_crt_order_by_name(H5_daos_obj_t *target_obj, const char *attr_name,
     uint64_t *crt_order)
 {

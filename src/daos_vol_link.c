@@ -244,6 +244,8 @@ H5_daos_link_write(H5_daos_group_t *grp, const char *name,
     assert(grp);
     assert(name);
     assert(val);
+    H5daos_compile_assert(H5_DAOS_ENCODED_NUM_LINKS_SIZE == 8);
+    H5daos_compile_assert(H5_DAOS_ENCODED_CRT_ORDER_SIZE == 8);
 
     /* Check for write access */
     if(!(grp->obj.item.file->flags & H5F_ACC_RDWR))
@@ -343,16 +345,16 @@ H5_daos_link_write(H5_daos_group_t *grp, const char *name,
         daos_iod_t iod[4];
         daos_sg_list_t sgl[4];
         daos_iov_t sg_iov[4];
-        uint8_t nlinks_old_buf[sizeof(uint64_t)];
-        uint8_t nlinks_new_buf[sizeof(uint64_t)];
-        uint8_t max_corder_new_buf[sizeof(uint64_t)];
+        uint8_t nlinks_old_buf[H5_DAOS_ENCODED_NUM_LINKS_SIZE];
+        uint8_t nlinks_new_buf[H5_DAOS_ENCODED_NUM_LINKS_SIZE];
+        uint8_t max_corder_new_buf[H5_DAOS_ENCODED_CRT_ORDER_SIZE];
         uint8_t corder_target_buf[H5_DAOS_CRT_ORDER_TO_LINK_TRGT_BUF_SIZE];
         ssize_t nlinks;
         uint64_t uint_nlinks;
         uint64_t max_corder;
 
         /* Allocate buffer for group's current maximum creation order value */
-        if(NULL == (max_corder_old_buf = (uint8_t *)DV_malloc(sizeof(uint64_t))))
+        if(NULL == (max_corder_old_buf = (uint8_t *)DV_malloc(H5_DAOS_ENCODED_CRT_ORDER_SIZE)))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for max. creation order value")
 
         /* Read group's current maximum creation order value */
@@ -396,16 +398,16 @@ H5_daos_link_write(H5_daos_group_t *grp, const char *name,
         daos_iov_set(&iod[0].iod_name, (void *)H5_daos_max_link_corder_key_g, H5_daos_max_link_corder_key_size_g);
         daos_csum_set(&iod[0].iod_kcsum, NULL, 0);
         iod[0].iod_nr = 1u;
-        iod[0].iod_size = (daos_size_t)sizeof(uint64_t);
+        iod[0].iod_size = (daos_size_t)H5_DAOS_ENCODED_CRT_ORDER_SIZE;
         iod[0].iod_type = DAOS_IOD_SINGLE;
 
         daos_iov_set(&iod[1].iod_name, (void *)H5_daos_nlinks_key_g, H5_daos_nlinks_key_size_g);
         daos_csum_set(&iod[1].iod_kcsum, NULL, 0);
         iod[1].iod_nr = 1u;
-        iod[1].iod_size = (daos_size_t)8;
+        iod[1].iod_size = (daos_size_t)H5_DAOS_ENCODED_NUM_LINKS_SIZE;
         iod[1].iod_type = DAOS_IOD_SINGLE;
 
-        daos_iov_set(&iod[2].iod_name, (void *)nlinks_old_buf, 8);
+        daos_iov_set(&iod[2].iod_name, (void *)nlinks_old_buf, H5_DAOS_ENCODED_NUM_LINKS_SIZE);
         daos_csum_set(&iod[2].iod_kcsum, NULL, 0);
         iod[2].iod_nr = 1u;
         iod[2].iod_size = (uint64_t)name_len;
@@ -418,12 +420,12 @@ H5_daos_link_write(H5_daos_group_t *grp, const char *name,
         iod[3].iod_type = DAOS_IOD_SINGLE;
 
         /* Set up sgl */
-        daos_iov_set(&sg_iov[0], max_corder_new_buf, (daos_size_t)sizeof(uint64_t));
+        daos_iov_set(&sg_iov[0], max_corder_new_buf, (daos_size_t)H5_DAOS_ENCODED_CRT_ORDER_SIZE);
         sgl[0].sg_nr = 1;
         sgl[0].sg_nr_out = 0;
         sgl[0].sg_iovs = &sg_iov[0];
 
-        daos_iov_set(&sg_iov[1], nlinks_new_buf, (daos_size_t)8);
+        daos_iov_set(&sg_iov[1], nlinks_new_buf, (daos_size_t)H5_DAOS_ENCODED_NUM_LINKS_SIZE);
         sgl[1].sg_nr = 1;
         sgl[1].sg_nr_out = 0;
         sgl[1].sg_iovs = &sg_iov[1];
@@ -2092,7 +2094,7 @@ H5_daos_link_remove_from_crt_idx(H5_daos_group_t *target_grp, const H5VL_loc_par
     daos_key_t akeys[2];
     uint64_t delete_idx = 0;
     uint8_t crt_order_target_buf[H5_DAOS_CRT_ORDER_TO_LINK_TRGT_BUF_SIZE];
-    uint8_t idx_buf[sizeof(uint64_t)];
+    uint8_t idx_buf[H5_DAOS_ENCODED_CRT_ORDER_SIZE];
     uint8_t *p;
     ssize_t grp_nlinks_remaining;
     hid_t target_grp_id = H5I_INVALID_HID;
@@ -2102,6 +2104,7 @@ H5_daos_link_remove_from_crt_idx(H5_daos_group_t *target_grp, const H5VL_loc_par
     assert(target_grp);
     assert(loc_params);
     assert(H5VL_OBJECT_BY_NAME == loc_params->type || H5VL_OBJECT_BY_IDX == loc_params->type);
+    H5daos_compile_assert(H5_DAOS_ENCODED_CRT_ORDER_SIZE == 8);
 
     /* Retrieve the current number of links in the group */
     if((grp_nlinks_remaining = H5_daos_group_get_num_links(target_grp)) < 0)
@@ -2159,7 +2162,7 @@ H5_daos_link_remove_from_crt_idx(H5_daos_group_t *target_grp, const H5VL_loc_par
     /* Remove the akey which maps creation order -> link name */
     p = idx_buf;
     UINT64ENCODE(p, delete_idx);
-    daos_iov_set(&akeys[0], (void *)idx_buf, sizeof(uint64_t));
+    daos_iov_set(&akeys[0], (void *)idx_buf, H5_DAOS_ENCODED_CRT_ORDER_SIZE);
 
     /* Remove the akey which maps creation order -> link target */
     p = crt_order_target_buf;
@@ -2275,6 +2278,7 @@ H5_daos_link_shift_crt_idx_keys_down(H5_daos_group_t *target_grp,
 
     assert(target_grp);
     assert(idx_end >= idx_begin);
+    H5daos_compile_assert(H5_DAOS_ENCODED_CRT_ORDER_SIZE == 8);
 
     nlinks_shift = idx_end - idx_begin + 1;
 
@@ -2289,13 +2293,13 @@ H5_daos_link_shift_crt_idx_keys_down(H5_daos_group_t *target_grp,
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate SGL buffer")
     if(NULL == (sg_iovs = DV_calloc(2 * nlinks_shift * sizeof(*sg_iovs))))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate IOV buffer")
-    if(NULL == (crt_order_link_name_buf = DV_malloc(nlinks_shift * sizeof(uint64_t))))
+    if(NULL == (crt_order_link_name_buf = DV_malloc(nlinks_shift * H5_DAOS_ENCODED_CRT_ORDER_SIZE)))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate akey data buffer")
     /*
      * The 'creation order -> link target' akey's integer 'name' value is a 9-byte buffer:
      * 8 bytes for the integer creation order value + 1 0-byte at the end of the buffer.
      */
-    if(NULL == (crt_order_link_trgt_buf = DV_malloc(nlinks_shift * (sizeof(uint8_t) + 1))))
+    if(NULL == (crt_order_link_trgt_buf = DV_malloc(nlinks_shift * (H5_DAOS_ENCODED_CRT_ORDER_SIZE + 1))))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate akey data buffer")
 
     /* Set up dkey */
@@ -2306,24 +2310,24 @@ H5_daos_link_shift_crt_idx_keys_down(H5_daos_group_t *target_grp,
         tmp_uint = idx_begin + i;
 
         /* Setup the integer 'name' value for the current 'creation order -> link name' akey */
-        p = &crt_order_link_name_buf[i * sizeof(uint64_t)];
+        p = &crt_order_link_name_buf[i * H5_DAOS_ENCODED_CRT_ORDER_SIZE];
         UINT64ENCODE(p, tmp_uint);
 
         /* Set up iods for the current 'creation order -> link name' akey */
         memset(&iods[2 * i], 0, sizeof(*iods));
-        daos_iov_set(&iods[2 * i].iod_name, &crt_order_link_name_buf[i * sizeof(uint64_t)], sizeof(uint64_t));
+        daos_iov_set(&iods[2 * i].iod_name, &crt_order_link_name_buf[i * H5_DAOS_ENCODED_CRT_ORDER_SIZE], H5_DAOS_ENCODED_CRT_ORDER_SIZE);
         iods[2 * i].iod_nr = 1u;
         iods[2 * i].iod_size = DAOS_REC_ANY;
         iods[2 * i].iod_type = DAOS_IOD_SINGLE;
 
         /* Setup the integer 'name' value for the current 'creation order -> link target' akey */
-        p = &crt_order_link_trgt_buf[i * (sizeof(uint64_t) + 1)];
+        p = &crt_order_link_trgt_buf[i * (H5_DAOS_ENCODED_CRT_ORDER_SIZE + 1)];
         UINT64ENCODE(p, tmp_uint);
         *p++ = 0;
 
         /* Set up iods for the current 'creation order -> link target' akey */
         memset(&iods[(2 * i) + 1], 0, sizeof(*iods));
-        daos_iov_set(&iods[(2 * i) + 1].iod_name, &crt_order_link_trgt_buf[i * (sizeof(uint64_t) + 1)], sizeof(uint64_t) + 1);
+        daos_iov_set(&iods[(2 * i) + 1].iod_name, &crt_order_link_trgt_buf[i * (H5_DAOS_ENCODED_CRT_ORDER_SIZE + 1)], H5_DAOS_ENCODED_CRT_ORDER_SIZE + 1);
         iods[(2 * i) + 1].iod_nr = 1u;
         iods[(2 * i) + 1].iod_size = DAOS_REC_ANY;
         iods[(2 * i) + 1].iod_type = DAOS_IOD_SINGLE;
@@ -2372,15 +2376,15 @@ H5_daos_link_shift_crt_idx_keys_down(H5_daos_group_t *target_grp,
      */
     for(i = 0; i < nlinks_shift; i++) {
         /* Setup the integer 'name' value for the current 'creation order -> link name' akey */
-        p = &crt_order_link_name_buf[i * sizeof(uint64_t)];
+        p = &crt_order_link_name_buf[i * H5_DAOS_ENCODED_CRT_ORDER_SIZE];
         UINT64DECODE(p, tmp_uint);
 
         tmp_uint--;
-        p = &crt_order_link_name_buf[i * sizeof(uint64_t)];
+        p = &crt_order_link_name_buf[i * H5_DAOS_ENCODED_CRT_ORDER_SIZE];
         UINT64ENCODE(p, tmp_uint);
 
         /* Setup the integer 'name' value for the current 'creation order -> link target' akey */
-        p = &crt_order_link_trgt_buf[i * (sizeof(uint64_t) + 1)];
+        p = &crt_order_link_trgt_buf[i * (H5_DAOS_ENCODED_CRT_ORDER_SIZE + 1)];
         UINT64ENCODE(p, tmp_uint);
         *p++ = 0;
     } /* end for */
@@ -2394,12 +2398,12 @@ H5_daos_link_shift_crt_idx_keys_down(H5_daos_group_t *target_grp,
     tmp_uint = idx_end;
     p = &crt_order_link_name_buf[0];
     UINT64ENCODE(p, tmp_uint);
-    daos_iov_set(&tail_akeys[0], (void *)crt_order_link_name_buf, sizeof(uint64_t));
+    daos_iov_set(&tail_akeys[0], (void *)crt_order_link_name_buf, H5_DAOS_ENCODED_CRT_ORDER_SIZE);
 
     p = &crt_order_link_trgt_buf[0];
     UINT64ENCODE(p, tmp_uint);
     *p++ = 0;
-    daos_iov_set(&tail_akeys[1], (void *)crt_order_link_trgt_buf, sizeof(uint64_t) + 1);
+    daos_iov_set(&tail_akeys[1], (void *)crt_order_link_trgt_buf, H5_DAOS_ENCODED_CRT_ORDER_SIZE + 1);
 
     if(0 != (ret = daos_obj_punch_akeys(target_grp->obj.obj_oh, DAOS_TX_NONE, &dkey,
             2, tail_akeys, NULL /*event*/)))
@@ -2496,13 +2500,14 @@ H5_daos_link_get_name_by_crt_order(H5_daos_group_t *target_grp, H5_iter_order_t 
     daos_iod_t iod;
     daos_iov_t sg_iov;
     uint64_t fetch_idx = 0;
-    uint8_t idx_buf[sizeof(uint64_t)];
+    uint8_t idx_buf[H5_DAOS_ENCODED_CRT_ORDER_SIZE];
     uint8_t *p;
     ssize_t grp_nlinks;
     int ret;
     ssize_t ret_value = 0;
 
     assert(target_grp);
+    H5daos_compile_assert(H5_DAOS_ENCODED_CRT_ORDER_SIZE == 8);
 
     /* Check that creation order is tracked for target group */
     if(!target_grp->gcpl_cache.track_corder)
@@ -2530,14 +2535,14 @@ H5_daos_link_get_name_by_crt_order(H5_daos_group_t *target_grp, H5_iter_order_t 
 
     /* Set up iod */
     memset(&iod, 0, sizeof(iod));
-    daos_iov_set(&iod.iod_name, (void *)idx_buf, sizeof(uint64_t));
+    daos_iov_set(&iod.iod_name, (void *)idx_buf, H5_DAOS_ENCODED_CRT_ORDER_SIZE);
     daos_csum_set(&iod.iod_kcsum, NULL, 0);
     iod.iod_nr = 1u;
     iod.iod_size = DAOS_REC_ANY;
     iod.iod_type = DAOS_IOD_SINGLE;
 
     /* Set up sgl if link_name_out buffer is supplied */
-    if(link_name_out) {
+    if(link_name_out && link_name_out_size > 0) {
         daos_iov_set(&sg_iov, link_name_out, link_name_out_size - 1);
         sgl.sg_nr = 1;
         sgl.sg_nr_out = 0;
@@ -2552,7 +2557,7 @@ H5_daos_link_get_name_by_crt_order(H5_daos_group_t *target_grp, H5_iter_order_t 
     if(iod.iod_size == (daos_size_t)0)
         D_GOTO_ERROR(H5E_LINK, H5E_NOTFOUND, (-1), "link name record not found")
 
-    if(link_name_out)
+    if(link_name_out && link_name_out_size > 0)
         link_name_out[MIN(iod.iod_size, link_name_out_size - 1)] = '\0';
 
     ret_value = (ssize_t)iod.iod_size;
@@ -2649,7 +2654,7 @@ H5_daos_link_get_name_by_name_order_cb(hid_t H5VL_DAOS_UNUSED group, const char 
     H5_daos_link_find_name_by_idx_ud_t *cb_ud = (H5_daos_link_find_name_by_idx_ud_t *) op_data;
 
     if(cb_ud->cur_link_idx == cb_ud->target_link_idx) {
-        if(cb_ud->link_name_out) {
+        if(cb_ud->link_name_out && cb_ud->link_name_out_size > 0) {
             memcpy(cb_ud->link_name_out, name, cb_ud->link_name_out_size - 1);
             cb_ud->link_name_out[cb_ud->link_name_out_size - 1] = '\0';
         }
@@ -2683,7 +2688,7 @@ H5_daos_link_get_crt_order_by_name(H5_daos_group_t *target_grp, const char *link
     daos_iod_t iod;
     daos_iov_t sg_iov;
     uint64_t crt_order_val;
-    uint8_t crt_order_buf[sizeof(uint64_t)];
+    uint8_t crt_order_buf[H5_DAOS_ENCODED_CRT_ORDER_SIZE];
     uint8_t *p;
     int ret;
     herr_t ret_value = SUCCEED;
@@ -2691,6 +2696,7 @@ H5_daos_link_get_crt_order_by_name(H5_daos_group_t *target_grp, const char *link
     assert(target_grp);
     assert(link_name);
     assert(crt_order);
+    H5daos_compile_assert(H5_DAOS_ENCODED_CRT_ORDER_SIZE == 8);
 
     /* Check that creation order is tracked for target group */
     if(!target_grp->gcpl_cache.track_corder)
@@ -2704,11 +2710,11 @@ H5_daos_link_get_crt_order_by_name(H5_daos_group_t *target_grp, const char *link
     daos_iov_set(&iod.iod_name, (void *)H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
     daos_csum_set(&iod.iod_kcsum, NULL, 0);
     iod.iod_nr = 1u;
-    iod.iod_size = (daos_size_t)sizeof(uint64_t);
+    iod.iod_size = (daos_size_t)H5_DAOS_ENCODED_CRT_ORDER_SIZE;
     iod.iod_type = DAOS_IOD_SINGLE;
 
     /* Set up sgl */
-    daos_iov_set(&sg_iov, crt_order_buf, (daos_size_t)sizeof(uint64_t));
+    daos_iov_set(&sg_iov, crt_order_buf, (daos_size_t)H5_DAOS_ENCODED_CRT_ORDER_SIZE);
     sgl.sg_nr = 1;
     sgl.sg_nr_out = 0;
     sgl.sg_iovs = &sg_iov;

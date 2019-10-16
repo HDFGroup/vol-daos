@@ -1210,6 +1210,7 @@ H5_daos_group_get_num_links(H5_daos_group_t *target_grp)
     ssize_t ret_value = 0;
 
     assert(target_grp);
+    H5daos_compile_assert(H5_DAOS_ENCODED_NUM_LINKS_SIZE == 8);
 
     if(target_grp->gcpl_cache.track_corder) {
         daos_sg_list_t sgl;
@@ -1217,7 +1218,7 @@ H5_daos_group_get_num_links(H5_daos_group_t *target_grp)
         daos_iod_t iod;
         daos_iov_t sg_iov;
         uint8_t *p;
-        uint8_t nlinks_buf[sizeof(uint64_t)];
+        uint8_t nlinks_buf[H5_DAOS_ENCODED_NUM_LINKS_SIZE];
 
         /* Read the "number of links" key from the target group */
 
@@ -1229,11 +1230,11 @@ H5_daos_group_get_num_links(H5_daos_group_t *target_grp)
         daos_iov_set(&iod.iod_name, (void *)H5_daos_nlinks_key_g, H5_daos_nlinks_key_size_g);
         daos_csum_set(&iod.iod_kcsum, NULL, 0);
         iod.iod_nr = 1u;
-        iod.iod_size = (daos_size_t)sizeof(uint64_t);
+        iod.iod_size = (daos_size_t)H5_DAOS_ENCODED_NUM_LINKS_SIZE;
         iod.iod_type = DAOS_IOD_SINGLE;
 
         /* Set up sgl */
-        daos_iov_set(&sg_iov, nlinks_buf, (daos_size_t)sizeof(uint64_t));
+        daos_iov_set(&sg_iov, nlinks_buf, (daos_size_t)H5_DAOS_ENCODED_NUM_LINKS_SIZE);
         sgl.sg_nr = 1;
         sgl.sg_nr_out = 0;
         sgl.sg_iovs = &sg_iov;
@@ -1303,12 +1304,13 @@ H5_daos_group_update_num_links_key(H5_daos_group_t *target_grp, uint64_t new_nli
     daos_key_t dkey;
     daos_iod_t iod;
     daos_iov_t sg_iov;
-    uint8_t nlinks_new_buf[sizeof(uint64_t)];
+    uint8_t nlinks_new_buf[H5_DAOS_ENCODED_NUM_LINKS_SIZE];
     uint8_t *p;
     int ret;
     herr_t ret_value = SUCCEED;
 
     assert(target_grp);
+    H5daos_compile_assert(H5_DAOS_ENCODED_NUM_LINKS_SIZE == 8);
 
     /* Check that creation order is tracked for target group */
     if(!target_grp->gcpl_cache.track_corder)
@@ -1326,11 +1328,11 @@ H5_daos_group_update_num_links_key(H5_daos_group_t *target_grp, uint64_t new_nli
     daos_iov_set(&iod.iod_name, (void *)H5_daos_nlinks_key_g, H5_daos_nlinks_key_size_g);
     daos_csum_set(&iod.iod_kcsum, NULL, 0);
     iod.iod_nr = 1u;
-    iod.iod_size = (daos_size_t)sizeof(uint64_t);
+    iod.iod_size = (daos_size_t)H5_DAOS_ENCODED_NUM_LINKS_SIZE;
     iod.iod_type = DAOS_IOD_SINGLE;
 
     /* Set up sgl */
-    daos_iov_set(&sg_iov, nlinks_new_buf, (daos_size_t)sizeof(uint64_t));
+    daos_iov_set(&sg_iov, nlinks_new_buf, (daos_size_t)H5_DAOS_ENCODED_NUM_LINKS_SIZE);
     sgl.sg_nr = 1;
     sgl.sg_nr_out = 0;
     sgl.sg_iovs = &sg_iov;
@@ -1365,13 +1367,14 @@ H5_daos_group_get_max_crt_order(H5_daos_group_t *target_grp, uint64_t *max_corde
     daos_iod_t iod;
     daos_iov_t sg_iov;
     uint64_t max_crt_order;
-    uint8_t max_corder_buf[sizeof(*max_corder)];
+    uint8_t max_corder_buf[H5_DAOS_ENCODED_CRT_ORDER_SIZE];
     uint8_t *p;
     int ret;
     herr_t ret_value = SUCCEED;
 
     assert(target_grp);
     assert(max_corder);
+    H5daos_compile_assert(H5_DAOS_ENCODED_CRT_ORDER_SIZE == 8);
 
     /* Check that creation order is tracked for target group */
     if(!target_grp->gcpl_cache.track_corder)
@@ -1385,11 +1388,11 @@ H5_daos_group_get_max_crt_order(H5_daos_group_t *target_grp, uint64_t *max_corde
     daos_iov_set(&iod.iod_name, (void *)H5_daos_max_link_corder_key_g, H5_daos_max_link_corder_key_size_g);
     daos_csum_set(&iod.iod_kcsum, NULL, 0);
     iod.iod_nr = 1u;
-    iod.iod_size = (daos_size_t)sizeof(uint64_t);
+    iod.iod_size = (daos_size_t)H5_DAOS_ENCODED_CRT_ORDER_SIZE;
     iod.iod_type = DAOS_IOD_SINGLE;
 
     /* Set up sgl */
-    daos_iov_set(&sg_iov, max_corder_buf, (daos_size_t)sizeof(*max_corder));
+    daos_iov_set(&sg_iov, max_corder_buf, (daos_size_t)H5_DAOS_ENCODED_CRT_ORDER_SIZE);
     sgl.sg_nr = 1;
     sgl.sg_nr_out = 0;
     sgl.sg_iovs = &sg_iov;
@@ -1440,12 +1443,13 @@ H5_daos_group_update_max_crt_order_key(H5_daos_group_t *target_grp, uint64_t new
     daos_key_t dkey;
     daos_iod_t iod;
     daos_iov_t sg_iov;
-    uint8_t new_max_corder_buf[sizeof(uint64_t)];
+    uint8_t new_max_corder_buf[H5_DAOS_ENCODED_CRT_ORDER_SIZE];
     uint8_t *p;
     int ret;
     herr_t ret_value = SUCCEED;
 
     assert(target_grp);
+    H5daos_compile_assert(H5_DAOS_ENCODED_CRT_ORDER_SIZE == 8);
 
     /* Check that creation order is tracked for target group */
     if(!target_grp->gcpl_cache.track_corder)
@@ -1463,11 +1467,11 @@ H5_daos_group_update_max_crt_order_key(H5_daos_group_t *target_grp, uint64_t new
     daos_iov_set(&iod.iod_name, (void *)H5_daos_max_link_corder_key_g, H5_daos_max_link_corder_key_size_g);
     daos_csum_set(&iod.iod_kcsum, NULL, 0);
     iod.iod_nr = 1u;
-    iod.iod_size = (daos_size_t)sizeof(uint64_t);
+    iod.iod_size = (daos_size_t)H5_DAOS_ENCODED_CRT_ORDER_SIZE;
     iod.iod_type = DAOS_IOD_SINGLE;
 
     /* Set up sgl */
-    daos_iov_set(&sg_iov, new_max_corder_buf, (daos_size_t)sizeof(uint64_t));
+    daos_iov_set(&sg_iov, new_max_corder_buf, (daos_size_t)H5_DAOS_ENCODED_CRT_ORDER_SIZE);
     sgl.sg_nr = 1;
     sgl.sg_nr_out = 0;
     sgl.sg_iovs = &sg_iov;

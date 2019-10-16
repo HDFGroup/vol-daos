@@ -77,6 +77,10 @@ typedef d_sg_list_t daos_sg_list_t;
 #define H5_DAOS_ATTR_NUM_AKEYS 5
 #define H5_DAOS_ATTR_NAME_BUF_SIZE 2048
 
+/* Sizes of objects on storage */
+#define H5_DAOS_ENCODED_CRT_ORDER_SIZE 8
+#define H5_DAOS_ENCODED_NUM_ATTRS_SIZE 8
+
 /* Definitions for building oids */
 #define H5_DAOS_TYPE_MASK   0x00000000c0000000ull
 #define H5_DAOS_TYPE_GRP    0x0000000000000000ull
@@ -160,6 +164,9 @@ typedef d_sg_list_t daos_sg_list_t;
 /* Decode a variable-sized buffer into a 64-bit unsigned integer */
 /* (Assumes that the high bits of the integer will be zero) */
 #define UINT64DECODE_VAR(p, n, l)     DECODE_VAR(p, n, l)
+
+/* Compile-time "assert" macro (borrowed from H5private.h) */
+#define H5daos_compile_assert(e)     ((void)sizeof(char[ !!(e) ? 1 : -1]))
 
 /* FAPL property to tell the VOL connector to open a saved snapshot when opening a
  * file */

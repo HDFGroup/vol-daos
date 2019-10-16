@@ -113,17 +113,20 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
     /* nattr_new_buf is the write buffer for the number of attributes,
      * updated to include the attribute we're writing now.  Needs to be
      * exactly 8 bytes long because it's filled with UINT64ENCODE. */
-    uint8_t nattr_new_buf[8];
+    uint8_t nattr_new_buf[H5_DAOS_ENCODED_NUM_ATTRS_SIZE];
     /* nattr_old_buf is the read buffer for the number of attributes, which
      * is also the creation order index for the attribute being created.
      * This buffer is subsequently used as the akey for the creation order
      * -> attribute name mapping key in iod[4]/sgl[4].  Needs to be exactly
      * 9 bytes long to contain a leading 0 followed by the creation order
      * data which is used with UINT64ENCODE/DECODE. */
-    uint8_t nattr_old_buf[9];
-    uint8_t max_corder_old_buf[8];
-    uint8_t max_corder_new_buf[8];
+    uint8_t nattr_old_buf[H5_DAOS_ENCODED_NUM_ATTRS_SIZE + 1];
+    uint8_t max_corder_old_buf[H5_DAOS_ENCODED_CRT_ORDER_SIZE];
+    uint8_t max_corder_new_buf[H5_DAOS_ENCODED_CRT_ORDER_SIZE];
     void *ret_value = NULL;
+
+    H5daos_compile_assert(H5_DAOS_ENCODED_NUM_ATTRS_SIZE == 8);
+    H5daos_compile_assert(H5_DAOS_ENCODED_CRT_ORDER_SIZE == 8);
 
     if(!_item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "attribute parent object is NULL")
@@ -1569,7 +1572,7 @@ H5_daos_attribute_get_name(H5_daos_obj_t *target_obj, const H5VL_loc_params_t *l
             assert((ssize_t)nbytes >= 0); /*overflow, pretty unlikely --rpm*/
 
             /* compute the string length which will fit into the user's buffer */
-            copy_len = MIN(attr_name_out_size - 1, nbytes);
+            copy_len = (attr_name_out_size > 0) ? MIN(attr_name_out_size - 1, nbytes) : 0;
 
             /* Copy all/some of the name */
             if(attr_name_out && copy_len > 0) {
@@ -1846,7 +1849,7 @@ H5_daos_attribute_remove_from_crt_idx(H5_daos_obj_t *target_obj, const H5VL_loc_
     daos_key_t dkey;
     daos_key_t crt_akey;
     uint64_t delete_idx = 0;
-    uint8_t idx_buf[sizeof(uint64_t)];
+    uint8_t idx_buf[H5_DAOS_ENCODED_CRT_ORDER_SIZE];
     uint8_t *p;
     ssize_t obj_nattrs_remaining;
     hid_t target_obj_id = H5I_INVALID_HID;
@@ -1855,6 +1858,7 @@ H5_daos_attribute_remove_from_crt_idx(H5_daos_obj_t *target_obj, const H5VL_loc_
 
     assert(target_obj);
     assert(loc_params);
+    H5daos_compile_assert(H5_DAOS_ENCODED_CRT_ORDER_SIZE == 8);
 
     /* Retrieve the current number of attributes attached to the object */
     if((obj_nattrs_remaining = H5_daos_object_get_num_attrs(target_obj)) < 0)
@@ -1912,7 +1916,7 @@ H5_daos_attribute_remove_from_crt_idx(H5_daos_obj_t *target_obj, const H5VL_loc_
     /* Remove the akey which maps creation order -> attribute name */
     p = idx_buf;
     UINT64ENCODE(p, delete_idx);
-    daos_iov_set(&crt_akey, (void *)idx_buf, sizeof(uint64_t));
+    daos_iov_set(&crt_akey, (void *)idx_buf, H5_DAOS_ENCODED_CRT_ORDER_SIZE);
 
     /* Remove the akey */
     if(0 != (ret = daos_obj_punch_akeys(target_obj->obj_oh, DAOS_TX_NONE, &dkey, 1, &crt_akey, NULL /*event*/)))
@@ -2024,6 +2028,7 @@ H5_daos_attribute_shift_crt_idx_keys_down(H5_daos_obj_t *target_obj,
 
     assert(target_obj);
     assert(idx_end >= idx_begin);
+    H5daos_compile_assert(H5_DAOS_ENCODED_CRT_ORDER_SIZE == 8);
 
     nattrs_shift = idx_end - idx_begin + 1;
 
@@ -2037,7 +2042,7 @@ H5_daos_attribute_shift_crt_idx_keys_down(H5_daos_obj_t *target_obj,
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate SGL buffer")
     if(NULL == (sg_iovs = DV_calloc(nattrs_shift * sizeof(*sg_iovs))))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate IOV buffer")
-    if(NULL == (crt_order_attr_name_buf = DV_malloc(nattrs_shift * (sizeof(uint64_t) + 1))))
+    if(NULL == (crt_order_attr_name_buf = DV_malloc(nattrs_shift * (H5_DAOS_ENCODED_CRT_ORDER_SIZE + 1))))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate akey data buffer")
 
     /* Set up dkey */
@@ -2048,13 +2053,13 @@ H5_daos_attribute_shift_crt_idx_keys_down(H5_daos_obj_t *target_obj,
         tmp_uint = idx_begin + i;
 
         /* Setup the integer 'name' value for the current 'creation order -> attribute name' akey */
-        p = &crt_order_attr_name_buf[i * (sizeof(uint64_t) + 1)];
+        p = &crt_order_attr_name_buf[i * (H5_DAOS_ENCODED_CRT_ORDER_SIZE + 1)];
         *p++ = 0;
         UINT64ENCODE(p, tmp_uint);
 
         /* Set up iods for the current 'creation order -> attribute name' akey */
         memset(&iods[i], 0, sizeof(*iods));
-        daos_iov_set(&iods[i].iod_name, &crt_order_attr_name_buf[i * (sizeof(uint64_t) + 1)], sizeof(uint64_t) + 1);
+        daos_iov_set(&iods[i].iod_name, &crt_order_attr_name_buf[i * (H5_DAOS_ENCODED_CRT_ORDER_SIZE + 1)], H5_DAOS_ENCODED_CRT_ORDER_SIZE + 1);
         iods[i].iod_nr = 1u;
         iods[i].iod_size = DAOS_REC_ANY;
         iods[i].iod_type = DAOS_IOD_SINGLE;
@@ -2091,11 +2096,11 @@ H5_daos_attribute_shift_crt_idx_keys_down(H5_daos_obj_t *target_obj,
      */
     for(i = 0; i < nattrs_shift; i++) {
         /* Setup the integer 'name' value for the current 'creation order -> attribute name' akey */
-        p = &crt_order_attr_name_buf[i * (sizeof(uint64_t) + 1) + 1];
+        p = &crt_order_attr_name_buf[i * (H5_DAOS_ENCODED_CRT_ORDER_SIZE + 1) + 1];
         UINT64DECODE(p, tmp_uint);
 
         tmp_uint--;
-        p = &crt_order_attr_name_buf[i * (sizeof(uint64_t) + 1) + 1];
+        p = &crt_order_attr_name_buf[i * (H5_DAOS_ENCODED_CRT_ORDER_SIZE + 1) + 1];
         UINT64ENCODE(p, tmp_uint);
     } /* end for */
 
@@ -2108,7 +2113,7 @@ H5_daos_attribute_shift_crt_idx_keys_down(H5_daos_obj_t *target_obj,
     tmp_uint = idx_end;
     p = &crt_order_attr_name_buf[1];
     UINT64ENCODE(p, tmp_uint);
-    daos_iov_set(&tail_akey, (void *)&crt_order_attr_name_buf[0], sizeof(uint64_t) + 1);
+    daos_iov_set(&tail_akey, (void *)&crt_order_attr_name_buf[0], H5_DAOS_ENCODED_CRT_ORDER_SIZE + 1);
 
     if(0 != (ret = daos_obj_punch_akeys(target_obj->obj_oh, DAOS_TX_NONE, &dkey,
             1, &tail_akey, NULL /*event*/)))
@@ -2798,12 +2803,13 @@ H5_daos_attribute_get_name_by_crt_order(H5_daos_obj_t *target_obj, H5_iter_order
     daos_iov_t sg_iov;
     hssize_t obj_nattrs;
     uint64_t fetch_idx = 0;
-    uint8_t idx_buf[sizeof(uint64_t) + 1];
+    uint8_t idx_buf[H5_DAOS_ENCODED_CRT_ORDER_SIZE + 1];
     uint8_t *p;
     int ret;
     ssize_t ret_value = 0;
 
     assert(target_obj);
+    H5daos_compile_assert(H5_DAOS_ENCODED_CRT_ORDER_SIZE == 8);
 
     /* Check that creation order is tracked for the attribute's parent object */
     if(!target_obj->ocpl_cache.track_acorder)
@@ -2832,14 +2838,14 @@ H5_daos_attribute_get_name_by_crt_order(H5_daos_obj_t *target_obj, H5_iter_order
 
     /* Set up iod */
     memset(&iod, 0, sizeof(iod));
-    daos_iov_set(&iod.iod_name, (void *)idx_buf, sizeof(uint64_t) + 1);
+    daos_iov_set(&iod.iod_name, (void *)idx_buf, H5_DAOS_ENCODED_CRT_ORDER_SIZE + 1);
     daos_csum_set(&iod.iod_kcsum, NULL, 0);
     iod.iod_nr = 1u;
     iod.iod_size = DAOS_REC_ANY;
     iod.iod_type = DAOS_IOD_SINGLE;
 
     /* Set up sgl if attr_name_out buffer is supplied */
-    if(attr_name_out) {
+    if(attr_name_out && attr_name_out_size > 0) {
         daos_iov_set(&sg_iov, attr_name_out, attr_name_out_size - 1);
         sgl.sg_nr = 1;
         sgl.sg_nr_out = 0;
@@ -2854,7 +2860,7 @@ H5_daos_attribute_get_name_by_crt_order(H5_daos_obj_t *target_obj, H5_iter_order
     if(iod.iod_size == (daos_size_t)0)
         D_GOTO_ERROR(H5E_ATTR, H5E_NOTFOUND, (-1), "attribute name record not found")
 
-    if(attr_name_out)
+    if(attr_name_out && attr_name_out_size > 0)
         attr_name_out[MIN(iod.iod_size, attr_name_out_size - 1)] = '\0';
 
     ret_value = (ssize_t)iod.iod_size;
@@ -2957,7 +2963,7 @@ H5_daos_attribute_get_name_by_name_order_cb(hid_t H5VL_DAOS_UNUSED loc_id, const
      * output buffer is not NULL.
      */
     if(cb_ud->cur_attr_idx == cb_ud->target_attr_idx) {
-        if(cb_ud->attr_name_out) {
+        if(cb_ud->attr_name_out && cb_ud->attr_name_out_size > 0) {
             memcpy(cb_ud->attr_name_out, attr_name, cb_ud->attr_name_out_size - 1);
             cb_ud->attr_name_out[cb_ud->attr_name_out_size - 1] = '\0';
         }
@@ -2991,7 +2997,7 @@ H5_daos_attribute_get_crt_order_by_name(H5_daos_obj_t *target_obj, const char *a
     daos_iod_t iod;
     daos_iov_t sg_iov;
     uint64_t crt_order_val;
-    uint8_t crt_order_buf[sizeof(uint64_t)];
+    uint8_t crt_order_buf[H5_DAOS_ENCODED_CRT_ORDER_SIZE];
     uint8_t *p;
     size_t akey_len;
     char *acorder_key = NULL;
@@ -3001,6 +3007,7 @@ H5_daos_attribute_get_crt_order_by_name(H5_daos_obj_t *target_obj, const char *a
     assert(target_obj);
     assert(attr_name);
     assert(crt_order);
+    H5daos_compile_assert(H5_DAOS_ENCODED_CRT_ORDER_SIZE == 8);
 
     /* Check that creation order is tracked for the attribute's parent object */
     if(!target_obj->ocpl_cache.track_acorder)
@@ -3018,11 +3025,11 @@ H5_daos_attribute_get_crt_order_by_name(H5_daos_obj_t *target_obj, const char *a
     daos_iov_set(&iod.iod_name, (void *)acorder_key, (daos_size_t)akey_len);
     daos_csum_set(&iod.iod_kcsum, NULL, 0);
     iod.iod_nr = 1u;
-    iod.iod_size = (daos_size_t)sizeof(uint64_t);
+    iod.iod_size = (daos_size_t)H5_DAOS_ENCODED_CRT_ORDER_SIZE;
     iod.iod_type = DAOS_IOD_SINGLE;
 
     /* Set up sgl */
-    daos_iov_set(&sg_iov, crt_order_buf, (daos_size_t)sizeof(uint64_t));
+    daos_iov_set(&sg_iov, crt_order_buf, (daos_size_t)H5_DAOS_ENCODED_CRT_ORDER_SIZE);
     sgl.sg_nr = 1;
     sgl.sg_nr_out = 0;
     sgl.sg_iovs = &sg_iov;

@@ -1016,6 +1016,7 @@ H5_daos_object_get_num_attrs(H5_daos_obj_t *target_obj)
     hssize_t ret_value = 0;
 
     assert(target_obj);
+    H5daos_compile_assert(H5_DAOS_ENCODED_NUM_ATTRS_SIZE == 8);
 
     if(target_obj->ocpl_cache.track_acorder) {
         daos_sg_list_t sgl;
@@ -1023,7 +1024,7 @@ H5_daos_object_get_num_attrs(H5_daos_obj_t *target_obj)
         daos_iod_t iod;
         daos_iov_t sg_iov;
         uint8_t *p;
-        uint8_t nattrs_buf[sizeof(uint64_t)];
+        uint8_t nattrs_buf[H5_DAOS_ENCODED_NUM_ATTRS_SIZE];
         int ret;
 
         /* Read the "number of attributes" key from the target object */
@@ -1036,11 +1037,11 @@ H5_daos_object_get_num_attrs(H5_daos_obj_t *target_obj)
         daos_iov_set(&iod.iod_name, (void *)H5_daos_nattr_key_g, H5_daos_nattr_key_size_g);
         daos_csum_set(&iod.iod_kcsum, NULL, 0);
         iod.iod_nr = 1u;
-        iod.iod_size = (daos_size_t)sizeof(uint64_t);
+        iod.iod_size = (daos_size_t)H5_DAOS_ENCODED_NUM_ATTRS_SIZE;
         iod.iod_type = DAOS_IOD_SINGLE;
 
         /* Set up sgl */
-        daos_iov_set(&sg_iov, nattrs_buf, (daos_size_t)sizeof(uint64_t));
+        daos_iov_set(&sg_iov, nattrs_buf, (daos_size_t)H5_DAOS_ENCODED_NUM_ATTRS_SIZE);
         sgl.sg_nr = 1;
         sgl.sg_nr_out = 0;
         sgl.sg_iovs = &sg_iov;
@@ -1111,13 +1112,14 @@ H5_daos_object_update_num_attrs_key(H5_daos_obj_t *target_obj, uint64_t new_natt
     daos_key_t dkey;
     daos_iod_t iod;
     daos_iov_t sg_iov;
-    uint8_t nattrs_new_buf[sizeof(uint64_t)];
+    uint8_t nattrs_new_buf[H5_DAOS_ENCODED_NUM_ATTRS_SIZE];
     uint8_t *p;
     int ret;
     herr_t ret_value = SUCCEED;
 
     assert(target_obj);
     assert(target_obj->ocpl_cache.track_acorder);
+    H5daos_compile_assert(H5_DAOS_ENCODED_NUM_ATTRS_SIZE == 8);
 
     /* Encode buffer */
     p = nattrs_new_buf;
@@ -1131,11 +1133,11 @@ H5_daos_object_update_num_attrs_key(H5_daos_obj_t *target_obj, uint64_t new_natt
     daos_iov_set(&iod.iod_name, (void *)H5_daos_nattr_key_g, H5_daos_nattr_key_size_g);
     daos_csum_set(&iod.iod_kcsum, NULL, 0);
     iod.iod_nr = 1u;
-    iod.iod_size = (daos_size_t)sizeof(uint64_t);
+    iod.iod_size = (daos_size_t)H5_DAOS_ENCODED_NUM_ATTRS_SIZE;
     iod.iod_type = DAOS_IOD_SINGLE;
 
     /* Set up sgl */
-    daos_iov_set(&sg_iov, nattrs_new_buf, (daos_size_t)sizeof(uint64_t));
+    daos_iov_set(&sg_iov, nattrs_new_buf, (daos_size_t)H5_DAOS_ENCODED_NUM_ATTRS_SIZE);
     sgl.sg_nr = 1;
     sgl.sg_nr_out = 0;
     sgl.sg_iovs = &sg_iov;

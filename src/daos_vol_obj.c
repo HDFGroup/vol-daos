@@ -11,6 +11,10 @@
 /*
  * Purpose: The DAOS VOL connector where access is forwarded to the DAOS
  * library. Generic object routines.
+ *
+ * DSINC - Major error codes used within this file and for H5O-related calls
+ *         should probably be a code other than H5O_OHDR, as this relates to
+ *         object headers.
  */
 
 #include "daos_vol.h"           /* DAOS connector                          */
@@ -18,6 +22,12 @@
 #include "util/daos_vol_err.h"  /* DAOS connector error handling           */
 #include "util/daos_vol_mem.h"  /* DAOS connector memory management        */
 
+static herr_t H5_daos_object_open_by_addr(H5_daos_obj_t *loc_obj, const H5VL_loc_params_t *loc_params,
+    daos_obj_id_t *opened_obj_id, hid_t dxpl_id, void **req);
+static herr_t H5_daos_object_open_by_name(H5_daos_obj_t *loc_obj, const H5VL_loc_params_t *loc_params,
+    daos_obj_id_t *opened_obj_id, hid_t dxpl_id, void **req);
+static herr_t H5_daos_object_open_by_idx(H5_daos_obj_t *loc_obj, const H5VL_loc_params_t *loc_params,
+    daos_obj_id_t *opened_obj_id, hid_t dxpl_id, void **req);
 static herr_t H5_daos_object_visit_link_iter_cb(hid_t group, const char *name, const H5L_info_t *info, void *op_data);
 static herr_t H5_daos_object_get_info(H5_daos_obj_t *target_obj, unsigned fields, H5O_info_t *obj_info_out);
 static herr_t H5_daos_object_copy_helper(H5_daos_obj_t *src_obj, H5I_type_t src_obj_type,
@@ -61,17 +71,11 @@ void *
 H5_daos_object_open(void *_item, const H5VL_loc_params_t *loc_params,
     H5I_type_t *opened_type, hid_t dxpl_id, void **req)
 {
+    H5VL_loc_params_t sub_loc_params;
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_obj_t *obj = NULL;
-    H5_daos_group_t *target_grp = NULL;
-    const char *target_name = NULL;
-    daos_obj_id_t oid;
-    uint8_t oid_buf[2 * sizeof(uint64_t)];
-    uint8_t *p;
-    hbool_t collective;
-    hbool_t must_bcast = FALSE;
-    H5I_type_t obj_type;
-    H5VL_loc_params_t sub_loc_params;
+    daos_obj_id_t oid = {0};
+    H5I_type_t obj_type = H5I_UNINIT;
     void *ret_value = NULL;
 
     if(!_item)
@@ -79,100 +83,28 @@ H5_daos_object_open(void *_item, const H5VL_loc_params_t *loc_params,
     if(!loc_params)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "location parameters object is NULL")
 
-    /*
-     * DSINC - should probably use a major error code other than
-     * object headers for H5O calls.
-     */
-    if(H5VL_OBJECT_BY_IDX == loc_params->type)
-        D_GOTO_ERROR(H5E_OHDR, H5E_UNSUPPORTED, NULL, "H5Oopen_by_idx is unsupported")
+    /* Retrieve the OID of the target object */
+    switch (loc_params->type) {
+        case H5VL_OBJECT_BY_ADDR:
+            if(H5_daos_object_open_by_addr((H5_daos_obj_t *)item, loc_params, &oid, dxpl_id, req) < 0)
+                D_GOTO_ERROR(H5E_OHDR, H5E_CANTOPENOBJ, NULL, "can't open object by address")
+            break;
 
-    /*
-     * Like HDF5, metadata reads are independent by default. If the application has specifically
-     * requested collective metadata reads, they will be enabled here.
-     */
-    collective = item->file->is_collective_md_read;
+        case H5VL_OBJECT_BY_NAME:
+            if(H5_daos_object_open_by_name((H5_daos_obj_t *)item, loc_params, &oid, dxpl_id, req) < 0)
+                D_GOTO_ERROR(H5E_OHDR, H5E_CANTOPENOBJ, NULL, "can't open object by name")
+            break;
 
-    /* Check loc_params type */
-    if(H5VL_OBJECT_BY_ADDR == loc_params->type) {
-        /* Generate oid from address */
-        if(H5_daos_addr_to_oid(&oid, loc_params->loc_data.loc_by_addr.addr) < 0)
-            D_GOTO_ERROR(H5E_OHDR, H5E_CANTINIT, NULL, "can't convert address to OID")
-    } /* end if */
-    else {
-        assert(H5VL_OBJECT_BY_NAME == loc_params->type);
+        case H5VL_OBJECT_BY_IDX:
+            if(H5_daos_object_open_by_idx((H5_daos_obj_t *)item, loc_params, &oid, dxpl_id, req) < 0)
+                D_GOTO_ERROR(H5E_OHDR, H5E_CANTOPENOBJ, NULL, "can't open object by index")
+            break;
 
-        /* Check for collective access, if not already set by the file */
-        /*
-         * DSINC - This is not correct, but in the H5Acreate_by_name case HDF5 does not set
-         * loc_params->loc_data.loc_by_name.lapl_id correctly so this will fail.
-         */
-        if(!collective /* && (H5P_LINK_ACCESS_DEFAULT != loc_params->loc_data.loc_by_name.lapl_id) */)
-            if(H5Pget_all_coll_metadata_ops(/*loc_params->loc_data.loc_by_name.lapl_id*/ H5P_LINK_ACCESS_DEFAULT, &collective) < 0)
-                D_GOTO_ERROR(H5E_OHDR, H5E_CANTGET, NULL, "can't get collective metadata reads property")
-
-        /* Check if we're actually opening the group or just receiving the group
-         * info from the leader */
-        if(!collective || (item->file->my_rank == 0)) {
-            if(collective && (item->file->num_procs > 1))
-                must_bcast = TRUE;
-
-            /* Check for simple case of '.' for object name */
-            if(!strncmp(loc_params->loc_data.loc_by_name.name, ".", 2)) {
-                if(item->type == H5I_FILE)
-                    oid = ((H5_daos_file_t *)item)->root_grp->obj.oid;
-                else
-                    oid = ((H5_daos_obj_t *)item)->oid;
-            } /* end if */
-            else {
-                /* Traverse the path */
-                if(NULL == (target_grp = H5_daos_group_traverse(item, loc_params->loc_data.loc_by_name.name, dxpl_id, req, &target_name, NULL, NULL)))
-                    D_GOTO_ERROR(H5E_OHDR, H5E_BADITER, NULL, "can't traverse path")
-
-                /* Check for no target_name, in this case just reopen target_grp */
-                if(target_name[0] == '\0'
-                        || (target_name[0] == '.' && target_name[1] == '\0'))
-                    oid = target_grp->obj.oid;
-                else {
-                    htri_t link_resolved;
-
-                    /* Follow link to object */
-                    if((link_resolved = H5_daos_link_follow(target_grp, target_name, strlen(target_name), dxpl_id, req, &oid)) < 0)
-                        D_GOTO_ERROR(H5E_OHDR, H5E_TRAVERSE, NULL, "can't follow link to group")
-                    if(!link_resolved)
-                        D_GOTO_ERROR(H5E_OHDR, H5E_TRAVERSE, NULL, "link to group did not resolve")
-                } /* end else */
-            } /* end else */
-
-            /* Broadcast group info if there are other processes that need it */
-            if(collective && (item->file->num_procs > 1)) {
-                /* Encode oid */
-                p = oid_buf;
-                UINT64ENCODE(p, oid.lo)
-                UINT64ENCODE(p, oid.hi)
-
-                /* We are about to bcast so we no longer need to bcast on failure */
-                must_bcast = FALSE;
-
-                /* MPI_Bcast oid_buf */
-                if(MPI_SUCCESS != MPI_Bcast((char *)oid_buf, sizeof(oid_buf), MPI_BYTE, 0, item->file->comm))
-                    D_GOTO_ERROR(H5E_OHDR, H5E_MPI, NULL, "can't broadcast object ID")
-            } /* end if */
-        } /* end if */
-        else {
-            /* Receive oid_buf */
-            if(MPI_SUCCESS != MPI_Bcast((char *)oid_buf, sizeof(oid_buf), MPI_BYTE, 0, item->file->comm))
-                D_GOTO_ERROR(H5E_OHDR, H5E_MPI, NULL, "can't receive broadcasted object ID")
-
-            /* Decode oid */
-            p = oid_buf;
-            UINT64DECODE(p, oid.lo)
-            UINT64DECODE(p, oid.hi)
-
-            /* Check for oid.lo set to 0 - indicates failure */
-            if(oid.lo == 0)
-                D_GOTO_ERROR(H5E_OHDR, H5E_CANTINIT, NULL, "lead process failed to open object")
-        } /* end else */
-    } /* end else */
+        case H5VL_OBJECT_BY_SELF:
+        case H5VL_OBJECT_BY_REF:
+        default:
+            D_GOTO_ERROR(H5E_OHDR, H5E_BADVALUE, NULL, "invalid loc_params type")
+    } /* end switch */
 
     /* Get object type */
     if(H5I_BADID == (obj_type = H5_daos_oid_to_type(oid)))
@@ -207,9 +139,9 @@ H5_daos_object_open(void *_item, const H5VL_loc_params_t *loc_params,
     else {
 #ifdef DV_HAVE_MAP
         assert(obj_type == H5I_MAP);
-        if(NULL == (obj = (H5_daos_obj_t *)H5_daos_map_open(item, sub_loc_params, NULL,
-                ((H5VL_OBJECT_BY_NAME == loc_params.type) && (loc_params.loc_data.loc_by_name.lapl_id != H5P_DEFAULT))
-                ? loc_params.loc_data.loc_by_name.lapl_id : H5P_MAP_ACCESS_DEFAULT, dxpl_id, req)))
+        if(NULL == (obj = (H5_daos_obj_t *)H5_daos_map_open(item, &sub_loc_params, NULL,
+                ((H5VL_OBJECT_BY_NAME == loc_params->type) && (loc_params->loc_data.loc_by_name.lapl_id != H5P_DEFAULT))
+                ? loc_params->loc_data.loc_by_name.lapl_id : H5P_MAP_ACCESS_DEFAULT, dxpl_id, req)))
             D_GOTO_ERROR(H5E_OHDR, H5E_CANTOPENOBJ, NULL, "can't open map")
 #endif
     } /* end if */
@@ -220,27 +152,255 @@ H5_daos_object_open(void *_item, const H5VL_loc_params_t *loc_params,
     ret_value = (void *)obj;
 
 done:
-    /* Cleanup on failure */
-    if(NULL == ret_value) {
-        /* Bcast oid_buf as '0' if necessary - this will trigger failures in
-         * other processes */
-        if(must_bcast) {
-            memset(oid_buf, 0, sizeof(oid_buf));
-            if(MPI_SUCCESS != MPI_Bcast(oid_buf, sizeof(oid_buf), MPI_BYTE, 0, item->file->comm))
-                D_DONE_ERROR(H5E_OHDR, H5E_MPI, NULL, "can't broadcast empty object ID")
-        } /* end if */
-
-        /* Close object */
-        if(obj && H5_daos_object_close(obj, dxpl_id, req) < 0)
+    if(obj && (NULL == ret_value))
+        if(H5_daos_object_close(obj, dxpl_id, req) < 0)
             D_DONE_ERROR(H5E_OHDR, H5E_CLOSEERROR, NULL, "can't close object")
+
+    D_FUNC_LEAVE_API
+} /* end H5_daos_object_open() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_object_open_by_addr
+ *
+ * Purpose:     Helper function for H5_daos_object_open which opens an
+ *              object according to the specified object address.
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_object_open_by_addr(H5_daos_obj_t H5VL_DAOS_UNUSED *loc_obj, const H5VL_loc_params_t *loc_params,
+    daos_obj_id_t *opened_obj_id, hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req)
+{
+    daos_obj_id_t oid;
+    herr_t ret_value = SUCCEED;
+
+    assert(loc_obj);
+    assert(loc_params);
+    assert(opened_obj_id);
+    assert(H5VL_OBJECT_BY_ADDR == loc_params->type);
+
+    /* Generate oid from address */
+    if(H5_daos_addr_to_oid(&oid, loc_params->loc_data.loc_by_addr.addr) < 0)
+        D_GOTO_ERROR(H5E_OHDR, H5E_CANTINIT, FAIL, "can't convert address to OID")
+
+    *opened_obj_id = oid;
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_object_open_by_addr() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_object_open_by_name
+ *
+ * Purpose:     Helper function for H5_daos_object_open which opens an
+ *              object according to the specified object name.
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_object_open_by_name(H5_daos_obj_t *loc_obj, const H5VL_loc_params_t *loc_params,
+    daos_obj_id_t *opened_obj_id, hid_t dxpl_id, void **req)
+{
+    H5_daos_group_t *target_grp = NULL;
+    daos_obj_id_t oid;
+    const char *target_name = NULL;
+    uint8_t oid_buf[2 * sizeof(uint64_t)];
+    uint8_t *p;
+    hbool_t must_bcast = FALSE;
+    hbool_t collective;
+    herr_t ret_value = SUCCEED;
+
+    assert(loc_obj);
+    assert(loc_params);
+    assert(opened_obj_id);
+    assert(H5VL_OBJECT_BY_NAME == loc_params->type);
+
+    /*
+     * Like HDF5, metadata reads are independent by default. If the application has specifically
+     * requested collective metadata reads, they will be enabled here.
+     */
+    collective = loc_obj->item.file->is_collective_md_read;
+
+    /*
+     * Check for collective access, if not already set by the file
+     *
+     * DSINC - In the H5Acreate_by_name case HDF5 does not set
+     * loc_params->loc_data.loc_by_name.lapl_id correctly, so this can fail
+     * and has therefore been commented out for now.
+     */
+    if(!collective /* && (H5P_LINK_ACCESS_DEFAULT != loc_params->loc_data.loc_by_name.lapl_id) */)
+        if(H5Pget_all_coll_metadata_ops(/*loc_params->loc_data.loc_by_name.lapl_id*/ H5P_LINK_ACCESS_DEFAULT, &collective) < 0)
+            D_GOTO_ERROR(H5E_OHDR, H5E_CANTGET, FAIL, "can't get collective metadata reads property")
+
+    /*
+     * Check if we're actually opening the group or just receiving the group
+     * info from the leader
+     */
+    if(!collective || (loc_obj->item.file->my_rank == 0)) {
+        if(collective && (loc_obj->item.file->num_procs > 1))
+            must_bcast = TRUE;
+
+        /* Check for simple case of '.' for object name */
+        if(!strncmp(loc_params->loc_data.loc_by_name.name, ".", 2)) {
+            if(loc_obj->item.type == H5I_FILE)
+                oid = ((H5_daos_file_t *)loc_obj)->root_grp->obj.oid;
+            else
+                oid = loc_obj->oid;
+        } /* end if */
+        else {
+            /* Traverse the path */
+            if(NULL == (target_grp = H5_daos_group_traverse((H5_daos_item_t *)loc_obj, loc_params->loc_data.loc_by_name.name,
+                    dxpl_id, req, &target_name, NULL, NULL)))
+                D_GOTO_ERROR(H5E_OHDR, H5E_TRAVERSE, FAIL, "can't traverse path")
+
+            /* Check for no target_name, in this case just reopen target_grp */
+            if(target_name[0] == '\0'
+                    || (target_name[0] == '.' && target_name[1] == '\0'))
+                oid = target_grp->obj.oid;
+            else {
+                htri_t link_resolved;
+
+                /* Follow link to object */
+                if((link_resolved = H5_daos_link_follow(target_grp, target_name, strlen(target_name), dxpl_id, req, &oid)) < 0)
+                    D_GOTO_ERROR(H5E_OHDR, H5E_TRAVERSE, FAIL, "can't follow link to group")
+                if(!link_resolved)
+                    D_GOTO_ERROR(H5E_OHDR, H5E_TRAVERSE, FAIL, "link to group did not resolve")
+            } /* end else */
+        } /* end else */
+
+        /* Broadcast group info if there are other processes that need it */
+        if(collective && (loc_obj->item.file->num_procs > 1)) {
+            /* Encode oid */
+            p = oid_buf;
+            UINT64ENCODE(p, oid.lo)
+            UINT64ENCODE(p, oid.hi)
+
+            /* We are about to bcast so we no longer need to bcast on failure */
+            must_bcast = FALSE;
+
+            /* MPI_Bcast oid_buf */
+            if(MPI_SUCCESS != MPI_Bcast((char *)oid_buf, sizeof(oid_buf), MPI_BYTE, 0, loc_obj->item.file->comm))
+                D_GOTO_ERROR(H5E_OHDR, H5E_MPI, FAIL, "can't broadcast object ID")
+        } /* end if */
+    } /* end if */
+    else {
+        /* Receive oid_buf */
+        if(MPI_SUCCESS != MPI_Bcast((char *)oid_buf, sizeof(oid_buf), MPI_BYTE, 0, loc_obj->item.file->comm))
+            D_GOTO_ERROR(H5E_OHDR, H5E_MPI, FAIL, "can't receive broadcasted object ID")
+
+        /* Decode oid */
+        p = oid_buf;
+        UINT64DECODE(p, oid.lo)
+        UINT64DECODE(p, oid.hi)
+
+        /* Check for oid.lo set to 0 - indicates failure */
+        if(oid.lo == 0)
+            D_GOTO_ERROR(H5E_OHDR, H5E_CANTOPENOBJ, FAIL, "lead process failed to open object")
+    } /* end else */
+
+    *opened_obj_id = oid;
+
+done:
+    /* Cleanup on failure */
+    if(ret_value < 0 && must_bcast) {
+        /*
+         * Bcast oid_buf as '0' if necessary - this will trigger
+         * failures in other processes.
+         */
+        memset(oid_buf, 0, sizeof(oid_buf));
+        if(MPI_SUCCESS != MPI_Bcast(oid_buf, sizeof(oid_buf), MPI_BYTE, 0, loc_obj->item.file->comm))
+            D_DONE_ERROR(H5E_OHDR, H5E_MPI, FAIL, "can't broadcast empty object ID")
     } /* end if */
 
     /* Close target group */
     if(target_grp && H5_daos_group_close(target_grp, dxpl_id, req) < 0)
-        D_DONE_ERROR(H5E_OHDR, H5E_CLOSEERROR, NULL, "can't close group")
+        D_DONE_ERROR(H5E_OHDR, H5E_CLOSEERROR, FAIL, "can't close group")
 
-    D_FUNC_LEAVE_API
-} /* end H5_daos_object_open() */
+    D_FUNC_LEAVE
+} /* end H5_daos_object_open_by_name() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_object_open_by_idx
+ *
+ * Purpose:     Helper function for H5_daos_object_open which opens an
+ *              object according to creation order or alphabetical order.
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_object_open_by_idx(H5_daos_obj_t *loc_obj, const H5VL_loc_params_t *loc_params,
+    daos_obj_id_t *opened_obj_id, hid_t dxpl_id, void **req)
+{
+    H5VL_loc_params_t sub_loc_params;
+    H5_daos_group_t *container_group = NULL;
+    daos_obj_id_t oid;
+    ssize_t link_name_size;
+    htri_t link_resolved;
+    char *link_name = NULL;
+    char *link_name_buf_dyn = NULL;
+    char link_name_buf_static[H5_DAOS_LINK_NAME_BUF_SIZE];
+    herr_t ret_value = SUCCEED;
+
+    assert(loc_obj);
+    assert(loc_params);
+    assert(opened_obj_id);
+    assert(H5VL_OBJECT_BY_IDX == loc_params->type);
+
+    /* Open the group containing the target object */
+    sub_loc_params.type = H5VL_OBJECT_BY_SELF;
+    sub_loc_params.obj_type = H5I_GROUP;
+    if(NULL == (container_group = (H5_daos_group_t *)H5_daos_group_open(loc_obj, &sub_loc_params,
+            loc_params->loc_data.loc_by_idx.name, loc_params->loc_data.loc_by_idx.lapl_id, dxpl_id, req)))
+        D_GOTO_ERROR(H5E_OHDR, H5E_CANTOPENOBJ, FAIL, "can't open group containing target object")
+
+    /* Retrieve the name of the link at the given index */
+    link_name = link_name_buf_static;
+    if((link_name_size = H5_daos_link_get_name_by_idx(container_group, loc_params->loc_data.loc_by_idx.idx_type,
+            loc_params->loc_data.loc_by_idx.order, (uint64_t)loc_params->loc_data.loc_by_idx.n,
+            link_name, H5_DAOS_LINK_NAME_BUF_SIZE)) < 0)
+        D_GOTO_ERROR(H5E_OHDR, H5E_CANTGET, FAIL, "can't get link name")
+
+    /* Check that buffer was large enough to fit link name */
+    if(link_name_size > H5_DAOS_LINK_NAME_BUF_SIZE - 1) {
+        if(NULL == (link_name_buf_dyn = DV_malloc(link_name_size + 1)))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate link name buffer")
+        link_name = link_name_buf_dyn;
+
+        /* Re-issue the call with a larger buffer */
+        if(H5_daos_link_get_name_by_idx(container_group, loc_params->loc_data.loc_by_idx.idx_type,
+                loc_params->loc_data.loc_by_idx.order, (uint64_t)loc_params->loc_data.loc_by_idx.n,
+                link_name, link_name_size + 1) < 0)
+            D_GOTO_ERROR(H5E_OHDR, H5E_CANTGET, FAIL, "can't get link name")
+    } /* end if */
+
+    /* Attempt to follow the link */
+    if((link_resolved = H5_daos_link_follow(container_group, link_name, strlen(link_name), dxpl_id, req, &oid)) < 0)
+        D_GOTO_ERROR(H5E_OHDR, H5E_TRAVERSE, FAIL, "can't follow link to object")
+    if(!link_resolved)
+        D_GOTO_ERROR(H5E_OHDR, H5E_TRAVERSE, FAIL, "link to object did not resolve")
+
+    *opened_obj_id = oid;
+
+done:
+    if(link_name_buf_dyn)
+        link_name_buf_dyn = DV_free(link_name_buf_dyn);
+    if(container_group && H5_daos_group_close(container_group, dxpl_id, req) < 0)
+        D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group")
+
+    D_FUNC_LEAVE
+} /* end H5_daos_object_open_by_idx() */
 
 
 /*-------------------------------------------------------------------------
@@ -395,7 +555,7 @@ H5_daos_object_copy_helper(H5_daos_obj_t *src_obj, H5I_type_t src_obj_type,
 
 done:
     D_FUNC_LEAVE
-} /* end H5_daos_object_copy() */
+} /* end H5_daos_object_copy_helper() */
 
 
 /*-------------------------------------------------------------------------
@@ -661,22 +821,27 @@ H5_daos_object_optional(void *_item, hid_t dxpl_id, void **req,
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL")
 
     /* Determine target object */
-    if(loc_params->type == H5VL_OBJECT_BY_SELF) {
-        /* Use item as attribute parent object, or the root group if item is a
-         * file */
-        if(item->type == H5I_FILE)
-            target_obj = (H5_daos_obj_t *)((H5_daos_file_t *)item)->root_grp;
-        else
-            target_obj = (H5_daos_obj_t *)item;
-        target_obj->item.rc++;
-    } /* end if */
-    else if(loc_params->type == H5VL_OBJECT_BY_NAME) {
-        /* Open target_obj */
-        if(NULL == (target_obj = (H5_daos_obj_t *)H5_daos_object_open(item, loc_params, NULL, dxpl_id, req)))
-            D_GOTO_ERROR(H5E_OHDR, H5E_CANTOPENOBJ, FAIL, "can't open object")
-    } /* end else */
-    else
-        D_GOTO_ERROR(H5E_OHDR, H5E_UNSUPPORTED, FAIL, "unsupported object operation location parameters type")
+    switch (loc_params->type) {
+        case H5VL_OBJECT_BY_SELF:
+            /* Use item as attribute parent object, or the root group if item is a file */
+            if(item->type == H5I_FILE)
+                target_obj = (H5_daos_obj_t *)((H5_daos_file_t *)item)->root_grp;
+            else
+                target_obj = (H5_daos_obj_t *)item;
+
+            target_obj->item.rc++;
+            break;
+
+        case H5VL_OBJECT_BY_NAME:
+        case H5VL_OBJECT_BY_IDX:
+            /* Open target object */
+            if(NULL == (target_obj = (H5_daos_obj_t *)H5_daos_object_open(item, loc_params, NULL, dxpl_id, req)))
+                D_GOTO_ERROR(H5E_OHDR, H5E_CANTOPENOBJ, FAIL, "can't open object")
+            break;
+
+        default:
+            D_GOTO_ERROR(H5E_OHDR, H5E_UNSUPPORTED, FAIL, "unsupported object operation location parameters type")
+    } /* end switch */
 
     switch (optional_type) {
         /* H5Oget_info / H5Oget_info_by_name / H5Oget_info_by_idx */
@@ -1316,6 +1481,7 @@ H5_daos_group_copy(H5_daos_group_t *src_obj, H5_daos_group_t *dst_obj, const cha
     H5_daos_iter_data_t iter_data;
     group_copy_op_data copy_op_data;
     H5_daos_group_t *new_group = NULL;
+    H5_index_t iter_index_type;
     hid_t target_group_id = H5I_INVALID_HID;
     herr_t ret_value = SUCCEED;
 
@@ -1340,8 +1506,14 @@ H5_daos_group_copy(H5_daos_group_t *src_obj, H5_daos_group_t *dst_obj, const cha
     copy_op_data.dxpl_id = dxpl_id;
     copy_op_data.req = req;
 
+    /*
+     * Determine whether to iterate by name order or creation order, based
+     * upon whether creation order is tracked for the group.
+     */
+    iter_index_type = (src_obj->gcpl_cache.track_corder) ? H5_INDEX_CRT_ORDER : H5_INDEX_NAME;
+
     /* Initialize iteration data */
-    H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_LINK, H5_INDEX_CRT_ORDER, H5_ITER_INC,
+    H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_LINK, iter_index_type, H5_ITER_INC,
             FALSE, NULL, target_group_id, &copy_op_data, dxpl_id, req);
     iter_data.u.link_iter_data.link_iter_op = H5_daos_group_copy_cb;
 

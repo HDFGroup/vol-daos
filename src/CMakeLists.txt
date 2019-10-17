@@ -182,6 +182,12 @@ set(HDF5_VOL_DAOS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/util/daos_vol_err.c
   ${CMAKE_CURRENT_SOURCE_DIR}/util/daos_vol_hash_table.c
 )
+if(HDF5_VOL_DAOS_ENABLE_DEBUG)
+  set(HDF5_VOL_DAOS_SRCS
+    ${HDF5_VOL_DAOS_SRCS}
+    ${CMAKE_CURRENT_SOURCE_DIR}/daos_vol_debug.c
+  )
+endif()
 
 #------------------------------------------------------------------------------
 # Libraries

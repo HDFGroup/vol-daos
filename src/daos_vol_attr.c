@@ -2377,7 +2377,7 @@ H5_daos_attribute_iterate_by_name_order(H5_daos_obj_t *attr_container_obj, H5_da
     /* Loop to retrieve keys and make callbacks */
     do {
         /* Loop to retrieve keys (exit as soon as we get at least 1 key) */
-        H5_DAOS_RETRIEVE_KEYS_LOOP(akey_buf, akey_buf_len, sg_iov, H5E_ATTR, daos_obj_list_akey,
+        H5_DAOS_RETRIEVE_KEYS_LOOP(akey_buf, akey_buf_len, sg_iov, nr, H5E_ATTR, daos_obj_list_akey,
                 attr_container_obj->obj_oh, DAOS_TX_NONE, &dkey, &nr, kds, &sgl, &anchor, NULL /*event*/);
 
         /* Loop over returned akeys */

@@ -1,0 +1,17 @@
+\section{Known Limitations}
+
+The following sections outline the known current limitations of the DAOS VOL connector.
+
+\subsection{Limitations in regards to the HDF5 API}
+
+\begin{itemize}
+    \item When performing dataset I/O, the selections in the memory and file dataspaces must currently be the same shape; using selections of different shapes will result in an error stating this.
+
+\end{itemize}
+
+\subsection{Limitations in regards to DAOS}
+
+\begin{itemize}
+    \item If an application crashes, the DAOS VOL connector currently leaves the file in an unusable state. Currently, the only known way to re-use the same filename after an application crash is to use a new DAOS pool.
+    \item Following the previous point about application crashes, as DAOS does not currently support forced container deletion, trying to overwrite an existing HDF5 file using the \texttt{H5F\_ACC\_TRUNC} flag when the file was left in an unusable state will fail; the error 'can't destroy container: generic I/O error (DER\_IO)' will be returned.
+\end{itemize}

@@ -559,7 +559,7 @@ done:
  *              the property list default value of "").
  *
  *              If not NULL, object_class points to a user-allocated
- *              buffer, whose size is size.
+ *              output buffer, whose size is size.
  *
  * Return:      Success:        length of object class string (excluding
  *                              null terminator)
@@ -667,6 +667,76 @@ H5daos_set_root_open_object_class(hid_t fapl_id, char *object_class)
 done:
     D_FUNC_LEAVE_API
 } /* end H5daos_set_root_open_object_class() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5daos_get_root_open_object_class
+ *
+ * Purpose:     Retrieves the object class for opening the root group from
+ *              the provided file access property list, as set by
+ *              H5daos_set_root_open_object_class().
+ *
+ *              If not NULL, object_class points to a user-allocated
+ *              output buffer, whose size is size.
+ *
+ * Return:      Success:        length of object class string (excluding
+ *                              null terminator)
+ *              Failure:        -1
+ *
+ *-------------------------------------------------------------------------
+ */
+ssize_t
+H5daos_get_root_open_object_class(hid_t fapl_id, char *object_class, size_t size)
+{
+    htri_t      is_fapl;
+    char        *tmp_object_class = NULL;
+    htri_t      prop_exists;
+    size_t      len;
+    ssize_t     ret_value;
+
+    if((is_fapl = H5Pisa_class(fapl_id, H5P_FILE_ACCESS)) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "couldn't determine property list class")
+    if(!is_fapl)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "not a file access property list")
+
+    /* Check if the property already exists on the property list */
+    if((prop_exists = H5Pexist(fapl_id, H5_DAOS_ROOT_OPEN_OCLASS_NAME)) < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "can't check for object class property")
+
+    if(prop_exists) {
+        /* Get the property */
+        if(H5Pget(fapl_id, H5_DAOS_ROOT_OPEN_OCLASS_NAME, &tmp_object_class) < 0)
+            D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, FAIL, "can't get object class")
+
+        /* Set output values */
+        if(tmp_object_class) {
+            len = strlen(tmp_object_class);
+            if(object_class && (size > 0)) {
+                strncpy(object_class, tmp_object_class, size);
+                if(len >= size)
+                    object_class[size - 1] = '\0';
+            } /* end if */
+        } /* end if */
+        else {
+            /* Simply return an empty string */
+            len = 0;
+            if(object_class && (size > 0))
+                object_class[0] = '\0';
+        } /* end else */
+    } /* end if */
+    else {
+        /* Simply return an empty string */
+        len = 0;
+        if(object_class && (size > 0))
+            object_class[0] = '\0';
+    } /* end else */
+
+    /* Set return value */
+    ret_value = (ssize_t)len;
+
+done:
+    D_FUNC_LEAVE_API
+} /* end H5daos_get_root_open_object_class() */
 
 
 /*-------------------------------------------------------------------------

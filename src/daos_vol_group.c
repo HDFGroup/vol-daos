@@ -208,7 +208,8 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
     grp->gapl_id = FAIL;
 
     /* Encode group oid */
-    H5_daos_oid_encode(&grp->obj.oid, oidx, H5I_GROUP);
+    if(H5_daos_oid_encode(&grp->obj.oid, oidx, H5I_GROUP, gcpl_id == H5P_GROUP_CREATE_DEFAULT ? H5P_DEFAULT : gcpl_id, H5_DAOS_OBJ_CLASS_NAME, file) < 0)
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTENCODE, NULL, "can't encode object ID")
 
     /* Create group and write metadata if this process should */
     if(!collective || (file->my_rank == 0)) {
@@ -434,7 +435,7 @@ H5_daos_group_create(void *_item,
     } /* end if */
 
     /* Generate object index */
-    if(H5_daos_oidx_generate(&oidx, item->file) < 0)
+    if(H5_daos_oidx_generate(&oidx, item->file, collective) < 0)
         D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't generate object index")
 
     /* Create group and link to group */
@@ -709,7 +710,7 @@ H5_daos_group_open(void *_item, const H5VL_loc_params_t *loc_params,
      * Like HDF5, metadata reads are independent by default. If the application has specifically
      * requested collective metadata reads, they will be enabled here.
      */
-    collective = item->file->is_collective_md_read;
+    collective = item->file->fapl_cache.is_collective_md_read;
     if(!collective && (H5P_GROUP_ACCESS_DEFAULT != gapl_id))
         if(H5Pget_all_coll_metadata_ops(gapl_id, &collective) < 0)
             D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, NULL, "can't get collective metadata reads property")
@@ -909,6 +910,10 @@ H5_daos_group_get(void *_item, H5VL_group_get_t get_type, hid_t dxpl_id,
 
             if((*ret_id = H5Pcopy(grp->gcpl_id)) < 0)
                 D_GOTO_ERROR(H5E_PLIST, H5E_CANTCOPY, FAIL, "can't get group's GCPL")
+
+            /* Set group's object class on gcpl */
+            if(H5_daos_set_oclass_from_oid(*ret_id, grp->obj.oid) < 0)
+                D_GOTO_ERROR(H5E_PLIST, H5E_CANTSET, FAIL, "can't set object class property")
 
             break;
         } /* H5VL_GROUP_GET_GCPL */

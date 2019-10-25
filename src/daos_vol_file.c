@@ -28,6 +28,7 @@ static herr_t H5_daos_cont_open(H5_daos_file_t *file, unsigned flags, H5_daos_re
 static herr_t H5_daos_cont_handle_bcast(H5_daos_file_t *file);
 static herr_t H5_daos_cont_gcpl_bcast(H5_daos_file_t *file, void **gcpl_buf, uint64_t *gcpl_len);
 
+static herr_t H5_daos_fill_fapl_cache(H5_daos_file_t *file, hid_t fapl_id);
 static herr_t H5_daos_file_close_helper(H5_daos_file_t *file,
     hid_t dxpl_id, void **req);
 static herr_t H5_daos_get_obj_count_callback(hid_t id, void *udata);
@@ -414,8 +415,19 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     daos_obj_id_t gmd_oid = {0, 0};
     hbool_t sched_init = FALSE;
     H5_daos_req_t *int_req = NULL;
+#if 0
+    daos_key_t dkey;
+    daos_iod_t iod;
+    daos_sg_list_t sgl;
+    daos_iov_t sg_iov;
+    uint8_t root_group_oid_buf[H5_DAOS_ENCODED_OID_SIZE];
+    uint8_t *p;
+#endif
     int ret;
     void *ret_value = NULL;
+
+    H5daos_compile_assert(H5_DAOS_ENCODED_OID_SIZE
+            == H5_DAOS_ENCODED_UINT64_T_SIZE + H5_DAOS_ENCODED_UINT64_T_SIZE);
 
     if(!name)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "file name is NULL")
@@ -471,16 +483,15 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     /* Hash file name to create uuid */
     H5_daos_hash128(name, &file->uuid);
 
-    /* Determine if we requested collective metadata reads for the file */
-    file->is_collective_md_read = FALSE;
-    if(H5P_FILE_ACCESS_DEFAULT != fapl_id)
-        if(H5Pget_all_coll_metadata_ops(fapl_id, &file->is_collective_md_read) < 0)
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTGET, NULL, "can't get collective metadata reads property")
+    /* Fill FAPL cache */
+    if(H5_daos_fill_fapl_cache(file, fapl_id) < 0)
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "failed to fill FAPL cache")
 
     /* Generate oid for global metadata object */
-    /* Use H5I_MAP temporarily here, the way DAOS object features and classes
-     * work will be changing soon so this will go away */
-    H5_daos_oid_encode(&gmd_oid, H5_DAOS_OIDX_GMD, H5I_MAP);
+    if(H5_daos_oid_encode(&gmd_oid, H5_DAOS_OIDX_GMD, H5I_FILE,
+            fcpl_id == H5P_FILE_CREATE_DEFAULT ? H5P_DEFAULT : fcpl_id,
+            H5_DAOS_OBJ_CLASS_NAME, file) < 0)
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTENCODE, NULL, "can't encode global metadata object ID")
 
     /* Start H5 operation */
     if(NULL == (int_req = H5_daos_req_create(file)))
@@ -501,6 +512,39 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     /* Create root group */
     if(NULL == (file->root_grp = (H5_daos_group_t *)H5_daos_group_create_helper(file, fcpl_id, H5P_GROUP_ACCESS_DEFAULT, dxpl_id, int_req, NULL, NULL, 0, H5_DAOS_OIDX_ROOT, TRUE)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create root group")
+
+    /* Write root group OID to global metadata object */
+    /* Only do this if a non-default object class is used DSINC */
+    /* Disabled for now since we don't use it, eventually we will use it to find
+     * the root group on file open if the initial attempt doesn't work (due to
+     * wrong object class) DSINC */
+#if 0
+    /* Encode root group OID */
+    p = root_group_oid_buf;
+    UINT64ENCODE(p, file->root_grp->obj.oid.lo)
+    UINT64ENCODE(p, file->root_grp->obj.oid.hi)
+
+    /* Set up dkey */
+    daos_iov_set(&dkey, H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
+
+    /* Set up iod */
+    memset(&iod, 0, sizeof(iod));
+    daos_iov_set(&iod.iod_name, H5_daos_root_grp_oid_key_g, H5_daos_root_grp_oid_key_size_g);
+    daos_csum_set(&iod.iod_kcsum, NULL, 0);
+    iod.iod_nr = 1u;
+    iod.iod_size = (uint64_t)H5_DAOS_ENCODED_OID_SIZE;
+    iod.iod_type = DAOS_IOD_SINGLE;
+
+    /* Set up sgl */
+    daos_iov_set(&sg_iov, root_group_oid_buf, (daos_size_t)H5_DAOS_ENCODED_OID_SIZE);
+    sgl.sg_nr = 1;
+    sgl.sg_nr_out = 0;
+    sgl.sg_iovs = &sg_iov;
+
+    /* Write root group OID */
+    if(0 != (ret = daos_obj_update(file->glob_md_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_FILE, H5E_WRITEERROR, NULL, "can't write root group OID to global metadata object: %s", H5_daos_err_to_string(ret))
+#endif
 
     ret_value = (void *)file;
 
@@ -614,19 +658,21 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     /* Hash file name to create uuid */
     H5_daos_hash128(name, &file->uuid);
 
+    /* Fill FAPL cache */
+    if(H5_daos_fill_fapl_cache(file, fapl_id) < 0)
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "failed to fill FAPL cache")
+
     /* Generate oid for global metadata object */
-    /* Use H5I_MAP temporarily here, the way DAOS object features and classes
-     * work will be changing soon so this will go away */
-    H5_daos_oid_encode(&gmd_oid, H5_DAOS_OIDX_GMD, H5I_MAP);
+    if(H5_daos_oid_encode(&gmd_oid, H5_DAOS_OIDX_GMD, H5I_FILE,
+            fapl_id == H5P_FILE_ACCESS_DEFAULT ? H5P_DEFAULT : fapl_id,
+            H5_DAOS_ROOT_OPEN_OCLASS_NAME, file) < 0)
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTENCODE, NULL, "can't encode global metadata object ID")
 
     /* Generate root group oid */
-    H5_daos_oid_encode(&root_grp_oid, H5_DAOS_OIDX_ROOT, H5I_GROUP);
-
-    /* Determine if we requested collective metadata reads for the file */
-    file->is_collective_md_read = FALSE;
-    if(H5P_FILE_ACCESS_DEFAULT != fapl_id)
-        if(H5Pget_all_coll_metadata_ops(fapl_id, &file->is_collective_md_read) < 0)
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTGET, NULL, "can't get collective metadata reads property")
+    if(H5_daos_oid_encode(&root_grp_oid, H5_DAOS_OIDX_ROOT, H5I_GROUP,
+            fapl_id == H5P_FILE_ACCESS_DEFAULT ? H5P_DEFAULT : fapl_id,
+            H5_DAOS_ROOT_OPEN_OCLASS_NAME, file) < 0)
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTENCODE, NULL, "can't encode root group object ID")
 
     /* Open container on rank 0 */
     if((file->my_rank == 0) && H5_daos_cont_open(file, flags, NULL) < 0)
@@ -726,6 +772,10 @@ H5_daos_file_get(void *_item, H5VL_file_get_t get_type, hid_t H5VL_DAOS_UNUSED d
 
             if((*ret_id = H5Pcopy(file->fcpl_id)) < 0)
                 D_GOTO_ERROR(H5E_PLIST, H5E_CANTCOPY, FAIL, "can't get file's FCPL")
+
+            /* Set root group's object class on fcpl */
+            if(H5_daos_set_oclass_from_oid(*ret_id, file->root_grp->obj.oid) < 0)
+                D_GOTO_ERROR(H5E_PLIST, H5E_CANTSET, FAIL, "can't set object class property")
 
             break;
         } /* H5VL_FILE_GET_FCPL */
@@ -1147,6 +1197,52 @@ H5_daos_file_flush(H5_daos_file_t *file)
 done:
     D_FUNC_LEAVE
 } /* end H5_daos_file_flush() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_fill_fapl_cache
+ *
+ * Purpose:     Fills the "fapl_cache" field of the file struct, using the
+ *              file's FAPL.
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_fill_fapl_cache(H5_daos_file_t *file, hid_t fapl_id)
+{
+    char *oclass_str = NULL;
+    htri_t prop_exists;
+    herr_t ret_value = SUCCEED;
+
+    assert(file);
+
+    /* Determine if we requested collective metadata reads for the file */
+    file->fapl_cache.is_collective_md_read = FALSE;
+    if(H5P_FILE_ACCESS_DEFAULT != fapl_id)
+        if(H5Pget_all_coll_metadata_ops(fapl_id, &file->fapl_cache.is_collective_md_read) < 0)
+            D_GOTO_ERROR(H5E_FILE, H5E_CANTGET, FAIL, "can't get collective metadata reads property")
+
+    /* Check for file default object class set on fapl_id */
+    /* Note we do not copy the oclass_str in the property callbacks (there is no
+     * "get" callback, so this is more like an H5P_peek, and we do not need to
+     * free oclass_str as it points directly into the plist value */
+    file->fapl_cache.default_object_class = OC_UNKNOWN;
+    if((prop_exists = H5Pexist(fapl_id, H5_DAOS_OBJ_CLASS_NAME)) < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "can't check for object class property")
+    if(prop_exists) {
+        if(H5Pget(fapl_id, H5_DAOS_OBJ_CLASS_NAME, &oclass_str) < 0)
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "can't get object class")
+        if(oclass_str && (oclass_str[0] != '\0'))
+            if(OC_UNKNOWN == (file->fapl_cache.default_object_class = daos_oclass_name2id(oclass_str)))
+                D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "unknown object class")
+    } /* end if */
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_fill_fapl_cache() */
 
 
 /*-------------------------------------------------------------------------

@@ -15,6 +15,7 @@ include_directories(
 #-----------------------------------------------------------------------------
 set(daos_vol_tests
   map
+  oclass
   example
 )
 if(HDF5_VOL_TEST_ENABLE_PARALLEL)

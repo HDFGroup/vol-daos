@@ -1419,7 +1419,6 @@ static herr_t
 map_iterate_cb2(hid_t map_id, const void *_key, void *_iterate_ud)
 {
     iterate_ud2_t *iterate_ud = (iterate_ud2_t *)_iterate_ud;
-    int i;
 
     /* Check parameters */
     if(!_key) {
@@ -1464,7 +1463,7 @@ map_iterate_cb2(hid_t map_id, const void *_key, void *_iterate_ud)
             goto error;
         } /* end if */
     } else if(!strcmp(iterate_ud->map_name, MAP_MANY_ENTRIES_NAME)) {
-        if(large_int_int_keys[i] == *((const int *)_key)) {
+        if(large_int_int_keys[0] == *((const int *)_key)) {
             H5_FAILED(); AT();
             printf("deleted key still exists\n");
             goto error;
@@ -1732,13 +1731,13 @@ test_map_delete_key(hid_t file_id, const char *map_name, hid_t key_dtype)
     if(!strcmp(map_name, MAP_MANY_ENTRIES_NAME)) {
         if(idx != (hsize_t)LARGE_NUMB_KEYS - 1) {
             H5_FAILED(); AT();
-            printf("incorrect value of idx after H5Miterate: %d\n", idx);
+            printf("incorrect value of idx after H5Miterate: %llu\n", (long long unsigned)idx);
             goto error;
         } /* end if */
     } else {
         if(idx != (hsize_t)NUMB_KEYS) {
             H5_FAILED(); AT();
-            printf("incorrect value of idx after H5Miterate: %d\n", idx);
+            printf("incorrect value of idx after H5Miterate: %llu\n", (long long unsigned)idx);
             goto error;
         } /* end if */
     }

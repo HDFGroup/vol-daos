@@ -1,0 +1,200 @@
+\documentclass[../users_guide.tex]{subfiles}
+ 
+\begin{document}
+
+\section{Using the \dvc{} within an HDF5 application}
+
+This section outlines the unique aspects of writing, building and running
+\acrshort{hdf5} applications with the \dvc{}. Note that this guide assumes that
+the \dvc{} has already
+been built; for instructions on building the \dvc{}, please refer to
+the accompanying \href{https://bitbucket.hdfgroup.org/projects/HDF5VOL/repos/daos-vol/browse/README.md}{README} file of that package.
+
+\subsection{Writing HDF5 \dvc{} applications}
+
+There are currently two main ways to tell an existing HDF5 application to use
+the \dvc{}: either \textit{implicitly} by using using environment
+variables to tell the HDF5 library to load the connector as a dynamically loaded
+plugin or \textit{explicitly} by making use of HDF5 property lists.
+
+\subsubsection{With the \dvc{} as a dynamically-loaded plugin}
+
+HDF5 has the capability to dynamically load and use a \vc{} for running
+applications with. In order to choose a particular \vc{} to use, two
+initial steps must be taken. First, one must help HDF5 locate the \vc{}
+by pointing to the directory which contains the built library. This can be
+accomplished by setting the environment variable \texttt{HDF5\_PLUGIN\_PATH} to
+this directory. Next, HDF5 needs to know the name of which library to use, which
+is configured by setting the environment variable \texttt{HDF5\_VOL\_CONNECTOR}
+to the name of the connector.
+
+In order to use the \dvc{}, the aforementioned environment variables 
+should be set as:
+
+\begin{verbatim}
+HDF5_PLUGIN_PATH=/daos/vol/installation/directory/lib
+HDF5_VOL_CONNECTOR=daos
+\end{verbatim}
+
+Having completed this step, HDF5 will be setup to load the \dvc{}
+and use it for running applications, including HDF5's own tests.
+No additional modifications will need to be made to the existing HDF5 application.
+
+\subsubsection{Without the \dvc{} as a dynamically-loaded plugin}
+
+If dynamic loading of the \dvc{} is not used, any HDF5 application
+using the connector must:
+\begin{enumerate}
+ \item Include \texttt{daos\_vol\_public.h}, found in the \texttt{include}
+directory of the \dvc{} installation directory.
+ \item Link against \texttt{libhdf5\_vol\_daos.so} (or similar), found in
+the \texttt{lib} directory of the \dvc{} installation directory, and
+against \texttt{libuuid.so} (or similar) in order to use UUIDs. Note that dependencies
+can alternatively be retrieved through CMake or pkg-config.
+\end{enumerate}
+
+An HDF5 \dvc{} application also requires in that particular case three new
+function calls in addition to those for an equivalent HDF5 application (see
+Appendix~\ref{apdx:ref_manual} for more details):
+
+\begin{itemize}
+ \item \texttt{\hyperref[ref:h5daos_init]{H5daos\_init()}} --- Initializes the \dvc{}
+
+    Called upon application startup, before any file is accessed.
+
+ \item \texttt{\hyperref[ref:h5pset_fapl_daos]{H5Pset\_fapl\_daos()}} --- Set \dvc{} access on File Access Property List.
+
+    Called to prepare a FAPL to open a file through the \dvc{}. See \href{https://support.hdfgroup.org/HDF5/Tutor/property.html#fa}{HDF5 File Access Property Lists} for more information about File Access Property Lists.
+
+ \item \texttt{\hyperref[ref:h5daos_term]{H5daos\_term()}} --- Cleanly shutdown the \dvc{}
+
+    Called on application shutdown, after all files have been closed.
+\end{itemize}
+
+\subsubsection{Skeleton Example}
+
+Below is a no-op application that opens and closes a file using the \dvc{}.
+For clarity, no error-checking is performed. Note that this example is
+meant only for the case when the \dvc{} is not being dynamically loaded.
+
+\begin{minted}[breaklines=true,fontsize=\small]{hdf5-c-lexer.py:HDF5CLexer -x}
+#include "hdf5.h"
+#include "daos_vol_public.h"
+
+int main(void)
+{
+    uuid_t pool_uuid;
+    hid_t fapl_id;
+    hid_t file_id;
+
+    /* Parse the pool UUID. */
+    uuid_parse("fce30f79-b34b-46c1-9b1f-bb52d99dacca", pool_uuid);
+
+    /* 
+     * Initialize DAOS VOL connector using MPI_COMM_WORLD for the pool
+     * communicator, the above parsed UUID for the pool UUID, "daos_server"
+     * as the group name for the DAOS servers managing the pool and
+     * simply rank 0 as the only rank in the pool service list.
+     */
+    H5daos_init(MPI_COMM_WORLD, pool_uuid, "daos_server", "0");
+
+    fapl_id = H5Pcreate(H5P_FILE_ACCESS);
+    H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL);
+
+    /* Currently required for the DAOS VOL connector, set all metadata
+     * operations to be collective */
+    H5Pset_all_coll_metadata_ops(fapl_id, true); 
+
+    file_id = H5Fopen("my_file.h5", H5F_ACC_RDWR, fapl_id);
+
+    /* Operate on file */
+    [...]
+
+    H5Pclose(fapl_id);
+    H5Fclose(file_id);
+
+    /* Terminate the DAOS VOL connector. */
+    H5daos_term();
+
+    return 0;
+}
+\end{minted}
+
+\subsection{Building HDF5 \dvc{} applications}
+
+Assuming an HDF5 application has been written following the instructions in the previous section, the application must be built prior to running. In general, the
+application should be built as normal for any other HDF5 application. However,
+if the \dvc{} is not being dynamically loaded, the steps in the following section are required to build the application.
+
+\subsubsection{Without the \dvc{} as a dynamically-loaded plugin}
+
+To link in the required libraries, the compiler will likely require the
+additional linker flags:
+
+\begin{verbatim}
+-lhdf5_vol_daos -luuid
+\end{verbatim}
+
+However, these flags may vary depending on platform, compiler and installation
+location of the \dvc{}. It is highly recommended that compilation
+of HDF5 \dvc{} applications be done using either the
+\texttt{h5cc/h5pcc} script included with HDF5 distributions, or CMake,
+pkg-config, as these will manage linking with the HDF5 library.
+
+If HDF5 was built using autotools, this script will be called \texttt{h5pcc} and
+may be found in the \texttt{bin} directory of the HDF5 installation. If HDF5
+was built with CMake, this script will simply be called \texttt{h5cc} and can
+be found in the same location. The above notice about additional library
+linking applies to usage of \texttt{h5cc/h5pcc}. For example:
+\begin{verbatim}
+h5cc/h5pcc -lhdf5_vol_daos -luuid my_application.c -o my_application
+\end{verbatim}
+
+\subsection{Running HDF5 \dvc{} applications}
+\label{running_daos_vol_apps}
+
+Running applications that use the \dvc{} connector requires access to a DAOS
+server. Refer to
+\href{https://daos-stack.github.io/admin/installation/}{DAOS Software Installation}
+for more information on the setup process for this. For the \dvc{}
+to correctly interact with a DAOS server instance, the server must be \hyperref[sec:daos_serv_start]{running} and it must be passed the UUID of the
+DAOS pool to use and a list of DAOS pool service list ranks, as detailed in the
+following sections.
+
+\subsubsection{Starting the DAOS Server}
+\label{sec:daos_serv_start}
+
+Instructions for starting a DAOS Server can be found in the \href{https://daos-stack.github.io/admin/deployment/#server-startup}{DAOS Documentation}.
+
+\subsubsection{With the \dvc{} as a dynamically-loaded plugin}
+
+If the \dvc{} is dynamically loaded by HDF5, the DAOS pool UUID and
+DAOS pool service rank list are passed via the two environment variables below.
+
+\begin{verbatim}
+DAOS_POOL - The UUID of the DAOS pool to use.
+
+DAOS_SVCL - A comma-separated list of server ranks used for
+            daos_pool_connect(). Generated from daos_pool_create().
+\end{verbatim}
+
+\subsubsection{Without the connector as a dynamically-loaded plugin}
+
+If the \dvc{} is not being dynamically loaded, the DAOS pool UUID
+and DAOS pool service rank list should be passed via the call to
+\hyperref[ref:h5daos_init]{H5daos\_init()} within the application.
+
+\subsubsection{Example Applications}
+
+Some of the example C applications which are included with HDF5 distributions have been adapted to work with the \dvc{} and are included under the top-level \href{https://bitbucket.hdfgroup.org/projects/HDF5VOL/repos/daos-vol/browse/examples}{\texttt{examples}} directory in the \dvc{} source root directory. The built example applications can be run from the \texttt{bin} directory inside the build directory.
+
+In addition to these examples, the \href{https://bitbucket.hdfgroup.org/projects/HDF5VOL/
+repos/daos-vol/browse/test}{\texttt{test/vol}} directory contains several test
+files, each containing test functions that are examples of HDF5 applications in
+miniature, focused on a particular behavior. These mini-application tests cover a moderate 
+amount of HDF5's public API functionality and should be a good indicator of
+whether the \dvc{} is working correctly in conjunction with a
+running DAOS API-aware instance. Note that these tests currently rely on HDF5's
+dynamically-loaded \vc{} capabilities in order to run with the \dvc{}.
+
+\end{document}

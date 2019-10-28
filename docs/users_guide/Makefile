@@ -9,7 +9,7 @@ MAIN=users_guide
 TEXFILES=$(wildcard *.tex)
 
 all: $(TEXFILES)
-	@$(LATEXMK) -pdf $(MAIN)
+	@$(LATEXMK) -e '$$pdflatex=q/pdflatex %O -shell-escape %S/' -pdf $(MAIN)
 
 force:
 	@$(LATEXMK) -f -pdf $(MAIN)
@@ -19,6 +19,8 @@ clean:
 
 distclean: clean
 	@$(LATEXMK) -C
+	rm *.xml
+	rm -rf _minted-$(MAIN)
 
 help:
 	@echo -e "Usage : make [target]\n\

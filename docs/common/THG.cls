@@ -288,6 +288,7 @@
 %\renewcommand{\bottomfraction}{0.95}%
 %\renewcommand{\textfraction}{0.05}%
 \renewcommand{\arraystretch}{1.25}%
+%\renewcommand{\arrayrulewidth}{0.8pt}%
 
 %% Reset rule widths and the header width
 \newcommand{\headwidth}{\textwidth}%

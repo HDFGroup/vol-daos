@@ -1,0 +1,626 @@
+\documentclass[../users_guide.tex]{subfiles}
+ 
+\begin{document}
+
+\section{HDF5 API Support}
+
+\subsection{Feature Specific Support}
+
+The following sections serve to illustrate the DAOS VOL connector's support for features in HDF5, as well as to highlight any differences between the expected behavior of an HDF5 feature versus the actual behavior as implemented by the VOL connector.
+
+\subsubsection{Attribute Features}
+
+\begin{tabularx}{\linewidth}{| X | X | X | X | >{\RaggedRight}X |}
+\hline
+\rowcolor{lightgray!50}%
+% Center just the header row
+\multicolumn{3}{| c |}{\textbf{Feature}} & \multicolumn{1}{c |}{\textbf{Supported?}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+\multirow[c]{3}{\linewidth}{Dataspace} & \multirow[c]{3}{\linewidth}{Dimensionality} & H5S\_NULL & Yes & \\ \cline{3-4}
+& & H5S\_SCALAR & Yes & \\ \cline{3-4}
+& & SIMPLE & Yes & \\ \cline{3-4} \hline
+
+\multicolumn{2}{| l |}{\multirow[c]{6}{*}[-90pt]{Datatype}} & Atomic & Yes &
+    \multirow[c]{5}{\linewidth}{Variable-length of array datatypes and variable-length datatypes inside compound datatypes are currently unsupported. Datatype conversion for the parent datatype is currently unsupported.\footnotemark[1]} \\ [30pt] \cline{3-4}
+\multicolumn{2}{| l |}{} & Compound & Yes & \\ [30pt] \cline{3-4}
+\multicolumn{2}{| l |}{} & Variable-length & Yes & \\ [30pt] \cline{3-4}
+\multicolumn{2}{| l |}{} & Array & Yes & \\ [30pt] \cline{3-4}
+\multicolumn{2}{| l |}{} & Opaque & Yes & \\ [30pt] \cline{3-4}
+\multicolumn{2}{| l |}{} & Reference & No\footnotemark[1] & \\ [30pt] \cline{3-4}
+\hline
+
+\multirow[c]{2}{\linewidth}{Properties} & \multirow[c]{2}{\linewidth}{Name Encoding} & ASCII & Yes & \\ \cline{3-5}
+& & UTF-8 & No & \\ \cline{3-4} \hline
+
+\end{tabularx}
+
+\footnotetext[1]{Will be supported in Q4 2019.}
+
+\newpage
+
+\subsubsection{Dataset Features}
+
+\begin{tabularx}{\linewidth}{| X | X | X | X | >{\RaggedRight}X |}
+\hline
+\rowcolor{lightgray!50}%
+% Center just the header row
+\multicolumn{3}{| c |}{\textbf{Feature}} & \multicolumn{1}{c |}{\textbf{Supported?}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+\multirow[c]{7}{\linewidth}[-45pt]{Dataspace} & \multirow[c]{3}{\linewidth}{Dimensionality} & H5S\_NULL & Yes & \\ \cline{3-4}
+& & H5S\_SCALAR & Yes & \\ \cline{3-4}
+& & SIMPLE & Yes & \\ \cline{3-4} \cline{2-5}
+& \multirow[c]{4}{\linewidth}[-55pt]{Selection Type} & NONE & Yes & \multirow[c]{4}{\linewidth}{For chunked datasets, the selection currently must be the same shape in the memory and file dataspaces.\footnotemark[1]} \\ [28pt] \cline{3-4}
+& & H5S\_ALL & Yes & \\ [28pt] \cline{3-4}
+& & Hyperslab Selection & Yes & \\ [28pt] \cline{3-4}
+& & Point Selection & Yes & \\ [28pt] \cline{3-4} \hline
+
+\multicolumn{2}{| l |}{\multirow[c]{6}{*}[-90pt]{Datatype}} & Atomic & Yes & \multirow[c]{5}{\linewidth}{Variable-length of array datatypes and variable-length datatypes inside compound datatypes are currently unsupported. Datatype conversion for the parent datatype is currently unsupported.\footnotemark[1]} \\ [30pt] \cline{3-4}
+\multicolumn{2}{| l |}{} & Compound & Yes & \\ [30pt] \cline{3-4}
+\multicolumn{2}{| l |}{} & Variable-length & Yes & \\ [30pt] \cline{3-4}
+\multicolumn{2}{| l |}{} & Array & Yes & \\ [30pt] \cline{3-4}
+\multicolumn{2}{| l |}{} & Opaque & Yes & \\ [30pt] \cline{3-4}
+\multicolumn{2}{| l |}{} & Reference & No\footnotemark[1] & \\ [30pt] \cline{3-4}
+\hline
+
+\end{tabularx}
+
+\footnotetext[1]{Will be supported in Q4 2019.}
+
+\newpage
+
+\begin{tabularx}{\linewidth}{| X | X | X | X | >{\RaggedRight}X |}
+\hline
+\rowcolor{lightgray!50}%
+% Center just the header row
+\multicolumn{3}{| c |}{\textbf{Feature}} & \multicolumn{1}{c |}{\textbf{Supported?}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+\multirow[c]{9}{\linewidth}[-80pt]{Properties} & \multirow[c]{5}{\linewidth}[-35pt]{Storage Properties (creation)} & Compact & No & Setting is ignored; stored as contiguous. \\ \cline{3-5}
+& & External & No & Setting is ignored; stored as contiguous. \\ \cline{3-5}
+& & Contiguous & Yes & Default storage type. \\ \cline{3-5}
+& & Chunked & Yes & \\ \cline{3-5}
+& & VDS & No & \\ \cline{2-5}
+& \multirow[c]{4}{\linewidth}[-45pt]{Other Properties (creation)} & Attribute Creation Order & Yes & In order to work correctly, the attribute creation order feature requires that a file is touched collectively. \\ \cline{3-5}
+& & Fill Value & No & \\ \cline{3-5}
+& & Filters & No & May be supported in the future. \\ \cline{3-5}
+& & Storage Allocation Time & N/A & \\ \hline
+
+\end{tabularx}
+
+\newpage
+
+\begin{tabularx}{\linewidth}{| X | X | X | X | >{\RaggedRight}X |}
+\hline
+\rowcolor{lightgray!50}%
+% Center just the header row
+\multicolumn{3}{| c |}{\textbf{Feature}} & \multicolumn{1}{c |}{\textbf{Supported?}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+\multirow[c]{4}{\linewidth}[-55pt]{Properties (cont.)} & \multirow[c]{3}{\linewidth}[-50pt]{Access Properties} & Chunk cache & No & May be supported in the future. \\ \cline{3-5}
+& & VDS views and printf & No & \\ \cline{3-5}
+& & MPI-I/O Collective Metadata Ops & Yes & By default, all metadata operations are collective for writes and independent for reads.\footnotemark[2] \\ \cline{2-5}
+& \multirow[c]{1}{\linewidth}[-10pt]{Transfer Properties} & MPI-I/O Independent or Collective I/O mode & N/A & \\ \hline
+
+\end{tabularx}
+
+\footnotetext[2]{Independent metadata writes will be supported in the future.}
+
+\subsubsection{File Features}
+
+\begin{tabularx}{\linewidth}{| X | X | X | X | >{\RaggedRight}X |}
+\hline
+\rowcolor{lightgray!50}%
+% Center just the header row
+\multicolumn{3}{| c |}{\textbf{Feature}} & \multicolumn{1}{c |}{\textbf{Supported?}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+\multicolumn{2}{| l |}{\multirow[c]{2}{*}{File creation flags}} & \multicolumn{1}{l |}{H5F\_ACC\_TRUNC} & Yes & \multirow[c]{4}{\linewidth}{The file creation flags behave as for native HDF5.} \\ \cline{3-4}
+\multicolumn{2}{| l |}{} & \multicolumn{1}{l |}{H5F\_ACC\_EXCL} & Yes & \\ \cline{1-4}
+\multicolumn{2}{| l |}{\multirow[c]{2}{*}{File opening flags}} & \multicolumn{1}{l |}{H5F\_ACC\_RDWR} & Yes & \\ \cline{3-4}
+\multicolumn{2}{| l |}{} & \multicolumn{1}{l |}{H5F\_ACC\_RDONLY} & Yes & \\ \hline
+
+\multirow[c]{8}{\linewidth}[-100pt]{Properties} & \multirow[c]{1}{\linewidth}[-70pt]{Creation Properties} & Attribute Creation Order & Yes & In order to work correctly, the attribute creation order feature requires that a file is touched collectively. The rest of the file creation properties are related to the native HDF5-specific file format. \\ \cline{2-5}
+
+& \multirow[c]{7}{\linewidth}{Access Properties (Drivers)} & SEC2 Driver & N/A & \multirow[c]{4}{\linewidth}{These drivers are applicable to native HDF5 only.} \\ \cline{3-4}
+& & Family Driver & N/A & \\ \cline{3-4}
+& & Split Driver & N/A & \\ \cline{3-4}
+& & Multi Driver & N/A & \\ \cline{3-4}
+& & Core Driver & N/A & \\ \hline
+
+\end{tabularx}
+
+\newpage
+
+\begin{tabularx}{\linewidth}{| X | X | X | X | >{\RaggedRight}X |}
+\hline
+\rowcolor{lightgray!50}%
+% Center just the header row
+\multicolumn{3}{| c |}{\textbf{Feature}} & \multicolumn{1}{c |}{\textbf{Supported?}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+\multirow[c]{10}{\linewidth}[-100pt]{Properties (cont.)} & \multirow[c]{2}{\linewidth}[-35pt]{Access Properties (Drivers, cont.)} & Log Driver & N/A & \\ \cline{3-5}
+& & MPI-I/O & Yes & This property just indicates parallel access to the file; it doesn't use HDF5 MPI I/O driver underneath. \\ \cline{2-5}
+
+& \multirow[c]{8}{\linewidth}[-60pt]{Access Properties (Other)} & MPI-I/O Collective Metadata Ops & Yes & By default, all metadata operations are collective for writes and independent for reads.\footnotemark[2] \\ \cline{3-5}
+& & User block & N/A & \\ \cline{3-5}
+& & Chunk Cache & No & May be supported in the future. \\ \cline{3-5}
+& & Object flushing callbacks & N/A & \\ \cline{3-5}
+& & File closing degree & N/A & \\ \cline{3-5}
+& & Evict on close & N/A & \\ \cline{3-5}
+& & Sieve buffer size for partial I/O & No & May be supported in the future. \\ \cline{3-5}
+& & File Image & N/A & \\ \hline
+
+\end{tabularx}
+
+\footnotetext[2]{Independent metadata writes will be supported in the future.}
+
+\subsubsection{Group Features}
+
+\begin{tabularx}{\linewidth}{| X | X | >{\RaggedRight}X | X | >{\RaggedRight}X |}
+\hline
+\rowcolor{lightgray!50}%
+% Center just the header row
+\multicolumn{3}{| c |}{\textbf{Feature}} & \multicolumn{1}{c |}{\textbf{Supported?}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+\multirow[c]{4}{\linewidth}[-120pt]{Properties} & \multirow[c]{3}{\linewidth}[-100pt]{Creation Properties} & Link Creation Order & Yes & In order to work correctly, the link creation order feature requires that a file is touched collectively. \\ \cline{3-5}
+& & Attribute Creation Order & Yes & In order to work correctly, the attribute creation order feature requires that a file is touched collectively. \\ \cline{3-5}
+& & Other Properties & N/A & These properties are related to the native HDF5-specific file format. \\ \cline{2-5}
+& \multirow[c]{1}{\linewidth}[-35pt]{Access Properties} & MPI-I/O Collective Metadata Ops & Yes & By default, all metadata operations are collective for writes and independent for reads.\footnotemark[2] \\ \hline
+
+\end{tabularx}
+
+\footnotetext[2]{Independent metadata writes will be supported in the future.}
+
+\newpage
+
+\subsection{API Specific Support}
+
+The following sections serve to illustrate the DAOS VOL connector's support for the HDF5 API, as well as to highlight any differences between the expected behavior of an HDF5 API call versus the actual behavior as implemented by the VOL connector. If a particular HDF5 API call does not appear among these tables, it is most likely a native HDF5-specific API call which cannot be implemented by non-native HDF5 VOL connectors. These types of API calls are listed among the tables in Appendix~\ref{apdx:native_calls}.
+
+\newpage
+
+\subsubsection{H5A interface}
+
+\begin{center}
+
+\textbf{Supported API calls}
+\vspace{.2in} \\
+
+\begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
+\hline
+\rowcolor{lightgray!50}%
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+H5Acreate(1/2) & \\ \hline
+H5Acreate\_by\_name & \\ \hline
+H5Aopen(\_by\_name/\_by\_idx) & For H5Aopen\_by\_idx, \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type\\ \hline
+H5Aopen\_idx & Deprecated in favor of H5A\_open\_by\_idx\\ \hline
+H5Aopen\_name & Deprecated in favor of H5A\_open\_by\_name\\ \hline
+H5Awrite & \\ \hline
+H5Aread & \\ \hline
+H5Aclose & \\ \hline
+H5Aiterate(2) & \begin{itemize}
+                    \item Restarting iteration from an index value is currently unsupported
+                    \item \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type
+                \end{itemize}\\ \hline
+H5Aiterate\_by\_name & \begin{itemize}
+                           \item Restarting iteration from an index value is currently unsupported
+                           \item \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type
+                       \end{itemize}\\ \hline
+H5Aexists(\_by\_name) & \\ \hline
+H5Arename(\_by\_name) & \\ \hline
+H5Adelete(\_by\_name/\_by\_idx) & For H5Adelete\_by\_idx, \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type\\ \hline
+H5Aget\_name(\_by\_idx) & For H5Aget\_name\_by\_idx, \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type\\ \hline
+\end{tabularx}
+
+\begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
+\hline
+\rowcolor{lightgray!50}%
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+H5Aget\_space & \\ \hline
+H5Aget\_type & \\ \hline
+H5Aget\_info(\_by\_name/\_by\_idx) & Of the four fields in the \texttt{H5A\_info\_t} struct:
+                                     \begin{itemize}
+                                         \item \texttt{corder\_valid} is set to TRUE only if attribute creation order tracking is enabled for the object containing the attribute; it is set to FALSE otherwise
+                                         \item \texttt{corder} is set appropriately if attribute creation order tracking is enabled for the object containing the attribute; it is set to 0 otherwise
+                                         \item \texttt{cset} is currently always set to \texttt{H5T\_CSET\_ASCII}
+                                         \item \texttt{data\_size} is set appropriately
+                                     \end{itemize}
+
+                                     For H5Aget\_info\_by\_idx, \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type\\ \hline
+H5Aget\_create\_plist & \\ \hline
+
+\end{tabularx}
+
+\textbf{Currently unsupported API calls}
+\vspace{.1in} \\
+
+\begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
+\hline
+\rowcolor{lightgray!50}%
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+H5Aget\_storage\_size & \\ \hline
+
+\end{tabularx}
+
+\end{center}
+
+\newpage
+
+\subsubsection{H5D interface}
+
+\begin{center}
+
+\textbf{Supported API calls}
+\vspace{.2in} \\
+
+\begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
+\hline
+\rowcolor{lightgray!50}%
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+H5Dcreate(1/2) & \\ \hline
+H5Dcreate\_anon & \\ \hline
+H5Dopen(1/2) & \\ \hline
+H5Dwrite & \\ \hline
+H5Dread & \\ \hline
+H5Dclose & \\ \hline
+H5Dextend & Upon dataset expansion or shrinking, data is currently left uninitialized instead of being initialized to 0\\ \hline
+H5Dset\_extent & Upon dataset expansion or shrinking, data is currently left uninitialized instead of being initialized to 0\\ \hline
+H5Dget\_space & \\ \hline
+H5Dget\_type & \\ \hline
+H5Dget\_create\_plist & \\ \hline
+H5Dget\_access\_plist & \\ \hline
+
+\end{tabularx}
+
+\textbf{Currently unsupported API calls}
+\vspace{.2in} \\
+
+\begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
+\hline
+\rowcolor{lightgray!50}%
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+H5Dflush & \\ \hline
+H5Drefresh & \\ \hline
+H5Dget\_storage\_size & \\ \hline
+H5Dget\_space\_status & Space status is currently always set to \texttt{H5D\_SPACE\_STATUS\_NOT\_ALLOCATED}\\ \hline
+H5Dget\_offset & \\ \hline
+
+\end{tabularx}
+
+\end{center}
+
+\newpage
+
+\subsubsection{H5F interface}
+
+\begin{center}
+
+\textbf{Supported API calls}
+\vspace{.2in} \\
+
+\begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
+\hline
+\rowcolor{lightgray!50}%
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+H5Fcreate & \\ \hline
+H5Fopen & \\ \hline
+H5Freopen & \\ \hline
+H5Fis\_accessible & \\ \hline
+H5Fget\_create\_plist & \\ \hline
+H5Fget\_access\_plist & \\ \hline
+H5Fget\_intent & \\ \hline
+H5Fget\_name & \\ \hline
+H5Fget\_obj\_count & \\ \hline
+H5Fget\_obj\_ids & \\ \hline
+H5Fclose & \\ \hline
+
+\end{tabularx}
+
+\textbf{Currently unsupported API calls}
+\vspace{.2in} \\
+
+\begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
+\hline
+\rowcolor{lightgray!50}%
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+H5Fflush & \\ \hline
+H5Fmount & \\ \hline
+H5Funmount & \\ \hline
+
+\end{tabularx}
+
+\end{center}
+
+\newpage
+
+\subsubsection{H5G interface}
+
+\begin{center}
+
+\textbf{Supported API calls}
+\vspace{.2in} \\
+
+\begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
+\hline
+\rowcolor{lightgray!50}%
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+H5Gcreate(1/2) & \\ \hline
+H5Gcreate\_anon & \\ \hline
+H5Gopen(1/2) & \\ \hline
+H5Gclose & \\ \hline
+H5Gunlink & \\ \hline
+H5Gget\_create\_plist & \\ \hline
+H5Gget\_info(\_by\_name/\_by\_idx) & Of the four fields in the \texttt{H5G\_info\_t} struct:
+                                     \begin{itemize}
+                                         \item \texttt{storage\_type} is always set to \texttt{H5G\_STORAGE\_TYPE\_UNKNOWN}
+                                         \item \texttt{nlinks} is set appropriately
+                                         \item \texttt{max\_corder} is set appropriately if link creation order is tracked for the group
+                                         \item \texttt{mounted} is currently always set to \texttt{FALSE}
+                                     \end{itemize}
+                                     For \texttt{H5Gget\_info\_by\_idx}, \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type\\ \hline
+H5Gget\_linkval & \\ \hline
+H5Gget\_num\_objs & \\ \hline
+H5Gget\_objname\_by\_idx & \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type\\ \hline
+H5Glink(2) & Currently only hard and soft link creation are supported\\ \hline
+H5Gmove(2) & Refer to Notes for \texttt{H5Lmove}\\ \hline
+
+\end{tabularx}
+
+\textbf{Currently unsupported API calls}
+\vspace{.2in} \\
+
+\begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
+\hline
+\rowcolor{lightgray!50}%
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+H5Gflush & \\ \hline
+H5Grefresh & \\ \hline
+
+\end{tabularx}
+
+\end{center}
+
+\newpage
+
+\subsubsection{H5L interface}
+
+\begin{center}
+
+\textbf{Supported API calls}
+\vspace{.2in} \\
+
+\begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
+\hline
+\rowcolor{lightgray!50}%
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+H5Lcreate\_hard & Reference count tracking is not currently implemented, so objects will not be removed when the last hard link pointing to them is removed\\ \hline
+H5Lcreate\_soft & \\ \hline
+H5Lexists & \\ \hline
+H5Literate(\_by\_name) & \begin{itemize}
+                             \item Restarting iteration from an index value is currently unsupported
+                             \item \texttt{H5\_ITER\_DEC} is currently unsupported for the iteration order when \texttt{H5\_INDEX\_NAME} is used for the index type
+                         \end{itemize}\\ \hline
+H5Lvisit(\_by\_name) & \begin{itemize}
+                             \item Restarting iteration from an index value is currently unsupported
+                             \item \texttt{H5\_ITER\_DEC} is currently unsupported for the iteration order when \texttt{H5\_INDEX\_NAME} is used for the index type
+                         \end{itemize}\\ \hline
+H5Ldelete & Reference count tracking is not currently implemented, so objects will not be removed when the last hard link pointing to them is removed\\ \hline
+H5Ldelete\_by\_idx & \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type\\ \hline
+
+\end{tabularx}
+
+\begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
+\hline
+\rowcolor{lightgray!50}%
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+H5Lget\_info & Of the five fields in the \texttt{H5L\_info\_t} struct:
+                                     \begin{itemize}
+                                         \item \texttt{type} is set appropriately
+                                         \item \texttt{corder\_valid} is set to TRUE only if link creation order tracking is enabled for the group containing the link; it is set to FALSE otherwise
+                                         \item \texttt{corder} is set appropriately if link creation order tracking is enabled for the group containing the link; it is set to 0 otherwise
+                                         \item \texttt{cset} is currently always set to \texttt{H5T\_CSET\_ASCII}
+                                         \item \texttt{u} has member \texttt{address} or \texttt{val\_size} set appropriately based on whether the link is a hard link or not
+                                     \end{itemize}\\ \hline
+H5Lget\_info\_by\_idx & \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type\\ \hline
+H5Lget\_val & \\ \hline
+H5Lget\_val\_by\_idx & \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type\\ \hline
+H5Lget\_name\_by\_idx & \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type\\ \hline
+
+\end{tabularx}
+
+\textbf{Currently unsupported API calls}
+\vspace{.2in} \\
+
+\begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
+\hline
+\rowcolor{lightgray!50}%
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+H5Lcopy & \\ \hline
+H5Lmove & \\ \hline
+H5Lcreate\_external & \\ \hline
+H5Lcreate\_ud & \\ \hline
+
+\end{tabularx}
+
+\end{center}
+
+\newpage
+
+\subsubsection{H5O interface}
+
+\begin{center}
+
+\textbf{Supported API calls}
+\vspace{.2in} \\
+
+\begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
+\hline
+\rowcolor{lightgray!50}%
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+H5Oopen & \\ \hline
+H5Oopen\_by\_addr & \\ \hline
+H5Oopen\_by\_idx & \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type\\ \hline
+H5Oclose & \\ \hline
+H5Olink & \\ \hline
+H5Oexists\_by\_name & \\ \hline
+H5Ovisit(1/2) & \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type\\ \hline
+H5Ovisit\_by\_name(1/2) & \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type\\ \hline
+H5Ocopy & Currently no support for the following properties: \begin{itemize}
+                                                                 \setlength{\itemindent}{-1em}
+                                                                 \item OCpyPL
+                                                                 \begin{itemize}
+                                                                     \setlength{\itemindent}{-2.5em}
+                                                                     \item {\small\texttt{H5O\_COPY\_EXPAND\_EXT\_LINK\_FLAG}}
+                                                                     \item {\small\texttt{H5O\_COPY\_EXPAND\_REFERENCE\_FLAG}}
+                                                                     \item {\small\texttt{H5O\_COPY\_MERGE\_COMMITTED\_DTYPE\_FLAG}}
+                                                                 \end{itemize}
+                                                                 \item LCPL
+                                                                 \begin{itemize}
+                                                                     \setlength{\itemindent}{-2.5em}
+                                                                     \item H5Pset\_create\_intermediate\_group
+                                                                 \end{itemize}
+                                                             \end{itemize}\\ \hline
+
+\end{tabularx}
+
+\textbf{Currently unsupported API calls}
+\vspace{.2in} \\
+
+\begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
+\hline
+\rowcolor{lightgray!50}%
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+H5Oflush & \\ \hline
+H5Orefresh & \\ \hline
+H5Oincr\_refcount & \\ \hline
+H5Odecr\_refcount & \\ \hline
+
+\end{tabularx}
+
+\end{center}
+
+\newpage
+
+\subsubsection{H5R interface}
+
+\begin{center}
+
+\textbf{Supported API calls\footnotemark[1]}
+\vspace{.2in} \\
+
+\begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
+\hline
+\rowcolor{lightgray!50}%
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+ & \\ \hline
+
+\end{tabularx}
+
+\textbf{Currently unsupported API calls}
+\vspace{.2in} \\
+
+\begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
+\hline
+\rowcolor{lightgray!50}%
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+H5Rcreate & \\ \hline
+H5Rdereference(1/2) & Causes an assertion failure\\ \hline
+H5Rget\_name & \\ \hline
+H5Rget\_obj\_type(1/2) & \\ \hline
+H5Rget\_region & \\ \hline
+
+\end{tabularx}
+
+\end{center}
+
+\footnotetext[1]{New reference API will be supported in Q4 2019.}
+
+\newpage
+
+\subsubsection{H5T interface}
+
+\begin{center}
+
+\textbf{Supported API calls}
+\vspace{.2in} \\
+
+\begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
+\hline
+\rowcolor{lightgray!50}%
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+H5Tcommit(1/2) & \\ \hline
+H5Tcommit\_anon & \\ \hline
+H5Topen(1/2) & \\ \hline
+H5Tclose & \\ \hline
+H5Tget\_create\_plist & \\ \hline
+
+\end{tabularx}
+
+\textbf{Currently unsupported API calls}
+\vspace{.2in} \\
+
+\begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
+\hline
+\rowcolor{lightgray!50}%
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+H5Tflush & \\ \hline
+H5Trefresh & \\ \hline
+
+\end{tabularx}
+
+\end{center}
+
+\newpage
+
+\subsection{Known Limitations}
+
+The following sections outline the known current limitations of the \dvc{}.
+
+\subsubsection{Limitations in regards to the HDF5 API}
+
+\begin{itemize}
+    \item When performing dataset I/O, the selections in the memory and file dataspaces must currently be the same shape; using selections of different shapes will result in an error stating this.\footnotemark[1]
+
+\end{itemize}
+
+\subsubsection{Limitations in regards to DAOS}
+
+\begin{itemize}
+    \item If an application abnormally exits, the DAOS VOL connector currently leaves the file in an unusable state. Currently, the only known way to re-use the same filename after an application crash is to use a new DAOS pool.
+    \item Following the previous point about application abnormal exits, as DAOS does not currently support forced container deletion, trying to overwrite an existing HDF5 file using the \texttt{H5F\_ACC\_TRUNC} flag when the file was left in an unusable state will fail; the error \textit{``can't destroy container: generic I/O error (DER\_IO)''} will be returned.
+\end{itemize}
+
+\footnotetext[1]{Will be supported in Q4 2019.}
+\end{document}

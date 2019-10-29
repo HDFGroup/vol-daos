@@ -566,7 +566,7 @@ H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
             }
             else {
                 /* H5Olink */
-                if(H5VL_OBJECT_BY_SELF == target_obj_loc_params->type)
+                if(H5VL_OBJECT_BY_SELF != target_obj_loc_params->type)
                     D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, FAIL, "invalid loc_params type")
 
                 link_val.target.hard = target_obj_loc->oid;

@@ -41,9 +41,9 @@ When link creation order is tracked for a group, additional information is writt
 Datasets are used to store the bulk array data in \acrshort{hdf5}. A dataset's metadata is stored under the \mintcinline{/Internal Metadata} \gls{dkey} and under the following \glspl{akey}:
 
 \begin{itemize}
-    \item \mintcinline{Datatype} - This \gls{akey} stores the dataset's datatype.
-    \item \mintcinline{Dataspace} - This \gls{akey} stores the dataset's dataspace.
-    \item \mintcinline{Creation Property List} - This \gls{akey} stores the dataset's Dataset Creation Property List.
+ \item \mintcinline{Datatype} --- This \gls{akey} stores the dataset's datatype.
+ \item \mintcinline{Dataspace} --- This \gls{akey} stores the dataset's dataspace.
+ \item \mintcinline{Creation Property List} --- This \gls{akey} stores the dataset's Dataset Creation Property List.
 \end{itemize}
 
 A dataset's raw data is divided into ``chunks'' which are regularly spaced blocks of data, where the size of the block is specified by the application. Each data chunk is stored in its own \gls{dkey}, which is encoded with a leading 0 byte, followed by $<$number of dimensions$>$ 64-bit little endian unsigned integers which denote the chunk offset within the dataset. The \mintcinline{0} prefix for chunks prevents the binary chunk \glspl{dkey} from conflicting with the string metadata \glspl{dkey}, since nonzero length strings cannot begin with 0 (\mintcinline{\0}).
@@ -77,19 +77,19 @@ A committed datatype is an \acrshort{hdf5} datatype that has been stored as an \
 \acrshort{hdf5} attributes attached to an object (group, dataset, committed datatype or map object) are stored under that object's \mintcinline{/Attribute} \gls{dkey} (note that the \mintcinline{/} prefix for the \mintcinline{/Attribute} \gls{dkey} prevents conflicts with arbitrarily named \acrshort{hdf5} links, which cannot contain the \mintcinline{/} character). Under that \gls{dkey}, an attribute's metadata and raw data is stored under the following \glspl{akey}:
 
 \begin{itemize}
-    \item \mintcinline{T-<attribute name>} --- This \gls{akey} stores the attribute's datatype.
-    \item \mintcinline{S-<attribute name>} --- This \gls{akey} stores the attribute's dataspace.
-    \item \mintcinline{P-<attribute name>} --- This \gls{akey} stores the attribute's Attribute Creation Property List.
-    \item \mintcinline{V-<attribute name>} --- This \gls{akey} stores the attribute's value.
+ \item \mintcinline{T-<attribute name>} --- This \gls{akey} stores the attribute's datatype.
+ \item \mintcinline{S-<attribute name>} --- This \gls{akey} stores the attribute's dataspace.
+ \item \mintcinline{P-<attribute name>} --- This \gls{akey} stores the attribute's Attribute Creation Property List.
+ \item \mintcinline{V-<attribute name>} --- This \gls{akey} stores the attribute's value.
 \end{itemize}
 
 When attribute creation order is tracked for an object, additional information is written to that object under the same \mintcinline{/Attribute} \gls{dkey} and under the following \glspl{akey}:
 
 \begin{itemize}
-    \item \mintcinline{Max Attribute Creation Order} --- This \gls{akey} stores the current maximum attribute creation order value for the object. The maximum attribute creation order value starts at 0 and increases as new attributes are added to the object.
-    \item \mintcinline{Num Attributes} --- This \gls{akey} stores the current number of attributes attached to the object.
-    \item \mintcinline{0<encoded num. attributes>} --- The value for this \gls{akey} is determined by encoding the current number of attributes attached to the object \textit{at creation time of the new attribute} into a binary buffer, prefixed with a leading \mintcinline{0} byte; this encoded value represents the creation order index value assigned to the new attribute being written. This \gls{akey} is used to store a mapping from attribute creation order index values to attribute names, which allows an easy lookup of an attribute's name by a given creation order index value. One of these \glspl{akey} will exist for each attribute currently attached to the object, as a new \gls{akey} will be added each time a new attribute is written to the object.
-    \item \mintcinline{C-<attribute name>} --- This \gls{akey} stores the attribute's creation order value.
+ \item \mintcinline{Max Attribute Creation Order} --- This \gls{akey} stores the current maximum attribute creation order value for the object. The maximum attribute creation order value starts at 0 and increases as new attributes are added to the object.
+ \item \mintcinline{Num Attributes} --- This \gls{akey} stores the current number of attributes attached to the object.
+ \item \mintcinline{0<encoded num. attributes>} --- The value for this \gls{akey} is determined by encoding the current number of attributes attached to the object \textit{at creation time of the new attribute} into a binary buffer, prefixed with a leading \mintcinline{0} byte; this encoded value represents the creation order index value assigned to the new attribute being written. This \gls{akey} is used to store a mapping from attribute creation order index values to attribute names, which allows an easy lookup of an attribute's name by a given creation order index value. One of these \glspl{akey} will exist for each attribute currently attached to the object, as a new \gls{akey} will be added each time a new attribute is written to the object.
+ \item \mintcinline{C-<attribute name>} --- This \gls{akey} stores the attribute's creation order value.
 \end{itemize}
 
 \todo{Add figure for attributes + attribute creation order}

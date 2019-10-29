@@ -422,6 +422,19 @@ H5Lvisit(\_by\_name) & \begin{itemize}
                          \end{itemize}\\ \hline
 H5Ldelete & Reference count tracking is not currently implemented, so objects will not be removed when the last hard link pointing to them is removed\\ \hline
 H5Ldelete\_by\_idx & \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type\\ \hline
+H5Lmove & Currently no support for the following properties:
+\begin{itemize}
+ \item LCPL
+ \begin{itemize}
+  \item H5Pset\_create\_intermediate\_group
+ \end{itemize}
+ \item LAPL
+ \begin{itemize}
+  \item H5Pset\_char\_encoding
+  \item H5Pset\_nlinks
+  \item H5Pset\_elink\_prefix
+ \end{itemize}
+\end{itemize}\\ \hline
 
 \end{tabularx}
 
@@ -443,8 +456,23 @@ H5Lget\_info\_by\_idx & \texttt{H5\_ITER\_DEC} is currently unsupported for the 
 H5Lget\_val & \\ \hline
 H5Lget\_val\_by\_idx & \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type\\ \hline
 H5Lget\_name\_by\_idx & \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type\\ \hline
+H5Lcopy & Currently no support for the following properties:
+\begin{itemize}
+ \item LCPL
+ \begin{itemize}
+  \item H5Pset\_create\_intermediate\_group
+ \end{itemize}
+ \item LAPL
+ \begin{itemize}
+  \item H5Pset\_char\_encoding
+  \item H5Pset\_nlinks
+  \item H5Pset\_elink\_prefix
+ \end{itemize}
+\end{itemize}\\ \hline
 
 \end{tabularx}
+
+\newpage
 
 \textbf{Currently unsupported API calls}
 \vspace{.2in} \\
@@ -455,8 +483,6 @@ H5Lget\_name\_by\_idx & \texttt{H5\_ITER\_DEC} is currently unsupported for the 
 % Center just the header row
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
-H5Lcopy & \\ \hline
-H5Lmove & \\ \hline
 H5Lcreate\_external & \\ \hline
 H5Lcreate\_ud & \\ \hline
 

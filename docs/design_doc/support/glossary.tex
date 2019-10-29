@@ -1,0 +1,35 @@
+\makeglossaries
+
+% Glossary terms 
+\newglossaryentry{latex}
+{
+        name=latex,
+        description={Is a mark up language specially suited for 
+scientific documents}
+}
+  
+\newglossaryentry{connector}
+{
+        name=connector,
+        description={A VOL connector is a thin layer between HDF5 and the storage.
+It translates HDF5 VOL storage related calls into actual storage operations.}
+}
+
+\newglossaryentry{dkey}
+{
+        name=dkey,
+        description={A DAOS 'distribution key,' which denotes a set of arrays co-located on the same storage targets. A dkey has an arbitrary size.}
+}
+
+\newglossaryentry{akey}
+{
+        name=akey,
+        description={A DAOS 'attribute key,' which distinguishes individual arrays. Similar to a dkey, an akey has an arbitrary size.}
+}
+
+% Glossary acronyms 
+\newacronym{hdf5}{HDF5}{Hierarchical Data Format, v5}
+\newacronym{daos}{DAOS}{Distributed Asynchronous Object Storage}
+\newacronym{vol}{VOL}{Virtual Object Layer}
+
+

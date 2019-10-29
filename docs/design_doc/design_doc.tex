@@ -1,73 +1,82 @@
-\documentclass[letterpaper,hyper]{THG_Guide}
+\documentclass[letterpaper,hyper]{THG}
 
-%%% todo notes, idea from
-%%% http://midtiby.blogspot.com/2007/09/todo-notes-in-latex.html
-%%% ... and further modified by Phil Carns from
-%%% http://usefreetools.blogspot.com/2008_04_01_archive.html
-%%%
-\newcommand{\todo}[1]{
-      \addcontentsline{tdo}{todo}{\protect{#1}}
-      \marginpar{\colorbox{white!90!black}{\textcolor{red}{
-      \parbox{1.7cm}{\scriptsize\bfseries\raggedright #1}
-      }}}
-}
+%% Extra packages
 
-% Path to figures, plots
-\graphicspath{{./pics/}{./plots/}}
 
 % Code snippets
-\usepackage{listings}
-\def\lstsetc{\lstset{
-  language=C,
-  %numbers=left,
-  xleftmargin=\parindent,
-  %frame=leftline,
-  framexleftmargin=0pt,
-  rulecolor=\color{rulecolor},
-  numberstyle=\tiny\color{gray},
-  stepnumber=1,
-  showspaces=false, 
-  showstringspaces=false,
-  breaklines=true,
-  basicstyle=\small\ttfamily,
-  stringstyle=\itshape,
-  commentstyle=\itshape\bfseries,
-  morekeywords={main, size_t, malloc, free,
-    haddr_t, hsize_t, hid_t, herr_t,
-    }
-  }
-}
+\newcommand{\mintcinline}[1]{\mintinline[fontsize=\small, breaklines=true]{C}{#1}}
 
-% Title, author, etc
+% Document metadata: Title, author(s), etc
 \title{HDF5 DAOS VOL Connector Design}
 \author{Neil Fortner, Jordan Henderson, Jerome Soumagne}
-\date{October 27, 2019}
+\date{Oct. 27, 2019}
 \rfcversion{2019-10-27.v2}
-\revision{v1}{Apr. 24, 2019}{First draft.}
-\revision{v2}{Oct. 27, 2019}{Second draft.}
+\organization{THG}
+\orglogo{THG_LOGO} % Add PDF with this name (i.e. 'THG_LOGO.pdf') to the images folder
 
-%% Start the document
+%% Note: If you rename this file (design_doc.tex), you'll need to
+%% change the line at the beginning of each file in the 'sections'
+%% and 'appendices' subdirectories to use the new name.
+
+% Revision History
+\input{support/revisions}
+
+% Glossary terms, for use in main document
+\input{support/glossary}
+
+% Index of terms, included in table of contents
+\makeindex[intoc]
+
+% Bibliography references, for use in main document
+\addbibresource{support/rfc.bib}
+
+%% Start the main document
 \begin{document}
 
 %% Title
 \maketitle
 
 %% Abstract
-\begin{abstract}
-This document is the design document for the HDF5 DAOS VOL connector. It aims to provide a detailed description of the manner in which the VOL connector maps between HDF5 objects and DAOS objects. It also includes design notes for the new HDF5 Map objects.
-\end{abstract}
+\subfile{sections/abstract}
 
-
+% Display revision history
 \makerevisions
 
+% Table of Contents
 \tableofcontents
+
+% List of Figures
 \newpage
+\addcontentsline{toc}{section}{List of Figures}
+\listoffigures
 
-\input{design_doc-body}
+% Glossaries of acronyms and terms
+\newpage
+\printglossary[type=\acronymtype]
+\printglossary
 
+% Index of terms used
+%\newpage
+%\printindex
 
-%% References
-%\bibliographystyle{abbrv}
-%\bibliography{rfc}
+% Main text of RFC
+\newpage
+%% Design section
+\subfile{sections/design}
+\newpage
+%% HDF5 Map object section
+\subfile{sections/map}
+
+%\subfile{sections/recommendation}
+%\subfile{sections/acknowledgements}
+
+% Bibliography (list them in the TOC)
+%\newpage
+%\phantomsection
+%\addcontentsline{toc}{section}{References}
+%\printbibliography
+ 
+% Appendices (switch to letters for appendix sections)
+%\appendix
 
 \end{document}

@@ -9,7 +9,7 @@ MAIN=design_doc
 TEXFILES=$(wildcard *.tex)
 
 all: $(TEXFILES)
-	@$(LATEXMK) -pdf $(MAIN)
+	@$(LATEXMK) -e '$$pdflatex=q/pdflatex %O -shell-escape %S/' -pdf $(MAIN)
 
 force:
 	@$(LATEXMK) -f -pdf $(MAIN)
@@ -19,11 +19,13 @@ clean:
 
 distclean: clean
 	@$(LATEXMK) -C
+	rm *.xml
+	rm -rf _minted-$(MAIN)
 
 help:
 	@echo -e "Usage : make [target]\n\
 	all		produce the PDF (default)\n\
-	force		force compilation if possible\n\
+	force		force compilation if possilbe\n\
 	clean		clean  unnecessary files\n\
 	distclean	clean deeper\n\
 	help		display this help"

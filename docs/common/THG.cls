@@ -258,7 +258,7 @@
 \RequirePackage[colorlinks,
   citecolor=rulecolor,%
   filecolor=rulecolor,%
-  linkcolor=black,%
+  linkcolor=rulecolor,%
   urlcolor=rulecolor,%
   bookmarks,pdfusetitle]{hyperref}
 \fi

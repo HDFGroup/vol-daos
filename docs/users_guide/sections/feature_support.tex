@@ -6,7 +6,7 @@
 
 \subsection{Feature Specific Support}
 
-The following sections serve to illustrate the DAOS VOL connector's support for features in HDF5, as well as to highlight any differences between the expected behavior of an HDF5 feature versus the actual behavior as implemented by the VOL connector.
+The following sections serve to illustrate the \dvc{}'s support for features in \acrshort{hdf5}, as well as to highlight any differences between the expected behavior of an \acrshort{hdf5} feature versus the actual behavior as implemented by the VOL connector.
 
 \subsubsection{Attribute Features}
 
@@ -34,7 +34,7 @@ The following sections serve to illustrate the DAOS VOL connector's support for 
 
 \end{tabularx}
 
-\footnotetext[1]{Will be supported in Q4 2019.}
+\footnotetext[1]{Will be supported by end of Q4 2019.}
 
 \newpage
 
@@ -64,7 +64,7 @@ The following sections serve to illustrate the DAOS VOL connector's support for 
 
 \end{tabularx}
 
-\footnotetext[1]{Will be supported in Q4 2019.}
+\footnotetext[1]{Will be supported by end of Q4 2019.}
 
 \newpage
 
@@ -171,7 +171,7 @@ The following sections serve to illustrate the DAOS VOL connector's support for 
 
 \subsection{API Specific Support}
 
-The following sections serve to illustrate the DAOS VOL connector's support for the HDF5 API, as well as to highlight any differences between the expected behavior of an HDF5 API call versus the actual behavior as implemented by the VOL connector. If a particular HDF5 API call does not appear among these tables, it is most likely a native HDF5-specific API call which cannot be implemented by non-native HDF5 VOL connectors. These types of API calls are listed among the tables in Appendix~\ref{apdx:native_calls}.
+The following sections serve to illustrate the \dvc{}'s support for the \acrshort{hdf5} API, as well as to highlight any differences between the expected behavior of an \acrshort{hdf5} API call versus the actual behavior as implemented by the VOL connector. If a particular \acrshort{hdf5} API call does not appear among these tables, it is most likely a native \acrshort{hdf5}-specific API call which cannot be implemented by non-native \acrshort{hdf5} VOL connectors. These types of API calls are listed among the tables in Appendix~\ref{apdx:native_calls}.
 
 \newpage
 
@@ -587,7 +587,7 @@ H5Rget\_region & \\ \hline
 
 \end{center}
 
-\footnotetext[1]{New reference API will be supported in Q4 2019.}
+\footnotetext[1]{New reference API will be supported by end of Q4 2019.}
 
 \newpage
 
@@ -637,16 +637,18 @@ The following sections outline the known current limitations of the \dvc{}.
 \subsubsection{Limitations in regards to the HDF5 API}
 
 \begin{itemize}
-    \item When performing dataset I/O, the selections in the memory and file dataspaces must currently be the same shape; using selections of different shapes will result in an error stating this.\footnotemark[1]
-
+ \item When performing dataset I/O, the selections in the memory and file dataspaces must currently be the same shape; using selections of different shapes will result in an error stating this.\footnotemark[1]
+ \item If an application abnormally exits, the \dvc{} currently leaves the file in an unusable state. Currently, the only way to re-use the same filename after an application interruption is to use a new \acrshort{daos} pool. This issue will be resolved when rollback
+to a previous snapshot is supported.
 \end{itemize}
 
 \subsubsection{Limitations in regards to DAOS}
 
 \begin{itemize}
-    \item If an application abnormally exits, the DAOS VOL connector currently leaves the file in an unusable state. Currently, the only known way to re-use the same filename after an application crash is to use a new DAOS pool.
-    \item Following the previous point about application abnormal exits, as DAOS does not currently support forced container deletion, trying to overwrite an existing HDF5 file using the \texttt{H5F\_ACC\_TRUNC} flag when the file was left in an unusable state will fail; the error \textit{``can't destroy container: generic I/O error (DER\_IO)''} will be returned.
+ \item Following the previous point about application abnormal exits, as \acrshort{daos} does not currently support forced container deletion, trying to overwrite an existing \acrshort{hdf5} file using the \texttt{H5F\_ACC\_TRUNC} flag when the file was left in an unusable state will fail; the error \textit{``can't destroy container: generic I/O error (DER\_IO)''} will be returned.
+\item No support for conditional key insert/remove.\todo{explain}
+\item There is currently no support for distributed transactions.
 \end{itemize}
 
-\footnotetext[1]{Will be supported in Q4 2019.}
+\footnotetext[1]{Will be supported by end of Q4 2019.}
 \end{document}

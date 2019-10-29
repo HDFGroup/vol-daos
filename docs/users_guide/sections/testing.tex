@@ -8,13 +8,13 @@ The following sections cover how to test the \dvc{}, as well as the individual c
 
 \subsection{With CTest}
 
-Once the \dvc{} has been built, running the connector's tests should be as simple as running
+Once the \dvc{} has been built, running the \gls{connector}'s tests should be as simple as running
 
 \begin{verbatim}
 ctest .
 \end{verbatim}
 
-from the build directory. This will run each of the VOL connector's test components in turn. For more information on using CTest's options to control testing behavior, refer to the \href{https://cmake.org/cmake/help/v3.15/manual/ctest.1.html}{CTest Documentation}.
+from the build directory. This will run each of the \acrshort{vol} \gls{connector}'s test components in turn. For more information on using CTest's options to control testing behavior, refer to the \href{https://cmake.org/cmake/help/v3.15/manual/ctest.1.html}{CTest Documentation}.
 
 \subsection{Manually}
 
@@ -26,26 +26,26 @@ If testing the \dvc{} without CTest, refer to \hyperref[sec:daos_serv_start]{Sta
 
 \subsubsection{Generic HDF5 VOL connector test suite}
 
-In order to test HDF5 VOL connectors to make sure that they are functioning as expected, a suite of tests which only use the public HDF5 API has been written. This suite of tests is available under the path:
+In order to test \acrshort{hdf5} \acrshort{vol} \glspl{connector} to make sure that they are functioning as expected, a suite of tests which only use the public \acrshort{hdf5} API has been written. This suite of tests is available under the path:
 
 \href{https://bitbucket.hdfgroup.org/projects/HDF5VOL/repos/daos-vol/browse/test}{\texttt{test/vol}}
 
 and when built, will appear as the \texttt{h5vl\_test} and \texttt{h5vl\_test\_parallel} executables in the \texttt{bin} directory inside the build directory.
 
-Note that running this test suite requires that your environment is setup to have HDF5 dynamically load the \dvc{}. Also, this test suite currently does not have the capability to query what kind of functionality an HDF5 VOL connector supports and therefore certain tests will be skipped if they use an HDF5 API call which is not implemented, or which is specifically unsupported, by the \dvc.
+Note that running this test suite requires that your environment is setup to have \acrshort{hdf5} dynamically load the \dvc{}. Also, this test suite currently does not have the capability to query what kind of functionality an \acrshort{hdf5} \acrshort{vol} \gls{connector} supports and therefore certain tests will be skipped if they use an \acrshort{hdf5} API call which is not implemented, or which is specifically unsupported, by the \dvc.
 
 \subsubsection{DAOS VOL connector-specific test suite}
 
-In addition to the generic VOL connector testing suite, the \dvc{} also includes the following test suites which test features specific to the connector:
+In addition to the generic \acrshort{vol} \gls{connector} testing suite, the \dvc{} also includes the following test suites which test features specific to the \gls{connector}:
 
 \begin{itemize}
-    \item DAOS VOL connector Map test suite
+    \item \dvc{} Map test suite
 
-    This test suite tests the \dvc{} against the 'Map' functionality in HDF5, which concerns map objects that store key-value pairs. When built, this test suite will appear as the \texttt{h5daos\_test\_map} and \texttt{h5daos\_test\_map\_parallel} executables in the \texttt{bin} directory inside the build directory.
+    This test suite tests the \dvc{} against the 'Map' functionality in \acrshort{hdf5}, which concerns map objects that store key-value pairs. When built, this test suite will appear as the \texttt{h5daos\_test\_map} and \texttt{h5daos\_test\_map\_parallel} executables in the \texttt{bin} directory inside the build directory.
 
     \item \dvc{} Recovery testing suite
 
-    This test suite tests the \dvc's ability to recover from a fault that causes the DAOS server or the HDF5 application to stop functioning. It also ensures the integrity of both metadata and raw data in a file after such a fault. When built, this test suite will appear as the \texttt{h5daos\_test\_recovery} executable in the \texttt{bin} directory inside the build directory.
+    This test suite tests the \dvc's ability to recover from a fault that causes the \acrshort{daos} server or the \acrshort{hdf5} application to stop functioning. It also ensures the integrity of both metadata and raw data in a file after such a fault. When built, this test suite will appear as the \texttt{h5daos\_test\_recovery} executable in the \texttt{bin} directory inside the build directory.
 \end{itemize}
 
 \end{document}

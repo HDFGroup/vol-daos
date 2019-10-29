@@ -708,6 +708,20 @@ H5_daos_file_get(void *_item, H5VL_file_get_t get_type, hid_t H5VL_DAOS_UNUSED d
             D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a file")
 
     switch (get_type) {
+        case H5VL_FILE_GET_CONT_INFO:
+        {
+            H5VL_file_cont_info_t *info = va_arg(arguments, H5VL_file_cont_info_t *);
+
+            if(info->version != H5VL_CONTAINER_INFO_VERSION)
+                D_GOTO_ERROR(H5E_FILE, H5E_VERSION, FAIL, "wrong container info version number")
+
+            info->feature_flags = 0;
+            info->token_size = H5_DAOS_ENCODED_OID_SIZE;
+            info->blob_id_size = 0; /* TODO */
+
+            break;
+        }
+
         /* H5Fget_access_plist */
         case H5VL_FILE_GET_FAPL:
         {

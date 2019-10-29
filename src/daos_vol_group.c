@@ -720,11 +720,11 @@ H5_daos_group_open(void *_item, const H5VL_loc_params_t *loc_params,
         if(collective && (item->file->num_procs > 1))
             must_bcast = TRUE;
 
-        /* Check for open by address */
-        if(H5VL_OBJECT_BY_ADDR == loc_params->type) {
-            /* Generate oid from address */
-            if(H5_daos_addr_to_oid(&oid, loc_params->loc_data.loc_by_addr.addr) < 0)
-                D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't convert address to OID")
+        /* Check for open by object token */
+        if(H5VL_OBJECT_BY_TOKEN == loc_params->type) {
+            /* Generate oid from token */
+            if(H5_daos_token_to_oid(loc_params->loc_data.loc_by_token.token, &oid) < 0)
+                D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't convert object token to OID")
 
             /* Open group */
             if(NULL == (grp = (H5_daos_group_t *)H5_daos_group_open_helper(item->file, oid, gapl_id, dxpl_id, NULL, (collective && (item->file->num_procs > 1)) ? (void **)&gcpl_buf : NULL, &gcpl_len)))
@@ -1153,8 +1153,7 @@ H5_daos_group_get_info(H5_daos_group_t *grp, const H5VL_loc_params_t *loc_params
             break;
         } /* H5VL_OBJECT_BY_IDX */
 
-        case H5VL_OBJECT_BY_ADDR:
-        case H5VL_OBJECT_BY_REF:
+        case H5VL_OBJECT_BY_TOKEN:
         default:
             D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, FAIL, "invalid loc_params type")
     } /* end switch */

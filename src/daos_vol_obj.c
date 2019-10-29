@@ -22,7 +22,7 @@
 #include "util/daos_vol_err.h"  /* DAOS connector error handling           */
 #include "util/daos_vol_mem.h"  /* DAOS connector memory management        */
 
-static herr_t H5_daos_object_open_by_addr(H5_daos_obj_t *loc_obj, const H5VL_loc_params_t *loc_params,
+static herr_t H5_daos_object_open_by_token(H5_daos_obj_t *loc_obj, const H5VL_loc_params_t *loc_params,
     daos_obj_id_t *opened_obj_id, hid_t dxpl_id, void **req);
 static herr_t H5_daos_object_open_by_name(H5_daos_obj_t *loc_obj, const H5VL_loc_params_t *loc_params,
     daos_obj_id_t *opened_obj_id, hid_t dxpl_id, void **req);
@@ -75,6 +75,7 @@ H5_daos_object_open(void *_item, const H5VL_loc_params_t *loc_params,
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_obj_t *obj = NULL;
     daos_obj_id_t oid = {0};
+    H5VL_token_t obj_token;
     H5I_type_t obj_type = H5I_UNINIT;
     void *ret_value = NULL;
 
@@ -85,11 +86,6 @@ H5_daos_object_open(void *_item, const H5VL_loc_params_t *loc_params,
 
     /* Retrieve the OID of the target object */
     switch (loc_params->type) {
-        case H5VL_OBJECT_BY_ADDR:
-            if(H5_daos_object_open_by_addr((H5_daos_obj_t *)item, loc_params, &oid, dxpl_id, req) < 0)
-                D_GOTO_ERROR(H5E_OHDR, H5E_CANTOPENOBJ, NULL, "can't open object by address")
-            break;
-
         case H5VL_OBJECT_BY_NAME:
             if(H5_daos_object_open_by_name((H5_daos_obj_t *)item, loc_params, &oid, dxpl_id, req) < 0)
                 D_GOTO_ERROR(H5E_OHDR, H5E_CANTOPENOBJ, NULL, "can't open object by name")
@@ -100,22 +96,28 @@ H5_daos_object_open(void *_item, const H5VL_loc_params_t *loc_params,
                 D_GOTO_ERROR(H5E_OHDR, H5E_CANTOPENOBJ, NULL, "can't open object by index")
             break;
 
+        case H5VL_OBJECT_BY_TOKEN:
+            if(H5_daos_object_open_by_token((H5_daos_obj_t *)item, loc_params, &oid, dxpl_id, req) < 0)
+                D_GOTO_ERROR(H5E_OHDR, H5E_CANTOPENOBJ, NULL, "can't open object by token")
+            break;
+
         case H5VL_OBJECT_BY_SELF:
-        case H5VL_OBJECT_BY_REF:
         default:
             D_GOTO_ERROR(H5E_OHDR, H5E_BADVALUE, NULL, "invalid loc_params type")
     } /* end switch */
 
     /* Get object type */
     if(H5I_BADID == (obj_type = H5_daos_oid_to_type(oid)))
-        D_GOTO_ERROR(H5E_OHDR, H5E_CANTINIT, NULL, "can't get object type")
+        D_GOTO_ERROR(H5E_OHDR, H5E_CANTGET, NULL, "can't get object type")
+
+    /* Setup object token */
+    if(H5_daos_oid_to_token(oid, &obj_token) < 0)
+        D_GOTO_ERROR(H5E_OHDR, H5E_CANTENCODE, NULL, "can't convert object OID to token")
 
     /* Set up sub_loc_params */
-    /* Switch to using tokens instead of addresses when they're implemented so
-     * we don't trip the 30 bit limit here DSINC */
     sub_loc_params.obj_type = item->type;
-    sub_loc_params.type = H5VL_OBJECT_BY_ADDR;
-    sub_loc_params.loc_data.loc_by_addr.addr = H5_daos_oid_to_addr(oid);
+    sub_loc_params.type = H5VL_OBJECT_BY_TOKEN;
+    sub_loc_params.loc_data.loc_by_token.token = obj_token;
 
     /* Call type's open function */
     if(obj_type == H5I_GROUP) {
@@ -137,13 +139,11 @@ H5_daos_object_open(void *_item, const H5VL_loc_params_t *loc_params,
             D_GOTO_ERROR(H5E_OHDR, H5E_CANTOPENOBJ, NULL, "can't open datatype")
     } /* end if */
     else {
-#ifdef DV_HAVE_MAP
         assert(obj_type == H5I_MAP);
         if(NULL == (obj = (H5_daos_obj_t *)H5_daos_map_open(item, &sub_loc_params, NULL,
                 ((H5VL_OBJECT_BY_NAME == loc_params->type) && (loc_params->loc_data.loc_by_name.lapl_id != H5P_DEFAULT))
                 ? loc_params->loc_data.loc_by_name.lapl_id : H5P_MAP_ACCESS_DEFAULT, dxpl_id, req)))
             D_GOTO_ERROR(H5E_OHDR, H5E_CANTOPENOBJ, NULL, "can't open map")
-#endif
     } /* end if */
 
     /* Set return value */
@@ -161,10 +161,10 @@ done:
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_object_open_by_addr
+ * Function:    H5_daos_object_open_by_token
  *
  * Purpose:     Helper function for H5_daos_object_open which opens an
- *              object according to the specified object address.
+ *              object according to the specified object token.
  *
  * Return:      Success:        0
  *              Failure:        -1
@@ -172,7 +172,7 @@ done:
  *-------------------------------------------------------------------------
  */
 static herr_t
-H5_daos_object_open_by_addr(H5_daos_obj_t H5VL_DAOS_UNUSED *loc_obj, const H5VL_loc_params_t *loc_params,
+H5_daos_object_open_by_token(H5_daos_obj_t H5VL_DAOS_UNUSED *loc_obj, const H5VL_loc_params_t *loc_params,
     daos_obj_id_t *opened_obj_id, hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req)
 {
     daos_obj_id_t oid;
@@ -181,17 +181,17 @@ H5_daos_object_open_by_addr(H5_daos_obj_t H5VL_DAOS_UNUSED *loc_obj, const H5VL_
     assert(loc_obj);
     assert(loc_params);
     assert(opened_obj_id);
-    assert(H5VL_OBJECT_BY_ADDR == loc_params->type);
+    assert(H5VL_OBJECT_BY_TOKEN == loc_params->type);
 
-    /* Generate oid from address */
-    if(H5_daos_addr_to_oid(&oid, loc_params->loc_data.loc_by_addr.addr) < 0)
-        D_GOTO_ERROR(H5E_OHDR, H5E_CANTINIT, FAIL, "can't convert address to OID")
+    /* Generate OID from object token */
+    if(H5_daos_token_to_oid(loc_params->loc_data.loc_by_token.token, &oid) < 0)
+        D_GOTO_ERROR(H5E_OHDR, H5E_CANTINIT, FAIL, "can't convert address token to OID")
 
     *opened_obj_id = oid;
 
 done:
     D_FUNC_LEAVE
-} /* end H5_daos_object_open_by_addr() */
+} /* end H5_daos_object_open_by_token() */
 
 
 /*-------------------------------------------------------------------------
@@ -576,7 +576,7 @@ H5_daos_object_get(void *_item, const H5VL_loc_params_t *loc_params,
     H5VL_object_get_t get_type, hid_t H5VL_DAOS_UNUSED dxpl_id,
     void H5VL_DAOS_UNUSED **req, va_list H5VL_DAOS_UNUSED arguments)
 {
-//    H5_daos_item_t *item = (H5_daos_item_t *)_item;
+    H5_daos_item_t *item = (H5_daos_item_t *) item;
     herr_t          ret_value = SUCCEED;
 
     if(!_item)
@@ -585,10 +585,8 @@ H5_daos_object_get(void *_item, const H5VL_loc_params_t *loc_params,
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "location parameters object is NULL")
 
     switch (get_type) {
-        case H5VL_REF_GET_NAME:
-        case H5VL_REF_GET_REGION:
-        case H5VL_REF_GET_TYPE:
         case H5VL_OBJECT_GET_NAME:
+        case H5VL_OBJECT_GET_TYPE:
         default:
             D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported object get operation")
     } /* end switch */
@@ -683,6 +681,19 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
             break;
         } /* H5VL_OBJECT_EXISTS */
 
+        case H5VL_OBJECT_LOOKUP:
+        {
+            void *token = va_arg(arguments, void *);
+
+            if(H5VL_OBJECT_BY_NAME != loc_params->type)
+                D_GOTO_ERROR(H5E_OHDR, H5E_BADVALUE, FAIL, "invalid loc_params type")
+
+            if(H5_daos_oid_to_token(target_obj->oid, (H5VL_token_t *)&token) < 0)
+                D_GOTO_ERROR(H5E_OHDR, H5E_CANTENCODE, FAIL, "can't convert OID to object token")
+
+            break;
+        } /* H5VL_OBJECT_LOOKUP */
+
         /* H5Ovisit(_by_name) */
         case H5VL_OBJECT_VISIT:
         {
@@ -709,9 +720,6 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
 
             break;
         } /* H5VL_OBJECT_VISIT */
-
-        case H5VL_REF_CREATE:
-            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported object specific operation")
 
         /* H5Oflush */
         case H5VL_OBJECT_FLUSH:
@@ -1132,11 +1140,9 @@ H5_daos_object_get_info(H5_daos_obj_t *target_obj, unsigned fields, H5O_info_t *
             case H5I_DATATYPE:
                 obj_info_out->type = H5O_TYPE_NAMED_DATATYPE;
                 break;
-#ifdef DV_HAVE_MAP
             case H5I_MAP:
                 obj_info_out->type = H5O_TYPE_MAP;
                 break;
-#endif
             default:
                 obj_info_out->type = H5O_TYPE_UNKNOWN;
                 break;

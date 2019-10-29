@@ -66,7 +66,7 @@ static const H5VL_class_t H5_daos_g = {
     HDF5_VOL_DAOS_VERSION_1,                 /* Plugin Version number */
     H5_VOL_DAOS_CLS_VAL,                     /* Plugin Value */
     H5_DAOS_VOL_NAME,                        /* Plugin Name */
-    0,                                       /* Plugin capability flags */
+    H5VL_CAP_FLAG_NONE,                      /* Plugin capability flags */
     H5_daos_init,                            /* Plugin initialize */
     H5_daos_term,                            /* Plugin terminate */
     {
@@ -150,6 +150,12 @@ static const H5VL_class_t H5_daos_g = {
         NULL,                                /* Plugin Request specific */
         NULL,                                /* Plugin Request optional */
         H5_daos_req_free                     /* Plugin Request free */
+    },
+    {
+        NULL,                                /* Plugin 'blob' put */
+        NULL,                                /* Plugin 'blob' get */
+        NULL,                                /* Plugin 'blob' specific */
+        NULL,                                /* Plugin 'blob' optional */
     },
     H5_daos_optional                         /* Plugin optional */
 };
@@ -1222,9 +1228,7 @@ H5_daos_oid_encode(daos_obj_id_t *oid, uint64_t oidx, H5I_type_t obj_type)
     else if(obj_type == H5I_DATATYPE)
         oid->hi = H5_DAOS_TYPE_DTYPE;
     else {
-#ifdef DV_HAVE_MAP
         assert(obj_type == H5I_MAP);
-#endif
         oid->hi = H5_DAOS_TYPE_MAP;
     } /* end else */
 
@@ -1331,6 +1335,63 @@ done:
 
 
 /*-------------------------------------------------------------------------
+ * Function:    H5_daos_oid_to_token
+ *
+ * Purpose:     Converts an OID to an object "token".
+ *
+ * Return:      Success:    0
+ *              Failure:    -1
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_oid_to_token(daos_obj_id_t oid, H5VL_token_t *obj_token)
+{
+    uint8_t *p;
+    herr_t ret_value = SUCCEED;
+
+    assert(obj_token);
+    H5daos_compile_assert(H5_DAOS_ENCODED_OID_SIZE <= H5VL_MAX_TOKEN_SIZE);
+
+    p = (uint8_t *) *obj_token;
+
+    UINT64ENCODE(p, oid.lo);
+    UINT64ENCODE(p, oid.hi);
+
+    D_FUNC_LEAVE
+} /* end H5_daos_oid_to_token() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_token_to_oid
+ *
+ * Purpose:     Converts an object "token" to an OID.
+ *
+ * Return:      Success:    0
+ *              Failure:    -1
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_token_to_oid(H5VL_token_t obj_token, daos_obj_id_t *oid)
+{
+    uint8_t *p;
+    herr_t ret_value = SUCCEED;
+
+    assert(oid);
+    assert(obj_token);
+    H5daos_compile_assert(H5_DAOS_ENCODED_OID_SIZE <= H5VL_MAX_TOKEN_SIZE);
+
+    p = (uint8_t *) obj_token;
+
+    UINT64DECODE(p, oid->lo);
+    UINT64DECODE(p, oid->hi);
+
+    D_FUNC_LEAVE
+} /* end H5_daos_token_to_oid() */
+
+
+/*-------------------------------------------------------------------------
  * Function:    H5_daos_oid_to_type
  *
  * Purpose:     Retrieve the HDF5 object type from an OID
@@ -1353,10 +1414,8 @@ H5_daos_oid_to_type(daos_obj_id_t oid)
         return(H5I_DATASET);
     else if(type_bits == H5_DAOS_TYPE_DTYPE)
         return(H5I_DATATYPE);
-#ifdef DV_HAVE_MAP
     else if(type_bits == H5_DAOS_TYPE_MAP)
         return(H5I_MAP);
-#endif
     else
         return(H5I_BADID);
 } /* end H5_daos_oid_to_type() */

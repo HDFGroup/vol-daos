@@ -19,7 +19,7 @@
 #include "util/daos_vol_mem.h"  /* DAOS connector memory management        */
 
 /* Macros */
-#define H5_DAOS_HARD_LINK_VAL_SIZE (8 + 8 + 1)
+#define H5_DAOS_HARD_LINK_VAL_SIZE (H5_DAOS_ENCODED_OID_SIZE + 1)
 #define H5_DAOS_RECURSE_LINK_PATH_BUF_INIT 1024
 #define H5_DAOS_CRT_ORDER_TO_LINK_TRGT_BUF_SIZE 9
 
@@ -758,8 +758,7 @@ H5_daos_link_get(void *_item, const H5VL_loc_params_t *loc_params,
             break;
         }
 
-        case H5VL_OBJECT_BY_ADDR:
-        case H5VL_OBJECT_BY_REF:
+        case H5VL_OBJECT_BY_TOKEN:
         default:
             D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, FAIL, "invalid loc_params type")
     } /* end switch */
@@ -914,8 +913,7 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
                     } /* H5VL_OBJECT_BY_NAME */
 
                     case H5VL_OBJECT_BY_IDX:
-                    case H5VL_OBJECT_BY_ADDR:
-                    case H5VL_OBJECT_BY_REF:
+                    case H5VL_OBJECT_BY_TOKEN:
                     default:
                         D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, FAIL, "invalid loc_params type")
                 } /* end switch */
@@ -1140,8 +1138,7 @@ H5_daos_link_get_info(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
         } /* H5VL_OBJECT_BY_IDX */
 
         case H5VL_OBJECT_BY_SELF:
-        case H5VL_OBJECT_BY_ADDR:
-        case H5VL_OBJECT_BY_REF:
+        case H5VL_OBJECT_BY_TOKEN:
         default:
             D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, FAIL, "invalid loc_params type")
     } /* end switch */
@@ -1273,8 +1270,7 @@ H5_daos_link_get_val(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
         } /* H5VL_OBJECT_BY_IDX */
 
         case H5VL_OBJECT_BY_SELF:
-        case H5VL_OBJECT_BY_ADDR:
-        case H5VL_OBJECT_BY_REF:
+        case H5VL_OBJECT_BY_TOKEN:
         default:
             D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, FAIL, "invalid loc_params type")
     } /* end switch */

@@ -84,7 +84,7 @@ typedef d_sg_list_t daos_sg_list_t;
 #define H5_DAOS_ENCODED_CRT_ORDER_SIZE 8
 #define H5_DAOS_ENCODED_NUM_LINKS_SIZE 8
 
-/* Size of encoded IOD */
+/* Size of encoded OID */
 #define H5_DAOS_ENCODED_OID_SIZE 16
 
 /* Generic encoded uint64 size */

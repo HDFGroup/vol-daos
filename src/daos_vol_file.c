@@ -415,7 +415,8 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     daos_obj_id_t gmd_oid = {0, 0};
     hbool_t sched_init = FALSE;
     H5_daos_req_t *int_req = NULL;
-#if 0
+#if 0 /* Needed for storing the root group OID in the global metadata object -
+       * see note below */
     daos_key_t dkey;
     daos_iod_t iod;
     daos_sg_list_t sgl;
@@ -515,9 +516,12 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
 
     /* Write root group OID to global metadata object */
     /* Only do this if a non-default object class is used DSINC */
-    /* Disabled for now since we don't use it, eventually we will use it to find
-     * the root group on file open if the initial attempt doesn't work (due to
-     * wrong object class) DSINC */
+    /* Disabled for now since we don't use it.  Right now, the user must specify
+     * the root group's object class through
+     * H5daos_set_root_open_object_class(), but eventually we will allow the
+     * user to skip this by storing the root group OID in the global metadata
+     * object (as below), and, if the intial root group open fails, reading the
+     * stored root group OID and using that to open the root group.  DSINC */
 #if 0
     /* Encode root group OID */
     p = root_group_oid_buf;

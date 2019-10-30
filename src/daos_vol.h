@@ -38,8 +38,6 @@
 #ifdef H5VL_DAOS_NEW_API
 typedef d_iov_t daos_iov_t;
 typedef d_sg_list_t daos_sg_list_t;
-# define DAOS_OC_TINY_RW  OC_S1
-# define DAOS_OC_LARGE_RW OC_SX
 # define daos_rank_list_free d_rank_list_free
 # define daos_iov_set d_iov_set
 # define DAOS_OF_AKEY_HASHED 0
@@ -51,9 +49,9 @@ typedef d_sg_list_t daos_sg_list_t;
     daos_obj_generate_id(oid, ofeats, cid)
 #endif
 
-/*****************/
-/* Public Macros */
-/*****************/
+/******************/
+/* Private Macros */
+/******************/
 
 #define HDF5_VOL_DAOS_VERSION_1	(1)	/* Version number of DAOS VOL connector */
 /* Class value of the DAOS VOL connector as defined in H5VLpublic.h DSINC */
@@ -85,6 +83,12 @@ typedef d_sg_list_t daos_sg_list_t;
 /* Sizes of objects on storage */
 #define H5_DAOS_ENCODED_CRT_ORDER_SIZE 8
 #define H5_DAOS_ENCODED_NUM_LINKS_SIZE 8
+
+/* Size of encoded OID */
+#define H5_DAOS_ENCODED_OID_SIZE 16
+
+/* Generic encoded uint64 size */
+#define H5_DAOS_ENCODED_UINT64_T_SIZE 8
 
 /* Definitions for building oids */
 #define H5_DAOS_TYPE_MASK   0x00000000c0000000ull
@@ -179,6 +183,13 @@ typedef d_sg_list_t daos_sg_list_t;
 #define H5_DAOS_SNAP_OPEN_ID "daos_snap_open"
 #endif
 
+/* Property to speciy DAOS object class */
+#define H5_DAOS_OBJ_CLASS_NAME "daos_object_class"
+
+/* Property to specify DAOS object class of the root group when opening a file
+ */
+#define H5_DAOS_ROOT_OPEN_OCLASS_NAME "root_open_daos_oclass"
+
 /* DSINC - Exclude map functionality for now */
 #undef DV_HAVE_MAP
 
@@ -239,9 +250,9 @@ do {                                                                            
         _iter_data.req = _req;                                                 \
     } while(0)
 
-/*******************/
-/* Public Typedefs */
-/*******************/
+/********************/
+/* Private Typedefs */
+/********************/
 
 /* DAOS-specific file access properties */
 typedef struct H5_daos_fapl_t {
@@ -270,6 +281,12 @@ typedef struct H5_daos_obj_t {
     H5_daos_ocpl_cache_t ocpl_cache;
 } H5_daos_obj_t;
 
+/* The FAPL cache struct */
+typedef struct H5_daos_fapl_cache_t {
+    daos_oclass_id_t default_object_class;
+    hbool_t is_collective_md_read;
+} H5_daos_fapl_cache_t;
+
 /* The file struct */
 typedef struct H5_daos_file_t {
     H5_daos_item_t item; /* Must be first */
@@ -284,13 +301,15 @@ typedef struct H5_daos_file_t {
     struct H5_daos_group_t *root_grp;
     hid_t fcpl_id;
     hid_t fapl_id;
+    H5_daos_fapl_cache_t fapl_cache;
     MPI_Comm comm;
     MPI_Info info;
     int my_rank;
     int num_procs;
-    hbool_t is_collective_md_read;
     uint64_t next_oidx;
     uint64_t max_oidx;
+    uint64_t next_oidx_collective;
+    uint64_t max_oidx_collective;
     hid_t vol_id;
     void *vol_info;
 } H5_daos_file_t;
@@ -473,9 +492,9 @@ typedef enum H5VL_object_optional_t {
     H5VL_OBJECT_SET_COMMENT             /* set object comment                   */
 } H5VL_object_optional_t;
 
-/********************/
-/* Public Variables */
-/********************/
+/*********************/
+/* Private Variables */
+/*********************/
 
 extern H5VL_DAOS_PRIVATE hid_t H5_DAOS_g;
 
@@ -510,6 +529,7 @@ extern H5VL_DAOS_PRIVATE MPI_Comm H5_daos_pool_comm_g;
 
 /* Constant Keys */
 extern H5VL_DAOS_PRIVATE const char H5_daos_int_md_key_g[];
+extern H5VL_DAOS_PRIVATE const char H5_daos_root_grp_oid_key_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_cpl_key_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_link_key_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_link_corder_key_g[];
@@ -525,6 +545,7 @@ extern H5VL_DAOS_PRIVATE const char H5_daos_vtype_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_map_key_g[];
 
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_int_md_key_size_g;
+extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_root_grp_oid_key_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_cpl_key_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_link_key_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_link_corder_key_size_g;
@@ -539,21 +560,25 @@ extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_ktype_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_vtype_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_map_key_size_g;
 
-/*********************/
-/* Public Prototypes */
-/*********************/
+/**********************/
+/* Private Prototypes */
+/**********************/
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /* General routines */
+H5VL_DAOS_PRIVATE herr_t H5_daos_set_oclass_from_oid(hid_t plist_id,
+    daos_obj_id_t oid);
 H5VL_DAOS_PRIVATE herr_t H5_daos_oidx_generate(uint64_t *oidx,
+    H5_daos_file_t *file, hbool_t collective);
+H5VL_DAOS_PRIVATE herr_t H5_daos_oid_encode(daos_obj_id_t *oid, uint64_t oidx,
+    H5I_type_t obj_type, hid_t crt_plist_id, const char *oclass_prop_name,
     H5_daos_file_t *file);
-H5VL_DAOS_PRIVATE void H5_daos_oid_encode(daos_obj_id_t *oid, uint64_t oidx,
-    H5I_type_t obj_type);
 H5VL_DAOS_PRIVATE herr_t H5_daos_oid_generate(daos_obj_id_t *oid,
-    H5I_type_t obj_type, H5_daos_file_t *file);
+    H5I_type_t obj_type, hid_t crt_plist_id, H5_daos_file_t *file,
+    hbool_t collective);
 H5VL_DAOS_PRIVATE haddr_t H5_daos_oid_to_addr(daos_obj_id_t oid);
 H5VL_DAOS_PRIVATE herr_t H5_daos_addr_to_oid(daos_obj_id_t *oid, haddr_t addr);
 H5VL_DAOS_PRIVATE H5I_type_t H5_daos_oid_to_type(daos_obj_id_t oid);

@@ -171,7 +171,7 @@ H5_daos_dataset_create(void *_item,
     dset->dapl_id = FAIL;
 
     /* Generate dataset oid */
-    if(H5_daos_oid_generate(&dset->obj.oid, H5I_DATASET, item->file) < 0)
+    if(H5_daos_oid_generate(&dset->obj.oid, H5I_DATASET, dcpl_id == H5P_DATASET_CREATE_DEFAULT ? H5P_DEFAULT : dcpl_id, item->file, collective) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't generate object id")
 
     /* Create dataset and write metadata if this process should */
@@ -406,7 +406,7 @@ H5_daos_dataset_open(void *_item,
      * Like HDF5, metadata reads are independent by default. If the application has specifically
      * requested collective metadata reads, they will be enabled here.
      */
-    collective = item->file->is_collective_md_read;
+    collective = item->file->fapl_cache.is_collective_md_read;
     if(!collective && (H5P_DATASET_ACCESS_DEFAULT != dapl_id))
         if(H5Pget_all_coll_metadata_ops(dapl_id, &collective) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, NULL, "can't get collective metadata reads property")
@@ -1821,6 +1821,10 @@ H5_daos_dataset_get(void *_dset, H5VL_dataset_get_t get_type,
                 /* Retrieve the dataset's creation property list */
                 if((*plist_id = H5Pcopy(dset->dcpl_id)) < 0)
                     D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get dataset creation property list")
+
+                /* Set dataset's object class on dcpl */
+                if(H5_daos_set_oclass_from_oid(*plist_id, dset->obj.oid) < 0)
+                    D_GOTO_ERROR(H5E_PLIST, H5E_CANTSET, FAIL, "can't set object class property")
 
                 break;
             } /* end block */

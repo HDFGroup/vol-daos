@@ -4,8 +4,9 @@
 #  CART_INCLUDE_DIRS - The CART include directories
 #  CART_LIBRARIES - The libraries needed to use CART
 
-find_package(PkgConfig)
-pkg_check_modules(PC_CART cart)
+# Uncomment when CART provides .pc files
+#find_package(PkgConfig)
+#pkg_check_modules(PC_CART cart)
 
 find_path(CART_INCLUDE_DIR cart/types.h
   HINTS ${PC_CART_INCLUDEDIR} ${PC_CART_INCLUDE_DIRS}

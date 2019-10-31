@@ -88,6 +88,7 @@ configure_file(
   ${CMAKE_CURRENT_SOURCE_DIR}/scripts/daos_agent.sh.in
   ${CMAKE_CURRENT_BINARY_DIR}/scripts/daos_agent.sh
 )
+execute_process(COMMAND chmod u+x ${CMAKE_CURRENT_BINARY_DIR}/scripts/daos_agent.sh)
 
 #------------------------------------------------------------------------------
 # DAOS client config
@@ -119,13 +120,18 @@ set(MPIEXEC_SERVER_PREFLAGS "${DAOS_SERVER_PREFLAGS}")
 set(MPIEXEC_SERVER_POSTFLAGS "${DAOS_SERVER_POSTFLAGS}")
 set(MPIEXEC_PREFLAGS "${DAOS_CLIENT_PREFLAGS}")
 
+# Client helper
+set(HDF5_VOL_TEST_CLIENT_HELPER ${CMAKE_CURRENT_BINARY_DIR}/scripts/daos_agent.sh)
+set(H5VL_TEST_CLIENT_HELPER_EXIT_COMMAND "killall daos_agent")
+
+# Server
 set(HDF5_VOL_TEST_SERVER ${DAOS_SERVER_EXECUTABLE})
+set(H5VL_TEST_SERVER_EXIT_COMMAND "killall -9 daos_io_server")
 # Do not forget to include env command
 # set(H5VL_TEST_ENV_VARS "env ${DAOS_CLIENT_ENV_VARS}")
 
 # Test will start running after following line is printed
 set(H5VL_TEST_SERVER_START_MSG "DAOS I/O server")
-set(H5VL_TEST_INIT_COMMAND "killall -9 daos_io_server")
 
 #------------------------------------------------------------------------------
 # DAOS VOL specific tests

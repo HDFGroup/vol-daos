@@ -1,9 +1,17 @@
-The following HDF5 API calls are either specific to the native HDF5 VOL connector or are not routed through the VOL and thus are not able to be implemented by the DAOS VOL connector (or other VOL connectors):
+\documentclass[../users_guide.tex]{subfiles}
+ 
+\begin{document}
+
+\section{Native HDF5 VOL connector-specific API calls}
+\label{apdx:native_calls}
+
+The following HDF5 API calls are either specific to the native HDF5 VOL connector or are not routed through the VOL and thus are not able to be implemented by the \dvc{} (or other VOL connectors):
 
 \subsection{H5A interface}
 
 \begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
 \hline
+\rowcolor{lightgray!50}%
 % Center just the header row
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
@@ -16,6 +24,7 @@ H5Aget\_num\_attrs & Deprecated in favor of H5Oget\_info \\ \hline
 
 \begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
 \hline
+\rowcolor{lightgray!50}%
 % Center just the header row
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
@@ -37,6 +46,7 @@ H5Dwrite\_chunk & \\ \hline
 
 \begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
 \hline
+\rowcolor{lightgray!50}%
 % Center just the header row
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
@@ -77,6 +87,7 @@ H5Fget\_mpi\_atomicity & \\ \hline
 
 \begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
 \hline
+\rowcolor{lightgray!50}%
 % Center just the header row
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
@@ -92,6 +103,7 @@ H5Gget\_objtype\_by\_idx & Deprecated in favor of H5Lget\_info/H5Oget\_info \\ \
 
 \begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
 \hline
+\rowcolor{lightgray!50}%
 % Center just the header row
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
@@ -106,6 +118,7 @@ H5Lunpack\_elink\_val & \\ \hline
 
 \begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
 \hline
+\rowcolor{lightgray!50}%
 % Center just the header row
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
@@ -124,6 +137,7 @@ H5Odisable\_mdc\_flushes & \\ \hline
 
 \begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
 \hline
+\rowcolor{lightgray!50}%
 % Center just the header row
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
@@ -135,9 +149,12 @@ H5Odisable\_mdc\_flushes & \\ \hline
 
 \begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
 \hline
+\rowcolor{lightgray!50}%
 % Center just the header row
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
 & \\ \hline
 
 \end{tabularx}
+
+\end{document}

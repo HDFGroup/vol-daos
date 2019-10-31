@@ -1,10 +1,20 @@
+\documentclass[../users_guide.tex]{subfiles}
+ 
+\begin{document}
+
+\section{Reference Manual}
+\label{apdx:ref_manual}
+
 \subsection{H5daos\_init}
 \label{ref:h5daos_init}
 
-\begin{verbatim}
+\paragraph{Synopsis:}
+\begin{flushleft}%
+\begin{minted}[breaklines=true,fontsize=\small]{hdf5-c-lexer.py:HDF5CLexer -x}
 herr_t H5daos_init(MPI_Comm pool_comm, uuid_t pool_uuid, const char *pool_grp,
     const char *pool_svcl);
-\end{verbatim}
+\end{minted}
+\end{flushleft}%
 
 \paragraph{Purpose:}
 \begin{flushleft}%
@@ -40,9 +50,12 @@ Returns a non-negative value if successful; otherwise returns a negative value.
 \subsection{H5daos\_term}
 \label{ref:h5daos_term}
 
-\begin{verbatim}
+\paragraph{Synopsis:}
+\begin{flushleft}%
+\begin{minted}[breaklines=true,fontsize=\small]{hdf5-c-lexer.py:HDF5CLexer -x}
 herr_t H5daos_term(void);
-\end{verbatim}
+\end{minted}
+\end{flushleft}%
 
 \paragraph{Purpose:}
 \begin{flushleft}%
@@ -69,9 +82,12 @@ Returns a non-negative value if successful; otherwise returns a negative value.
 \subsection{H5Pset\_fapl\_daos}
 \label{ref:h5pset_fapl_daos}
 
-\begin{verbatim}
+\paragraph{Synopsis:}
+\begin{flushleft}%
+\begin{minted}[breaklines=true,fontsize=\small]{hdf5-c-lexer.py:HDF5CLexer -x}
 herr_t H5Pset_fapl_daos(hid_t fapl_id, MPI_Comm comm, MPI_Info info);
-\end{verbatim}
+\end{minted}
+\end{flushleft}%
 
 \paragraph{Purpose:}
 \begin{flushleft}%
@@ -100,3 +116,4 @@ coordinate actions on file create, open, flush, and close.
 Returns a non-negative value if successful; otherwise returns a negative value.
 \end{flushleft}%
 
+\end{document}

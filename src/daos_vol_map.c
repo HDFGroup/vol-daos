@@ -65,11 +65,11 @@ H5_daos_map_create(void *_item,
     if(!(item->file->flags & H5F_ACC_RDWR))
         D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, NULL, "no write intent on file")
 
-    /* Check for collective access, if not already set by the file */
-    collective = item->file->is_collective_md_read;
-    if(!collective)
-        if(H5Pget_all_coll_metadata_ops(mapl_id, &collective) < 0)
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, NULL, "can't get collective access property")
+    /*
+     * Like HDF5, all metadata writes are collective by default. Once independent
+     * metadata writes are implemented, we will need to check for this property.
+     */
+    collective = TRUE;
 
     /* Start H5 operation */
     if(NULL == (int_req = (H5_daos_req_t *)DV_malloc(sizeof(H5_daos_req_t))))
@@ -97,7 +97,7 @@ H5_daos_map_create(void *_item,
     map->mapl_id = FAIL;
 
     /* Generate map oid */
-    if(H5_daos_oid_generate(&map->obj.oid, H5I_MAP, item->file) < 0)
+    if(H5_daos_oid_generate(&map->obj.oid, H5I_MAP, mcpl_id == H5P_MAP_CREATE_DEFAULT ? H5P_DEFAULT : mcpl_id, item->file, collective) < 0)
         D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't generate object id")
 
     /* Create map and write metadata if this process should */
@@ -365,7 +365,7 @@ H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "map parent object is NULL")
 
     /* Check for collective access, if not already set by the file */
-    collective = item->file->is_collective_md_read;
+    collective = item->file->fapl_cache.is_collective_md_read;
     if(!collective)
         if(H5Pget_all_coll_metadata_ops(mapl_id, &collective) < 0)
             D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, NULL, "can't get collective access property")

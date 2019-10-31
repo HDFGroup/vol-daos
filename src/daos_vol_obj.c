@@ -227,7 +227,7 @@ H5_daos_object_open_by_name(H5_daos_obj_t *loc_obj, const H5VL_loc_params_t *loc
      * Like HDF5, metadata reads are independent by default. If the application has specifically
      * requested collective metadata reads, they will be enabled here.
      */
-    collective = loc_obj->item.file->is_collective_md_read;
+    collective = loc_obj->item.file->fapl_cache.is_collective_md_read;
 
     /*
      * Check for collective access, if not already set by the file

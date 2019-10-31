@@ -45,6 +45,15 @@
 /* Local Prototypes */
 /********************/
 
+static herr_t H5_daos_set_object_class(hid_t plist_id, char *object_class);
+static herr_t H5_daos_str_prop_delete(hid_t prop_id, const char *name,
+    size_t size, void *_value);
+static herr_t H5_daos_str_prop_copy(const char *name, size_t size,
+    void *_value);
+static int H5_daos_str_prop_compare(const void *_value1, const void *_value2,
+    size_t size);
+static herr_t H5_daos_str_prop_close(const char *name, size_t size,
+    void *_value);
 static herr_t H5_daos_init(hid_t vipl_id);
 static herr_t H5_daos_term(void);
 static herr_t H5_daos_pool_create(uuid_t uuid, const char **pool_grp, d_rank_list_t **svcl);
@@ -201,6 +210,7 @@ static const unsigned int   H5_daos_pool_default_svc_nreplicas_g = 1;           
 
 /* Constant Keys */
 const char H5_daos_int_md_key_g[]          = "/Internal Metadata";
+const char H5_daos_root_grp_oid_key_g[]    = "Root Group OID";
 const char H5_daos_cpl_key_g[]             = "Creation Property List";
 const char H5_daos_link_key_g[]            = "Link";
 const char H5_daos_link_corder_key_g[]     = "/Link Creation Order";
@@ -216,6 +226,7 @@ const char H5_daos_vtype_g[]               = "Value Datatype";
 const char H5_daos_map_key_g[]             = "Map Record";
 
 const daos_size_t H5_daos_int_md_key_size_g          = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
+const daos_size_t H5_daos_root_grp_oid_key_size_g    = (daos_size_t)(sizeof(H5_daos_root_grp_oid_key_g) - 1);
 const daos_size_t H5_daos_cpl_key_size_g             = (daos_size_t)(sizeof(H5_daos_cpl_key_g) - 1);
 const daos_size_t H5_daos_link_key_size_g            = (daos_size_t)(sizeof(H5_daos_link_key_g) - 1);
 const daos_size_t H5_daos_link_corder_key_size_g     = (daos_size_t)(sizeof(H5_daos_link_corder_key_g) - 1);
@@ -420,6 +431,426 @@ H5Pset_fapl_daos(hid_t fapl_id, MPI_Comm file_comm, MPI_Info file_info)
 done:
     D_FUNC_LEAVE_API
 } /* end H5Pset_fapl_daos() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5daos_set_object_class
+ *
+ * Purpose:     Sets the provided DAOS object class on the property list.
+ *              See DAOS documentation for a list of object classes and
+ *              descriptions of them.
+ *
+ *              If called on a FCPL, GCPL, TCPL, DCPL, or MCPL, it affects
+ *              objects created using that creation property list (FCPL
+ *              affects only the file root group and global metadata
+ *              object).
+ *
+ *              If called on a FAPL it affects all objects created during
+ *              this file open, except those with their object class
+ *              specified via the creation property list, as above.
+ *
+ *              The default value is "", which allows the connector to set
+ *              the object class according to its default for the object
+ *              type.
+ *
+ *              If the root group is created with a non-default object
+ *              class, then if the file is opened at a later time, the
+ *              root group's object class must the be set on the FAPL
+ *              using H5daos_set_root_open_object_class().
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5daos_set_object_class(hid_t plist_id, char *object_class)
+{
+    herr_t      ret_value = SUCCEED;
+
+    if(plist_id == H5P_DEFAULT)
+        D_GOTO_ERROR(H5E_PLIST, H5E_BADVALUE, FAIL, "can't set values in default property list")
+
+    /* Call internal routine */
+    if(H5_daos_set_object_class(plist_id, object_class) < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTSET, FAIL, "can't set object class")
+
+done:
+    D_FUNC_LEAVE_API
+} /* end H5daos_set_object_class() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_set_object_class
+ *
+ * Purpose:     Internal version of H5daos_set_object_class().
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_set_object_class(hid_t plist_id, char *object_class)
+{
+    char        *copied_object_class = NULL;
+    htri_t      prop_exists;
+    herr_t      ret_value = SUCCEED;
+
+    /* Check if the property already exists on the property list */
+    if((prop_exists = H5Pexist(plist_id, H5_DAOS_OBJ_CLASS_NAME)) < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "can't check for object class property")
+
+    /* Copy object class */
+    if(object_class)
+        if(NULL == (copied_object_class = strdup(object_class)))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't copy object class string")
+
+    /* Set the property, or insert it if it does not exist */
+    if(prop_exists) {
+        if(H5Pset(plist_id, H5_DAOS_OBJ_CLASS_NAME, &copied_object_class) < 0)
+            D_GOTO_ERROR(H5E_PLIST, H5E_CANTSET, FAIL, "can't set property")
+    } /* end if */
+    else
+        if(H5Pinsert2(plist_id, H5_DAOS_OBJ_CLASS_NAME, sizeof(char *),
+                &copied_object_class, NULL, NULL,
+                H5_daos_str_prop_delete, H5_daos_str_prop_copy,
+                H5_daos_str_prop_compare, H5_daos_str_prop_close) < 0)
+            D_GOTO_ERROR(H5E_PLIST, H5E_CANTINSERT, FAIL, "can't insert property into list")
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_set_object_class() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_set_oclass_from_oid
+ *
+ * Purpose:     Decodes the object class embedded in the provided DAOS OID
+ *              and adds it to the provided property list.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_set_oclass_from_oid(hid_t plist_id, daos_obj_id_t oid)
+{
+    daos_oclass_id_t oc_id;
+    char oclass_str[10]; /* DAOS uses a size of 10 internally for these calls */
+    herr_t ret_value = SUCCEED;
+
+    /* Get object class id from oid */
+    /* Replace with DAOS function once public! DSINC */
+    oc_id = (oid.hi & OID_FMT_CLASS_MASK) >> OID_FMT_CLASS_SHIFT;
+
+    /* Get object class string */
+    if(daos_oclass_id2name(oc_id, oclass_str) < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "can't get object class string")
+
+    /* Set object class string on plist */
+    if(H5_daos_set_object_class(plist_id, oclass_str) < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTSET, FAIL, "can't set object class")
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_set_oclass_from_oid() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5daos_get_object_class
+ *
+ * Purpose:     Retrieves the object class from the provided property
+ *              list.  If plist_id was retrieved via a call to
+ *              H5*get_create_plist(), the returned object class will be
+ *              the actual DAOS object class of the object (it will not be
+ *              the property list default value of "").
+ *
+ *              If not NULL, object_class points to a user-allocated
+ *              output buffer, whose size is size.
+ *
+ * Return:      Success:        length of object class string (excluding
+ *                              null terminator)
+ *              Failure:        -1
+ *
+ *-------------------------------------------------------------------------
+ */
+ssize_t
+H5daos_get_object_class(hid_t plist_id, char *object_class, size_t size)
+{
+    char        *tmp_object_class = NULL;
+    htri_t      prop_exists;
+    size_t      len;
+    ssize_t     ret_value;
+
+    /* Check if the property already exists on the property list */
+    if((prop_exists = H5Pexist(plist_id, H5_DAOS_OBJ_CLASS_NAME)) < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "can't check for object class property")
+
+    if(prop_exists) {
+        /* Get the property */
+        if(H5Pget(plist_id, H5_DAOS_OBJ_CLASS_NAME, &tmp_object_class) < 0)
+            D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, FAIL, "can't get object class")
+
+        /* Set output values */
+        if(tmp_object_class) {
+            len = strlen(tmp_object_class);
+            if(object_class && (size > 0)) {
+                strncpy(object_class, tmp_object_class, size);
+                if(len >= size)
+                    object_class[size - 1] = '\0';
+            } /* end if */
+        } /* end if */
+        else {
+            /* Simply return an empty string */
+            len = 0;
+            if(object_class && (size > 0))
+                object_class[0] = '\0';
+        } /* end else */
+    } /* end if */
+    else {
+        /* Simply return an empty string */
+        len = 0;
+        if(object_class && (size > 0))
+            object_class[0] = '\0';
+    } /* end else */
+
+    /* Set return value */
+    ret_value = (ssize_t)len;
+
+done:
+    D_FUNC_LEAVE_API
+} /* end H5daos_get_object_class() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5daos_set_root_open_object_class
+ *
+ * Purpose:     Sets the object class to use for opening the root group on
+ *              the provided file access property list.  This should match
+ *              the object class used to create the root group via
+ *              H5daos_set_object_class().
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5daos_set_root_open_object_class(hid_t fapl_id, char *object_class)
+{
+    htri_t      is_fapl;
+    char        *copied_object_class = NULL;
+    htri_t      prop_exists;
+    herr_t      ret_value = SUCCEED;
+
+    if(fapl_id == H5P_DEFAULT)
+        D_GOTO_ERROR(H5E_PLIST, H5E_BADVALUE, FAIL, "can't set values in default property list")
+
+    if((is_fapl = H5Pisa_class(fapl_id, H5P_FILE_ACCESS)) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "couldn't determine property list class")
+    if(!is_fapl)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "not a file access property list")
+
+    /* Check if the property already exists on the property list */
+    if((prop_exists = H5Pexist(fapl_id, H5_DAOS_ROOT_OPEN_OCLASS_NAME)) < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "can't check for object class property")
+
+    /* Copy object class */
+    if(object_class)
+        if(NULL == (copied_object_class = strdup(object_class)))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't copy object class string")
+
+    /* Set the property, or insert it if it does not exist */
+    if(prop_exists) {
+        if(H5Pset(fapl_id, H5_DAOS_ROOT_OPEN_OCLASS_NAME, &copied_object_class) < 0)
+            D_GOTO_ERROR(H5E_PLIST, H5E_CANTSET, FAIL, "can't set property")
+    } /* end if */
+    else
+        if(H5Pinsert2(fapl_id, H5_DAOS_ROOT_OPEN_OCLASS_NAME, sizeof(char *),
+                &copied_object_class, NULL, NULL,
+                H5_daos_str_prop_delete, H5_daos_str_prop_copy,
+                H5_daos_str_prop_compare, H5_daos_str_prop_close) < 0)
+            D_GOTO_ERROR(H5E_PLIST, H5E_CANTINSERT, FAIL, "can't insert property into list")
+
+done:
+    D_FUNC_LEAVE_API
+} /* end H5daos_set_root_open_object_class() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5daos_get_root_open_object_class
+ *
+ * Purpose:     Retrieves the object class for opening the root group from
+ *              the provided file access property list, as set by
+ *              H5daos_set_root_open_object_class().
+ *
+ *              If not NULL, object_class points to a user-allocated
+ *              output buffer, whose size is size.
+ *
+ * Return:      Success:        length of object class string (excluding
+ *                              null terminator)
+ *              Failure:        -1
+ *
+ *-------------------------------------------------------------------------
+ */
+ssize_t
+H5daos_get_root_open_object_class(hid_t fapl_id, char *object_class, size_t size)
+{
+    htri_t      is_fapl;
+    char        *tmp_object_class = NULL;
+    htri_t      prop_exists;
+    size_t      len;
+    ssize_t     ret_value;
+
+    if((is_fapl = H5Pisa_class(fapl_id, H5P_FILE_ACCESS)) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "couldn't determine property list class")
+    if(!is_fapl)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "not a file access property list")
+
+    /* Check if the property already exists on the property list */
+    if((prop_exists = H5Pexist(fapl_id, H5_DAOS_ROOT_OPEN_OCLASS_NAME)) < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "can't check for object class property")
+
+    if(prop_exists) {
+        /* Get the property */
+        if(H5Pget(fapl_id, H5_DAOS_ROOT_OPEN_OCLASS_NAME, &tmp_object_class) < 0)
+            D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, FAIL, "can't get object class")
+
+        /* Set output values */
+        if(tmp_object_class) {
+            len = strlen(tmp_object_class);
+            if(object_class && (size > 0)) {
+                strncpy(object_class, tmp_object_class, size);
+                if(len >= size)
+                    object_class[size - 1] = '\0';
+            } /* end if */
+        } /* end if */
+        else {
+            /* Simply return an empty string */
+            len = 0;
+            if(object_class && (size > 0))
+                object_class[0] = '\0';
+        } /* end else */
+    } /* end if */
+    else {
+        /* Simply return an empty string */
+        len = 0;
+        if(object_class && (size > 0))
+            object_class[0] = '\0';
+    } /* end else */
+
+    /* Set return value */
+    ret_value = (ssize_t)len;
+
+done:
+    D_FUNC_LEAVE_API
+} /* end H5daos_get_root_open_object_class() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_str_prop_delete
+ *
+ * Purpose:     Property list callback for deleting a string property.
+ *              Frees the string.
+ *
+ * Return:      SUCCEED (never fails)
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_str_prop_delete(hid_t H5VL_DAOS_UNUSED prop_id,
+    const char H5VL_DAOS_UNUSED *name, size_t H5VL_DAOS_UNUSED size,
+    void *_value)
+{
+    char **value = (char **)_value;
+
+    if(*value)
+        free(*value);
+
+    return SUCCEED;
+} /* end H5_daos_str_prop_delete() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_str_prop_copy
+ *
+ * Purpose:     Property list callback for copying a string property.
+ *              Duplicates the string.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_str_prop_copy(const char H5VL_DAOS_UNUSED *name,
+    size_t H5VL_DAOS_UNUSED size, void *_value)
+{
+    char **value = (char **)_value;
+    herr_t ret_value = SUCCEED;
+
+    if(*value)
+        if(NULL == (*value = strdup(*value)))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't copy string property")
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_str_prop_copy() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_str_prop_compare
+ *
+ * Purpose:     Property list callback for comparing string properties.
+ *              Compares the strings using strcmp().
+ *
+ * Return:      SUCCEED (never fails)
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_str_prop_compare(const void *_value1, const void *_value2,
+    size_t H5VL_DAOS_UNUSED size)
+{
+    char * const *value1 = (char * const *)_value1;
+    char * const *value2 = (char * const *)_value2;
+    int ret_value;
+
+    if(*value1) {
+        if(*value2)
+            ret_value = strcmp(*value1, *value2);
+        else
+            ret_value = 1;
+    } /* end if */
+    else {
+        if(*value2)
+            ret_value = -1;
+        else
+            ret_value = 0;
+    } /* end else */
+
+    return ret_value;
+} /* end H5_daos_str_prop_compare() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_str_prop_delete
+ *
+ * Purpose:     Property list callback for deleting a string property.
+ *              Frees the string.
+ *
+ * Return:      SUCCEED (never fails)
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_str_prop_close(const char H5VL_DAOS_UNUSED *name,
+    size_t H5VL_DAOS_UNUSED size, void *_value)
+{
+    char **value = (char **)_value;
+
+    if(*value)
+        free(*value);
+
+    return SUCCEED;
+} /* end H5_daos_str_prop_close() */
 
 
 /*-------------------------------------------------------------------------
@@ -1170,30 +1601,59 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_oidx_generate(uint64_t *oidx, H5_daos_file_t *file)
+H5_daos_oidx_generate(uint64_t *oidx, H5_daos_file_t *file, hbool_t collective)
 {
+    uint64_t *next_oidx = collective ? &file->next_oidx_collective : &file->next_oidx;
+    uint64_t *max_oidx = collective ? &file->max_oidx_collective : &file->max_oidx;
     int ret;
     int ret_value = SUCCEED;
 
     /* Allocate more object indices for this process if necessary */
-    if((file->max_oidx == 0) || (file->next_oidx > file->max_oidx)) {
-        /* Allocate oidxs */
-        if((ret = daos_cont_alloc_oids(file->coh, H5_DAOS_OIDX_NALLOC, &file->next_oidx, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_VOL, H5E_CANTALLOC, FAIL, "can't allocate object indices: %s", H5_daos_err_to_string(ret))
+    if((*max_oidx == 0) || (*next_oidx > *max_oidx)) {
+        uint8_t next_oidx_buf[H5_DAOS_ENCODED_UINT64_T_SIZE];
+        uint8_t *p;
+
+        /* Check if this process should allocate object IDs or just wait for the
+         * result from the leader process */
+        if(!collective || (file->my_rank == 0)) {
+            /* Allocate oidxs */
+            if((ret = daos_cont_alloc_oids(file->coh, H5_DAOS_OIDX_NALLOC, next_oidx, NULL /*event*/)))
+                D_GOTO_ERROR(H5E_VOL, H5E_CANTALLOC, FAIL, "can't allocate object indices: %s", H5_daos_err_to_string(ret))
+
+            /* Broadcast next_oidx if there are other processes that need it */
+            if(collective && (file->num_procs > 1)) {
+                /* Encode next_oidx */
+                p = next_oidx_buf;
+                UINT64ENCODE(p, *next_oidx)
+
+                /* MPI_Bcast next_oidx_buf */
+                if(MPI_SUCCESS != MPI_Bcast((char *)next_oidx_buf, sizeof(next_oidx_buf), MPI_BYTE, 0, file->comm))
+                    D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't broadcast next object index")
+            } /* end if */
+        } /* end if */
+        else {
+            /* Receive next_oidx_buf */
+            if(MPI_SUCCESS != MPI_Bcast((char *)next_oidx_buf, sizeof(next_oidx_buf), MPI_BYTE, 0, file->comm))
+                D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't receive broadcasted next object index")
+
+            /* Decode next_oidx */
+            p = next_oidx_buf;
+            UINT64DECODE(p, *next_oidx)
+        } /* end if */
 
         /* Set max oidx */
-        file->max_oidx = file->next_oidx + H5_DAOS_OIDX_NALLOC - 1;
+        *max_oidx = *next_oidx + H5_DAOS_OIDX_NALLOC - 1;
 
         /* Skip over reserved indices */
         assert(H5_DAOS_OIDX_NALLOC > H5_DAOS_OIDX_FIRST_USER);
-        if(file->next_oidx < H5_DAOS_OIDX_FIRST_USER)
-            file->next_oidx = H5_DAOS_OIDX_FIRST_USER;
+        if(*next_oidx < H5_DAOS_OIDX_FIRST_USER)
+            *next_oidx = H5_DAOS_OIDX_FIRST_USER;
     } /* end if */
 
     /* Allocate oidx from local allocation */
-    assert(file->next_oidx <= file->max_oidx);
-    *oidx = file->next_oidx;
-    file->next_oidx++;
+    assert(*next_oidx <= *max_oidx);
+    *oidx = *next_oidx;
+    (*next_oidx)++;
 
 done:
     D_FUNC_LEAVE
@@ -1203,17 +1663,24 @@ done:
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_oid_encode
  *
- * Purpose:     Create a DAOS OID given the object type and a 64 bit index
+ * Purpose:     Create a DAOS OID given the object type and a 64 bit
+ *              index.  file must have at least the default_object_class
+ *              field set, but may be otherwise uninitialized.
  *
- * Return:      void
+ * Return:      Success:    0
+ *              Failure:    -1
  *
  *-------------------------------------------------------------------------
  */
-void
-H5_daos_oid_encode(daos_obj_id_t *oid, uint64_t oidx, H5I_type_t obj_type)
+herr_t
+H5_daos_oid_encode(daos_obj_id_t *oid, uint64_t oidx, H5I_type_t obj_type,
+    hid_t crt_plist_id, const char *oclass_prop_name, H5_daos_file_t *file)
 {
-    daos_oclass_id_t object_class;
+    daos_oclass_id_t object_class = OC_UNKNOWN;
     daos_ofeat_t object_feats;
+    htri_t prop_exists;
+    char *oclass_str = NULL;
+    int ret_value = SUCCEED;
 
     /* Initialize oid.lo to oidx */
     oid->lo = oidx;
@@ -1238,13 +1705,36 @@ H5_daos_oid_encode(daos_obj_id_t *oid, uint64_t oidx, H5I_type_t obj_type)
     else
         object_feats = DAOS_OF_DKEY_HASHED | DAOS_OF_AKEY_LEXICAL;
 
-    /* Set the object class ID */
-    object_class = (obj_type == H5I_DATASET) ? DAOS_OC_LARGE_RW : DAOS_OC_TINY_RW;
+    /* Check for object class set on crt_plist_id */
+    /* Note we do not copy the oclass_str in the property callbacks (there is no
+     * "get" callback, so this is more like an H5P_peek, and we do not need to
+     * free oclass_str as it points directly into the plist value */
+    if(crt_plist_id != H5P_DEFAULT) {
+        if((prop_exists = H5Pexist(crt_plist_id, oclass_prop_name)) < 0)
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "can't check for object class property")
+        if(prop_exists) {
+            if(H5Pget(crt_plist_id, oclass_prop_name, &oclass_str) < 0)
+                D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "can't get object class")
+            if(oclass_str && (oclass_str[0] != '\0'))
+                if(OC_UNKNOWN == (object_class = daos_oclass_name2id(oclass_str)))
+                    D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "unknown object class")
+        } /* end if */
+    } /* end if */
+
+    /* Check for object class set on file if not set from plist */
+    if(object_class == OC_UNKNOWN)
+        object_class = file->fapl_cache.default_object_class;
+
+    /* Set the object class by default according to object type if not set from
+     * above */
+    if(object_class == OC_UNKNOWN)
+        object_class = (obj_type == H5I_DATASET) ? OC_SX : OC_S1;
 
     /* Generate oid */
     H5_daos_obj_generate_id(oid, object_feats, object_class);
 
-    return;
+done:
+    D_FUNC_LEAVE
 } /* end H5_daos_oid_encode() */
 
 
@@ -1260,17 +1750,18 @@ H5_daos_oid_encode(daos_obj_id_t *oid, uint64_t oidx, H5I_type_t obj_type)
  */
 herr_t
 H5_daos_oid_generate(daos_obj_id_t *oid, H5I_type_t obj_type,
-    H5_daos_file_t *file)
+    hid_t crt_plist_id, H5_daos_file_t *file, hbool_t collective)
 {
     uint64_t oidx;
     int ret_value = SUCCEED;
 
     /* Generate oidx */
-    if(H5_daos_oidx_generate(&oidx, file) < 0)
+    if(H5_daos_oidx_generate(&oidx, file, collective) < 0)
         D_GOTO_ERROR(H5E_VOL, H5E_CANTALLOC, FAIL, "can't generate object index")
 
     /* Encode oid */
-    H5_daos_oid_encode(oid, oidx, obj_type);
+    if(H5_daos_oid_encode(oid, oidx, obj_type, crt_plist_id, H5_DAOS_OBJ_CLASS_NAME, file) < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTENCODE, FAIL, "can't encode object ID")
 
 done:
     D_FUNC_LEAVE

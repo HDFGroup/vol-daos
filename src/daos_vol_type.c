@@ -367,7 +367,7 @@ H5_daos_datatype_commit(void *_item,
     dtype->tapl_id = FAIL;
 
     /* Generate datatype oid */
-    if(H5_daos_oid_generate(&dtype->obj.oid, H5I_DATATYPE, item->file) < 0)
+    if(H5_daos_oid_generate(&dtype->obj.oid, H5I_DATATYPE, tcpl_id == H5P_DATATYPE_CREATE_DEFAULT ? H5P_DEFAULT : tcpl_id, item->file, collective) < 0)
         D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't generate object id")
 
     /* Create datatype and write metadata if this process should */
@@ -409,17 +409,17 @@ H5_daos_datatype_commit(void *_item,
 
         /* Set up operation to write datatype and TCPL to datatype */
         /* Set up dkey */
-        daos_iov_set(&dkey, H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
+        daos_iov_set(&dkey, (void *)H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
 
         /* Set up iod */
         memset(iod, 0, sizeof(iod));
-        daos_iov_set(&iod[0].iod_name, H5_daos_type_key_g, H5_daos_type_key_size_g);
+        daos_iov_set(&iod[0].iod_name, (void *)H5_daos_type_key_g, H5_daos_type_key_size_g);
         daos_csum_set(&iod[0].iod_kcsum, NULL, 0);
         iod[0].iod_nr = 1u;
         iod[0].iod_size = (uint64_t)type_size;
         iod[0].iod_type = DAOS_IOD_SINGLE;
 
-        daos_iov_set(&iod[1].iod_name, H5_daos_cpl_key_g, H5_daos_cpl_key_size_g);
+        daos_iov_set(&iod[1].iod_name, (void *)H5_daos_cpl_key_g, H5_daos_cpl_key_size_g);
         daos_csum_set(&iod[1].iod_kcsum, NULL, 0);
         iod[1].iod_nr = 1u;
         iod[1].iod_size = (uint64_t)tcpl_size;
@@ -577,7 +577,7 @@ H5_daos_datatype_open(void *_item,
      * Like HDF5, metadata reads are independent by default. If the application has specifically
      * requested collective metadata reads, they will be enabled here.
      */
-    collective = item->file->is_collective_md_read;
+    collective = item->file->fapl_cache.is_collective_md_read;
     if(!collective && (H5P_DATATYPE_ACCESS_DEFAULT != tapl_id))
         if(H5Pget_all_coll_metadata_ops(tapl_id, &collective) < 0)
             D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, NULL, "can't get collective metadata reads property")
@@ -632,17 +632,17 @@ H5_daos_datatype_open(void *_item,
 
         /* Set up operation to read datatype and TCPL sizes from datatype */
         /* Set up dkey */
-        daos_iov_set(&dkey, H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
+        daos_iov_set(&dkey, (void *)H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
 
         /* Set up iod */
         memset(iod, 0, sizeof(iod));
-        daos_iov_set(&iod[0].iod_name, H5_daos_type_key_g, H5_daos_type_key_size_g);
+        daos_iov_set(&iod[0].iod_name, (void *)H5_daos_type_key_g, H5_daos_type_key_size_g);
         daos_csum_set(&iod[0].iod_kcsum, NULL, 0);
         iod[0].iod_nr = 1u;
         iod[0].iod_size = DAOS_REC_ANY;
         iod[0].iod_type = DAOS_IOD_SINGLE;
 
-        daos_iov_set(&iod[1].iod_name, H5_daos_cpl_key_g, H5_daos_cpl_key_size_g);
+        daos_iov_set(&iod[1].iod_name, (void *)H5_daos_cpl_key_g, H5_daos_cpl_key_size_g);
         daos_csum_set(&iod[1].iod_kcsum, NULL, 0);
         iod[1].iod_nr = 1u;
         iod[1].iod_size = DAOS_REC_ANY;
@@ -840,6 +840,10 @@ H5_daos_datatype_get(void *_dtype, H5VL_datatype_get_t get_type,
                 /* Retrieve the datatype's creation property list */
                 if((*plist_id = H5Pcopy(dtype->tcpl_id)) < 0)
                     D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't get dtype creation property list")
+
+                /* Set datatype's object class on tcpl */
+                if(H5_daos_set_oclass_from_oid(*plist_id, dtype->obj.oid) < 0)
+                    D_GOTO_ERROR(H5E_PLIST, H5E_CANTSET, FAIL, "can't set object class property")
 
                 break;
             } /* end block */

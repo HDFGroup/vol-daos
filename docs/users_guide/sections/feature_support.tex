@@ -1,8 +1,177 @@
-\section{HDF5 Feature support}
+\documentclass[../users_guide.tex]{subfiles}
+ 
+\begin{document}
 
-\subsection{HDF5 API support}
+\section{HDF5 API Support}
 
-The following sections serve to illustrate the DAOS VOL connector's support for the HDF5 API, as well as to highlight any differences between the expected behavior of an HDF5 API call versus the actual behavior as implemented by the VOL connector. If a particular HDF5 API call does not appear among these tables, it is most likely a native HDF5-specific API call which cannot be implemented by non-native HDF5 VOL connectors. These types of API calls are listed among the tables in Appendix~\ref{apdx:native_calls}.
+\subsection{Feature Specific Support}
+
+The following sections serve to illustrate the \dvc{}'s support for features in \acrshort{hdf5}, as well as to highlight any differences between the expected behavior of an \acrshort{hdf5} feature versus the actual behavior as implemented by the VOL connector.
+
+\subsubsection{Attribute Features}
+
+\begin{tabularx}{\linewidth}{| X | X | X | X | >{\RaggedRight}X |}
+\hline
+\rowcolor{lightgray!50}%
+% Center just the header row
+\multicolumn{3}{| c |}{\textbf{Feature}} & \multicolumn{1}{c |}{\textbf{Supported?}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+\multirow[c]{3}{\linewidth}{Dataspace} & \multirow[c]{3}{\linewidth}{Dimensionality} & H5S\_NULL & Yes & \\ \cline{3-4}
+& & H5S\_SCALAR & Yes & \\ \cline{3-4}
+& & SIMPLE & Yes & \\ \cline{3-4} \hline
+
+\multicolumn{2}{| l |}{\multirow[c]{6}{*}[-90pt]{Datatype}} & Atomic & Yes &
+    \multirow[c]{5}{\linewidth}{Variable-length of array datatypes and variable-length datatypes inside compound datatypes are currently unsupported. Datatype conversion for the parent datatype is currently unsupported.\footnotemark[1]} \\ [30pt] \cline{3-4}
+\multicolumn{2}{| l |}{} & Compound & Yes & \\ [30pt] \cline{3-4}
+\multicolumn{2}{| l |}{} & Variable-length & Yes & \\ [30pt] \cline{3-4}
+\multicolumn{2}{| l |}{} & Array & Yes & \\ [30pt] \cline{3-4}
+\multicolumn{2}{| l |}{} & Opaque & Yes & \\ [30pt] \cline{3-4}
+\multicolumn{2}{| l |}{} & Reference & No\footnotemark[1] & \\ [30pt] \cline{3-4}
+\hline
+
+\multirow[c]{2}{\linewidth}{Properties} & \multirow[c]{2}{\linewidth}{Name Encoding} & ASCII & Yes & \\ \cline{3-5}
+& & UTF-8 & No & \\ \cline{3-4} \hline
+
+\end{tabularx}
+
+\footnotetext[1]{Will be supported by end of Q4 2019.}
+
+\newpage
+
+\subsubsection{Dataset Features}
+
+\begin{tabularx}{\linewidth}{| X | X | X | X | >{\RaggedRight}X |}
+\hline
+\rowcolor{lightgray!50}%
+% Center just the header row
+\multicolumn{3}{| c |}{\textbf{Feature}} & \multicolumn{1}{c |}{\textbf{Supported?}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+\multirow[c]{7}{\linewidth}[-45pt]{Dataspace} & \multirow[c]{3}{\linewidth}{Dimensionality} & H5S\_NULL & Yes & \\ \cline{3-4}
+& & H5S\_SCALAR & Yes & \\ \cline{3-4}
+& & SIMPLE & Yes & \\ \cline{3-4} \cline{2-5}
+& \multirow[c]{4}{\linewidth}[-55pt]{Selection Type} & NONE & Yes & \multirow[c]{4}{\linewidth}{For chunked datasets, the selection currently must be the same shape in the memory and file dataspaces.\footnotemark[1]} \\ [28pt] \cline{3-4}
+& & H5S\_ALL & Yes & \\ [28pt] \cline{3-4}
+& & Hyperslab Selection & Yes & \\ [28pt] \cline{3-4}
+& & Point Selection & Yes & \\ [28pt] \cline{3-4} \hline
+
+\multicolumn{2}{| l |}{\multirow[c]{6}{*}[-90pt]{Datatype}} & Atomic & Yes & \multirow[c]{5}{\linewidth}{Variable-length of array datatypes and variable-length datatypes inside compound datatypes are currently unsupported. Datatype conversion for the parent datatype is currently unsupported.\footnotemark[1]} \\ [30pt] \cline{3-4}
+\multicolumn{2}{| l |}{} & Compound & Yes & \\ [30pt] \cline{3-4}
+\multicolumn{2}{| l |}{} & Variable-length & Yes & \\ [30pt] \cline{3-4}
+\multicolumn{2}{| l |}{} & Array & Yes & \\ [30pt] \cline{3-4}
+\multicolumn{2}{| l |}{} & Opaque & Yes & \\ [30pt] \cline{3-4}
+\multicolumn{2}{| l |}{} & Reference & No\footnotemark[1] & \\ [30pt] \cline{3-4}
+\hline
+
+\end{tabularx}
+
+\footnotetext[1]{Will be supported by end of Q4 2019.}
+
+\newpage
+
+\begin{tabularx}{\linewidth}{| X | X | X | X | >{\RaggedRight}X |}
+\hline
+\rowcolor{lightgray!50}%
+% Center just the header row
+\multicolumn{3}{| c |}{\textbf{Feature}} & \multicolumn{1}{c |}{\textbf{Supported?}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+\multirow[c]{9}{\linewidth}[-80pt]{Properties} & \multirow[c]{5}{\linewidth}[-35pt]{Storage Properties (creation)} & Compact & No & Setting is ignored; stored as contiguous. \\ \cline{3-5}
+& & External & No & Setting is ignored; stored as contiguous. \\ \cline{3-5}
+& & Contiguous & Yes & Default storage type. \\ \cline{3-5}
+& & Chunked & Yes & \\ \cline{3-5}
+& & VDS & No & \\ \cline{2-5}
+& \multirow[c]{4}{\linewidth}[-45pt]{Other Properties (creation)} & Attribute Creation Order & Yes & In order to work correctly, the attribute creation order feature requires that a file is touched collectively. \\ \cline{3-5}
+& & Fill Value & No & \\ \cline{3-5}
+& & Filters & No & May be supported in the future. \\ \cline{3-5}
+& & Storage Allocation Time & N/A & \\ \hline
+
+\end{tabularx}
+
+\newpage
+
+\begin{tabularx}{\linewidth}{| X | X | X | X | >{\RaggedRight}X |}
+\hline
+\rowcolor{lightgray!50}%
+% Center just the header row
+\multicolumn{3}{| c |}{\textbf{Feature}} & \multicolumn{1}{c |}{\textbf{Supported?}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+\multirow[c]{4}{\linewidth}[-55pt]{Properties (cont.)} & \multirow[c]{3}{\linewidth}[-50pt]{Access Properties} & Chunk cache & No & May be supported in the future. \\ \cline{3-5}
+& & VDS views and printf & No & \\ \cline{3-5}
+& & MPI-I/O Collective Metadata Ops & Yes & By default, all metadata operations are collective for writes and independent for reads.\footnotemark[2] \\ \cline{2-5}
+& \multirow[c]{1}{\linewidth}[-10pt]{Transfer Properties} & MPI-I/O Independent or Collective I/O mode & N/A & \\ \hline
+
+\end{tabularx}
+
+\footnotetext[2]{Independent metadata writes will be supported in the future.}
+
+\subsubsection{File Features}
+
+\begin{tabularx}{\linewidth}{| X | X | X | X | >{\RaggedRight}X |}
+\hline
+\rowcolor{lightgray!50}%
+% Center just the header row
+\multicolumn{3}{| c |}{\textbf{Feature}} & \multicolumn{1}{c |}{\textbf{Supported?}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+\multicolumn{2}{| l |}{\multirow[c]{2}{*}{File creation flags}} & \multicolumn{1}{l |}{H5F\_ACC\_TRUNC} & Yes & \multirow[c]{4}{\linewidth}{The file creation flags behave as for native HDF5.} \\ \cline{3-4}
+\multicolumn{2}{| l |}{} & \multicolumn{1}{l |}{H5F\_ACC\_EXCL} & Yes & \\ \cline{1-4}
+\multicolumn{2}{| l |}{\multirow[c]{2}{*}{File opening flags}} & \multicolumn{1}{l |}{H5F\_ACC\_RDWR} & Yes & \\ \cline{3-4}
+\multicolumn{2}{| l |}{} & \multicolumn{1}{l |}{H5F\_ACC\_RDONLY} & Yes & \\ \hline
+
+\multirow[c]{8}{\linewidth}[-100pt]{Properties} & \multirow[c]{1}{\linewidth}[-70pt]{Creation Properties} & Attribute Creation Order & Yes & In order to work correctly, the attribute creation order feature requires that a file is touched collectively. The rest of the file creation properties are related to the native HDF5-specific file format. \\ \cline{2-5}
+
+& \multirow[c]{7}{\linewidth}{Access Properties (Drivers)} & SEC2 Driver & N/A & \multirow[c]{4}{\linewidth}{These drivers are applicable to native HDF5 only.} \\ \cline{3-4}
+& & Family Driver & N/A & \\ \cline{3-4}
+& & Split Driver & N/A & \\ \cline{3-4}
+& & Multi Driver & N/A & \\ \cline{3-4}
+& & Core Driver & N/A & \\ \hline
+
+\end{tabularx}
+
+\newpage
+
+\begin{tabularx}{\linewidth}{| X | X | X | X | >{\RaggedRight}X |}
+\hline
+\rowcolor{lightgray!50}%
+% Center just the header row
+\multicolumn{3}{| c |}{\textbf{Feature}} & \multicolumn{1}{c |}{\textbf{Supported?}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+\multirow[c]{10}{\linewidth}[-100pt]{Properties (cont.)} & \multirow[c]{2}{\linewidth}[-35pt]{Access Properties (Drivers, cont.)} & Log Driver & N/A & \\ \cline{3-5}
+& & MPI-I/O & Yes & This property just indicates parallel access to the file; it doesn't use HDF5 MPI I/O driver underneath. \\ \cline{2-5}
+
+& \multirow[c]{8}{\linewidth}[-60pt]{Access Properties (Other)} & MPI-I/O Collective Metadata Ops & Yes & By default, all metadata operations are collective for writes and independent for reads.\footnotemark[2] \\ \cline{3-5}
+& & User block & N/A & \\ \cline{3-5}
+& & Chunk Cache & No & May be supported in the future. \\ \cline{3-5}
+& & Object flushing callbacks & N/A & \\ \cline{3-5}
+& & File closing degree & N/A & \\ \cline{3-5}
+& & Evict on close & N/A & \\ \cline{3-5}
+& & Sieve buffer size for partial I/O & No & May be supported in the future. \\ \cline{3-5}
+& & File Image & N/A & \\ \hline
+
+\end{tabularx}
+
+\footnotetext[2]{Independent metadata writes will be supported in the future.}
+
+\subsubsection{Group Features}
+
+\begin{tabularx}{\linewidth}{| X | X | >{\RaggedRight}X | X | >{\RaggedRight}X |}
+\hline
+\rowcolor{lightgray!50}%
+% Center just the header row
+\multicolumn{3}{| c |}{\textbf{Feature}} & \multicolumn{1}{c |}{\textbf{Supported?}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+\multirow[c]{4}{\linewidth}[-120pt]{Properties} & \multirow[c]{3}{\linewidth}[-100pt]{Creation Properties} & Link Creation Order & Yes & In order to work correctly, the link creation order feature requires that a file is touched collectively. \\ \cline{3-5}
+& & Attribute Creation Order & Yes & In order to work correctly, the attribute creation order feature requires that a file is touched collectively. \\ \cline{3-5}
+& & Other Properties & N/A & These properties are related to the native HDF5-specific file format. \\ \cline{2-5}
+& \multirow[c]{1}{\linewidth}[-35pt]{Access Properties} & MPI-I/O Collective Metadata Ops & Yes & By default, all metadata operations are collective for writes and independent for reads.\footnotemark[2] \\ \hline
+
+\end{tabularx}
+
+\footnotetext[2]{Independent metadata writes will be supported in the future.}
+
+\newpage
+
+\subsection{API Specific Support}
+
+The following sections serve to illustrate the \dvc{}'s support for the \acrshort{hdf5} API, as well as to highlight any differences between the expected behavior of an \acrshort{hdf5} API call versus the actual behavior as implemented by the VOL connector. If a particular \acrshort{hdf5} API call does not appear among these tables, it is most likely a native \acrshort{hdf5}-specific API call which cannot be implemented by non-native \acrshort{hdf5} VOL connectors. These types of API calls are listed among the tables in Appendix~\ref{apdx:native_calls}.
 
 \newpage
 
@@ -15,6 +184,7 @@ The following sections serve to illustrate the DAOS VOL connector's support for 
 
 \begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
 \hline
+\rowcolor{lightgray!50}%
 % Center just the header row
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
@@ -42,6 +212,7 @@ H5Aget\_name(\_by\_idx) & For H5Aget\_name\_by\_idx, \texttt{H5\_ITER\_DEC} is c
 
 \begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
 \hline
+\rowcolor{lightgray!50}%
 % Center just the header row
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
@@ -65,6 +236,7 @@ H5Aget\_create\_plist & \\ \hline
 
 \begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
 \hline
+\rowcolor{lightgray!50}%
 % Center just the header row
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
@@ -85,6 +257,7 @@ H5Aget\_storage\_size & \\ \hline
 
 \begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
 \hline
+\rowcolor{lightgray!50}%
 % Center just the header row
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
@@ -108,6 +281,7 @@ H5Dget\_access\_plist & \\ \hline
 
 \begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
 \hline
+\rowcolor{lightgray!50}%
 % Center just the header row
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
@@ -132,6 +306,7 @@ H5Dget\_offset & \\ \hline
 
 \begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
 \hline
+\rowcolor{lightgray!50}%
 % Center just the header row
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
@@ -154,6 +329,7 @@ H5Fclose & \\ \hline
 
 \begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
 \hline
+\rowcolor{lightgray!50}%
 % Center just the header row
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
@@ -176,6 +352,7 @@ H5Funmount & \\ \hline
 
 \begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
 \hline
+\rowcolor{lightgray!50}%
 % Center just the header row
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
@@ -206,6 +383,7 @@ H5Gmove(2) & Refer to Notes for \texttt{H5Lmove}\\ \hline
 
 \begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
 \hline
+\rowcolor{lightgray!50}%
 % Center just the header row
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
@@ -227,6 +405,7 @@ H5Grefresh & \\ \hline
 
 \begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
 \hline
+\rowcolor{lightgray!50}%
 % Center just the header row
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
@@ -243,11 +422,25 @@ H5Lvisit(\_by\_name) & \begin{itemize}
                          \end{itemize}\\ \hline
 H5Ldelete & Reference count tracking is not currently implemented, so objects will not be removed when the last hard link pointing to them is removed\\ \hline
 H5Ldelete\_by\_idx & \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type\\ \hline
+H5Lmove & Currently no support for the following properties:
+\begin{itemize}
+ \item LCPL
+ \begin{itemize}
+  \item H5Pset\_create\_intermediate\_group
+ \end{itemize}
+ \item LAPL
+ \begin{itemize}
+  \item H5Pset\_char\_encoding
+  \item H5Pset\_nlinks
+  \item H5Pset\_elink\_prefix
+ \end{itemize}
+\end{itemize}\\ \hline
 
 \end{tabularx}
 
 \begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
 \hline
+\rowcolor{lightgray!50}%
 % Center just the header row
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
@@ -263,19 +456,33 @@ H5Lget\_info\_by\_idx & \texttt{H5\_ITER\_DEC} is currently unsupported for the 
 H5Lget\_val & \\ \hline
 H5Lget\_val\_by\_idx & \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type\\ \hline
 H5Lget\_name\_by\_idx & \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type\\ \hline
+H5Lcopy & Currently no support for the following properties:
+\begin{itemize}
+ \item LCPL
+ \begin{itemize}
+  \item H5Pset\_create\_intermediate\_group
+ \end{itemize}
+ \item LAPL
+ \begin{itemize}
+  \item H5Pset\_char\_encoding
+  \item H5Pset\_nlinks
+  \item H5Pset\_elink\_prefix
+ \end{itemize}
+\end{itemize}\\ \hline
 
 \end{tabularx}
+
+\newpage
 
 \textbf{Currently unsupported API calls}
 \vspace{.2in} \\
 
 \begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
 \hline
+\rowcolor{lightgray!50}%
 % Center just the header row
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
-H5Lcopy & \\ \hline
-H5Lmove & \\ \hline
 H5Lcreate\_external & \\ \hline
 H5Lcreate\_ud & \\ \hline
 
@@ -294,6 +501,7 @@ H5Lcreate\_ud & \\ \hline
 
 \begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
 \hline
+\rowcolor{lightgray!50}%
 % Center just the header row
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
@@ -328,6 +536,7 @@ H5Ocopy & Currently no support for the following properties: \begin{itemize}
 
 \begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
 \hline
+\rowcolor{lightgray!50}%
 % Center just the header row
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
@@ -346,11 +555,12 @@ H5Odecr\_refcount & \\ \hline
 
 \begin{center}
 
-\textbf{Supported API calls}
+\textbf{Supported API calls\footnotemark[1]}
 \vspace{.2in} \\
 
 \begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
 \hline
+\rowcolor{lightgray!50}%
 % Center just the header row
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
@@ -363,6 +573,7 @@ H5Odecr\_refcount & \\ \hline
 
 \begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
 \hline
+\rowcolor{lightgray!50}%
 % Center just the header row
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
@@ -376,6 +587,8 @@ H5Rget\_region & \\ \hline
 
 \end{center}
 
+\footnotetext[1]{New reference API will be supported by end of Q4 2019.}
+
 \newpage
 
 \subsubsection{H5T interface}
@@ -387,6 +600,7 @@ H5Rget\_region & \\ \hline
 
 \begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
 \hline
+\rowcolor{lightgray!50}%
 % Center just the header row
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
@@ -403,6 +617,7 @@ H5Tget\_create\_plist & \\ \hline
 
 \begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
 \hline
+\rowcolor{lightgray!50}%
 % Center just the header row
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
@@ -415,150 +630,25 @@ H5Trefresh & \\ \hline
 
 \newpage
 
-\subsection{Feature support}
+\subsection{Known Limitations}
 
-The following sections serve to illustrate the DAOS VOL connector's support for features in HDF5, as well as to highlight any differences between the expected behavior of an HDF5 feature versus the actual behavior as implemented by the VOL connector.
+The following sections outline the known current limitations of the \dvc{}.
 
-\newpage
+\subsubsection{Limitations in regards to the HDF5 API}
 
-\subsubsection{Attribute Features}
+\begin{itemize}
+ \item When performing dataset I/O, the selections in the memory and file dataspaces must currently be the same shape; using selections of different shapes will result in an error stating this.\footnotemark[1]
+ \item If an application abnormally exits, the \dvc{} currently leaves the file in an unusable state. Currently, the only way to re-use the same filename after an application interruption is to use a new \acrshort{daos} pool. This issue will be resolved when rollback
+to a previous snapshot is supported.
+\end{itemize}
 
-\begin{tabularx}{\linewidth}{| X | X | X | X | >{\RaggedRight}X |}
-\hline
-% Center just the header row
-\multicolumn{3}{| c |}{\textbf{Feature}} & \multicolumn{1}{c |}{\textbf{Supported?}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+\subsubsection{Limitations in regards to DAOS}
 
-\multirow[c]{3}{\linewidth}{Dataspace} & \multirow[c]{3}{\linewidth}{Dimensionality} & H5S\_NULL & Yes & \\ \cline{3-4}
-& & H5S\_SCALAR & Yes & \\ \cline{3-4}
-& & SIMPLE & Yes & \\ \cline{3-4} \hline
+\begin{itemize}
+ \item Following the previous point about application abnormal exits, as \acrshort{daos} does not currently support forced container deletion, trying to overwrite an existing \acrshort{hdf5} file using the \texttt{H5F\_ACC\_TRUNC} flag when the file was left in an unusable state will fail; the error \textit{``can't destroy container: generic I/O error (DER\_IO)''} will be returned.
+\item No support for conditional key insert/remove.\todo{explain}
+\item There is currently no support for distributed transactions.
+\end{itemize}
 
-\multicolumn{2}{| l |}{\multirow[c]{6}{*}[-90pt]{Datatype}} & Atomic & Yes &
-    \multirow[c]{5}{\linewidth}{Variable-length of Array datatypes and Variable-length datatypes inside Compound datatypes are currently unsupported. Datatype conversion for the parent datatype is currently unsupported.} \\ [30pt] \cline{3-4}
-\multicolumn{2}{| l |}{} & Compound & Yes & \\ [30pt] \cline{3-4}
-\multicolumn{2}{| l |}{} & Variable-length & Yes & \\ [30pt] \cline{3-4}
-\multicolumn{2}{| l |}{} & Array & Yes & \\ [30pt] \cline{3-4}
-\multicolumn{2}{| l |}{} & Opaque & Yes & \\ [30pt] \cline{3-4}
-\multicolumn{2}{| l |}{} & Reference & No & \\ [30pt] \cline{3-4}
-\hline
-
-\multirow[c]{2}{\linewidth}{Properties} & \multirow[c]{2}{\linewidth}{Name Encoding} & ASCII & Yes & \\ \cline{3-5}
-& & UTF-8 & No & \\ \cline{3-4} \hline
-
-\end{tabularx}
-
-\newpage
-
-\subsubsection{Dataset Features}
-
-\begin{tabularx}{\linewidth}{| X | X | X | X | >{\RaggedRight}X |}
-\hline
-% Center just the header row
-\multicolumn{3}{| c |}{\textbf{Feature}} & \multicolumn{1}{c |}{\textbf{Supported?}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
-
-\multirow[c]{7}{\linewidth}[-45pt]{Dataspace} & \multirow[c]{3}{\linewidth}{Dimensionality} & H5S\_NULL & Yes & \\ \cline{3-4}
-& & H5S\_SCALAR & Yes & \\ \cline{3-4}
-& & SIMPLE & Yes & \\ \cline{3-4} \cline{2-5}
-& \multirow[c]{4}{\linewidth}[-55pt]{Selection Type} & NONE & Yes & \multirow[c]{4}{\linewidth}{For chunked datasets, the selection currently must be the same shape in the memory and file dataspaces} \\ [28pt] \cline{3-4}
-& & H5S\_ALL & Yes & \\ [28pt] \cline{3-4}
-& & Hyperslab Selection & Yes & \\ [28pt] \cline{3-4}
-& & Point Selection & Yes & \\ [28pt] \cline{3-4} \hline
-
-\multicolumn{2}{| l |}{\multirow[c]{6}{*}[-90pt]{Datatype}} & Atomic & Yes & \multirow[c]{5}{\linewidth}{Variable-length of Array datatypes and Variable-length datatypes inside Compound datatypes are currently unsupported. Datatype conversion for the parent datatype is currently unsupported.} \\ [30pt] \cline{3-4}
-\multicolumn{2}{| l |}{} & Compound & Yes & \\ [30pt] \cline{3-4}
-\multicolumn{2}{| l |}{} & Variable-length & Yes & \\ [30pt] \cline{3-4}
-\multicolumn{2}{| l |}{} & Array & Yes & \\ [30pt] \cline{3-4}
-\multicolumn{2}{| l |}{} & Opaque & Yes & \\ [30pt] \cline{3-4}
-\multicolumn{2}{| l |}{} & Reference & No & \\ [30pt] \cline{3-4}
-\hline
-
-\end{tabularx}
-
-\newpage
-
-\begin{tabularx}{\linewidth}{| X | X | X | X | >{\RaggedRight}X |}
-\hline
-% Center just the header row
-\multicolumn{3}{| c |}{\textbf{Feature}} & \multicolumn{1}{c |}{\textbf{Supported?}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
-
-\multirow[c]{9}{\linewidth}[-80pt]{Properties} & \multirow[c]{5}{\linewidth}[-35pt]{Storage Properties (creation)} & Compact & No & Setting is ignored; stored as contiguous \\ \cline{3-5}
-& & External & No & Setting is ignored; stored as contiguous \\ \cline{3-5}
-& & Contiguous & Yes & Default storage type \\ \cline{3-5}
-& & Chunked & Yes & \\ \cline{3-5}
-& & VDS & No & \\ \cline{2-5}
-& \multirow[c]{4}{\linewidth}[-45pt]{Other Properties (creation)} & Attribute Creation Order & Yes & In order to work correctly, the attribute creation order feature requires that a file is touched collectively. \\ \cline{3-5}
-& & Fill Value & No & \\ \cline{3-5}
-& & Filters & No & May be supported in the future. \\ \cline{3-5}
-& & Storage Allocation Time & N/A & \\ \hline
-
-\end{tabularx}
-
-\newpage
-
-\begin{tabularx}{\linewidth}{| X | X | X | X | >{\RaggedRight}X |}
-\hline
-% Center just the header row
-\multicolumn{3}{| c |}{\textbf{Feature}} & \multicolumn{1}{c |}{\textbf{Supported?}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
-
-\multirow[c]{4}{\linewidth}[-55pt]{Properties (cont.)} & \multirow[c]{3}{\linewidth}[-50pt]{Access Properties} & Chunk cache & No & May be supported in the future. \\ \cline{3-5}
-& & VDS views and printf & No & \\ \cline{3-5}
-& & MPI-I/O Collective Metadata Ops & Yes & By default, all metadata operations are collective for writes and independent for reads. \\ \cline{2-5}
-& \multirow[c]{1}{\linewidth}[-10pt]{Transfer Properties} & MPI-I/O Independent or Collective I/O mode & N/A & \\ \hline
-
-\end{tabularx}
-
-\subsubsection{File Features}
-
-\begin{tabularx}{\linewidth}{| X | X | X | X | >{\RaggedRight}X |}
-\hline
-% Center just the header row
-\multicolumn{3}{| c |}{\textbf{Feature}} & \multicolumn{1}{c |}{\textbf{Supported?}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
-
-\multicolumn{2}{| l |}{\multirow[c]{2}{*}{File creation flags}} & \multicolumn{1}{l |}{H5F\_ACC\_TRUNC} & Yes & \multirow[c]{4}{\linewidth}{The file creation flags behave as for native HDF5.} \\ \cline{3-4}
-\multicolumn{2}{| l |}{} & \multicolumn{1}{l |}{H5F\_ACC\_EXCL} & Yes & \\ \cline{1-4}
-\multicolumn{2}{| l |}{\multirow[c]{2}{*}{File opening flags}} & \multicolumn{1}{l |}{H5F\_ACC\_RDWR} & Yes & \\ \cline{3-4}
-\multicolumn{2}{| l |}{} & \multicolumn{1}{l |}{H5F\_ACC\_RDONLY} & Yes & \\ \hline
-
-\multirow[c]{8}{\linewidth}[-100pt]{Properties} & \multirow[c]{1}{\linewidth}[-70pt]{Creation Properties} & Attribute Creation Order & Yes & In order to work correctly, the attribute creation order feature requires that a file is touched collectively. The rest of the file creation properties are related to the native HDF5-specific file format. \\ \cline{2-5}
-
-& \multirow[c]{7}{\linewidth}{Access Properties (Drivers)} & SEC2 Driver & N/A & \multirow[c]{4}{\linewidth}{These drivers are applicable to native HDF5 only.} \\ \cline{3-4}
-& & Family Driver & N/A & \\ \cline{3-4}
-& & Split Driver & N/A & \\ \cline{3-4}
-& & Multi Driver & N/A & \\ \cline{3-5}
-& & Core Driver & N/A & It is reasonable to implement this driver in the future with a backing store in DAOS. \\ \hline
-
-\end{tabularx}
-
-\newpage
-
-\begin{tabularx}{\linewidth}{| X | X | X | X | >{\RaggedRight}X |}
-\hline
-% Center just the header row
-\multicolumn{3}{| c |}{\textbf{Feature}} & \multicolumn{1}{c |}{\textbf{Supported?}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
-
-\multirow[c]{10}{\linewidth}[-100pt]{Properties (cont.)} & \multirow[c]{2}{\linewidth}[-35pt]{Access Properties (Drivers, cont.)} & Log Driver & N/A & \\ \cline{3-5}
-& & MPI-I/O & Yes & This property just indicates parallel access to the file; it doesn't use HDF5 MPI I/O driver underneath. \\ \cline{2-5}
-
-& \multirow[c]{8}{\linewidth}[-60pt]{Access Properties (Other)} & MPI-I/O Collective Metadata Ops & Yes & By default, all metadata operations are collective for writes and independent for reads. \\ \cline{3-5}
-& & User block & N/A & \\ \cline{3-5}
-& & Chunk Cache & No & May be supported in the future. \\ \cline{3-5}
-& & Object flushing callbacks & N/A & \\ \cline{3-5}
-& & File closing degree & N/A & \\ \cline{3-5}
-& & Evict on close & N/A & \\ \cline{3-5}
-& & Sieve buffer size for partial I/O & No & May be supported in the future. \\ \cline{3-5}
-& & File Image & N/A & \\ \hline
-
-\end{tabularx}
-
-\subsubsection{Group Features}
-
-\begin{tabularx}{\linewidth}{| X | X | >{\RaggedRight}X | X | >{\RaggedRight}X |}
-\hline
-% Center just the header row
-\multicolumn{3}{| c |}{\textbf{Feature}} & \multicolumn{1}{c |}{\textbf{Supported?}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
-
-\multirow[c]{4}{\linewidth}[-120pt]{Properties} & \multirow[c]{3}{\linewidth}[-100pt]{Creation Properties} & Link Creation Order & Yes & In order to work correctly, the link creation order feature requires that a file is touched collectively. \\ \cline{3-5}
-& & Attribute Creation Order & Yes & In order to work correctly, the attribute creation order feature requires that a file is touched collectively. \\ \cline{3-5}
-& & Other Properties & N/A & These properties are related to the native HDF5-specific file format. \\ \cline{2-5}
-& \multirow[c]{1}{\linewidth}[-35pt]{Access Properties} & MPI-I/O Collective Metadata Ops & Yes & By default, all metadata operations are collective for writes and independent for reads. \\ \hline
-
-\end{tabularx}
+\footnotetext[1]{Will be supported by end of Q4 2019.}
+\end{document}

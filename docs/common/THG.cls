@@ -1,5 +1,5 @@
-%% thesis
-%%   LaTeX class for writing User's Guide documents
+%% 
+%%   LaTeX class for writing THG documents
 %%
 
 %% ========================================================================
@@ -8,7 +8,7 @@
 \def\fileversion{1.0}
 \def\filedate{2014/07/22}
 \NeedsTeXFormat{LaTeX2e}
-\ProvidesClass{THG_Guide}[\filedate\space class by The HDF Group (v\fileversion)]
+\ProvidesClass{THG}[\filedate\space class by The HDF Group (v\fileversion)]
 
 %% ========================================================================
 %% Option parsing
@@ -18,6 +18,7 @@
 \def\@yes{yes}
 \def\@requirebooktabs{yes}
 \def\@requirehyper{}
+\def\@requirerfc{}
 
 %% Change footnote markers to alphabetic
 \DeclareOption{alphafoot}{%
@@ -34,6 +35,10 @@
   \def\@requirehyper{yes}%
   \fi%
 }
+
+% Add RFC prefix
+\DeclareOption{rfc}{
+  \def\@requirerfc{yes}}
 
 %% Don't break enumerations (etc.) across pages in
 %% an ugly manner
@@ -64,12 +69,20 @@
 %% ========================================================================
 
 %% Base class
-\LoadClass[11pt]{scrartcl}
+\LoadClass[11pt, BCOR=0pt, DIV=classic]{scrartcl}
+
+%% For headers (recommended instead of fancyhdr)
+\setkomafont{pageheadfoot}{\small}
+\RequirePackage{scrlayer-scrpage}
 
 % Conditional packages
 \RequirePackage{ifpdf}
 %\RequirePackage{ifthen}
 \RequirePackage{ifluatex}
+
+% Use subfile package to speed up compilations
+% (Note special heading in each subfile)
+\RequirePackage{subfiles}
 
 % Use English by default
 \RequirePackage[english]{babel}
@@ -83,6 +96,10 @@
 \else
   \RequirePackage[dvips]{graphicx}
 \fi
+
+% Allow images to be in a subdirectory (and relative to
+% the path for subfile sections)
+\graphicspath{{images/}{../images/}}
 
 % Font
 \ifluatex
@@ -112,6 +129,8 @@
   \RequirePackage{times}
   \RequirePackage[scaled=.95]{helvet}
   \RequirePackage{courier}
+  %\linespread{1.25}
+  \KOMAoptions{DIV=last}
 \fi
 
 %% If building with PDFLaTeX, use microtype spacing adjustments
@@ -155,13 +174,30 @@
 \renewcommand*\date[1]{\gdef\@date{#1}\global\let\thedate\@date}%
 \newcommand*\rfcversion[1]{\gdef\@rfcversion{#1}\global\let\therfcversion\@rfcversion}%
 
+%% Re-define \organization and \orglogo to store their args in \theorganization and \theorglogo
+\newcommand*\organization[1]{\gdef\@organization{#1}\global\let\theorganization\@organization}
+\newcommand*\orglogo[1]{\gdef\@orglogo{#1}\global\let\theorglogo\@orglogo}
+
 %% Use the \revision argument to build list of revisions.
 \def\revisions{}
 \newcounter{revision}
 % Adds a new revision
 \def\revision#1#2#3{\g@addto@macro\revisions{%
-\midrule {#1} & {#2} & {#3} \\}
+\hline {\small #1} & {\small #2} & {\small #3} \\}
 }
+
+%% For manpages
+\newcommand*\manfunc[1]{\gdef\@manfunc{\detokenize{#1}}\global\let\themanfunc\@manfunc}%
+\newcommand*\manpurpose[1]{\gdef\@manpurpose{#1}\global\let\themanpurpose\@manpurpose}%
+\newcommand*\mandesc[1]{\gdef\@mandesc{#1}\global\let\themandesc\@mandesc}%
+%% Use the \manparam argument to build list of manparam.
+\def\manparams{}
+\newcounter{manparam}
+% Adds a new manparam
+\def\manparam#1#2#3{\g@addto@macro\manparams{%
+\texttt{\detokenize{#1}} & [{#2}] {#3} \\}
+}
+\newcommand*\manreturn[1]{\gdef\@manreturn{#1}\global\let\themanreturn\@manreturn}%
 
 %% Nice tables (optional)
 \ifx\@requirebooktabs\@empty\else%
@@ -182,14 +218,12 @@
   }%
 \fi
 \RequirePackage{tabularx}
+\RequirePackage{multirow}
 
 %% The right way to do custom spacing
 \RequirePackage{setspace}
 %% \singlespacing, \onehalfspacing, \doublespacing
 %% \begin{spacing}{2.5} ...
-
-%% Funky headers
-\RequirePackage{fancyhdr}
 
 %% Nicer itemize
 \def\labelitemi{\tiny$\lgblksquare$}
@@ -203,6 +237,11 @@
 
 %% Verbatim things
 \RequirePackage{verbatim}
+
+%% Code listings
+\RequirePackage{minted}
+%\usemintedstyle{borland}
+\usemintedstyle{manni}
 
 % Float package
 \RequirePackage{float}
@@ -221,41 +260,41 @@
   filecolor=rulecolor,%
   linkcolor=rulecolor,%
   urlcolor=rulecolor,%
-  bookmarks]{hyperref}
+  bookmarks,pdfusetitle]{hyperref}
 \fi
+
+%% Glossaries
+\RequirePackage[acronym,toc]{glossaries}
+\setacronymstyle{long-short}
+
+%% Index of terms
+\RequirePackage{imakeidx}
+
+%% References & bibliography support
+\RequirePackage{csquotes}
+\RequirePackage{biblatex}
 
 %% ========================================================================
 %% Length definitions
 %% ========================================================================
 
-\setlength{\parindent}{0pt}          % tweak the initial indent in paras
+\setlength{\parindent}{0pt}           % tweak the initial indent in paras
 \setlength{\parskip}{5pt}             % tweak the intra-para gap size
-\setlength{\topmargin}{0in}
-\setlength{\textheight}{592pt}
-%\setlength{\topmargin}{-40pt}
-%\setlength{\textheight}{652pt}
-\addtolength{\textwidth}{\oddsidemargin}
-\addtolength{\textwidth}{\evensidemargin}
-\setlength{\marginparwidth}{57pt}
-%\setlength{\footskip}{30pt}
-
-%% Increase inner margins
-\AtEndOfClass{%
-  \setlength{\oddsidemargin}{0pt}
-  \setlength{\evensidemargin}{0pt}
-}
+\setlength{\headheight}{40pt}
+\setlength{\footheight}{40pt}
 
 %% Redefine bits of document shape
-\renewcommand{\topfraction}{0.95}%
-\renewcommand{\bottomfraction}{0.95}%
-\renewcommand{\textfraction}{0.05}%
+%\renewcommand{\topfraction}{0.95}%
+%\renewcommand{\bottomfraction}{0.95}%
+%\renewcommand{\textfraction}{0.05}%
 \renewcommand{\arraystretch}{1.25}%
+%\renewcommand{\arrayrulewidth}{0.8pt}%
 
 %% Reset rule widths and the header width
-\renewcommand{\headwidth}{\textwidth}%
-\renewcommand{\headrulewidth}{0.5pt}%
-\renewcommand{\footrulewidth}{0.5pt}%
-\addtolength{\headheight}{2.5pt}%
+\newcommand{\headwidth}{\textwidth}%
+\newcommand{\headrulewidth}{0.5pt}%
+\newcommand{\footrulewidth}{0.5pt}%
+%\addtolength{\headheight}{2.5pt}%
 %\addtolength{\headsep}{20pt}%
 
 %% Figure widths
@@ -276,38 +315,36 @@
 
 %% Logo height
 \newlength{\logoheight}
-\setlength{\logoheight}{2.5\baselineskip}
+\setlength{\logoheight}{34pt}
 
 %% ========================================================================
 %% Headers and footers
 %% ========================================================================
 %% No header or footer on the title page
-\AtBeginDocument{\thispagestyle{first}}
+\AtBeginDocument{\thispagestyle{plain}}
 %% Use funky headers and footers
-\pagestyle{fancy}
+\pagestyle{scrheadings}
+\KOMAoptions{headsepline=\headrulewidth:\headwidth,clines}
+\KOMAoptions{footsepline=\footrulewidth:\headwidth,clines}
 
 %% Normal headers and footers (headers are all like RH pages for oneside)
-\fancyhf{}%
-\newcommand{\headerfont}{\small}
-\fancyhead[R]{\headerfont THG \therfcversion}%
-\fancyhead[L]{\headerfont\thedate}%
-\fancyfoot[L]{\includegraphics[height=\logoheight]{THG_LOGO}}
-\fancyfoot[R]{\vspace*{-\logoheight}{\headerfont Page~\thepage~of~\pageref{LastPage}}}
+%% Format is [plain style]{SCR headings style}
+\ihead[\thedate]{\thedate}%
+\chead[]{}%
+\ifx\@requirerfc\@empty
+\ohead[\theorganization-\therfcversion]{\theorganization-\therfcversion}
+\else%
+\ohead[RFC-\theorganization-\therfcversion]{RFC-\theorganization-\therfcversion}
+\fi%
 
-\let\@oldheadrule\headrule
-\renewcommand{\headrule}{{\color{rulecolor}\@oldheadrule}}
-\let\@oldfootrule\footrule
-\renewcommand{\footrule}{{\color{rulecolor}\@oldfootrule}}
+\newcommand*{\logo}{\includegraphics[height=\logoheight]{\theorglogo}}
+\ifoot[\logo]{\logo}%
+\cfoot[]{}%
+\ofoot[\raisebox{22pt}{Page~\thepage~of~\pageref{LastPage}}]{\raisebox{22pt}{Page~\thepage~of~\pageref{LastPage}}}%
 
-%% Headers and footers for plain (blank) pages
-\fancypagestyle{first}{%
-  \fancyhf{}%
-  \fancyhead[R]{\headerfont THG \therfcversion}%
-  \fancyhead[L]{\headerfont \thedate}%
-  \renewcommand{\headrulewidth}{0pt}%
-  \fancyfoot[L]{\includegraphics[height=\logoheight]{THG_LOGO}}
-  \fancyfoot[R]{\vspace*{-\logoheight}{\headerfont Page~\thepage~of~\pageref{LastPage}}}
-}
+%% Rule colors
+\setkomafont{headsepline}{\color{rulecolor}}
+\setkomafont{footsepline}{\color{rulecolor}}
 
 %% ========================================================================
 %% Public environments and commands
@@ -342,16 +379,43 @@
   \clearpage%
   \section*{Revision History}%
   \begin{flushleft}%
-    \begin{tabularx}{\textwidth}{llX}%
-      %\arrayrulecolor{rulecolor}
-      \toprule%
-      %\rowcolor{lightgray}
-      Version Number & Date & Comments\\
+    \begin{tabularx}{\textwidth}{| l | l | X |}%
+      \hline%
+      \rowcolor{lightgray!50}%
+      {\bfseries\sffamily\small\textcolor{rulecolor}{Version Number}} & {\bfseries\sffamily\small\textcolor{rulecolor}{Date}} & {\bfseries\sffamily\small\textcolor{rulecolor}{Comments}}\\
       \revisions%
-      \bottomrule%
+      \hline
+      %\bottomrule%
     \end{tabularx}%
   \end{flushleft}%
   \clearpage%
+}
+
+%% Reference manual
+\DeclareRobustCommand{\makemanpage}[1]{%
+  \begin{flushleft}%
+    \texttt{\themanfunc}%
+  \end{flushleft}%
+  \paragraph{Purpose:}%
+    \begin{flushleft}%
+      \themanpurpose%
+    \end{flushleft}%
+  \paragraph{Description:}%
+    \begin{flushleft}%
+      \themandesc%
+    \end{flushleft}%
+  \paragraph{Parameters:}
+    \begin{flushleft}%
+      \begin{tabularx}{\textwidth}{ll}%
+        \manparams%
+      \end{tabularx}%
+    \end{flushleft}%
+  \paragraph{Returns:}
+    \begin{flushleft}%
+      \themanreturn%
+    \end{flushleft}%
+    \def\manparams{}
+    \setcounter{manparam}{0} 
 }
 
 %% Bold inline section heading with a finishing colon
@@ -414,4 +478,16 @@
 \DeclareRobustCommand{\EquationRef}[1]{\Equation~\eqref{#1}}
 \DeclareRobustCommand{\ReferenceRef}[1]{\Reference~\cite{#1}}
 \DeclareRobustCommand{\PageRef}[1]{\Page~\pageref{#1}}
+
+%%% todo notes, idea from
+%%% http://midtiby.blogspot.com/2007/09/todo-notes-in-latex.html
+%%% ... and further modified by Phil Carns from
+%%% http://usefreetools.blogspot.com/2008_04_01_archive.html
+%%%
+\newcommand{\todo}[1]{
+      \addcontentsline{tdo}{todo}{\protect{#1}}
+      \marginpar{\colorbox{white!90!black}{\textcolor{red}{
+      \parbox{1.7cm}{\scriptsize\bfseries\raggedright #1}
+      }}}
+}
 

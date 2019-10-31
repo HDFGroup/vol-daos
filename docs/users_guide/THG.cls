@@ -1,0 +1,1 @@
+../common/THG.cls

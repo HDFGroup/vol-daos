@@ -527,8 +527,7 @@ H5_daos_attribute_open(void *_item, const H5VL_loc_params_t *loc_params,
             break;
         } /* H5VL_OBJECT_BY_IDX */
 
-        case H5VL_OBJECT_BY_ADDR:
-        case H5VL_OBJECT_BY_REF:
+        case H5VL_OBJECT_BY_TOKEN:
         default:
             D_GOTO_ERROR(H5E_ATTR, H5E_UNSUPPORTED, NULL, "invalid or unsupported attribute open location parameters type")
     } /* end switch */
@@ -1407,8 +1406,7 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
                 D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, FAIL, "can't open object for attribute")
             break;
 
-        case H5VL_OBJECT_BY_ADDR:
-        case H5VL_OBJECT_BY_REF:
+        case H5VL_OBJECT_BY_TOKEN:
         default:
             D_GOTO_ERROR(H5E_ATTR, H5E_BADVALUE, FAIL, "invalid or unsupported attribute operation location parameters type")
     } /* end switch */
@@ -1610,8 +1608,7 @@ H5_daos_attribute_get_name(H5_daos_obj_t *target_obj, const H5VL_loc_params_t *l
         } /* H5VL_OBJECT_BY_IDX */
 
         case H5VL_OBJECT_BY_NAME:
-        case H5VL_OBJECT_BY_ADDR:
-        case H5VL_OBJECT_BY_REF:
+        case H5VL_OBJECT_BY_TOKEN:
         default:
             D_GOTO_ERROR(H5E_ATTR, H5E_BADVALUE, (-1), "invalid loc_params type")
     } /* end switch */
@@ -1671,8 +1668,7 @@ H5_daos_attribute_get_info(H5_daos_item_t *item, const H5VL_loc_params_t *loc_pa
             break;
         } /* H5VL_OBJECT_BY_IDX */
 
-        case H5VL_OBJECT_BY_ADDR:
-        case H5VL_OBJECT_BY_REF:
+        case H5VL_OBJECT_BY_TOKEN:
         default:
             D_GOTO_ERROR(H5E_ATTR, H5E_BADVALUE, FAIL, "invalid loc_params type")
     } /* end switch */

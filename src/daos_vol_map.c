@@ -389,11 +389,11 @@ H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
         if(collective && (item->file->num_procs > 1))
             must_bcast = TRUE;
 
-        /* Check for open by address */
-        if(H5VL_OBJECT_BY_ADDR == loc_params->type) {
-            /* Generate oid from address */
-            if(H5_daos_addr_to_oid(&map->obj.oid, loc_params->loc_data.loc_by_addr.addr) < 0)
-                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't convert address to OID")
+        /* Check for open by object token */
+        if(H5VL_OBJECT_BY_TOKEN == loc_params->type) {
+            /* Generate oid from token */
+            if(H5_daos_token_to_oid(loc_params->loc_data.loc_by_token.token, &map->obj.oid) < 0)
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't convert object token to OID")
         } /* end if */
         else {
             htri_t link_resolved;
@@ -1167,8 +1167,7 @@ H5_daos_map_specific(void *_item, const H5VL_loc_params_t *loc_params,
                 } /* H5VL_OBJECT_BY_NAME */
 
                 case H5VL_OBJECT_BY_IDX:
-                case H5VL_OBJECT_BY_ADDR:
-                case H5VL_OBJECT_BY_REF:
+                case H5VL_OBJECT_BY_TOKEN:
                 default:
                     D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, FAIL, "invalid loc_params type")
             } /* end switch */

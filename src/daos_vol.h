@@ -77,11 +77,9 @@ typedef d_sg_list_t daos_sg_list_t;
 #define H5_DAOS_ATTR_NAME_BUF_SIZE 2048
 
 /* Sizes of objects on storage */
+#define H5_DAOS_ENCODED_OID_SIZE       16
 #define H5_DAOS_ENCODED_CRT_ORDER_SIZE 8
 #define H5_DAOS_ENCODED_NUM_ATTRS_SIZE 8
-
-/* Sizes of objects on storage */
-#define H5_DAOS_ENCODED_CRT_ORDER_SIZE 8
 #define H5_DAOS_ENCODED_NUM_LINKS_SIZE 8
 
 /* Size of encoded OID */
@@ -183,15 +181,12 @@ typedef d_sg_list_t daos_sg_list_t;
 #define H5_DAOS_SNAP_OPEN_ID "daos_snap_open"
 #endif
 
-/* Property to speciy DAOS object class */
+/* Property to specify DAOS object class */
 #define H5_DAOS_OBJ_CLASS_NAME "daos_object_class"
 
 /* Property to specify DAOS object class of the root group when opening a file
  */
 #define H5_DAOS_ROOT_OPEN_OCLASS_NAME "root_open_daos_oclass"
-
-/* DSINC - Exclude map functionality for now */
-#undef DV_HAVE_MAP
 
 /* DSINC - There are serious problems in HDF5 when trying to call
  * H5Pregister2/H5Punregister on the H5P_FILE_ACCESS class.
@@ -581,6 +576,8 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_oid_generate(daos_obj_id_t *oid,
     hbool_t collective);
 H5VL_DAOS_PRIVATE haddr_t H5_daos_oid_to_addr(daos_obj_id_t oid);
 H5VL_DAOS_PRIVATE herr_t H5_daos_addr_to_oid(daos_obj_id_t *oid, haddr_t addr);
+H5VL_DAOS_PRIVATE herr_t H5_daos_oid_to_token(daos_obj_id_t oid, H5VL_token_t *obj_token);
+H5VL_DAOS_PRIVATE herr_t H5_daos_token_to_oid(H5VL_token_t obj_token, daos_obj_id_t *oid);
 H5VL_DAOS_PRIVATE H5I_type_t H5_daos_oid_to_type(daos_obj_id_t oid);
 H5VL_DAOS_PRIVATE void H5_daos_hash128(const char *name, void *hash);
 H5VL_DAOS_PRIVATE int H5_daos_h5op_finalize(tse_task_t *task);

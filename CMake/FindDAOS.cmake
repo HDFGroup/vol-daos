@@ -4,8 +4,9 @@
 #  DAOS_INCLUDE_DIRS - The DAOS include directories
 #  DAOS_LIBRARIES - The libraries needed to use DAOS
 
-find_package(PkgConfig)
-pkg_check_modules(PC_DAOS daos)
+# Uncomment when DAOS provides .pc files
+#find_package(PkgConfig)
+#pkg_check_modules(PC_DAOS daos)
 
 find_path(DAOS_INCLUDE_DIR daos.h
   HINTS ${PC_DAOS_INCLUDEDIR} ${PC_DAOS_INCLUDE_DIRS}

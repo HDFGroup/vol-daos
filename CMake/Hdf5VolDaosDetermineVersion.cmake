@@ -49,8 +49,8 @@ function(determine_version source_dir git_command var_prefix)
       set(output "")
     endif()
   else ()
-    # note, output may be set to empty if HDF5_VOL_DAOS_GIT_DESCRIBE is not defined.
-    set(output "${HDF5_VOL_DAOS_GIT_DESCRIBE}")
+    # note, output may be set to empty if ${var_prefix}_GIT_DESCRIBE is not defined.
+    set(output "${${var_prefix}_GIT_DESCRIBE}")
   endif()
 
   unset(tmp_VERSION)

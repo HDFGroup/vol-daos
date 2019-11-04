@@ -11,6 +11,8 @@ foreach(policy
     CMP0054 # CMake 3.1
     CMP0074 # CMake 3.12
     CMP0075 # CMake 3.12
+    CMP0083 # CMake 3.14
+    CMP0093 # CMake 3.15
   )
   if(POLICY ${policy})
     cmake_policy(SET ${policy} NEW)
@@ -60,19 +62,17 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${HDF5_VOL_DAOS_CMAKE_MODULE_PATH})
 #------------------------------------------------------------------------------
 include(${HDF5_VOL_DAOS_CMAKE_MODULE_PATH}/Git/Git.cmake)
 include(Hdf5VolDaosDetermineVersion)
-# Hardcoded version variables are readin from a separate file. This makes it
+# Hardcoded version variables are read-in from a separate file. This makes it
 # easier to have a script to update version numbers automatically.
 file(STRINGS version.txt version_txt)
-extract_version_components("${version_txt}" "HDF5_VOL_DAOS")
-determine_version(${HDF5_VOL_DAOS_SOURCE_DIR} ${GIT_EXECUTABLE} "HDF5_VOL_DAOS")
+extract_version_components("${version_txt}" "${PROJECT_NAME}")
+determine_version(${HDF5_VOL_DAOS_SOURCE_DIR} ${GIT_EXECUTABLE} "${PROJECT_NAME}")
 set(HDF5_VOL_DAOS_PACKAGE "hdf5_vol_daos")
 set(HDF5_VOL_DAOS_PACKAGE_NAME "HDF5_VOL_DAOS")
-set(HDF5_VOL_DAOS_PACKAGE_VERSION "${HDF5_VOL_DAOS_VERSION_FULL}")
-set(HDF5_VOL_DAOS_PACKAGE_VERSION_MAJOR "${HDF5_VOL_DAOS_VERSION}")
-set(HDF5_VOL_DAOS_PACKAGE_VERSION_MINOR "${HDF5_VOL_DAOS_VERSION_PATCH}")
-set(HDF5_VOL_DAOS_PACKAGE_STRING "${HDF5_VOL_DAOS_PACKAGE_NAME} ${HDF5_VOL_DAOS_PACKAGE_VERSION}")
-set(HDF5_VOL_DAOS_PACKAGE_TARNAME "${HDF5_VOL_DAOS_PACKAGE}")
-message(STATUS "Configuring ${HDF5_VOL_DAOS_PACKAGE_NAME} v${HDF5_VOL_DAOS_PACKAGE_VERSION}")
+set(HDF5_VOL_DAOS_PACKAGE_DESCRIPTION "HDF5 VOL connector for DAOS")
+set(HDF5_VOL_DAOS_PACKAGE_URL "https://git.hdfgroup.org/projects/HDF5VOL/repos/daos-vol/")
+set(HDF5_VOL_DAOS_PACKAGE_VENDOR "The HDF Group")
+message(STATUS "Configuring ${HDF5_VOL_DAOS_PACKAGE} v${HDF5_VOL_DAOS_VERSION_FULL}")
 
 #------------------------------------------------------------------------------
 # Setup CMake Environment
@@ -146,7 +146,8 @@ function(hdf5_vol_daos_set_lib_options libtarget libname libtype)
   if(${libtype} MATCHES "SHARED")
     set(LIB_RELEASE_NAME "${libname}")
     set(LIB_DEBUG_NAME "${libname}_debug")
-    set(LIB_VERSION ${HDF5_VOL_DAOS_PACKAGE_VERSION})
+    set(LIB_VERSION ${HDF5_VOL_DAOS_VERSION}.${HDF5_VOL_DAOS_VERSION_PATCH})
+    set(API_VERSION ${HDF5_VOL_DAOS_VERSION_MAJOR})
   else()
     # if the generator supports configuration types or if the CMAKE_BUILD_TYPE has a value
     if(CMAKE_CONFIGURATION_TYPES OR CMAKE_BUILD_TYPE)
@@ -165,7 +166,7 @@ function(hdf5_vol_daos_set_lib_options libtarget libname libtype)
       MINSIZEREL_OUTPUT_NAME     ${LIB_RELEASE_NAME}
       RELWITHDEBINFO_OUTPUT_NAME ${LIB_RELEASE_NAME}
       VERSION                    ${LIB_VERSION}
-      SOVERSION                  ${LIB_VERSION}
+      SOVERSION                  ${API_VERSION}
   )
 endfunction()
 
@@ -224,16 +225,18 @@ endif()
 #-----------------------------------------------------------------------------
 # Configure the config.cmake file for the build directory
 #-----------------------------------------------------------------------------
+set(HDF5_VOL_DAOS_CONFIG_INSTALLED FALSE)
 configure_file(
-  ${HDF5_VOL_DAOS_SOURCE_DIR}/CMake/${HDF5_VOL_DAOS_PACKAGE}-config.cmake.build.in
+  ${HDF5_VOL_DAOS_SOURCE_DIR}/CMake/${HDF5_VOL_DAOS_PACKAGE}-config.cmake.in
   ${HDF5_VOL_DAOS_BINARY_DIR}/${HDF5_VOL_DAOS_PACKAGE}-config.cmake @ONLY
 )
 
 #-----------------------------------------------------------------------------
 # Configure the config.cmake file for the install directory
 #-----------------------------------------------------------------------------
+set(HDF5_VOL_DAOS_CONFIG_INSTALLED TRUE)
 configure_file(
-  ${HDF5_VOL_DAOS_SOURCE_DIR}/CMake/${HDF5_VOL_DAOS_PACKAGE}-config.cmake.install.in
+  ${HDF5_VOL_DAOS_SOURCE_DIR}/CMake/${HDF5_VOL_DAOS_PACKAGE}-config.cmake.in
   ${HDF5_VOL_DAOS_BINARY_DIR}/CMakeFiles/${HDF5_VOL_DAOS_PACKAGE}-config.cmake @ONLY
 )
 
@@ -280,14 +283,14 @@ install(
 if(NOT HDF5_VOL_DAOS_EXTERNALLY_CONFIGURED)
   set(CPACK_PACKAGE_DESCRIPTION_FILE ${HDF5_VOL_DAOS_SOURCE_DIR}/README.md)
   set(CPACK_RESOURCE_FILE_LICENSE ${HDF5_VOL_DAOS_SOURCE_DIR}/COPYING)
-  set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "HDF5 DAOS VOL connector")
-  set(CPACK_PACKAGE_NAME "HDF5 DAOS VOL")
-  set(CPACK_PACKAGE_VENDOR "The HDF Group")
+  set(CPACK_PACKAGE_DESCRIPTION_SUMMARY ${HDF5_VOL_DAOS_PACKAGE_DESCRIPTION})
+  set(CPACK_PACKAGE_NAME ${HDF5_VOL_DAOS_PACKAGE_NAME})
+  set(CPACK_PACKAGE_VENDOR ${HDF5_VOL_DAOS_PACKAGE_VENDOR})
   set(CPACK_PACKAGE_VERSION_MAJOR ${HDF5_VOL_DAOS_VERSION_MAJOR})
   set(CPACK_PACKAGE_VERSION_MINOR ${HDF5_VOL_DAOS_VERSION_MINOR})
   set(CPACK_PACKAGE_VERSION_PATCH ${HDF5_VOL_DAOS_VERSION_PATCH})
   set(CPACK_GENERATOR "TBZ2")
-  set(CPACK_SOURCE_PACKAGE_FILE_NAME ${HDF5_VOL_DAOS_PACKAGE_TARNAME}-${HDF5_VOL_DAOS_PACKAGE_VERSION})
+  set(CPACK_SOURCE_PACKAGE_FILE_NAME ${HDF5_VOL_DAOS_PACKAGE}-${HDF5_VOL_DAOS_VERSION_FULL})
   set(CPACK_SOURCE_IGNORE_FILES ".git*;/GitSetup/;/.git/;.swp$;.#;/#;.*~")
   set(CPACK_SOURCE_STRIP_FILES "")
   include(CPack)

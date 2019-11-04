@@ -45,7 +45,7 @@ else()
   message(FATAL_ERROR "Could not find CART, please check CART_INCLUDE_DIR.")
 endif()
 
-option(DAOS_USE_NEW_API "Required to be turned ON with DAOS v0.6" OFF)
+option(DAOS_USE_NEW_API "Required to be turned ON with DAOS v0.6" ON)
 if(DAOS_USE_NEW_API)
   set(H5VL_DAOS_NEW_API 1)
 endif()
@@ -261,7 +261,7 @@ install(
   EXPORT
     ${HDF5_VOL_DAOS_EXPORTED_TARGETS}
   DESTINATION
-    ${HDF5_VOL_DAOS_INSTALL_DATA_DIR}/cmake/hdf5_vol_daos
+    ${HDF5_VOL_DAOS_INSTALL_DATA_DIR}/cmake/${HDF5_VOL_DAOS_PACKAGE}
   FILE
     ${HDF5_VOL_DAOS_EXPORTED_TARGETS}.cmake
 )

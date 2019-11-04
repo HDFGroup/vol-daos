@@ -1,27 +1,40 @@
 #-----------------------------------------------------------------------------
-# Config file for compiling against the build directory
+# hdf5_vol_daos-config.cmake - HDF5 VOL DAOS CMake configuration file for external projects.
 #-----------------------------------------------------------------------------
-get_filename_component(HDF5_VOL_DAOS_SELF_DIR "${CMAKE_CURRENT_LIST_FILE}" PATH)
+set(__hdf5_vol_daos_install_tree @HDF5_VOL_DAOS_CONFIG_INSTALLED@)
+if(__hdf5_vol_daos_install_tree)
+  get_filename_component(location "${CMAKE_CURRENT_LIST_FILE}" PATH)
+  set(HDF5_VOL_DAOS_CONFIG_TARGETS_FILE "${location}/@HDF5_VOL_DAOS_PACKAGE@-targets.cmake")
+else()
+  # This is the build location.
+  set(HDF5_VOL_DAOS_CONFIG_TARGETS_FILE "@HDF5_VOL_DAOS_BINARY_DIR@/src/@HDF5_VOL_DAOS_PACKAGE@-targets.cmake")
+endif()
 
 #-----------------------------------------------------------------------------
 # User Options
 #-----------------------------------------------------------------------------
 
 #-----------------------------------------------------------------------------
-# Version Strings
+# Version information for HDF5 DAOS VOL
 #-----------------------------------------------------------------------------
-set(HDF5_VOL_DAOS_VERSION_STRING  @HDF5_VOL_DAOS_PACKAGE_VERSION@)
 set(HDF5_VOL_DAOS_VERSION_MAJOR   @HDF5_VOL_DAOS_VERSION_MAJOR@)
 set(HDF5_VOL_DAOS_VERSION_MINOR   @HDF5_VOL_DAOS_VERSION_MINOR@)
 set(HDF5_VOL_DAOS_VERSION_PATCH   @HDF5_VOL_DAOS_VERSION_PATCH@)
+set(HDF5_VOL_DAOS_VERSION_FULL    @HDF5_VOL_DAOS_VERSION_FULL@)
+set(HDF5_VOL_DAOS_VERSION         @HDF5_VOL_DAOS_VERSION@)
 
 #-----------------------------------------------------------------------------
 # Don't include targets if this file is being picked up by another
-# project which has already built HDF5 DAOS as a subproject
+# project which has already built HDF5 DAOS VOL as a subproject
 #-----------------------------------------------------------------------------
-if(NOT TARGET "hdf5_vol_daos" AND NOT HDF5_VOL_DAOS_INSTALL_SKIP_TARGETS)
+if(NOT HDF5_VOL_DAOS_INSTALL_SKIP_TARGETS)
   if(NOT TARGET "hdf5")
     include(@HDF5_DIR@/hdf5-config.cmake)
   endif()
-  include(${HDF5_VOL_DAOS_SELF_DIR}/src/hdf5_vol_daos-targets.cmake)
+  if(NOT TARGET "@HDF5_VOL_DAOS_PACKAGE@")
+    include(${HDF5_VOL_DAOS_CONFIG_TARGETS_FILE})
+  endif()
 endif()
+
+# cleanup
+unset(__hdf5_vol_daos_install_tree)

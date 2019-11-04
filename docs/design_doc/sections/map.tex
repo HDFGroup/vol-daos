@@ -4,7 +4,7 @@
 
 \section{HDF5 Map Objects}
 
-\todo{Add notes}
+%\todo{Add notes}
 
 While the \acrshort{hdf5} data model is a flexible way to store data that is widely used in HPC, some applications require a more general way to index information. While \acrshort{hdf5} effectively uses key-value stores internally for a variety of purposes, it does not expose a generic key-value store to the API. As part of the \acrshort{daos} project, we will be adding this capability to the \acrshort{hdf5} API, in the form of \acrshort{hdf5} Map objects. These Map objects will contain application-defined key-value stores, to which key-value pairs can be added, and from which values can be retrieved by key.
 
@@ -92,7 +92,7 @@ herr_t H5Miterate(hid_t map_id, hsize_t *idx, hid_t key_mem_type_id,
 \mintcinline{H5Miterate()} iterates over all key-value pairs stored in the Map specified by \mintcinline{map_id}, making the callback specified by op for each. The \mintcinline{idx} parameter is an in/out parameter that may be used to restart a previously interrupted iteration. At the start of iteration \mintcinline{idx} should be set to 0, and to restart iteration at the same location on a subsequent call to \mintcinline{H5Miterate()}, \mintcinline{idx} should be the same value as returned by the previous call.
 \mintcinline{H5M_iterate_t} is defined as:
 \begin{minted}[breaklines=true,fontsize=\small]{hdf5-c-lexer.py:HDF5CLexer -x}
-herr_t (*H5M_iterate_t)(hid_t map_id, const void *key, void *op_data)
+herr_t (*H5M_iterate_t)(hid_t map_id, const void *key, void *op_data);
 \end{minted}
 
 The key parameter is the buffer for the key for this iteration, converted to the datatype specified by \mintcinline{key_mem_type_id}. The \mintcinline{op_data} parameter is a simple pass through of the value passed to \mintcinline{H5Miterate()}, which can be used to store application-defined data for iteration. A negative return value from this function will cause \mintcinline{H5Miterate()} to issue an error, while a positive return value will cause \mintcinline{H5Miterate()} to stop iterating and return this value without issuing an error. A return value of zero allows iteration to continue.
@@ -112,7 +112,7 @@ herr_t H5Mdelete(hid_t map_id, hid_t key_mem_type_id, const void *key,
 
 \begin{minted}[breaklines=true,fontsize=\small]{hdf5-c-lexer.py:HDF5CLexer -x}
 herr_t H5Pset_map_iterate_hints(hid_t mapl_id, size_t key_prefetch_size,
-                                size_t key_alloc_size)
+                                size_t key_alloc_size);
 \end{minted}
 
 \mintcinline{H5Pset_map_iterate_hints()} adjusts the behavior of \mintcinline{H5Miterate()} when prefetching keys for iteration. The \mintcinline{key_prefetch_size} parameter specifies the number of keys to prefetch at a time during iteration. The \mintcinline{key_alloc_size} parameter specifies the initial size of the buffer allocated to hold these prefetched keys, as well as \acrshort{daos} metadata. If this buffer is too small it will be reallocated to a larger size, though this will result in an additional call to \acrshort{daos}.

@@ -566,7 +566,7 @@ H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
             }
             else {
                 /* H5Olink */
-                if(H5VL_OBJECT_BY_SELF == target_obj_loc_params->type)
+                if(H5VL_OBJECT_BY_SELF != target_obj_loc_params->type)
                     D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, FAIL, "invalid loc_params type")
 
                 link_val.target.hard = target_obj_loc->oid;
@@ -661,48 +661,247 @@ done:
 } /* end H5_daos_link_create() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_link_copy
+ *
+ * Purpose:     Copies a link.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
 herr_t
 H5_daos_link_copy(void *src_obj, const H5VL_loc_params_t *loc_params1,
     void *dst_obj, const H5VL_loc_params_t *loc_params2, hid_t H5VL_DAOS_UNUSED lcpl,
-    hid_t H5VL_DAOS_UNUSED lapl, hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req)
+    hid_t H5VL_DAOS_UNUSED lapl, hid_t dxpl_id, void **req)
 {
+    H5_daos_link_val_t link_val = {0};
+    H5_daos_group_t *src_grp = NULL;
+    H5_daos_group_t *target_grp = NULL;
+    const char *src_link_name = NULL;
+    const char *new_link_name = NULL;
+    tse_sched_t *task_sched = NULL;
+    tse_task_t *link_write_task;
+    tse_task_t *finalize_task;
+    int finalize_ndeps = 0;
+    tse_task_t *finalize_deps[2];
+    H5_daos_req_t *int_req = NULL;
+    int ret;
     herr_t ret_value = SUCCEED;
 
-    if(!src_obj)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "source object location is NULL")
+    if(!src_obj && !dst_obj)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "source object location and destination object location are both NULL")
     if(!loc_params1)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "first location parameters object is NULL")
-    if(!dst_obj)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "destination object location is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "source location parameters object is NULL")
+    if(loc_params1->type != H5VL_OBJECT_BY_NAME)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "invalid source location parameters type")
     if(!loc_params2)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "second location parameters object is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "destination location parameters object is NULL")
+    if(loc_params2->type != H5VL_OBJECT_BY_NAME)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "invalid destination location parameters type")
 
-    D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "link copying is unsupported")
+    /* Determine the group containing the link to be copied + the source link's name */
+    if(NULL == (src_grp = H5_daos_group_traverse(src_obj ? src_obj : dst_obj, /* Accounting for H5L_SAME_LOC usage */
+            loc_params1->loc_data.loc_by_name.name, dxpl_id, req, &src_link_name, NULL, NULL)))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't get source group and source link name")
+
+    /* Determine the target group for the new link + the new link's name */
+    if(NULL == (target_grp = H5_daos_group_traverse(dst_obj ? dst_obj : src_obj, /* Accounting for H5L_SAME_LOC usage */
+            loc_params2->loc_data.loc_by_name.name, dxpl_id, req, &new_link_name, NULL, NULL)))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't get destination group and destination link name")
+
+    /* Retrieve the source link's value */
+    if(H5_daos_link_read(src_grp, src_link_name, strlen(src_link_name), &link_val) < 0)
+        D_GOTO_ERROR(H5E_LINK, H5E_READERROR, FAIL, "can't read source link")
+
+    /* Start H5 operation */
+    if(NULL == (int_req = (H5_daos_req_t *)DV_malloc(sizeof(H5_daos_req_t))))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for request")
+    int_req->th = DAOS_TX_NONE;
+    int_req->th_open = FALSE;
+    int_req->file = target_grp->obj.item.file;
+    int_req->file->item.rc++;
+    int_req->rc = 1;
+    int_req->status = H5_DAOS_INCOMPLETE;
+    int_req->failed_task = NULL;
+
+    task_sched = src_obj ? &((H5_daos_item_t *)src_obj)->file->sched : &((H5_daos_item_t *)dst_obj)->file->sched;
+
+    if(H5_daos_link_write(target_grp, new_link_name, strlen(new_link_name), &link_val, int_req, &link_write_task) < 0)
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTCOPY, FAIL, "failed to copy link")
+    finalize_deps[finalize_ndeps] = link_write_task;
+    finalize_ndeps++;
 
 done:
+    /* Free link value if necessary */
+    if(link_val.type == H5L_TYPE_SOFT)
+        link_val.target.soft = DV_free(link_val.target.soft);
+
+    /* Close source and destination groups */
+    if(target_grp && H5_daos_group_close(target_grp, dxpl_id, req) < 0)
+        D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close destination group")
+    if(src_grp && H5_daos_group_close(src_grp, dxpl_id, req) < 0)
+        D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close source group")
+
+    if(int_req) {
+        /* Create task to finalize H5 operation */
+        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, task_sched, int_req, &finalize_task)))
+            D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+        /* Register dependencies (if any) */
+        else if(finalize_ndeps > 0 && 0 != (ret = tse_task_register_deps(finalize_task, finalize_ndeps, finalize_deps)))
+            D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+        /* Schedule finalize task */
+        else if(0 != (ret = tse_task_schedule(finalize_task, false)))
+            D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+        else
+            /* finalize_task now owns a reference to req */
+            int_req->rc++;
+
+        /* Block until operation completes */
+        {
+            bool is_empty;
+
+            /* Wait for scheduler to be empty *//* Change to custom progress function DSINC */
+            if(0 != (ret = daos_progress(task_sched, DAOS_EQ_WAIT, &is_empty)))
+                D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't progress scheduler: %s", H5_daos_err_to_string(ret))
+
+            /* Check for failure */
+            if(int_req->status < 0)
+                D_DONE_ERROR(H5E_LINK, H5E_CANTOPERATE, FAIL, "link write failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status))
+        } /* end block */
+
+        /* Close internal request */
+        H5_daos_req_free_int(int_req);
+    } /* end if */
+
     D_FUNC_LEAVE_API
 } /* end H5_daos_link_copy() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_link_move
+ *
+ * Purpose:     Moves a link.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
 herr_t
 H5_daos_link_move(void *src_obj, const H5VL_loc_params_t *loc_params1,
     void *dst_obj, const H5VL_loc_params_t *loc_params2, hid_t H5VL_DAOS_UNUSED lcpl,
     hid_t H5VL_DAOS_UNUSED lapl, hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req)
 {
+    H5_daos_link_val_t link_val = {0};
+    H5_daos_group_t *src_grp = NULL;
+    H5_daos_group_t *target_grp = NULL;
+    const char *src_link_name = NULL;
+    const char *new_link_name = NULL;
+    tse_sched_t *task_sched = NULL;
+    tse_task_t *link_write_task;
+    tse_task_t *finalize_task;
+    int finalize_ndeps = 0;
+    tse_task_t *finalize_deps[2];
+    H5_daos_req_t *int_req = NULL;
+    int ret;
     herr_t ret_value = SUCCEED;
 
-    if(!src_obj)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "source object location is NULL")
+    if(!src_obj && !dst_obj)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "source object location and destination object location are both NULL")
     if(!loc_params1)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "first location parameters object is NULL")
-    if(!dst_obj)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "destination object location is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "source location parameters object is NULL")
+    if(loc_params1->type != H5VL_OBJECT_BY_NAME)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "invalid source location parameters type")
     if(!loc_params2)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "second location parameters object is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "destination location parameters object is NULL")
+    if(loc_params2->type != H5VL_OBJECT_BY_NAME)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "invalid destination location parameters type")
 
-    D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "link moving is unsupported")
+    /* Determine the group containing the link to be copied + the source link's name */
+    if(NULL == (src_grp = H5_daos_group_traverse(src_obj ? src_obj : dst_obj, /* Accounting for H5L_SAME_LOC usage */
+            loc_params1->loc_data.loc_by_name.name, dxpl_id, req, &src_link_name, NULL, NULL)))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't get source group and source link name")
+
+    /* Determine the target group for the new link + the new link's name */
+    if(NULL == (target_grp = H5_daos_group_traverse(dst_obj ? dst_obj : src_obj, /* Accounting for H5L_SAME_LOC usage */
+            loc_params2->loc_data.loc_by_name.name, dxpl_id, req, &new_link_name, NULL, NULL)))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't get destination group and destination link name")
+
+    /* Retrieve the source link's value */
+    if(H5_daos_link_read(src_grp, src_link_name, strlen(src_link_name), &link_val) < 0)
+        D_GOTO_ERROR(H5E_LINK, H5E_READERROR, FAIL, "can't read source link")
+
+    /* Start H5 operation */
+    if(NULL == (int_req = (H5_daos_req_t *)DV_malloc(sizeof(H5_daos_req_t))))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for request")
+    int_req->th = DAOS_TX_NONE;
+    int_req->th_open = FALSE;
+    int_req->file = target_grp->obj.item.file;
+    int_req->file->item.rc++;
+    int_req->rc = 1;
+    int_req->status = H5_DAOS_INCOMPLETE;
+    int_req->failed_task = NULL;
+
+    task_sched = src_obj ? &((H5_daos_item_t *)src_obj)->file->sched : &((H5_daos_item_t *)dst_obj)->file->sched;
+
+    if(H5_daos_link_write(target_grp, new_link_name, strlen(new_link_name), &link_val, int_req, &link_write_task) < 0)
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTCOPY, FAIL, "failed to copy link")
+    finalize_deps[finalize_ndeps] = link_write_task;
+    finalize_ndeps++;
+
+    /* Remove the original link */
+    /* TODO: Once full async is implemented, the link write task should depend on the link deletion task or vice versa */
+    if(H5_daos_link_delete((H5_daos_item_t *)src_grp, src_link_name, dxpl_id, req) < 0) {
+        /*
+         * If deleting the original link failed, don't schedule the link
+         * write task for the new link.
+         */
+        H5_daos_req_free_int(int_req); int_req = NULL;
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTREMOVE, FAIL, "can't delete original link")
+    } /* end if */
 
 done:
+    /* Free link value if necessary */
+    if(link_val.type == H5L_TYPE_SOFT)
+        link_val.target.soft = DV_free(link_val.target.soft);
+
+    /* Close source and destination groups */
+    if(target_grp && H5_daos_group_close(target_grp, dxpl_id, req) < 0)
+        D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close destination group")
+    if(src_grp && H5_daos_group_close(src_grp, dxpl_id, req) < 0)
+        D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close source group")
+
+    if(int_req) {
+        /* Create task to finalize H5 operation */
+        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, task_sched, int_req, &finalize_task)))
+            D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+        /* Register dependencies (if any) */
+        else if(finalize_ndeps > 0 && 0 != (ret = tse_task_register_deps(finalize_task, finalize_ndeps, finalize_deps)))
+            D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+        /* Schedule finalize task */
+        else if(0 != (ret = tse_task_schedule(finalize_task, false)))
+            D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+        else
+            /* finalize_task now owns a reference to req */
+            int_req->rc++;
+
+        /* Block until operation completes */
+        {
+            bool is_empty;
+
+            /* Wait for scheduler to be empty *//* Change to custom progress function DSINC */
+            if(0 != (ret = daos_progress(task_sched, DAOS_EQ_WAIT, &is_empty)))
+                D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't progress scheduler: %s", H5_daos_err_to_string(ret))
+
+            /* Check for failure */
+            if(int_req->status < 0)
+                D_DONE_ERROR(H5E_LINK, H5E_CANTOPERATE, FAIL, "link write failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status))
+        } /* end block */
+
+        /* Close internal request */
+        H5_daos_req_free_int(int_req);
+    } /* end if */
+
     D_FUNC_LEAVE_API
 } /* end H5_daos_link_move() */
 
@@ -990,7 +1189,7 @@ H5_daos_link_follow(H5_daos_group_t *grp, const char *name,
     assert(oid);
 
     /* Read link to group */
-   if(H5_daos_link_read(grp, name, name_len, &link_val) < 0)
+    if(H5_daos_link_read(grp, name, name_len, &link_val) < 0)
         D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't read link")
 
     switch(link_val.type) {
@@ -1031,11 +1230,13 @@ H5_daos_link_follow(H5_daos_group_t *grp, const char *name,
                 break;
             } /* end block */
 
-        case H5L_TYPE_ERROR:
         case H5L_TYPE_EXTERNAL:
+            D_GOTO_ERROR(H5E_LINK, H5E_UNSUPPORTED, FAIL, "following of external links is unsupported")
+
+        case H5L_TYPE_ERROR:
         case H5L_TYPE_MAX:
         default:
-           D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, FAIL, "invalid or unsupported link type")
+           D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, FAIL, "invalid link type")
     } /* end switch */
 
 done:

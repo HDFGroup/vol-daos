@@ -489,7 +489,7 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "failed to fill FAPL cache")
 
     /* Generate oid for global metadata object */
-    if(H5_daos_oid_encode(&gmd_oid, H5_DAOS_OIDX_GMD, H5I_FILE,
+    if(H5_daos_oid_encode(&gmd_oid, H5_DAOS_OIDX_GMD, H5I_GROUP,
             fcpl_id == H5P_FILE_CREATE_DEFAULT ? H5P_DEFAULT : fcpl_id,
             H5_DAOS_OBJ_CLASS_NAME, file) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTENCODE, NULL, "can't encode global metadata object ID")
@@ -667,7 +667,7 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "failed to fill FAPL cache")
 
     /* Generate oid for global metadata object */
-    if(H5_daos_oid_encode(&gmd_oid, H5_DAOS_OIDX_GMD, H5I_FILE,
+    if(H5_daos_oid_encode(&gmd_oid, H5_DAOS_OIDX_GMD, H5I_GROUP,
             fapl_id == H5P_FILE_ACCESS_DEFAULT ? H5P_DEFAULT : fapl_id,
             H5_DAOS_ROOT_OPEN_OCLASS_NAME, file) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTENCODE, NULL, "can't encode global metadata object ID")

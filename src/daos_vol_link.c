@@ -851,7 +851,7 @@ H5_daos_link_move(void *src_obj, const H5VL_loc_params_t *loc_params1,
 
     /* Remove the original link */
     /* TODO: Once full async is implemented, the link write task should depend on the link deletion task or vice versa */
-    if(H5_daos_link_delete((H5_daos_item_t *)src_grp, src_link_name, dxpl_id, req) < 0) {
+    if(H5_daos_link_delete((src_obj ? (H5_daos_item_t *)src_obj : (H5_daos_item_t *)dst_obj), loc_params1, dxpl_id, req) < 0) {
         /*
          * If deleting the original link failed, don't schedule the link
          * write task for the new link.
@@ -1003,8 +1003,10 @@ H5_daos_link_get(void *_item, const H5VL_loc_params_t *loc_params,
              * value, then the link's value will be truncated to 'size'
              * bytes and will not be null-terminated.
              */
-            if(out_buf)
-                memcpy(out_buf, link_val.target.soft, out_buf_size);
+            if(out_buf) {
+                size_t link_val_size = strlen(link_val.target.soft) + 1;
+                memcpy(out_buf, link_val.target.soft, MIN(link_val_size, out_buf_size));
+            } /* end if */
 
             break;
         } /* H5VL_LINK_GET_VAL */

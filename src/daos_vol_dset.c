@@ -2249,6 +2249,7 @@ H5_daos_get_selected_chunk_info(hid_t dcpl_id,
     hsize_t   num_sel_points_cast;
     hbool_t   is_all_file_space = FALSE;
     htri_t    space_same_shape = FALSE;
+    htri_t    chunk_space_same_shape = FALSE;
     size_t    info_buf_alloced;
     size_t    i = 0, j;
     hid_t     tmp_chunk_fspace_id = H5I_INVALID_HID;
@@ -2276,7 +2277,11 @@ H5_daos_get_selected_chunk_info(hid_t dcpl_id,
         D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, FAIL, "can't get file space dimensionality");
     if ((mspace_ndims = H5Sget_simple_extent_ndims(mem_space_id)) < 0)
         D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, FAIL, "can't get memory space dimensionality");
-    assert(mspace_ndims == fspace_ndims);
+
+    if (FAIL == (space_same_shape = H5Sselect_shape_same(file_space_id, mem_space_id)))
+        D_GOTO_ERROR(H5E_DATASPACE, H5E_BADVALUE, FAIL, "can't determine if file and memory dataspaces are the same shape");
+    if (!space_same_shape)
+        D_GOTO_ERROR(H5E_ARGS, H5E_UNSUPPORTED, FAIL, "file and memory selections must currently have the same shape");
 
     if (H5Sget_simple_extent_dims(file_space_id, file_space_dims, NULL) < 0)
         D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, FAIL, "can't get file dataspace dimensions")
@@ -2317,9 +2322,6 @@ H5_daos_get_selected_chunk_info(hid_t dcpl_id,
         start_coords[i] = selection_start_coords[i] = (file_sel_start[i] / chunk_dims[i]) * chunk_dims[i];
         end_coords[i] = (start_coords[i] + chunk_dims[i]) - 1;
     } /* end for */
-
-    if (FAIL == (space_same_shape = H5Sselect_shape_same(file_space_id, mem_space_id)))
-        D_GOTO_ERROR(H5E_DATASPACE, H5E_BADVALUE, FAIL, "can't determine if file and memory dataspaces are the same shape");
 
     /* Iterate through each "chunk" in the dataset */
     for (i = 0; num_sel_points_cast;) {
@@ -2441,6 +2443,12 @@ H5_daos_get_selected_chunk_info(hid_t dcpl_id,
             if (num_sel_points_cast == 0)
                 D_GOTO_DONE(SUCCEED);
         } /* end if */
+
+        /* For now, check that the chunk's temporary memory and file dataspaces are the same shape */
+        if (FAIL == (chunk_space_same_shape = H5Sselect_shape_same(tmp_chunk_fspace_id, tmp_chunk_mspace_id)))
+            D_GOTO_ERROR(H5E_DATASPACE, H5E_BADVALUE, FAIL, "can't determine if chunk file and memory dataspaces are the same shape");
+        if (!chunk_space_same_shape)
+            D_GOTO_ERROR(H5E_ARGS, H5E_UNSUPPORTED, FAIL, "a chunk's file and memory selections must currently have the same shape");
 
         /* Set current increment dimension */
         increment_dim = fspace_ndims - 1;

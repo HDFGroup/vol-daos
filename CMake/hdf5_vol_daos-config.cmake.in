@@ -13,6 +13,8 @@ endif()
 #-----------------------------------------------------------------------------
 # User Options
 #-----------------------------------------------------------------------------
+set(HDF5_VOL_DAOS_USE_SYSTEM_HDF5       @HDF5_VOL_DAOS_USE_SYSTEM_HDF5@)
+set(HDF5_VOL_DAOS_USE_SYSTEM_CMAKE_HDF5 @HDF5_VOL_DAOS_USE_SYSTEM_CMAKE_HDF5@)
 
 #-----------------------------------------------------------------------------
 # Version information for HDF5 DAOS VOL
@@ -28,7 +30,7 @@ set(HDF5_VOL_DAOS_VERSION         @HDF5_VOL_DAOS_VERSION@)
 # project which has already built HDF5 DAOS VOL as a subproject
 #-----------------------------------------------------------------------------
 if(NOT HDF5_VOL_DAOS_INSTALL_SKIP_TARGETS)
-  if(NOT TARGET "hdf5")
+  if(NOT TARGET "hdf5" AND HDF5_VOL_DAOS_USE_SYSTEM_CMAKE_HDF5)
     include(@HDF5_DIR@/hdf5-config.cmake)
   endif()
   if(NOT TARGET "@HDF5_VOL_DAOS_PACKAGE@")

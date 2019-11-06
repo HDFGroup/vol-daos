@@ -200,7 +200,7 @@ H5_daos_cont_create(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *int_req
      * problem even if the container doesn't exist. */
     if(flags & H5F_ACC_TRUNC)
         if(0 != (ret = daos_cont_destroy(H5_daos_poh_g, file->uuid, 1, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTCREATE, FAIL, "can't destroy container: %s", H5_daos_err_to_string(ret))
+            D_GOTO_ERROR(H5E_FILE, H5E_CANTDELETEFILE, FAIL, "can't destroy container: %s", H5_daos_err_to_string(ret))
 
     /* Create the container for the file */
     if(0 != (ret = daos_cont_create(H5_daos_poh_g, file->uuid, NULL /* cont_prop */, NULL /*event*/)))
@@ -931,11 +931,6 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
     H5_daos_file_t *file = NULL;
     herr_t          ret_value = SUCCEED;    /* Return value */
 
-    /*
-     * TODO: H5Fis_accessible is the only thing that can result in a NULL
-     * item pointer.
-     */
-
     if(item)
         file = ((H5_daos_item_t *)item)->file;
 
@@ -993,7 +988,36 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
         /* H5Fdelete */
         case H5VL_FILE_DELETE:
         {
-            D_GOTO_ERROR(H5E_FILE, H5E_UNSUPPORTED, FAIL, "file deletion is currently unsupported")
+            H5_daos_fapl_t fapl_info;
+            hid_t fapl_id = va_arg(arguments, hid_t);
+            const char *filename = va_arg(arguments, const char *);
+            herr_t *delete_ret = va_arg(arguments, herr_t *);
+            uuid_t cont_uuid;
+            int mpi_rank;
+            int ret;
+
+            /* Initialize returned value in case we fail */
+            *delete_ret = FAIL;
+
+            /* Get information from the FAPL */
+            if(H5_daos_cont_get_fapl_info(fapl_id, &fapl_info) < 0)
+                D_GOTO_ERROR(H5E_FILE, H5E_CANTGET, FAIL, "can't get DAOS info struct")
+
+            MPI_Comm_rank(fapl_info.comm, &mpi_rank);
+
+            if(mpi_rank == 0) {
+                /* Hash file name to create uuid */
+                H5_daos_hash128(filename, &cont_uuid);
+
+                if(0 != (ret = daos_cont_destroy(H5_daos_poh_g, cont_uuid, 1, NULL /*event*/)))
+                    D_GOTO_ERROR(H5E_FILE, H5E_CANTDELETEFILE, FAIL, "can't destroy container: %s", H5_daos_err_to_string(ret))
+            } /* end if */
+
+            if(MPI_SUCCESS != MPI_Barrier(fapl_info.comm))
+                D_GOTO_ERROR(H5E_FILE, H5E_MPI, FAIL, "MPI_Barrier failed during file deletion")
+
+            *delete_ret = SUCCEED;
+
             break;
         } /* H5VL_FILE_DELETE */
 

@@ -48,5 +48,8 @@ export HDF5_VOL_DAOS_DO_MEMCHECK="false"
 unset  HDF5_VOL_DAOS_MEMORYCHECK_TYPE
 ctest -S $HDF5_VOL_DAOS_ROOT/source/test/scripts/jelly_script.cmake -VV --output-on-failure 2>&1 > $HDF5_VOL_DAOS_ROOT/last_build_release.log
 
+# clean up
+rm -rf /mnt/daos/*
+
 popd
 

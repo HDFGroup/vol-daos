@@ -204,7 +204,7 @@ static char H5_daos_pool_grp_g[H5_DAOS_MAX_GRP_NAME + 1] = {'\0'}; /* Pool Group
 static d_rank_t H5_daos_pool_ranks_g[H5_DAOS_MAX_SVC_REPLICAS]; /* Pool ranks */
 static d_rank_list_t H5_daos_pool_svcl_g = {};                  /* Pool svc list */
 static const unsigned int   H5_daos_pool_default_mode_g          = 0731;         /* Default Mode */
-static const daos_size_t    H5_daos_pool_default_scm_size_g      = (1ULL << 28); /* 256MB */
+static const daos_size_t    H5_daos_pool_default_scm_size_g      = (1ULL << 31); /*   2GB */
 static const daos_size_t    H5_daos_pool_default_nvme_size_g     = (1ULL << 33); /*   8GB */
 static const unsigned int   H5_daos_pool_default_svc_nreplicas_g = 1;            /* Number of replicas */
 

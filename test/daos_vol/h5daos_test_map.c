@@ -1128,6 +1128,8 @@ map_iterate_cb(hid_t map_id, const void *_key, void *_iterate_ud)
     iterate_ud_t *iterate_ud = (iterate_ud_t *)_iterate_ud;
     int i;
 
+    (void)map_id; /* silence compiler */
+
     /* Check parameters */
     if(!_key) {
         H5_FAILED(); AT();
@@ -1419,6 +1421,8 @@ static herr_t
 map_iterate_cb2(hid_t map_id, const void *_key, void *_iterate_ud)
 {
     iterate_ud2_t *iterate_ud = (iterate_ud2_t *)_iterate_ud;
+
+    (void)map_id; /* silence compiler */
 
     /* Check parameters */
     if(!_key) {
@@ -1851,6 +1855,7 @@ error:
     return 1;
 }
 
+#ifdef TMP
 static int 
 test_vl(hid_t file_id)
 {
@@ -1894,6 +1899,7 @@ test_vl(hid_t file_id)
 error:
     return 1;
 }
+#endif
 
 static int
 test_compound(hid_t file_id)
@@ -1934,6 +1940,7 @@ error:
     return 1;
 }
 
+#ifdef TMP
 static int
 test_nested_compound(hid_t file_id)
 {
@@ -1986,6 +1993,7 @@ test_nested_compound(hid_t file_id)
 error:
     return 1;
 }
+#endif
 
 static int
 test_many_entries(hid_t file_id)

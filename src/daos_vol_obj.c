@@ -1723,7 +1723,7 @@ done:
  */
 static herr_t
 H5_daos_object_copy_attributes_cb(hid_t location_id, const char *attr_name,
-    const H5A_info_t *ainfo, void *op_data)
+    const H5A_info_t H5VL_DAOS_UNUSED *ainfo, void *op_data)
 {
     H5VL_loc_params_t sub_loc_params;
     H5_daos_obj_t *src_loc_obj = NULL;

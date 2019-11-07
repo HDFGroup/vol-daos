@@ -21,7 +21,7 @@ find_program(DAOS_SERVER_EXECUTABLE
 )
 mark_as_advanced(DAOS_SERVER_EXECUTABLE)
 
-option(HDF5_VOL_DAOS_USE_NEW_SERVER "Use DAOS experimental (master)" OFF)
+option(HDF5_VOL_DAOS_USE_NEW_SERVER "Use DAOS experimental (master)." OFF)
 
 # Default paths
 set(DAOS_LOG_DIR ${CMAKE_CURRENT_BINARY_DIR})
@@ -40,7 +40,6 @@ set(DAOS_SERVER_CONFIG_FILEPATH
   ${CMAKE_CURRENT_BINARY_DIR}/scripts/daos_server.yml
 )
 set(DAOS_SERVER_POSTFLAGS
-  "-i"
   "-a ${DAOS_SERVER_URI_DIR}"
   "-o ${DAOS_SERVER_CONFIG_FILEPATH}"
 )

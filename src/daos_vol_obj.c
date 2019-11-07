@@ -1206,7 +1206,6 @@ H5_daos_object_get_num_attrs(H5_daos_obj_t *target_obj)
         /* Set up iod */
         memset(&iod, 0, sizeof(iod));
         daos_iov_set(&iod.iod_name, (void *)H5_daos_nattr_key_g, H5_daos_nattr_key_size_g);
-        daos_csum_set(&iod.iod_kcsum, NULL, 0);
         iod.iod_nr = 1u;
         iod.iod_size = (daos_size_t)H5_DAOS_ENCODED_NUM_ATTRS_SIZE;
         iod.iod_type = DAOS_IOD_SINGLE;
@@ -1302,7 +1301,6 @@ H5_daos_object_update_num_attrs_key(H5_daos_obj_t *target_obj, uint64_t new_natt
     /* Set up iod */
     memset(&iod, 0, sizeof(iod));
     daos_iov_set(&iod.iod_name, (void *)H5_daos_nattr_key_g, H5_daos_nattr_key_size_g);
-    daos_csum_set(&iod.iod_kcsum, NULL, 0);
     iod.iod_nr = 1u;
     iod.iod_size = (daos_size_t)H5_DAOS_ENCODED_NUM_ATTRS_SIZE;
     iod.iod_type = DAOS_IOD_SINGLE;
@@ -1723,7 +1721,7 @@ done:
  */
 static herr_t
 H5_daos_object_copy_attributes_cb(hid_t location_id, const char *attr_name,
-    const H5A_info_t *ainfo, void *op_data)
+    const H5A_info_t H5VL_DAOS_UNUSED *ainfo, void *op_data)
 {
     H5VL_loc_params_t sub_loc_params;
     H5_daos_obj_t *src_loc_obj = NULL;

@@ -204,21 +204,18 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
 
     /* iod[0] contains the key for the datatype description */
     daos_iov_set(&iod[0].iod_name, (void *)type_key, (daos_size_t)akey_len);
-    daos_csum_set(&iod[0].iod_kcsum, NULL, 0);
     iod[0].iod_nr = 1u;
     iod[0].iod_size = (uint64_t)type_size;
     iod[0].iod_type = DAOS_IOD_SINGLE;
 
     /* iod[0] contains the key for the dataspace description */
     daos_iov_set(&iod[1].iod_name, (void *)space_key, (daos_size_t)akey_len);
-    daos_csum_set(&iod[1].iod_kcsum, NULL, 0);
     iod[1].iod_nr = 1u;
     iod[1].iod_size = (uint64_t)space_size;
     iod[1].iod_type = DAOS_IOD_SINGLE;
 
     /* iod[0] contains the key for the ACPL */
     daos_iov_set(&iod[2].iod_name, (void *)acpl_key, (daos_size_t)akey_len);
-    daos_csum_set(&iod[2].iod_kcsum, NULL, 0);
     iod[2].iod_nr = 1u;
     iod[2].iod_size = (uint64_t)acpl_size;
     iod[2].iod_type = DAOS_IOD_SINGLE;
@@ -256,13 +253,11 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
          * the data in indices 0-2 set up above.
          */
         daos_iov_set(&iod[3].iod_name, (void *)H5_daos_nattr_key_g, H5_daos_nattr_key_size_g);
-        daos_csum_set(&iod[3].iod_kcsum, NULL, 0);
         iod[3].iod_nr = 1u;
         iod[3].iod_size = (uint64_t)8;
         iod[3].iod_type = DAOS_IOD_SINGLE;
 
         daos_iov_set(&iod[4].iod_name, (void *)H5_daos_max_attr_corder_key_g, H5_daos_max_attr_corder_key_size_g);
-        daos_csum_set(&iod[4].iod_kcsum, NULL, 0);
         iod[4].iod_nr = 1u;
         iod[4].iod_size = (uint64_t)8;
         iod[4].iod_type = DAOS_IOD_SINGLE;
@@ -355,7 +350,6 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
          * akey for retrieving the attribute name to enable attribute lookup by
          * creation order */
         daos_iov_set(&iod[5].iod_name, (void *)nattr_old_buf, 9);
-        daos_csum_set(&iod[5].iod_kcsum, NULL, 0);
         iod[5].iod_nr = 1u;
         iod[5].iod_size = (uint64_t)name_len;
         iod[5].iod_type = DAOS_IOD_SINGLE;
@@ -363,7 +357,6 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
         /* iod[6] contains the key for the creation order, to enable attribute
          * creation order lookup by name */
         daos_iov_set(&iod[6].iod_name, (void *)acorder_key, (daos_size_t)akey_len);
-        daos_csum_set(&iod[6].iod_kcsum, NULL, 0);
         iod[6].iod_nr = 1u;
         iod[6].iod_size = (uint64_t)8;
         iod[6].iod_type = DAOS_IOD_SINGLE;
@@ -543,19 +536,16 @@ H5_daos_attribute_open(void *_item, const H5VL_loc_params_t *loc_params,
     /* Set up iod */
     memset(iod, 0, sizeof(iod));
     daos_iov_set(&iod[0].iod_name, (void *)type_key, (daos_size_t)akey_len);
-    daos_csum_set(&iod[0].iod_kcsum, NULL, 0);
     iod[0].iod_nr = 1u;
     iod[0].iod_size = DAOS_REC_ANY;
     iod[0].iod_type = DAOS_IOD_SINGLE;
 
     daos_iov_set(&iod[1].iod_name, (void *)space_key, (daos_size_t)akey_len);
-    daos_csum_set(&iod[1].iod_kcsum, NULL, 0);
     iod[1].iod_nr = 1u;
     iod[1].iod_size = DAOS_REC_ANY;
     iod[1].iod_type = DAOS_IOD_SINGLE;
 
     daos_iov_set(&iod[2].iod_name, (void *)acpl_key, (daos_size_t)akey_len);
-    daos_csum_set(&iod[2].iod_kcsum, NULL, 0);
     iod[2].iod_nr = 1u;
     iod[2].iod_size = DAOS_REC_ANY;
     iod[2].iod_type = DAOS_IOD_SINGLE;
@@ -818,7 +808,6 @@ H5_daos_attribute_read(void *_attr, hid_t mem_type_id, void *buf,
 
             /* Set up iod.  Use "single" records of varying size. */
             daos_iov_set(&iods[i].iod_name, (void *)akeys[i], (daos_size_t)akey_len);
-            daos_csum_set(&iods[i].iod_kcsum, NULL, 0);
             iods[i].iod_nr = 1u;
             iods[i].iod_size = DAOS_REC_ANY;
             iods[i].iod_type = DAOS_IOD_SINGLE;
@@ -941,7 +930,6 @@ H5_daos_attribute_read(void *_attr, hid_t mem_type_id, void *buf,
         /* Set up iod */
         memset(&iod, 0, sizeof(iod));
         daos_iov_set(&iod.iod_name, (void *)akey, (daos_size_t)akey_len);
-        daos_csum_set(&iod.iod_kcsum, NULL, 0);
         iod.iod_nr = 1u;
         iod.iod_recxs = &recx;
         iod.iod_size = (uint64_t)file_type_size;
@@ -1117,7 +1105,6 @@ H5_daos_attribute_write(void *_attr, hid_t mem_type_id, const void *buf,
             /* Set up iod, determine size below.  Use "single" records of
              * varying size. */
             daos_iov_set(&iods[i].iod_name, (void *)akeys[i], (daos_size_t)akey_len);
-            daos_csum_set(&iods[i].iod_kcsum, NULL, 0);
             iods[i].iod_nr = 1u;
             iods[i].iod_type = DAOS_IOD_SINGLE;
 
@@ -1200,7 +1187,6 @@ H5_daos_attribute_write(void *_attr, hid_t mem_type_id, const void *buf,
         /* Set up iod */
         memset(&iod, 0, sizeof(iod));
         daos_iov_set(&iod.iod_name, (void *)akey, (daos_size_t)akey_len);
-        daos_csum_set(&iod.iod_kcsum, NULL, 0);
         iod.iod_nr = 1u;
         iod.iod_recxs = &recx;
         iod.iod_size = (uint64_t)file_type_size;
@@ -2181,26 +2167,22 @@ H5_daos_attribute_exists(H5_daos_obj_t *attr_container_obj, const char *attr_nam
     /* Set up iods */
     memset(iod, 0, sizeof(iod));
     daos_iov_set(&iod[0].iod_name, (void *)type_key, (daos_size_t)akey_len);
-    daos_csum_set(&iod[0].iod_kcsum, NULL, 0);
     iod[0].iod_nr = 1u;
     iod[0].iod_type = DAOS_IOD_SINGLE;
     iod[0].iod_size = DAOS_REC_ANY;
 
     daos_iov_set(&iod[1].iod_name, (void *)space_key, (daos_size_t)akey_len);
-    daos_csum_set(&iod[1].iod_kcsum, NULL, 0);
     iod[1].iod_nr = 1u;
     iod[1].iod_type = DAOS_IOD_SINGLE;
     iod[1].iod_size = DAOS_REC_ANY;
 
     daos_iov_set(&iod[2].iod_name, (void *)acpl_key, (daos_size_t)akey_len);
-    daos_csum_set(&iod[2].iod_kcsum, NULL, 0);
     iod[2].iod_nr = 1u;
     iod[2].iod_type = DAOS_IOD_SINGLE;
     iod[2].iod_size = DAOS_REC_ANY;
 
     if(attr_container_obj->ocpl_cache.track_acorder) {
         daos_iov_set(&iod[3].iod_name, (void *)acorder_key, (daos_size_t)akey_len);
-        daos_csum_set(&iod[3].iod_kcsum, NULL, 0);
         iod[3].iod_nr = 1u;
         iod[3].iod_type = DAOS_IOD_SINGLE;
         iod[3].iod_size = DAOS_REC_ANY;
@@ -2835,7 +2817,6 @@ H5_daos_attribute_get_name_by_crt_order(H5_daos_obj_t *target_obj, H5_iter_order
     /* Set up iod */
     memset(&iod, 0, sizeof(iod));
     daos_iov_set(&iod.iod_name, (void *)idx_buf, H5_DAOS_ENCODED_CRT_ORDER_SIZE + 1);
-    daos_csum_set(&iod.iod_kcsum, NULL, 0);
     iod.iod_nr = 1u;
     iod.iod_size = DAOS_REC_ANY;
     iod.iod_type = DAOS_IOD_SINGLE;
@@ -3019,7 +3000,6 @@ H5_daos_attribute_get_crt_order_by_name(H5_daos_obj_t *target_obj, const char *a
     /* Set up iod */
     memset(&iod, 0, sizeof(iod));
     daos_iov_set(&iod.iod_name, (void *)acorder_key, (daos_size_t)akey_len);
-    daos_csum_set(&iod.iod_kcsum, NULL, 0);
     iod.iod_nr = 1u;
     iod.iod_size = (daos_size_t)H5_DAOS_ENCODED_CRT_ORDER_SIZE;
     iod.iod_type = DAOS_IOD_SINGLE;

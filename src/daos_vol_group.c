@@ -251,7 +251,6 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
 
         /* Set up iod.  Point akey to global name buffer, do not free. */
         daos_iov_set(&update_cb_ud->iod[0].iod_name, (void *)H5_daos_cpl_key_g, H5_daos_cpl_key_size_g);
-        daos_csum_set(&update_cb_ud->iod[0].iod_kcsum, NULL, 0);
         update_cb_ud->iod[0].iod_nr = 1u;
         update_cb_ud->iod[0].iod_size = (uint64_t)gcpl_size;
         update_cb_ud->iod[0].iod_type = DAOS_IOD_SINGLE;
@@ -532,7 +531,6 @@ H5_daos_group_open_helper(H5_daos_file_t *file, daos_obj_id_t oid,
     /* Set up iod */
     memset(&iod, 0, sizeof(iod));
     daos_iov_set(&iod.iod_name, (void *)H5_daos_cpl_key_g, H5_daos_cpl_key_size_g);
-    daos_csum_set(&iod.iod_kcsum, NULL, 0);
     iod.iod_nr = 1u;
     iod.iod_size = DAOS_REC_ANY;
     iod.iod_type = DAOS_IOD_SINGLE;
@@ -1232,7 +1230,6 @@ H5_daos_group_get_num_links(H5_daos_group_t *target_grp)
         /* Set up iod */
         memset(&iod, 0, sizeof(iod));
         daos_iov_set(&iod.iod_name, (void *)H5_daos_nlinks_key_g, H5_daos_nlinks_key_size_g);
-        daos_csum_set(&iod.iod_kcsum, NULL, 0);
         iod.iod_nr = 1u;
         iod.iod_size = (daos_size_t)H5_DAOS_ENCODED_NUM_LINKS_SIZE;
         iod.iod_type = DAOS_IOD_SINGLE;
@@ -1330,7 +1327,6 @@ H5_daos_group_update_num_links_key(H5_daos_group_t *target_grp, uint64_t new_nli
     /* Set up iod */
     memset(&iod, 0, sizeof(iod));
     daos_iov_set(&iod.iod_name, (void *)H5_daos_nlinks_key_g, H5_daos_nlinks_key_size_g);
-    daos_csum_set(&iod.iod_kcsum, NULL, 0);
     iod.iod_nr = 1u;
     iod.iod_size = (daos_size_t)H5_DAOS_ENCODED_NUM_LINKS_SIZE;
     iod.iod_type = DAOS_IOD_SINGLE;
@@ -1390,7 +1386,6 @@ H5_daos_group_get_max_crt_order(H5_daos_group_t *target_grp, uint64_t *max_corde
     /* Set up iod */
     memset(&iod, 0, sizeof(iod));
     daos_iov_set(&iod.iod_name, (void *)H5_daos_max_link_corder_key_g, H5_daos_max_link_corder_key_size_g);
-    daos_csum_set(&iod.iod_kcsum, NULL, 0);
     iod.iod_nr = 1u;
     iod.iod_size = (daos_size_t)H5_DAOS_ENCODED_CRT_ORDER_SIZE;
     iod.iod_type = DAOS_IOD_SINGLE;
@@ -1469,7 +1464,6 @@ H5_daos_group_update_max_crt_order_key(H5_daos_group_t *target_grp, uint64_t new
     /* Set up iod */
     memset(&iod, 0, sizeof(iod));
     daos_iov_set(&iod.iod_name, (void *)H5_daos_max_link_corder_key_g, H5_daos_max_link_corder_key_size_g);
-    daos_csum_set(&iod.iod_kcsum, NULL, 0);
     iod.iod_nr = 1u;
     iod.iod_size = (daos_size_t)H5_DAOS_ENCODED_CRT_ORDER_SIZE;
     iod.iod_type = DAOS_IOD_SINGLE;

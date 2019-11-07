@@ -169,21 +169,18 @@ H5_daos_map_create(void *_item,
         /* Set up iod */
         /* Key datatype.  Point akey to global name buffer, do not free. */
         daos_iov_set(&update_cb_ud->iod[0].iod_name, (void *)H5_daos_ktype_g, H5_daos_ktype_size_g);
-        daos_csum_set(&update_cb_ud->iod[0].iod_kcsum, NULL, 0);
         update_cb_ud->iod[0].iod_nr = 1u;
         update_cb_ud->iod[0].iod_size = (uint64_t)ktype_size;
         update_cb_ud->iod[0].iod_type = DAOS_IOD_SINGLE;
 
         /* Value datatype */
         daos_iov_set(&update_cb_ud->iod[1].iod_name, (void *)H5_daos_vtype_g, H5_daos_vtype_size_g);
-        daos_csum_set(&update_cb_ud->iod[1].iod_kcsum, NULL, 0);
         update_cb_ud->iod[1].iod_nr = 1u;
         update_cb_ud->iod[1].iod_size = (uint64_t)vtype_size;
         update_cb_ud->iod[1].iod_type = DAOS_IOD_SINGLE;
 
         /* MCPL */
         daos_iov_set(&update_cb_ud->iod[2].iod_name, (void *)H5_daos_cpl_key_g, H5_daos_cpl_key_size_g);
-        daos_csum_set(&update_cb_ud->iod[2].iod_kcsum, NULL, 0);
         update_cb_ud->iod[2].iod_nr = 1u;
         update_cb_ud->iod[2].iod_size = (uint64_t)mcpl_size;
         update_cb_ud->iod[2].iod_type = DAOS_IOD_SINGLE;
@@ -426,19 +423,16 @@ H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
         /* Set up iod */
         memset(iod, 0, sizeof(iod));
         daos_iov_set(&iod[0].iod_name, (void *)H5_daos_ktype_g, H5_daos_ktype_size_g);
-        daos_csum_set(&iod[0].iod_kcsum, NULL, 0);
         iod[0].iod_nr = 1u;
         iod[0].iod_size = DAOS_REC_ANY;
         iod[0].iod_type = DAOS_IOD_SINGLE;
 
         daos_iov_set(&iod[1].iod_name, (void *)H5_daos_vtype_g, H5_daos_vtype_size_g);
-        daos_csum_set(&iod[1].iod_kcsum, NULL, 0);
         iod[1].iod_nr = 1u;
         iod[1].iod_size = DAOS_REC_ANY;
         iod[1].iod_type = DAOS_IOD_SINGLE;
 
         daos_iov_set(&iod[2].iod_name, (void *)H5_daos_cpl_key_g, H5_daos_cpl_key_size_g);
-        daos_csum_set(&iod[2].iod_kcsum, NULL, 0);
         iod[2].iod_nr = 1u;
         iod[2].iod_size = DAOS_REC_ANY;
         iod[2].iod_type = DAOS_IOD_SINGLE;
@@ -824,7 +818,6 @@ H5_daos_map_get_val(void *_map, hid_t key_mem_type_id, const void *key,
     /* Set up iod */
     memset(&iod, 0, sizeof(iod));
     daos_iov_set(&iod.iod_name, (void *)H5_daos_map_key_g, H5_daos_map_key_size_g);
-    daos_csum_set(&iod.iod_kcsum, NULL, 0);
     iod.iod_nr = 1u;
     iod.iod_type = DAOS_IOD_SINGLE;
 
@@ -944,7 +937,6 @@ H5_daos_map_put(void *_map, hid_t key_mem_type_id, const void *key,
     /* Set up iod */
     memset(&iod, 0, sizeof(iod));
     daos_iov_set(&iod.iod_name, (void *)H5_daos_map_key_g, H5_daos_map_key_size_g);
-    daos_csum_set(&iod.iod_kcsum, NULL, 0);
     iod.iod_nr = 1u;
     iod.iod_size = (daos_size_t)val_size;
     iod.iod_type = DAOS_IOD_SINGLE;
@@ -1085,7 +1077,6 @@ H5_daos_map_exists(void *_map, hid_t key_mem_type_id, const void *key,
     /* Set up iod */
     memset(&iod, 0, sizeof(iod));
     daos_iov_set(&iod.iod_name, (void *)H5_daos_map_key_g, H5_daos_map_key_size_g);
-    daos_csum_set(&iod.iod_kcsum, NULL, 0);
     iod.iod_nr = 1u;
     iod.iod_type = DAOS_IOD_SINGLE;
     iod.iod_size = DAOS_REC_ANY;
@@ -1320,7 +1311,6 @@ H5_daos_map_iterate(H5_daos_map_t *map, hid_t map_id, hsize_t *idx,
                 /* Set up iod */
                 memset(&iod, 0, sizeof(iod));
                 daos_iov_set(&iod.iod_name, (void *)H5_daos_map_key_g, H5_daos_map_key_size_g);
-                daos_csum_set(&iod.iod_kcsum, NULL, 0);
                 iod.iod_nr = 1u;
                 iod.iod_type = DAOS_IOD_SINGLE;
                 iod.iod_size = DAOS_REC_ANY;

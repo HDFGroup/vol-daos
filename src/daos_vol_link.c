@@ -129,7 +129,6 @@ H5_daos_link_read(H5_daos_group_t *grp, const char *name, size_t name_len,
     /* Set up iod */
     memset(&iod, 0, sizeof(iod));
     daos_iov_set(&iod.iod_name, (void *)H5_daos_link_key_g, H5_daos_link_key_size_g);
-    daos_csum_set(&iod.iod_kcsum, NULL, 0);
     iod.iod_nr = 1u;
     iod.iod_size = DAOS_REC_ANY;
     iod.iod_type = DAOS_IOD_SINGLE;
@@ -328,7 +327,6 @@ H5_daos_link_write(H5_daos_group_t *grp, const char *name,
 
     /* Finish setting up iod */
     daos_iov_set(&update_cb_ud->iod[0].iod_name, (void *)H5_daos_link_key_g, H5_daos_link_key_size_g);
-    daos_csum_set(&update_cb_ud->iod[0].iod_kcsum, NULL, 0);
     update_cb_ud->iod[0].iod_nr = 1u;
     update_cb_ud->iod[0].iod_type = DAOS_IOD_SINGLE;
     update_cb_ud->free_akeys = FALSE;
@@ -396,25 +394,21 @@ H5_daos_link_write(H5_daos_group_t *grp, const char *name,
         /* Set up iod */
         memset(iod, 0, sizeof(iod));
         daos_iov_set(&iod[0].iod_name, (void *)H5_daos_max_link_corder_key_g, H5_daos_max_link_corder_key_size_g);
-        daos_csum_set(&iod[0].iod_kcsum, NULL, 0);
         iod[0].iod_nr = 1u;
         iod[0].iod_size = (daos_size_t)H5_DAOS_ENCODED_CRT_ORDER_SIZE;
         iod[0].iod_type = DAOS_IOD_SINGLE;
 
         daos_iov_set(&iod[1].iod_name, (void *)H5_daos_nlinks_key_g, H5_daos_nlinks_key_size_g);
-        daos_csum_set(&iod[1].iod_kcsum, NULL, 0);
         iod[1].iod_nr = 1u;
         iod[1].iod_size = (daos_size_t)H5_DAOS_ENCODED_NUM_LINKS_SIZE;
         iod[1].iod_type = DAOS_IOD_SINGLE;
 
         daos_iov_set(&iod[2].iod_name, (void *)nlinks_old_buf, H5_DAOS_ENCODED_NUM_LINKS_SIZE);
-        daos_csum_set(&iod[2].iod_kcsum, NULL, 0);
         iod[2].iod_nr = 1u;
         iod[2].iod_size = (uint64_t)name_len;
         iod[2].iod_type = DAOS_IOD_SINGLE;
 
         daos_iov_set(&iod[3].iod_name, (void *)corder_target_buf, H5_DAOS_CRT_ORDER_TO_LINK_TRGT_BUF_SIZE);
-        daos_csum_set(&iod[3].iod_kcsum, NULL, 0);
         iod[3].iod_nr = 1u;
         iod[3].iod_size = update_cb_ud->iod[0].iod_size;
         iod[3].iod_type = DAOS_IOD_SINGLE;
@@ -450,7 +444,6 @@ H5_daos_link_write(H5_daos_group_t *grp, const char *name,
 
         /* Set up iod */
         daos_iov_set(&update_cb_ud->iod[1].iod_name, (void *)H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
-        daos_csum_set(&update_cb_ud->iod[1].iod_kcsum, NULL, 0);
         update_cb_ud->iod[1].iod_nr = 1u;
         update_cb_ud->iod[1].iod_size = (uint64_t)8;
         update_cb_ud->iod[1].iod_type = DAOS_IOD_SINGLE;
@@ -1531,7 +1524,6 @@ H5_daos_link_exists(H5_daos_item_t *item, const char *link_path, hid_t dxpl_id, 
     /* Set up iod */
     memset(&iod, 0, sizeof(iod));
     daos_iov_set(&iod.iod_name, (void *)H5_daos_link_key_g, H5_daos_link_key_size_g);
-    daos_csum_set(&iod.iod_kcsum, NULL, 0);
     iod.iod_nr = 1u;
     iod.iod_size = DAOS_REC_ANY;
     iod.iod_type = DAOS_IOD_SINGLE;
@@ -2735,7 +2727,6 @@ H5_daos_link_get_name_by_crt_order(H5_daos_group_t *target_grp, H5_iter_order_t 
     /* Set up iod */
     memset(&iod, 0, sizeof(iod));
     daos_iov_set(&iod.iod_name, (void *)idx_buf, H5_DAOS_ENCODED_CRT_ORDER_SIZE);
-    daos_csum_set(&iod.iod_kcsum, NULL, 0);
     iod.iod_nr = 1u;
     iod.iod_size = DAOS_REC_ANY;
     iod.iod_type = DAOS_IOD_SINGLE;
@@ -2907,7 +2898,6 @@ H5_daos_link_get_crt_order_by_name(H5_daos_group_t *target_grp, const char *link
     /* Set up iod */
     memset(&iod, 0, sizeof(iod));
     daos_iov_set(&iod.iod_name, (void *)H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
-    daos_csum_set(&iod.iod_kcsum, NULL, 0);
     iod.iod_nr = 1u;
     iod.iod_size = (daos_size_t)H5_DAOS_ENCODED_CRT_ORDER_SIZE;
     iod.iod_type = DAOS_IOD_SINGLE;

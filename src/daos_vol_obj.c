@@ -1206,7 +1206,6 @@ H5_daos_object_get_num_attrs(H5_daos_obj_t *target_obj)
         /* Set up iod */
         memset(&iod, 0, sizeof(iod));
         daos_iov_set(&iod.iod_name, (void *)H5_daos_nattr_key_g, H5_daos_nattr_key_size_g);
-        daos_csum_set(&iod.iod_kcsum, NULL, 0);
         iod.iod_nr = 1u;
         iod.iod_size = (daos_size_t)H5_DAOS_ENCODED_NUM_ATTRS_SIZE;
         iod.iod_type = DAOS_IOD_SINGLE;
@@ -1302,7 +1301,6 @@ H5_daos_object_update_num_attrs_key(H5_daos_obj_t *target_obj, uint64_t new_natt
     /* Set up iod */
     memset(&iod, 0, sizeof(iod));
     daos_iov_set(&iod.iod_name, (void *)H5_daos_nattr_key_g, H5_daos_nattr_key_size_g);
-    daos_csum_set(&iod.iod_kcsum, NULL, 0);
     iod.iod_nr = 1u;
     iod.iod_size = (daos_size_t)H5_DAOS_ENCODED_NUM_ATTRS_SIZE;
     iod.iod_type = DAOS_IOD_SINGLE;

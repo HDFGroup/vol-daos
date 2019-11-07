@@ -534,7 +534,6 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     /* Set up iod */
     memset(&iod, 0, sizeof(iod));
     daos_iov_set(&iod.iod_name, H5_daos_root_grp_oid_key_g, H5_daos_root_grp_oid_key_size_g);
-    daos_csum_set(&iod.iod_kcsum, NULL, 0);
     iod.iod_nr = 1u;
     iod.iod_size = (uint64_t)H5_DAOS_ENCODED_OID_SIZE;
     iod.iod_type = DAOS_IOD_SINGLE;

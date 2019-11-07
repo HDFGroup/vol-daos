@@ -68,10 +68,17 @@ set(DAOS_SERVER_SCM_SIZE "8" CACHE STRING
 mark_as_advanced(DAOS_SERVER_SCM_SIZE)
 
 # Init config
-configure_file(
-  ${CMAKE_CURRENT_SOURCE_DIR}/scripts/daos_server.yml.in
-  ${CMAKE_CURRENT_BINARY_DIR}/scripts/daos_server.yml
-)
+if(HDF5_VOL_DAOS_USE_NEW_SERVER)
+  configure_file(
+     ${CMAKE_CURRENT_SOURCE_DIR}/scripts/daos_server_master.yml.in
+     ${CMAKE_CURRENT_BINARY_DIR}/scripts/daos_server.yml
+  )
+else()
+  configure_file(
+     ${CMAKE_CURRENT_SOURCE_DIR}/scripts/daos_server.yml.in
+     ${CMAKE_CURRENT_BINARY_DIR}/scripts/daos_server.yml
+  )
+endif()
 
 #------------------------------------------------------------------------------
 # DAOS agent config
@@ -107,6 +114,7 @@ set(HDF5_VOL_TEST_PLUGIN_NAME "daos")
 set(DAOS_CLIENT_PREFLAGS
   "-x D_LOG_FILE=${CMAKE_CURRENT_BINARY_DIR}/daos_client.log"
   "-x D_LOG_MASK=ERR"
+  "-x CRT_TIMEOUT=10"
   "-x CRT_PHY_ADDR_STR=${DAOS_SERVER_TRANSPORT}"
   "-x OFI_INTERFACE=${DAOS_SERVER_IFACE}"
   "-x DAOS_SINGLETON_CLI=1"

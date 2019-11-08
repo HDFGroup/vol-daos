@@ -172,6 +172,7 @@ configure_file(
 set(HDF5_VOL_DAOS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/daos_vol.c
   ${CMAKE_CURRENT_SOURCE_DIR}/daos_vol_attr.c
+  ${CMAKE_CURRENT_SOURCE_DIR}/daos_vol_blob.c
   ${CMAKE_CURRENT_SOURCE_DIR}/daos_vol_dset.c
   ${CMAKE_CURRENT_SOURCE_DIR}/daos_vol_file.c
   ${CMAKE_CURRENT_SOURCE_DIR}/daos_vol_group.c

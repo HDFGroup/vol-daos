@@ -157,13 +157,13 @@ H5_daos_cont_set_mpi_info(H5_daos_file_t *file, H5_daos_fapl_t *fa)
         /*
          * XXX: DSINC - Need to pass in MPI Info to VOL connector as well.
          */
-        if(FAIL == H5_daos_comm_info_dup(fa ? fa->comm : H5_daos_pool_comm_g, fa ? fa->info : MPI_INFO_NULL, &file->comm, &file->info))
+        if(FAIL == H5_daos_comm_info_dup(fa->comm, fa->info, &file->comm, &file->info))
             D_GOTO_ERROR(H5E_INTERNAL, H5E_CANTCOPY, FAIL, "failed to duplicate MPI communicator and info")
 
         /* Obtain the process rank and size from the communicator attached to the
          * fapl ID */
-        MPI_Comm_rank(fa ? fa->comm : H5_daos_pool_comm_g, &file->my_rank);
-        MPI_Comm_size(fa ? fa->comm : H5_daos_pool_comm_g, &file->num_procs);
+        MPI_Comm_rank(file->comm, &file->my_rank);
+        MPI_Comm_size(file->comm, &file->num_procs);
     } else {
         file->my_rank = 0;
         file->num_procs = 1;
@@ -757,19 +757,22 @@ H5_daos_file_get(void *_item, H5VL_file_get_t get_type, hid_t H5VL_DAOS_UNUSED d
             D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a file")
 
     switch (get_type) {
+        /* "get container info" */
         case H5VL_FILE_GET_CONT_INFO:
         {
             H5VL_file_cont_info_t *info = va_arg(arguments, H5VL_file_cont_info_t *);
 
+            /* Verify structure version */
             if(info->version != H5VL_CONTAINER_INFO_VERSION)
                 D_GOTO_ERROR(H5E_FILE, H5E_VERSION, FAIL, "wrong container info version number")
 
-            info->feature_flags = 0;
+            /* Set the container info fields */
+            info->feature_flags = 0;            /* None currently defined */
             info->token_size = H5_DAOS_ENCODED_OID_SIZE;
-            info->blob_id_size = 0; /* TODO */
+            info->blob_id_size = H5_DAOS_BLOB_ID_SIZE;
 
             break;
-        }
+        } /* H5VL_FILE_GET_CONT_INFO */
 
         /* H5Fget_access_plist */
         case H5VL_FILE_GET_FAPL:
@@ -925,7 +928,7 @@ done:
  */
 herr_t
 H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
-    hid_t dxpl_id, void **req, va_list H5VL_DAOS_UNUSED arguments)
+    hid_t dxpl_id, void **req, va_list arguments)
 {
     H5_daos_file_t *file = NULL;
     herr_t          ret_value = SUCCEED;    /* Return value */
@@ -934,6 +937,11 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
         file = ((H5_daos_item_t *)item)->file;
 
     switch (specific_type) {
+        /* H5Fcreate/open post open callback */
+        case H5VL_FILE_POST_OPEN:
+            /* No-op */
+            break;
+
         /* H5Fflush */
         case H5VL_FILE_FLUSH:
         {

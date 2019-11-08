@@ -73,15 +73,6 @@ static herr_t H5_daos_sel_to_recx_iov(hid_t space_id, size_t type_size,
     void *buf, daos_recx_t **recxs, daos_iov_t **sg_iovs, size_t *list_nused);
 static herr_t H5_daos_scatter_cb(const void **src_buf,
     size_t *src_buf_bytes_used, void *_udata);
-static herr_t H5_daos_dataset_mem_vl_rd_cb(void *_elem, hid_t type_id,
-    unsigned ndim, const hsize_t *point, void *_udata);
-static herr_t H5_daos_dataset_file_vl_cb(void *_elem, hid_t type_id,
-    unsigned ndim, const hsize_t *point, void *_udata);
-static herr_t H5_daos_dataset_mem_vl_wr_cb(void *_elem, hid_t type_id,
-    unsigned ndim, const hsize_t *point, void *_udata);
-static herr_t H5_daos_dataset_io_vl(H5_daos_dset_t *dset, daos_key_t dkey,
-    hssize_t num_elem, hid_t mem_type_id, hid_t mem_space_id, hid_t file_space_id,
-    hid_t dxpl_id, dset_io_type io_type, void *buf);
 static herr_t H5_daos_dataset_io_types_equal(H5_daos_dset_t *dset, daos_key_t dkey,
     hssize_t num_elem, hid_t mem_type_id, hid_t mem_space_id, hid_t file_space_id,
     hid_t dxpl_id, dset_io_type io_type, void *buf);
@@ -130,6 +121,10 @@ H5_daos_dataset_create(void *_item,
     int ret;
     void *ret_value = NULL;
 
+    /* Make sure H5_DAOS_g is set.  Eventually move this to a FUNC_ENTER_API
+     * type macro? */
+    H5_DAOS_G_INIT(NULL)
+
     if(!_item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "dataset parent object is NULL")
     if(!loc_params)
@@ -166,6 +161,7 @@ H5_daos_dataset_create(void *_item,
     dset->obj.item.rc = 1;
     dset->obj.obj_oh = DAOS_HDL_INVAL;
     dset->type_id = FAIL;
+    dset->file_type_id = FAIL;
     dset->space_id = FAIL;
     dset->dcpl_id = FAIL;
     dset->dapl_id = FAIL;
@@ -287,6 +283,8 @@ H5_daos_dataset_create(void *_item,
     /* Finish setting up dataset struct */
     if((dset->type_id = H5Tcopy(type_id)) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, NULL, "failed to copy datatype")
+    if((dset->file_type_id = H5VLget_file_type(item->file, H5_DAOS_g, type_id)) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "failed to get file datatype")
     if((dset->space_id = H5Scopy(space_id)) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, NULL, "failed to copy dataspace")
     if(H5Sselect_all(dset->space_id) < 0)
@@ -394,6 +392,10 @@ H5_daos_dataset_open(void *_item,
     int ret;
     void *ret_value = NULL;
 
+    /* Make sure H5_DAOS_g is set.  Eventually move this to a FUNC_ENTER_API
+     * type macro? */
+    H5_DAOS_G_INIT(NULL)
+
     if(!_item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "dataset parent object is NULL")
     if(!loc_params)
@@ -417,6 +419,7 @@ H5_daos_dataset_open(void *_item,
     dset->obj.item.rc = 1;
     dset->obj.obj_oh = DAOS_HDL_INVAL;
     dset->type_id = FAIL;
+    dset->file_type_id = FAIL;
     dset->space_id = FAIL;
     dset->dcpl_id = FAIL;
     dset->dapl_id = FAIL;
@@ -605,6 +608,8 @@ H5_daos_dataset_open(void *_item,
         D_GOTO_ERROR(H5E_ARGS, H5E_CANTDECODE, NULL, "can't deserialize dataset creation property list")
 
     /* Finish setting up dataset struct */
+    if((dset->file_type_id = H5VLget_file_type(item->file, H5_DAOS_g, dset->type_id)) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "failed to get file datatype")
     if((dset->dapl_id = H5Pcopy(dapl_id)) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, NULL, "failed to copy dapl");
 
@@ -682,12 +687,11 @@ H5_daos_sel_to_recx_iov(hid_t space_id, size_t type_size, void *buf,
     /* Initialize list_nused */
     *list_nused = 0;
 
-    /* Initialize selection iterator */
-    /*
-     * DSINC - 1 for the element size doesn't seem right here, but using the datatype
-     * size causes daos_obj_fetch to write outside of allocated memory buffers on a
-     * dataset read. Need to investigate this further.
-     */
+    /* Initialize selection iterator We use 1 for the element size here so that
+     * the sequence list offsets and lengths are returned in terms of numbers of
+     * elements, not bytes.  This way the returned values better match the
+     * values DAOS expects to receive, which are also in terms of numbers of
+     * elements. */
     if((sel_iter = H5Ssel_iter_create(space_id, 1, H5S_SEL_ITER_SHARE_WITH_DATASPACE)) < 0)
         D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTINIT, FAIL, "unable to create selection iterator")
 
@@ -778,142 +782,6 @@ H5_daos_scatter_cb(const void **src_buf, size_t *src_buf_bytes_used,
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_dataset_mem_vl_rd_cb
- *
- * Purpose:     H5Diterate callback for iterating over the memory space
- *              before reading vl data.  Allocates vl read buffers,
- *              up scatter gather lists (sgls), and reshapes iods if
- *              necessary to skip empty elements.
- *
- * Return:      Success:        0
- *              Failure:        -1, dataset not written.
- *
- * Programmer:  Neil Fortner
- *              May, 2017
- *
- *-------------------------------------------------------------------------
- */
-static herr_t
-H5_daos_dataset_mem_vl_rd_cb(void *_elem, hid_t H5VL_DAOS_UNUSED type_id,
-    unsigned H5VL_DAOS_UNUSED ndim, const hsize_t H5VL_DAOS_UNUSED *point,
-    void *_udata)
-{
-    H5_daos_vl_mem_ud_t *udata = (H5_daos_vl_mem_ud_t *)_udata;
-    herr_t ret_value = SUCCEED;
-
-    /* Set up constant sgl info */
-    udata->sgls[udata->idx].sg_nr = 1;
-    udata->sgls[udata->idx].sg_nr_out = 0;
-    udata->sgls[udata->idx].sg_iovs = &udata->sg_iovs[udata->idx];
-
-    /* Check for empty element */
-    if(udata->iods[udata->idx].iod_size == 0) {
-        /* Increment offset, slide down following elements */
-        udata->offset++;
-
-        /* Zero out read buffer */
-        if(udata->is_vl_str)
-            *(char **)_elem = NULL;
-        else
-            memset(_elem, 0, sizeof(hvl_t));
-    } /* end if */
-    else {
-        assert(udata->idx >= udata->offset);
-
-        /* Check for vlen string */
-        if(udata->is_vl_str) {
-            char *elem = NULL;
-
-            /* Allocate buffer for this vl element */
-            if(NULL == (elem = (char *)malloc((size_t)udata->iods[udata->idx].iod_size + 1)))
-                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate vl data buffer")
-            *(char **)_elem = elem;
-
-            /* Add null terminator */
-            elem[udata->iods[udata->idx].iod_size] = '\0';
-
-            /* Set buffer location in sgl */
-            daos_iov_set(&udata->sg_iovs[udata->idx - udata->offset], elem, udata->iods[udata->idx].iod_size);
-        } /* end if */
-        else {
-            /* Standard vlen, find hvl_t struct for this element */
-            hvl_t *elem = (hvl_t *)_elem;
-
-            assert(udata->base_type_size > 0);
-
-            /* Allocate buffer for this vl element and set size */
-            elem->len = (size_t)udata->iods[udata->idx].iod_size / udata->base_type_size;
-            if(NULL == (elem->p = malloc((size_t)udata->iods[udata->idx].iod_size)))
-                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate vl data buffer")
-
-            /* Set buffer location in sgl */
-            daos_iov_set(&udata->sg_iovs[udata->idx - udata->offset], elem->p, udata->iods[udata->idx].iod_size);
-        } /* end if */
-
-        /* Slide down iod if necessary */
-        if(udata->offset)
-            udata->iods[udata->idx - udata->offset] = udata->iods[udata->idx];
-    } /* end else */
-
-    /* Advance idx */
-    udata->idx++;
-
-done:
-    D_FUNC_LEAVE
-} /* end H5_daos_dataset_mem_vl_rd_cb() */
-
-
-/*-------------------------------------------------------------------------
- * Function:    H5_daos_dataset_file_vl_cb
- *
- * Purpose:     H5Diterate callback for iterating over the file space
- *              before vl data I/O.  Sets up akeys and iods (except for
- *              iod record sizes).
- *
- * Return:      Success:        0
- *              Failure:        -1, dataset not written.
- *
- * Programmer:  Neil Fortner
- *              May, 2017
- *
- *-------------------------------------------------------------------------
- */
-static herr_t
-H5_daos_dataset_file_vl_cb(void H5VL_DAOS_UNUSED *_elem,
-    hid_t H5VL_DAOS_UNUSED type_id, unsigned ndim, const hsize_t *point,
-    void *_udata)
-{
-    H5_daos_vl_file_ud_t *udata = (H5_daos_vl_file_ud_t *)_udata;
-    size_t akey_len = ndim * sizeof(uint64_t);
-    uint64_t coordu64;
-    uint8_t *p;
-    unsigned i;
-    herr_t ret_value = SUCCEED;
-
-    /* Create akey for this element */
-    if(NULL == (udata->akeys[udata->idx] = (uint8_t *)DV_malloc(akey_len)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akey")
-    p = udata->akeys[udata->idx];
-    for(i = 0; i < ndim; i++) {
-        coordu64 = (uint64_t)point[i];
-        UINT64ENCODE(p, coordu64)
-    } /* end for */
-
-    /* Set up iod, size was set in memory callback or initialized in main read
-     * function.  Use "single" records of varying size. */
-    daos_iov_set(&udata->iods[udata->idx].iod_name, (void *)udata->akeys[udata->idx], (daos_size_t)akey_len);
-    udata->iods[udata->idx].iod_nr = 1u;
-    udata->iods[udata->idx].iod_type = DAOS_IOD_SINGLE;
-
-    /* Advance idx */
-    udata->idx++;
-
-done:
-    D_FUNC_LEAVE
-} /* end H5_daos_dataset_file_vl_cb() */
-
-
-/*-------------------------------------------------------------------------
  * Function:    H5_daos_dataset_read
  *
  * Purpose:     Reads raw data from a dataset into a buffer.
@@ -933,11 +801,10 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
     H5_daos_select_chunk_info_t *chunk_info = NULL; /* Array of info for each chunk selected in the file */
     H5_daos_chunk_io_func single_chunk_read_func;
     H5_daos_dset_t *dset = (H5_daos_dset_t *)_dset;
-    H5T_class_t type_class;
     hssize_t num_elem = -1;
     uint64_t i;
     uint8_t dkey_buf[1 + (sizeof(uint64_t) * H5S_MAX_RANK)];
-    hbool_t is_vl = FALSE;
+    htri_t need_tconv;
     hbool_t close_spaces = FALSE;
     size_t chunk_info_len;
     hid_t real_file_space_id;
@@ -970,22 +837,6 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
     if(num_elem && !buf)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "read buffer is NULL but selection has >0 elements")
 
-    /* Check for variable length */
-    if(H5T_NO_CLASS == (type_class = H5Tget_class(mem_type_id)))
-        D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get datatype class")
-    if(type_class == H5T_VLEN) {
-        is_vl = TRUE;
-    } /* end if */
-    else if(type_class == H5T_STRING) {
-        htri_t is_vl_str;
-
-        /* check for vlen string */
-        if((is_vl_str = H5Tis_variable_str(mem_type_id)) < 0)
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't check for variable length string")
-        if(is_vl_str)
-            is_vl = TRUE;
-    } /* end if */
-
     /* Check for the dataset having a chunked storage layout. If it does not,
      * simply set up the dataset as a single "chunk".
      */
@@ -1004,9 +855,6 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
             break;
 
         case H5D_CHUNKED:
-            if(is_vl)
-                D_GOTO_ERROR(H5E_DATASET, H5E_UNSUPPORTED, FAIL, "vlen types are currently unsupported with chunking")
-
             /* Get the coordinates of the currently selected chunks in the file, setting up memory and file dataspaces for them */
             if(H5_daos_get_selected_chunk_info(dset->dcpl_id, real_file_space_id, real_mem_space_id, &chunk_info, &chunk_info_len) < 0)
                 D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get selected chunk info")
@@ -1023,24 +871,15 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
     } /* end switch */
 
     /* Setup the appropriate function for reading the selected chunks */
-    if(is_vl) {
-        single_chunk_read_func = H5_daos_dataset_io_vl;
-    } /* end if */
-    else {
-        htri_t types_equal;
-
-        /* Check if the types are equal */
-        if((types_equal = H5Tequal(dset->type_id, mem_type_id)) < 0)
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTCOMPARE, FAIL, "can't check if types are equal")
-        if(types_equal) {
-            /* No type conversion necessary */
-            single_chunk_read_func = H5_daos_dataset_io_types_equal;
-        } /* end if */
-        else {
-            /* Type conversion necessary */
-            single_chunk_read_func = H5_daos_dataset_io_types_unequal;
-        } /* end else */
-    } /* end else */
+    /* Check if the type conversion is needed */
+    if((need_tconv = H5_daos_need_tconv(dset->file_type_id, mem_type_id)) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOMPARE, FAIL, "can't check if type conversion is needed")
+    if(need_tconv)
+        /* Type conversion necessary */
+        single_chunk_read_func = H5_daos_dataset_io_types_unequal;
+    else
+        /* No type conversion necessary */
+        single_chunk_read_func = H5_daos_dataset_io_types_equal;
 
     /* Perform I/O on each chunk selected */
     for(i = 0; i < chunk_info_len; i++) {
@@ -1084,163 +923,6 @@ done:
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_dataset_io_vl
- *
- * Purpose:     Internal helper routine to perform I/O on a dataset
- *              composed of a variable-length datatype.
- *
- * Return:      Success:        0
- *              Failure:        -1, dataset I/O not performed.
- *
- * Programmer:  Neil Fortner
- *              November, 2016
- *
- *-------------------------------------------------------------------------
- */
-static herr_t
-H5_daos_dataset_io_vl(H5_daos_dset_t *dset, daos_key_t dkey, hssize_t num_elem,
-    hid_t mem_type_id, hid_t mem_space_id, hid_t file_space_id, hid_t H5VL_DAOS_UNUSED dxpl_id,
-    dset_io_type io_type, void *buf)
-{
-    H5_daos_vl_mem_ud_t mem_ud;
-    H5_daos_vl_file_ud_t file_ud;
-    daos_sg_list_t *sgls = NULL;
-    daos_iov_t *sg_iovs = NULL;
-    H5T_class_t type_class;
-    daos_iod_t *iods = NULL;
-    uint8_t **akeys = NULL;
-    uint64_t i;
-    htri_t is_vl_str = FALSE;
-    size_t base_type_size = 0;
-    hid_t base_type_id = FAIL;
-    int ret;
-    herr_t ret_value = SUCCEED;
-
-    if(H5T_NO_CLASS == (type_class = H5Tget_class(mem_type_id)))
-        D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get datatype class")
-    if(type_class == H5T_VLEN) {
-        /* Calculate base type size */
-        if((base_type_id = H5Tget_super(mem_type_id)) < 0)
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get datatype base type")
-        if(0 == (base_type_size = H5Tget_size(base_type_id)))
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get datatype base type size")
-    } /* end if */
-    else if(type_class == H5T_STRING) {
-        /* check for vlen string */
-        if((is_vl_str = H5Tis_variable_str(mem_type_id)) < 0)
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't check for variable length string")
-    } /* end if */
-
-    /* Allocate array of akey pointers */
-    if(NULL == (akeys = (uint8_t **)DV_calloc((size_t)num_elem * sizeof(uint8_t *))))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akey array")
-
-    /* Allocate array of iods */
-    if(NULL == (iods = (daos_iod_t *)DV_calloc((size_t)num_elem * sizeof(daos_iod_t))))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for I/O descriptor array")
-
-    if(io_type == IO_READ) {
-        /* Fill in size fields of iod as DAOS_REC_ANY so we can read the vl sizes */
-        for(i = 0; i < (uint64_t)num_elem; i++)
-            iods[i].iod_size = DAOS_REC_ANY;
-
-        /* Iterate over file selection.  Note the bogus buffer and type_id, these
-         * don't matter since the "elem" parameter of the callback is not used. */
-        file_ud.akeys = akeys;
-        file_ud.iods = iods;
-        file_ud.idx = 0;
-        if(H5Diterate((void *)buf, mem_type_id, file_space_id, H5_daos_dataset_file_vl_cb, &file_ud) < 0)
-            D_GOTO_ERROR(H5E_DATASET, H5E_BADITER, FAIL, "file selection iteration failed")
-        assert(file_ud.idx == (uint64_t)num_elem);
-
-        /* Read vl sizes from dataset */
-        /* Note cast to unsigned reduces width to 32 bits.  Should eventually
-         * check for overflow and iterate over 2^32 size blocks */
-        if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, DAOS_TX_NONE, &dkey, (unsigned)num_elem, iods, NULL, NULL /*maps*/, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, FAIL, "can't read vl data sizes from dataset: %s", H5_daos_err_to_string(ret))
-
-        /* Allocate array of sg_iovs */
-        if(NULL == (sg_iovs = (daos_iov_t *)DV_malloc((size_t)num_elem * sizeof(daos_iov_t))))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for scatter gather list")
-
-        /* Allocate array of sgls */
-        if(NULL == (sgls = (daos_sg_list_t *)DV_malloc((size_t)num_elem * sizeof(daos_sg_list_t))))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for scatter gather list array")
-
-        /* Iterate over memory selection */
-        mem_ud.iods = iods;
-        mem_ud.sgls = sgls;
-        mem_ud.sg_iovs = sg_iovs;
-        mem_ud.is_vl_str = is_vl_str;
-        mem_ud.base_type_size = base_type_size;
-        mem_ud.offset = 0;
-        mem_ud.idx = 0;
-        if(H5Diterate((void *)buf, mem_type_id, mem_space_id, H5_daos_dataset_mem_vl_rd_cb, &mem_ud) < 0)
-            D_GOTO_ERROR(H5E_DATASET, H5E_BADITER, FAIL, "memory selection iteration failed")
-        assert(mem_ud.idx == (uint64_t)num_elem);
-
-        /* Read data from dataset */
-        /* Note cast to unsigned reduces width to 32 bits.  Should eventually
-         * check for overflow and iterate over 2^32 size blocks */
-        if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, DAOS_TX_NONE, &dkey, (unsigned)((uint64_t)num_elem - mem_ud.offset), iods, sgls, NULL /*maps*/, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_DATASET, H5E_READERROR, FAIL, "can't read data from dataset: %s", H5_daos_err_to_string(ret))
-    } /* end (io_type == IO_READ) */
-    else {
-        /* Allocate array of sg_iovs */
-        if(NULL == (sg_iovs = (daos_iov_t *)DV_malloc((size_t)num_elem * sizeof(daos_iov_t))))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for scatter gather list")
-
-        /* Allocate array of sgls */
-        if(NULL == (sgls = (daos_sg_list_t *)DV_malloc((size_t)num_elem * sizeof(daos_sg_list_t))))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for scatter gather list array")
-
-        /* Iterate over memory selection */
-        mem_ud.iods = iods;
-        mem_ud.sgls = sgls;
-        mem_ud.sg_iovs = sg_iovs;
-        mem_ud.is_vl_str = is_vl_str;
-        mem_ud.base_type_size = base_type_size;
-        mem_ud.idx = 0;
-        if(H5Diterate((void *)buf, mem_type_id, mem_space_id, H5_daos_dataset_mem_vl_wr_cb, &mem_ud) < 0)
-            D_GOTO_ERROR(H5E_DATASET, H5E_BADITER, FAIL, "memory selection iteration failed")
-        assert(mem_ud.idx == (uint64_t)num_elem);
-
-        /* Iterate over file selection.  Note the bogus buffer and type_id, these
-         * don't matter since the "elem" parameter of the callback is not used. */
-        file_ud.akeys = akeys;
-        file_ud.iods = iods;
-        file_ud.idx = 0;
-        if(H5Diterate((void *)buf, mem_type_id, file_space_id, H5_daos_dataset_file_vl_cb, &file_ud) < 0)
-            D_GOTO_ERROR(H5E_DATASET, H5E_BADITER, FAIL, "file selection iteration failed")
-        assert(file_ud.idx == (uint64_t)num_elem);
-
-        /* Write data to dataset */
-        /* Note cast to unsigned reduces width to 32 bits.  Should eventually
-         * check for overflow and iterate over 2^32 size blocks */
-        if(0 != (ret = daos_obj_update(dset->obj.obj_oh, DAOS_TX_NONE, &dkey, (unsigned)num_elem, iods, sgls, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_DATASET, H5E_WRITEERROR, FAIL, "can't write data to dataset: %s", H5_daos_err_to_string(ret))
-    } /* end (io_type == IO_WRITE) */
-
-done:
-    sgls = (daos_sg_list_t *)DV_free(sgls);
-    sg_iovs = (daos_iov_t *)DV_free(sg_iovs);
-    iods = (daos_iod_t *)DV_free(iods);
-
-    if(akeys) {
-        for(i = 0; i < (uint64_t)num_elem; i++)
-            DV_free(akeys[i]);
-        DV_free(akeys);
-    } /* end if */
-
-    if(base_type_id != FAIL)
-        if(H5Idec_ref(base_type_id) < 0)
-            D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, FAIL, "can't close base type ID")
-
-    D_FUNC_LEAVE
-} /* end H5_daos_dataset_io_vl() */
-
-
-/*-------------------------------------------------------------------------
  * Function:    H5_daos_dataset_io_types_equal
  *
  * Purpose:     Internal helper routine to perform I/O on a dataset
@@ -1275,7 +957,7 @@ H5_daos_dataset_io_types_equal(H5_daos_dset_t *dset, daos_key_t dkey, hssize_t H
     herr_t ret_value = SUCCEED;
 
     /* Get datatype size */
-    if((file_type_size = H5Tget_size(dset->type_id)) == 0)
+    if((file_type_size = H5Tget_size(dset->file_type_id)) == 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get datatype size for file datatype")
 
     /* Set up iod */
@@ -1383,15 +1065,25 @@ H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t dkey, hssize_t
         hsize_t sel_off;
         size_t sel_len;
 
-        /* Check for contiguous memory buffer */
+        /* Initialize type conversion */
+        if(H5_daos_tconv_init(
+                dset->file_type_id,
+                &file_type_size,
+                mem_type_id,
+                &mem_type_size,
+                (size_t)num_elem,
+                &tconv_buf,
+                &bkg_buf,
+                &reuse,
+                &fill_bkg) < 0)
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't initialize type conversion")
 
-        if((mem_type_size = H5Tget_size(mem_type_id)) == 0)
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't get memory datatype size")
-        if((file_type_size = H5Tget_size(dset->type_id)) == 0)
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't get dataset's file datatype size")
-
-        /* Initialize selection iterator */
-        if((sel_iter = H5Ssel_iter_create(mem_space_id, file_type_size, H5S_SEL_ITER_SHARE_WITH_DATASPACE)) < 0)
+        /* Initialize selection iterator.  We use 1 for the element size here so
+         * that the sequence list offsets and lengths are returned in terms of
+         * numbers of elements, not bytes.  In this case it just saves us from
+         * needing to multiply num_elem by the type size when checking for a
+         * contiguous selection */
+        if((sel_iter = H5Ssel_iter_create(mem_space_id, 1, H5S_SEL_ITER_SHARE_WITH_DATASPACE)) < 0)
             D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTINIT, FAIL, "unable to create selection iterator")
 
         /* Get the sequence list - only check the first sequence because we only
@@ -1410,22 +1102,19 @@ H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t dkey, hssize_t
                 bkg_buf = (char *)buf + (size_t)sel_off;
         } /* end if */
     } /* end (io_type == IO_READ) */
-
-    /* Initialize type conversion */
-    if(H5_daos_tconv_init(
-            /* If reading, source type ID/source type size correspond to the values
-             * from the dataset's file datatype. Otherwise, the source type ID/source
-             * type size correspond to the values from the memory type ID. */
-            (io_type == IO_READ) ? dset->type_id : mem_type_id,
-            (io_type == IO_READ) ? &file_type_size : &mem_type_size,
-            (io_type == IO_READ) ? mem_type_id : dset->type_id,
-            (io_type == IO_READ) ? &mem_type_size : &file_type_size,
-            (size_t)num_elem,
-            &tconv_buf,
-            &bkg_buf,
-            (contig && (io_type == IO_READ)) ? &reuse : NULL,
-            &fill_bkg) < 0)
-        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't initialize type conversion")
+    else
+        /* Initialize type conversion */
+        if(H5_daos_tconv_init(
+                mem_type_id,
+                &mem_type_size,
+                dset->file_type_id,
+                &file_type_size,
+                (size_t)num_elem,
+                &tconv_buf,
+                &bkg_buf,
+                NULL,
+                &fill_bkg) < 0)
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't initialize type conversion")
 
     /* Set up iod */
     memset(&iod, 0, sizeof(iod));
@@ -1464,7 +1153,7 @@ H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t dkey, hssize_t
                 D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't gather data to background buffer")
 
         /* Perform type conversion */
-        if(H5Tconvert(dset->type_id, mem_type_id, (size_t)num_elem, tconv_buf, bkg_buf, dxpl_id) < 0)
+        if(H5Tconvert(dset->file_type_id, mem_type_id, (size_t)num_elem, tconv_buf, bkg_buf, dxpl_id) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTCONVERT, FAIL, "can't perform type conversion")
 
         /* Scatter data to memory buffer if necessary */
@@ -1499,7 +1188,7 @@ H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t dkey, hssize_t
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't gather data to conversion buffer")
 
         /* Perform type conversion */
-        if(H5Tconvert(mem_type_id, dset->type_id, (size_t)num_elem, tconv_buf, bkg_buf, dxpl_id) < 0)
+        if(H5Tconvert(mem_type_id, dset->file_type_id, (size_t)num_elem, tconv_buf, bkg_buf, dxpl_id) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTCONVERT, FAIL, "can't perform type conversion")
 
         /* Set sg_iovs to write from tconv_buf */
@@ -1530,83 +1219,6 @@ done:
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_dataset_mem_vl_wr_cb
- *
- * Purpose:     H5Diterate callback for iterating over the memory space
- *              before writing vl data.  Sets up scatter gather lists
- *              (sgls) and sets the record sizes in iods.
- *
- * Return:      Success:        0
- *              Failure:        -1, dataset not written.
- *
- * Programmer:  Neil Fortner
- *              May, 2017
- *
- *-------------------------------------------------------------------------
- */
-static herr_t
-H5_daos_dataset_mem_vl_wr_cb(void *_elem, hid_t H5VL_DAOS_UNUSED type_id,
-    unsigned H5VL_DAOS_UNUSED ndim, const hsize_t H5VL_DAOS_UNUSED *point,
-    void *_udata)
-{
-    H5_daos_vl_mem_ud_t *udata = (H5_daos_vl_mem_ud_t *)_udata;
-    herr_t ret_value = SUCCEED;
-
-    /* Set up constant sgl info */
-    udata->sgls[udata->idx].sg_nr = 1;
-    udata->sgls[udata->idx].sg_nr_out = 0;
-    udata->sgls[udata->idx].sg_iovs = &udata->sg_iovs[udata->idx];
-
-    /* Check for vlen string */
-    if(udata->is_vl_str) {
-        /* Find string for this element */
-        char *elem = *(char **)_elem;
-
-        /* Set string length in iod and buffer location in sgl.  If we are
-         * writing an empty string ("\0"), increase the size by one to
-         * differentiate it from NULL strings.  Note that this will cause the
-         * read buffer to be one byte longer than it needs to be in this case.
-         * This should not cause any ill effects. */
-        if(elem) {
-            udata->iods[udata->idx].iod_size = (daos_size_t)strlen(elem);
-            if(udata->iods[udata->idx].iod_size == 0)
-                udata->iods[udata->idx].iod_size = 1;
-            daos_iov_set(&udata->sg_iovs[udata->idx], (void *)elem, udata->iods[udata->idx].iod_size);
-        } /* end if */
-        else {
-            udata->iods[udata->idx].iod_size = 0;
-            daos_iov_set(&udata->sg_iovs[udata->idx], NULL, 0);
-        } /* end else */
-    } /* end if */
-    else {
-        /* Standard vlen, find hvl_t struct for this element */
-        hvl_t *elem = (hvl_t *)_elem;
-
-        assert(udata->base_type_size > 0);
-
-        /* Set buffer length in iod and buffer location in sgl */
-        if(elem->len > 0) {
-            udata->iods[udata->idx].iod_size = (daos_size_t)(elem->len * udata->base_type_size);
-            daos_iov_set(&udata->sg_iovs[udata->idx], (void *)elem->p, udata->iods[udata->idx].iod_size);
-        } /* end if */
-        else {
-            udata->iods[udata->idx].iod_size = 0;
-            daos_iov_set(&udata->sg_iovs[udata->idx], NULL, 0);
-        } /* end else */
-    } /* end else */
-
-    /* Advance idx */
-    udata->idx++;
-
-    /* DSINC - This function used to always return SUCCEED without needing an
-     * herr_t. Might need an additional FUNC_LEAVE macro to do this, or modify
-     * the current one to take in the ret_value.
-     */
-    D_FUNC_LEAVE
-} /* end H5_daos_dataset_mem_vl_wr_cb() */
-
-
-/*-------------------------------------------------------------------------
  * Function:    H5_daos_dataset_write
  *
  * Purpose:     Writes raw data from a buffer into a dataset.
@@ -1627,11 +1239,10 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
     H5_daos_select_chunk_info_t *chunk_info = NULL; /* Array of info for each chunk selected in the file */
     H5_daos_chunk_io_func single_chunk_write_func;
     H5_daos_dset_t *dset = (H5_daos_dset_t *)_dset;
-    H5T_class_t type_class;
     hssize_t num_elem = -1;
     uint64_t i;
     uint8_t dkey_buf[1 + (sizeof(uint64_t) * H5S_MAX_RANK)];
-    hbool_t is_vl = FALSE;
+    htri_t need_tconv;
     hbool_t close_spaces = FALSE;
     size_t chunk_info_len;
     hid_t real_file_space_id;
@@ -1668,22 +1279,6 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
     if(num_elem && !buf)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "write buffer is NULL but selection has >0 elements")
 
-    /* Check for variable length */
-    if(H5T_NO_CLASS == (type_class = H5Tget_class(mem_type_id)))
-        D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get datatype class")
-    if(type_class == H5T_VLEN) {
-        is_vl = TRUE;
-    } /* end if */
-    else if(type_class == H5T_STRING) {
-        htri_t is_vl_str = FALSE;
-
-        /* check for vlen string */
-        if((is_vl_str = H5Tis_variable_str(mem_type_id)) < 0)
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't check for variable length string")
-        if(is_vl_str)
-            is_vl = TRUE;
-    } /* end if */
-
     /* Check for the dataset having a chunked storage layout. If it does not,
      * simply set up the dataset as a single "chunk".
      */
@@ -1702,9 +1297,6 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
             break;
 
         case H5D_CHUNKED:
-            if(is_vl)
-                D_GOTO_ERROR(H5E_DATASET, H5E_UNSUPPORTED, FAIL, "vlen types are currently unsupported with chunking")
-
             /* Get the coordinates of the currently selected chunks in the file, setting up memory and file dataspaces for them */
             if(H5_daos_get_selected_chunk_info(dset->dcpl_id, real_file_space_id, real_mem_space_id, &chunk_info, &chunk_info_len) < 0)
                 D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get selected chunk info")
@@ -1720,25 +1312,16 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
             D_GOTO_ERROR(H5E_DATASET, H5E_UNSUPPORTED, FAIL, "invalid, unknown or unsupported dataset storage layout type")
     } /* end switch */
 
-    /* Setup the appropriate function for writing the selected chunks */
-    if(is_vl) {
-        single_chunk_write_func = H5_daos_dataset_io_vl;
-    } /* end if */
-    else {
-        htri_t types_equal;
-
-        /* Check if the types are equal */
-        if((types_equal = H5Tequal(dset->type_id, mem_type_id)) < 0)
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTCOMPARE, FAIL, "can't check if types are equal")
-        if(types_equal) {
-            /* No type conversion necessary */
-            single_chunk_write_func = H5_daos_dataset_io_types_equal;
-        } /* end if */
-        else {
-            /* Type conversion necessary */
-            single_chunk_write_func = H5_daos_dataset_io_types_unequal;
-        } /* end else */
-    } /* end else */
+    /* Setup the appropriate function for reading the selected chunks */
+        /* Check if the type conversion is needed */
+    if((need_tconv = H5_daos_need_tconv(mem_type_id, dset->file_type_id)) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOMPARE, FAIL, "can't check if type conversion is needed")
+    if(need_tconv)
+        /* Type conversion necessary */
+        single_chunk_write_func = H5_daos_dataset_io_types_unequal;
+    else
+        /* No type conversion necessary */
+        single_chunk_write_func = H5_daos_dataset_io_types_equal;
 
     /* Perform I/O on each chunk selected */
     for(i = 0; i < chunk_info_len; i++) {
@@ -1972,6 +1555,8 @@ H5_daos_dataset_close(void *_dset, hid_t H5VL_DAOS_UNUSED dxpl_id,
                 D_DONE_ERROR(H5E_DATASET, H5E_CANTCLOSEOBJ, FAIL, "can't close dataset DAOS object: %s", H5_daos_err_to_string(ret))
         if(dset->type_id != FAIL && H5Idec_ref(dset->type_id) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close dataset's datatype")
+        if(dset->file_type_id != FAIL && H5Idec_ref(dset->file_type_id) < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close dataset's file datatype")
         if(dset->space_id != FAIL && H5Idec_ref(dset->space_id) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close dataset's dataspace")
         if(dset->dcpl_id != FAIL && H5Idec_ref(dset->dcpl_id) < 0)

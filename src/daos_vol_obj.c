@@ -1042,6 +1042,7 @@ H5_daos_object_visit_link_iter_cb(hid_t group, const char *name, const H5L_info_
     H5_daos_iter_data_t *iter_data = (H5_daos_iter_data_t *)op_data;
     H5_daos_group_t *target_grp;
     H5_daos_obj_t *target_obj = NULL;
+    daos_obj_id_t link_target_oid;
     htri_t link_resolves = TRUE;
     herr_t ret_value = H5_ITER_CONT;
 
@@ -1053,7 +1054,7 @@ H5_daos_object_visit_link_iter_cb(hid_t group, const char *name, const H5L_info_
 
     if(H5L_TYPE_SOFT == info->type)
         /* Check that the soft link resolves before opening the target object */
-        if((link_resolves = H5_daos_link_follow(target_grp, name, strlen(name), iter_data->dxpl_id, NULL, NULL)) < 0)
+        if((link_resolves = H5_daos_link_follow(target_grp, name, strlen(name), iter_data->dxpl_id, NULL, &link_target_oid)) < 0)
             D_GOTO_ERROR(H5E_LINK, H5E_TRAVERSE, H5_ITER_ERROR, "can't follow link")
 
     if(link_resolves) {

@@ -59,6 +59,15 @@ typedef d_sg_list_t daos_sg_list_t;
 #define H5_DAOS_VOL_NAME "daos"
 #define H5_DAOS_VOL_NAME_LEN 4
 
+/* Macro to ensure H5_DAOS_g is initialized */
+#define H5_DAOS_G_INIT(ERR) { \
+    H5I_type_t idType = H5I_UNINIT; \
+\
+    if(H5_DAOS_g < 0) \
+        if((H5_DAOS_g = H5VLpeek_connector_id(H5_DAOS_VOL_NAME)) < 0) \
+            D_GOTO_ERROR(H5E_ATOM, H5E_CANTGET, ERR, "unable to get registered ID for DAOS VOL connector") \
+}
+
 /* Constant keys */
 #define H5_DAOS_CHUNK_KEY 0u
 
@@ -75,6 +84,9 @@ typedef d_sg_list_t daos_sg_list_t;
 #define H5_DAOS_ITER_SIZE_INIT (4 * 1024)
 #define H5_DAOS_ATTR_NUM_AKEYS 5
 #define H5_DAOS_ATTR_NAME_BUF_SIZE 2048
+
+/* Size of blob IDs */
+#define H5_DAOS_BLOB_ID_SIZE sizeof(uuid_t)
 
 /* Sizes of objects on storage */
 #define H5_DAOS_ENCODED_OID_SIZE       16
@@ -326,6 +338,7 @@ typedef struct H5_daos_group_t {
 typedef struct H5_daos_dset_t {
     H5_daos_obj_t obj; /* Must be first */
     hid_t type_id;
+    hid_t file_type_id;
     hid_t space_id;
     hid_t dcpl_id;
     hid_t dapl_id;
@@ -356,6 +369,7 @@ typedef struct H5_daos_attr_t {
     H5_daos_obj_t *parent;
     char *name;
     hid_t type_id;
+    hid_t file_type_id;
     hid_t space_id;
     hid_t acpl_id;
 } H5_daos_attr_t;
@@ -538,6 +552,7 @@ extern H5VL_DAOS_PRIVATE const char H5_daos_max_attr_corder_key_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_ktype_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_vtype_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_map_key_g[];
+extern H5VL_DAOS_PRIVATE const char H5_daos_blob_key_g[];
 
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_int_md_key_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_root_grp_oid_key_size_g;
@@ -554,6 +569,7 @@ extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_max_attr_corder_key_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_ktype_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_vtype_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_map_key_size_g;
+extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_blob_key_size_g;
 
 /**********************/
 /* Private Prototypes */
@@ -691,6 +707,7 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_datatype_specific(void *_item, H5VL_datatype_sp
 H5VL_DAOS_PRIVATE herr_t H5_daos_datatype_close(void *_dtype, hid_t dxpl_id, void **req);
 
 /* Other datatype routines */
+H5VL_DAOS_PRIVATE htri_t H5_daos_need_tconv(hid_t src_type_id, hid_t dst_type_id);
 H5VL_DAOS_PRIVATE herr_t H5_daos_tconv_init(hid_t src_type_id, size_t *src_type_size,
     hid_t dst_type_id, size_t *dst_type_size, size_t num_elem, void **tconv_buf,
     void **bkg_buf, H5_daos_tconv_reuse_t *reuse, hbool_t *fill_bkg);
@@ -770,6 +787,14 @@ H5PLUGIN_DLL herr_t H5_daos_map_get_count(void *_map, hsize_t *count, void **req
 #endif /* DV_HAVE_MAP */
 H5VL_DAOS_PRIVATE herr_t H5_daos_map_close(void *_map, hid_t dxpl_id,
     void **req);
+
+/* Blob callbacks */
+H5VL_DAOS_PRIVATE herr_t H5_daos_blob_put(void *_file, const void *buf,
+    size_t size, void *blob_id, void *_ctx);
+H5VL_DAOS_PRIVATE herr_t H5_daos_blob_get(void *_file, const void *blob_id,
+    void *buf, size_t size, void *_ctx);
+H5VL_DAOS_PRIVATE herr_t H5_daos_blob_specific(void *_file, void *blob_id,
+    H5VL_blob_specific_t specific_type, va_list arguments);
 
 /* Helper routines */
 H5VL_DAOS_PRIVATE herr_t H5_daos_file_flush(H5_daos_file_t *file);

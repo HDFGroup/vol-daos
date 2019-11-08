@@ -19,8 +19,159 @@
 #include "util/daos_vol_mem.h"  /* DAOS connector memory management        */
 
 /* Prototypes */
+static htri_t H5_daos_need_tconv_recurse(hid_t type_id);
 static htri_t H5_daos_need_bkg(hid_t src_type_id, hid_t dst_type_id,
     size_t *dst_type_size, hbool_t *fill_bkg);
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_need_tconv_recurse
+ *
+ * Purpose:     Determine if datatype conversion is necessary even if the
+ *              types are the same.
+ *
+ * Return:      Success:        1 if conversion needed, 0 otherwise
+ *              Failure:        -1
+ *
+ *-------------------------------------------------------------------------
+ */
+static htri_t
+H5_daos_need_tconv_recurse(hid_t type_id)
+{
+    hid_t memb_type_id = -1;
+    H5T_class_t tclass;
+    htri_t ret_value;
+
+    /* Get datatype class */
+    if(H5T_NO_CLASS == (tclass = H5Tget_class(type_id)))
+        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't get type class")
+
+    switch(tclass) {
+        case H5T_INTEGER:
+        case H5T_FLOAT:
+        case H5T_TIME:
+        case H5T_BITFIELD:
+        case H5T_OPAQUE:
+        case H5T_ENUM:
+            /* No conversion necessary */
+            ret_value = FALSE;
+
+            break;
+
+        case H5T_STRING:
+            /* Check for vlen string, need conversion if it's vl */
+            if((ret_value = H5Tis_variable_str(type_id)) < 0)
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't check for variable length string")
+
+            break;
+
+        case H5T_COMPOUND:
+            {
+                int nmemb;
+                int i;
+
+                /* Get number of compound members */
+                if((nmemb = H5Tget_nmembers(type_id)) < 0)
+                    D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't get number of destination compound members")
+
+                /* Iterate over compound members, checking for a member in
+                 * dst_type_id with no match in src_type_id */
+                for(i = 0; i < nmemb; i++) {
+                    /* Get member type */
+                    if((memb_type_id = H5Tget_member_type(type_id, (unsigned)i)) < 0)
+                        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't get compound member type")
+
+                    /* Recursively check member type, this will fill in the
+                     * member size */
+                    if((ret_value = H5_daos_need_tconv_recurse(memb_type_id)) < 0)
+                        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't check if background buffer needed")
+
+                    /* Close member type */
+                    if(H5Tclose(memb_type_id) < 0)
+                        D_GOTO_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, FAIL, "can't close member type")
+                    memb_type_id = -1;
+
+                    /* If any member needs conversion the entire compound does
+                     */
+                    if(ret_value) {
+                        ret_value = TRUE;
+                        break;
+                    } /* end if */
+                } /* end for */
+
+                break;
+            } /* end block */
+
+        case H5T_ARRAY:
+            /* Get parent type */
+            if((memb_type_id = H5Tget_super(type_id)) < 0)
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't get array parent type")
+
+            /* Recursively check parent type */
+            if((ret_value = H5_daos_need_tconv_recurse(memb_type_id)) < 0)
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't check if background buffer needed")
+
+            /* Close parent type */
+            if(H5Tclose(memb_type_id) < 0)
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, FAIL, "can't close array parent type")
+            memb_type_id = -1;
+
+            break;
+
+        case H5T_REFERENCE:
+        case H5T_VLEN:
+            /* Always need type conversion for references and vlens */
+            ret_value = TRUE;
+
+            break;
+
+        case H5T_NO_CLASS:
+        case H5T_NCLASSES:
+        default:
+            D_GOTO_ERROR(H5E_DATATYPE, H5E_BADVALUE, FAIL, "invalid type class")
+    } /* end switch */
+
+done:
+    /* Cleanup on failure */
+    if(memb_type_id >= 0)
+        if(H5Idec_ref(memb_type_id) < 0)
+            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTDEC, FAIL, "failed to close member type")
+
+    D_FUNC_LEAVE
+} /* end H5_daos_need_tconv_recurse() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_need_tconv
+ *
+ * Purpose:     Determine if datatype conversion is necessary.
+ *
+ * Return:      Success:        1 if conversion needed, 0 otherwise
+ *              Failure:        -1
+ *
+ *-------------------------------------------------------------------------
+ */
+htri_t
+H5_daos_need_tconv(hid_t src_type_id, hid_t dst_type_id)
+{
+    htri_t types_equal;
+    htri_t ret_value;
+
+    /* Check if the types are equal */
+    if((types_equal = H5Tequal(src_type_id, dst_type_id)) < 0)
+        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTCOMPARE, FAIL, "can't check if types are equal")
+
+    if(types_equal) {
+        /* Check if conversion is needed anyways */
+        if((ret_value = H5_daos_need_tconv_recurse(src_type_id)) < 0)
+            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't check if type conversion is needed")
+    } /* end if */
+    else
+        ret_value = TRUE;
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_need_tconv() */
 
 
 /*-------------------------------------------------------------------------
@@ -28,7 +179,7 @@ static htri_t H5_daos_need_bkg(hid_t src_type_id, hid_t dst_type_id,
  *
  * Purpose:     Determine if a background buffer is needed for conversion.
  *
- * Return:      Success:        0
+ * Return:      Success:        1 if bkg buffer needed, 0 otherwise
  *              Failure:        -1
  *
  * Programmer:  Neil Fortner
@@ -66,6 +217,8 @@ H5_daos_need_bkg(hid_t src_type_id, hid_t dst_type_id, size_t *dst_type_size,
         case H5T_BITFIELD:
         case H5T_OPAQUE:
         case H5T_ENUM:
+        case H5T_REFERENCE:
+        case H5T_VLEN:
             /* No background buffer necessary */
             ret_value = FALSE;
 
@@ -182,13 +335,6 @@ H5_daos_need_bkg(hid_t src_type_id, hid_t dst_type_id, size_t *dst_type_size,
 
             break;
 
-        case H5T_REFERENCE:
-        case H5T_VLEN:
-            /* Not yet supported */
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_UNSUPPORTED, FAIL, "reference and vlen types not supported")
-
-            break;
-
         case H5T_NO_CLASS:
         case H5T_NCLASSES:
         default:
@@ -230,7 +376,6 @@ H5_daos_tconv_init(hid_t src_type_id, size_t *src_type_size,
     void **bkg_buf, H5_daos_tconv_reuse_t *reuse, hbool_t *fill_bkg)
 {
     htri_t need_bkg;
-    htri_t types_equal;
     herr_t ret_value = SUCCEED;
 
     assert(src_type_size);
@@ -246,41 +391,33 @@ H5_daos_tconv_init(hid_t src_type_id, size_t *src_type_size,
     if((*src_type_size = H5Tget_size(src_type_id)) == 0)
         D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't get source type size")
 
-    /* Check if the types are equal */
-    if((types_equal = H5Tequal(src_type_id, dst_type_id)) < 0)
-        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTCOMPARE, FAIL, "can't check if types are equal")
-    if(types_equal)
-        /* Types are equal, no need for conversion, just set dst_type_size */
-        *dst_type_size = *src_type_size;
-    else {
-        /* Check if we need a background buffer */
-        if((need_bkg = H5_daos_need_bkg(src_type_id, dst_type_id, dst_type_size, fill_bkg)) < 0)
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't check if background buffer needed")
+    /* Check if we need a background buffer */
+    if((need_bkg = H5_daos_need_bkg(src_type_id, dst_type_id, dst_type_size, fill_bkg)) < 0)
+        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't check if background buffer needed")
 
-        /* Check for reusable destination buffer */
-        if(reuse) {
-            assert(*reuse == H5_DAOS_TCONV_REUSE_NONE);
+    /* Check for reusable destination buffer */
+    if(reuse) {
+        assert(*reuse == H5_DAOS_TCONV_REUSE_NONE);
 
-            /* Use dest buffer for type conversion if it large enough, otherwise
-             * use it for the background buffer if one is needed. */
-            if(dst_type_size >= src_type_size)
-                *reuse = H5_DAOS_TCONV_REUSE_TCONV;
-            else if(need_bkg)
-                *reuse = H5_DAOS_TCONV_REUSE_BKG;
-        } /* end if */
+        /* Use dest buffer for type conversion if it large enough, otherwise
+         * use it for the background buffer if one is needed. */
+        if(*dst_type_size >= *src_type_size)
+            *reuse = H5_DAOS_TCONV_REUSE_TCONV;
+        else if(need_bkg)
+            *reuse = H5_DAOS_TCONV_REUSE_BKG;
+    } /* end if */
 
-        /* Allocate conversion buffer if it is not being reused */
-        if(!reuse || (*reuse != H5_DAOS_TCONV_REUSE_TCONV))
-            if(NULL == (*tconv_buf = DV_malloc(num_elem * (*src_type_size
-                    > *dst_type_size ? *src_type_size : *dst_type_size))))
-                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate type conversion buffer")
+    /* Allocate conversion buffer if it is not being reused */
+    if(!reuse || (*reuse != H5_DAOS_TCONV_REUSE_TCONV))
+        if(NULL == (*tconv_buf = DV_malloc(num_elem * (*src_type_size
+                > *dst_type_size ? *src_type_size : *dst_type_size))))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate type conversion buffer")
 
-        /* Allocate background buffer if one is needed and it is not being
-         * reused */
-        if(need_bkg && (!reuse || (*reuse != H5_DAOS_TCONV_REUSE_BKG)))
-            if(NULL == (*bkg_buf = DV_calloc(num_elem * *dst_type_size)))
-                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate background buffer")
-    } /* end else */
+    /* Allocate background buffer if one is needed and it is not being
+     * reused */
+    if(need_bkg && (!reuse || (*reuse != H5_DAOS_TCONV_REUSE_BKG)))
+        if(NULL == (*bkg_buf = DV_calloc(num_elem * *dst_type_size)))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate background buffer")
 
 done:
     /* Cleanup on failure */

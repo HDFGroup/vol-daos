@@ -161,9 +161,9 @@ static const H5VL_class_t H5_daos_g = {
         H5_daos_req_free                     /* Plugin Request free */
     },
     {
-        NULL,                                /* Plugin 'blob' put */
-        NULL,                                /* Plugin 'blob' get */
-        NULL,                                /* Plugin 'blob' specific */
+        H5_daos_blob_put,                    /* Plugin 'blob' put */
+        H5_daos_blob_get,                    /* Plugin 'blob' get */
+        H5_daos_blob_specific,               /* Plugin 'blob' specific */
         NULL,                                /* Plugin 'blob' optional */
     },
     H5_daos_optional                         /* Plugin optional */
@@ -224,6 +224,7 @@ const char H5_daos_max_attr_corder_key_g[] = "Max Attribute Creation Order";
 const char H5_daos_ktype_g[]               = "Key Datatype";
 const char H5_daos_vtype_g[]               = "Value Datatype";
 const char H5_daos_map_key_g[]             = "Map Record";
+const char H5_daos_blob_key_g[]            = "Blob";
 
 const daos_size_t H5_daos_int_md_key_size_g          = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
 const daos_size_t H5_daos_root_grp_oid_key_size_g    = (daos_size_t)(sizeof(H5_daos_root_grp_oid_key_g) - 1);
@@ -240,6 +241,7 @@ const daos_size_t H5_daos_max_attr_corder_key_size_g = (daos_size_t)(sizeof(H5_d
 const daos_size_t H5_daos_ktype_size_g               = (daos_size_t)(sizeof(H5_daos_ktype_g) - 1);
 const daos_size_t H5_daos_vtype_size_g               = (daos_size_t)(sizeof(H5_daos_vtype_g) - 1);
 const daos_size_t H5_daos_map_key_size_g             = (daos_size_t)(sizeof(H5_daos_map_key_g) - 1);
+const daos_size_t H5_daos_blob_key_size_g            = (daos_size_t)(sizeof(H5_daos_blob_key_g) - 1);
 
 
 /*-------------------------------------------------------------------------

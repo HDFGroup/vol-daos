@@ -679,7 +679,7 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
 
     /* Open container on rank 0 */
     if((file->my_rank == 0) && H5_daos_cont_open(file, flags, NULL) < 0)
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create DAOS container")
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't open DAOS container")
 
     /* Broadcast container handle to other procs if any */
     if((file->num_procs > 1) && (H5_daos_cont_handle_bcast(file) < 0))

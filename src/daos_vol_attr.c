@@ -1386,11 +1386,24 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
             break;
 
         case H5VL_OBJECT_BY_NAME:
-        case H5VL_OBJECT_BY_IDX:
             /* Open target_obj */
             if(NULL == (target_obj = (H5_daos_obj_t *)H5_daos_object_open(item, loc_params, NULL, dxpl_id, req)))
                 D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, FAIL, "can't open object for attribute")
             break;
+
+        case H5VL_OBJECT_BY_IDX:
+        {
+            H5VL_loc_params_t sub_loc_params;
+
+            /* Open target_obj */
+            sub_loc_params.type = H5VL_OBJECT_BY_NAME;
+            sub_loc_params.loc_data.loc_by_name.name = loc_params->loc_data.loc_by_idx.name;
+            sub_loc_params.loc_data.loc_by_name.lapl_id = loc_params->loc_data.loc_by_idx.lapl_id;
+            if(NULL == (target_obj = (H5_daos_obj_t *)H5_daos_object_open(item, &sub_loc_params, NULL, dxpl_id, req)))
+                D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, FAIL, "can't open object for attribute")
+
+            break;
+        }
 
         case H5VL_OBJECT_BY_TOKEN:
         default:
@@ -1733,7 +1746,8 @@ H5_daos_attribute_delete(H5_daos_obj_t *attr_container_obj, const H5VL_loc_param
 
     assert(attr_container_obj);
     assert(loc_params);
-    assert(attr_name);
+    if(H5VL_OBJECT_BY_IDX != loc_params->type)
+        assert(attr_name);
 
     if(H5VL_OBJECT_BY_IDX == loc_params->type) {
         ssize_t attr_name_size;

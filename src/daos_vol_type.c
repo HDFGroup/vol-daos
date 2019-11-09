@@ -387,6 +387,13 @@ H5_daos_tconv_init(hid_t src_type_id, size_t *src_type_size,
     assert(fill_bkg);
     assert(!*fill_bkg);
 
+    /*
+     * If there is no selection in the file dataspace, don't bother
+     * trying to allocate any type conversion buffers.
+     */
+    if(num_elem == 0)
+        D_GOTO_DONE(SUCCEED);
+
     /* Get source type size */
     if((*src_type_size = H5Tget_size(src_type_id)) == 0)
         D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't get source type size")

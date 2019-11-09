@@ -1773,6 +1773,7 @@ H5_daos_object_copy_attributes(H5_daos_obj_t *src_obj, H5_daos_obj_t *dst_obj,
     hid_t dxpl_id, void **req)
 {
     H5_daos_iter_data_t iter_data;
+    H5_index_t iter_index_type;
     hid_t target_obj_id = H5I_INVALID_HID;
     herr_t ret_value = SUCCEED;
 
@@ -1784,8 +1785,14 @@ H5_daos_object_copy_attributes(H5_daos_obj_t *src_obj, H5_daos_obj_t *dst_obj,
         D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, FAIL, "unable to atomize object handle")
     src_obj->item.rc++;
 
-    /* Initialize iteration data. Attributes are re-created by creation order */
-    H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_ATTR, H5_INDEX_CRT_ORDER, H5_ITER_INC,
+    /*
+     * Determine whether to iterate by name order or creation order, based
+     * upon whether attribute creation order is tracked for the object.
+     */
+    iter_index_type = (src_obj->ocpl_cache.track_acorder) ? H5_INDEX_CRT_ORDER : H5_INDEX_NAME;
+
+    /* Initialize iteration data. Attributes are re-created by creation order if possible */
+    H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_ATTR, iter_index_type, H5_ITER_INC,
             FALSE, NULL, target_obj_id, dst_obj, dxpl_id, req);
     iter_data.u.attr_iter_data.attr_iter_op = H5_daos_object_copy_attributes_cb;
 

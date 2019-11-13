@@ -24,23 +24,14 @@ export GCOV=`which gcov`
 # get back to the testing script location
 pushd $HDF5_VOL_DAOS_ROOT
 
-# clean up
-rm -rf /mnt/daos/*
-
 export HDF5_VOL_DAOS_DO_COVERAGE="true"
 export HDF5_VOL_DAOS_DO_MEMCHECK="false"
 ctest -S $HDF5_VOL_DAOS_ROOT/source/test/scripts/jelly_script_master.cmake -VV --output-on-failure 2>&1 > $HDF5_VOL_DAOS_ROOT/last_build_master_coverage.log
-
-# clean up
-rm -rf /mnt/daos/*
 
 export HDF5_VOL_DAOS_DO_COVERAGE="false"
 export HDF5_VOL_DAOS_DO_MEMCHECK="true"
 export HDF5_VOL_DAOS_MEMORYCHECK_TYPE="AddressSanitizer"
 ctest -S $HDF5_VOL_DAOS_ROOT/source/test/scripts/jelly_script_master.cmake -VV --output-on-failure 2>&1 > $HDF5_VOL_DAOS_ROOT/last_build_master_memcheck.log
-
-# clean up
-rm -rf /mnt/daos/*
 
 export HDF5_VOL_DAOS_BUILD_CONFIGURATION="RelWithDebInfo"
 export HDF5_VOL_DAOS_DO_COVERAGE="false"

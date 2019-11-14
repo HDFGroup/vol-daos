@@ -18,8 +18,9 @@ export HDF5_VOL_DAOS_ROOT=/scr/jsoumagne/daos
 export HDF5_VOL_DAOS_BUILD_CONFIGURATION="Debug"
 export HDF5_VOL_DAOS_DASHBOARD_MODEL="Nightly"
 
-export CC=`which gcc`
-export GCOV=`which gcov`
+# modifying these variables may prevent compile flags to be set correctly
+export CC=gcc
+export GCOV=gcov
 
 # get back to the testing script location
 pushd $HDF5_VOL_DAOS_ROOT

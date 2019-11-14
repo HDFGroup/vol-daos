@@ -61,8 +61,6 @@ typedef d_sg_list_t daos_sg_list_t;
 
 /* Macro to ensure H5_DAOS_g is initialized */
 #define H5_DAOS_G_INIT(ERR) { \
-    H5I_type_t idType = H5I_UNINIT; \
-\
     if(H5_DAOS_g < 0) \
         if((H5_DAOS_g = H5VLpeek_connector_id(H5_DAOS_VOL_NAME)) < 0) \
             D_GOTO_ERROR(H5E_ATOM, H5E_CANTGET, ERR, "unable to get registered ID for DAOS VOL connector") \

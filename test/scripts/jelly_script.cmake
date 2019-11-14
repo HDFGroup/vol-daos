@@ -89,13 +89,13 @@ if(HDF5_VOL_DAOS_DO_MEMCHECK OR HDF5_VOL_DAOS_MEMORYCHECK_TYPE)
   endif()
   # Tsan
   if(${HDF5_VOL_DAOS_MEMORYCHECK_TYPE} MATCHES "ThreadSanitizer")
-    set(HDF5_VOL_DAOS_MEMCHECK_FLAGS "-O1 -fsanitize=thread -fno-omit-frame-pointer -fPIC -fuse-ld=gold -pthread")
+    set(HDF5_VOL_DAOS_MEMCHECK_FLAGS "-O1 -fsanitize=thread -fno-omit-frame-pointer")
     # Must add verbosity / Error in build if no memory output file is produced
     set(CTEST_MEMORYCHECK_SANITIZER_OPTIONS "verbosity=1")
   endif()
   # Asan
   if(${HDF5_VOL_DAOS_MEMORYCHECK_TYPE} MATCHES "AddressSanitizer")
-    set(HDF5_VOL_DAOS_MEMCHECK_FLAGS "-O1 -fsanitize=address -fno-omit-frame-pointer -fPIC -fuse-ld=gold -pthread")
+    set(HDF5_VOL_DAOS_MEMCHECK_FLAGS "-O1 -fsanitize=address -fno-omit-frame-pointer")
     # Must add verbosity / Error in build if no memory output file is produced
     set(CTEST_MEMORYCHECK_SANITIZER_OPTIONS "verbosity=1")
   endif()

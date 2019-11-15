@@ -1836,9 +1836,10 @@ H5_daos_get_selected_chunk_info(hid_t dcpl_id,
     hsize_t   selection_start_coords[H5O_LAYOUT_NDIMS] = {0};
     hsize_t   num_sel_points_cast;
     hbool_t   is_all_file_space = FALSE;
+    hbool_t   is_partial_edge_chunk = FALSE;
     htri_t    space_same_shape = FALSE;
-    size_t    info_buf_alloced;
-    size_t    i = 0, j;
+    size_t    chunk_info_nalloc = 0;
+    ssize_t   i, j;
     hid_t     entire_chunk_sel_space_id = H5I_INVALID_HID;
     int       fspace_ndims, mspace_ndims;
     int       increment_dim;
@@ -1864,8 +1865,14 @@ H5_daos_get_selected_chunk_info(hid_t dcpl_id,
     if ((mspace_ndims = H5Sget_simple_extent_ndims(mem_space_id)) < 0)
         D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, FAIL, "can't get memory space dimensionality");
 
-    if (FAIL == (space_same_shape = H5Sselect_shape_same(file_space_id, mem_space_id)))
-        D_GOTO_ERROR(H5E_DATASPACE, H5E_BADVALUE, FAIL, "can't determine if file and memory dataspaces are the same shape");
+    /* Check if the spaces are the same "shape".  For now, reject spaces that
+     * have different ranks, until there's a public interface to
+     * H5S_select_construct_projection().  See the note in H5D__read().  With
+     * the use of H5Sselect_project_intersection() the performance penalty
+     * should be much less than with the native library anyways. */
+    if(fspace_ndims == mspace_ndims)
+        if(FAIL == (space_same_shape = H5Sselect_shape_same(file_space_id, mem_space_id)))
+            D_GOTO_ERROR(H5E_DATASPACE, H5E_BADVALUE, FAIL, "can't determine if file and memory dataspaces are the same shape");
 
     if (H5Sget_simple_extent_dims(file_space_id, file_space_dims, NULL) < 0)
         D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, FAIL, "can't get file dataspace dimensions")
@@ -1882,7 +1889,7 @@ H5_daos_get_selected_chunk_info(hid_t dcpl_id,
     {
         hsize_t file_points;
 
-        for (i = 0, file_points = 1; i < (hsize_t) fspace_ndims; i++) {
+        for (i = 0, file_points = 1; i < (ssize_t)fspace_ndims; i++) {
             hsize_t dim_sel_points = file_sel_end[i] - file_sel_start[i] + 1;
             file_points *= (dim_sel_points > 0) ? dim_sel_points : 1;
         }
@@ -1892,7 +1899,7 @@ H5_daos_get_selected_chunk_info(hid_t dcpl_id,
 
     if(space_same_shape) {
         /* Calculate the adjustment for the memory selection from the file selection */
-        for (i = 0; i < (size_t) fspace_ndims; i++) {
+        for (i = 0; i < (ssize_t)fspace_ndims; i++) {
             /* H5_CHECK_OVERFLOW(file_sel_start[i], hsize_t, hssize_t); */
             /* H5_CHECK_OVERFLOW(mem_sel_start[i], hsize_t, hssize_t); */
             chunk_file_space_adjust[i] = (hssize_t) file_sel_start[i] - (hssize_t) mem_sel_start[i];
@@ -1906,23 +1913,20 @@ H5_daos_get_selected_chunk_info(hid_t dcpl_id,
 
     if (NULL == (_chunk_info = (H5_daos_select_chunk_info_t *) DV_malloc(H5_DAOS_DEFAULT_NUM_SEL_CHUNKS * sizeof(*_chunk_info))))
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't allocate space for selected chunk info buffer");
-    info_buf_alloced = H5_DAOS_DEFAULT_NUM_SEL_CHUNKS * sizeof(*_chunk_info);
+    chunk_info_nalloc = H5_DAOS_DEFAULT_NUM_SEL_CHUNKS;
 
     /* Calculate the coordinates for the initial chunk */
-    for (i = 0; i < (size_t) fspace_ndims; i++) {
+    for (i = 0; i < (ssize_t)fspace_ndims; i++) {
         start_coords[i] = selection_start_coords[i] = (file_sel_start[i] / chunk_dims[i]) * chunk_dims[i];
         end_coords[i] = (start_coords[i] + chunk_dims[i]) - 1;
     } /* end for */
 
-    /* Iterate through each "chunk" in the dataset */
-    for (i = 0; ; i++) {
-        htri_t intersect = FALSE;
+    /* Initialize the curr_chunk_dims array */
+    memcpy(curr_chunk_dims, chunk_dims, (size_t)fspace_ndims * sizeof(hsize_t));
 
-        /* Initialize dataspaces at this index */
-        /* Note there should be no possible errors between allocation of
-         * _chunk_info and this line */
-        _chunk_info[i].fspace_id = H5I_INVALID_HID;
-        _chunk_info[i].mspace_id = H5I_INVALID_HID;
+    /* Iterate through each "chunk" in the dataset */
+    for(i = -1; ; ) {
+        htri_t intersect = FALSE;
 
         /* Check for intersection of file selection and "chunk". If there is
          * an intersection, set up a valid memory and file space for the chunk. */
@@ -1935,12 +1939,19 @@ H5_daos_get_selected_chunk_info(hid_t dcpl_id,
             hssize_t chunk_mem_space_adjust[H5O_LAYOUT_NDIMS];
             hssize_t chunk_sel_npoints;
 
-            /* Re-allocate selected chunk info buffer if necessary */
-            while (i > (info_buf_alloced / sizeof(*_chunk_info)) - 1) {
-                if (NULL == (_chunk_info = (H5_daos_select_chunk_info_t *) DV_realloc(_chunk_info, 2 * info_buf_alloced)))
+            /* Advance index and re-allocate selected chunk info buffer if
+             * necessary */
+            if(++i == (ssize_t)chunk_info_nalloc) {
+                if (NULL == (_chunk_info = (H5_daos_select_chunk_info_t *) DV_realloc(_chunk_info, 2 * chunk_info_nalloc * sizeof(*_chunk_info))))
                     D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't reallocate space for selected chunk info buffer");
-                info_buf_alloced *= 2;
+                chunk_info_nalloc *= 2;
             } /* end while */
+
+            assert(i < (ssize_t)chunk_info_nalloc);
+
+            /* Initialize dataspaces at this index */
+            _chunk_info[i].fspace_id = H5I_INVALID_HID;
+            _chunk_info[i].mspace_id = H5I_INVALID_HID;
 
             /*
              * Set up the file Dataspace for this chunk.
@@ -1961,10 +1972,11 @@ H5_daos_get_selected_chunk_info(hid_t dcpl_id,
              * These will be used to adjust the selection within the edge chunk so that
              * it falls within the dataset's dataspace boundaries.
              */
-            memcpy(curr_chunk_dims, chunk_dims, (size_t)fspace_ndims * sizeof(hsize_t));
-            for(j = 0; j < (size_t)fspace_ndims; j++)
-                if(start_coords[j] + chunk_dims[j] > file_space_dims[j])
+            for(j = 0; j < (ssize_t)fspace_ndims; j++)
+                if(start_coords[j] + chunk_dims[j] > file_space_dims[j]) {
                     curr_chunk_dims[j] = file_space_dims[j] - start_coords[j];
+                    is_partial_edge_chunk = TRUE;
+                } /* end if */
 
             /* "AND" temporary chunk and current chunk */
             if (H5Sselect_hyperslab(_chunk_info[i].fspace_id, H5S_SELECT_AND, start_coords, NULL,
@@ -1994,7 +2006,7 @@ H5_daos_get_selected_chunk_info(hid_t dcpl_id,
                     D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTCOPY, FAIL, "unable to copy selection from temporary chunk's file dataspace to its memory dataspace");
 
                 /* Compute the adjustment for the chunk */
-                for (j = 0; j < (size_t) fspace_ndims; j++) {
+                for (j = 0; j < (ssize_t)fspace_ndims; j++) {
                     /* H5_CHECK_OVERFLOW(_chunk_info[i].chunk_coords[j], hsize_t, hssize_t); */
                     chunk_mem_space_adjust[j] = chunk_file_space_adjust[j] - (hssize_t) _chunk_info[i].chunk_coords[j];
                 } /* end for */
@@ -2032,9 +2044,14 @@ H5_daos_get_selected_chunk_info(hid_t dcpl_id,
             /* Keep track of the number of elements processed */
             num_sel_points_cast -= (hsize_t) chunk_sel_npoints;
 
-            if(num_sel_points_cast == 0) {
-                i++;
+            /* Break out if we're done */
+            if(num_sel_points_cast == 0)
                 break;
+
+            /* Clean up after partial edge chunk */
+            if(is_partial_edge_chunk) {
+                memcpy(curr_chunk_dims, chunk_dims, (size_t)fspace_ndims * sizeof(hsize_t));
+                is_partial_edge_chunk = FALSE;
             } /* end if */
         } /* end if */
 
@@ -2080,7 +2097,8 @@ done:
     }
     else {
         *chunk_info = _chunk_info;
-        *chunk_info_len = i;
+        assert(i + 1 >= 0);
+        *chunk_info_len = (size_t)(i + 1);
     }
 
     if((entire_chunk_sel_space_id >= 0) &&  (H5Sclose(entire_chunk_sel_space_id) < 0))

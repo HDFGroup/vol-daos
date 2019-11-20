@@ -1000,7 +1000,7 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
             const char *filename = va_arg(arguments, const char *);
             herr_t *delete_ret = va_arg(arguments, herr_t *);
             uuid_t cont_uuid;
-            int mpi_rank;
+            int mpi_rank, mpi_initialized;
             int ret;
 
             /* Initialize returned value in case we fail */
@@ -1010,7 +1010,13 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
             if(H5_daos_cont_get_fapl_info(fapl_id, &fapl_info) < 0)
                 D_GOTO_ERROR(H5E_FILE, H5E_CANTGET, FAIL, "can't get DAOS info struct")
 
-            MPI_Comm_rank(fapl_info.comm, &mpi_rank);
+            if(MPI_SUCCESS != MPI_Initialized(&mpi_initialized))
+                D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't determine if MPI has been initialized")
+            if(mpi_initialized) {
+                MPI_Comm_rank(fapl_info.comm, &mpi_rank);
+            } else {
+                mpi_rank = 0;
+            }
 
             if(mpi_rank == 0) {
                 /* Hash file name to create uuid */
@@ -1020,8 +1026,9 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
                     D_GOTO_ERROR(H5E_FILE, H5E_CANTDELETEFILE, FAIL, "can't destroy container: %s", H5_daos_err_to_string(ret))
             } /* end if */
 
-            if(MPI_SUCCESS != MPI_Barrier(fapl_info.comm))
-                D_GOTO_ERROR(H5E_FILE, H5E_MPI, FAIL, "MPI_Barrier failed during file deletion")
+            if(mpi_initialized)
+                if(MPI_SUCCESS != MPI_Barrier(fapl_info.comm))
+                    D_GOTO_ERROR(H5E_FILE, H5E_MPI, FAIL, "MPI_Barrier failed during file deletion")
 
             *delete_ret = SUCCEED;
 

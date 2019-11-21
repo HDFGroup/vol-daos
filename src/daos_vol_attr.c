@@ -759,6 +759,10 @@ H5_daos_attribute_read(void *_attr, hid_t mem_type_id, void *buf,
     if(H5I_ATTR != attr->item.type)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not an attribute")
 
+    /* Check for a NULL dataspace */
+    if(H5S_NULL == H5Sget_simple_extent_type(attr->space_id))
+        D_GOTO_DONE(SUCCEED)
+
     /* Get dataspace extent */
     if((ndims = H5Sget_simple_extent_ndims(attr->space_id)) < 0)
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get number of dimensions")
@@ -769,6 +773,9 @@ H5_daos_attribute_read(void *_attr, hid_t mem_type_id, void *buf,
     attr_size = (uint64_t)1;
     for(i = 0; i < (uint64_t)ndims; i++)
         attr_size *= (uint64_t)dim[i];
+
+    if(0 == attr_size)
+        D_GOTO_DONE(SUCCEED)
 
     /* Set up dkey */
     daos_iov_set(&dkey, (void *)H5_daos_attr_key_g, H5_daos_attr_key_size_g);
@@ -907,6 +914,10 @@ H5_daos_attribute_write(void *_attr, hid_t mem_type_id, const void *buf,
     if(!(attr->item.file->flags & H5F_ACC_RDWR))
         D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, FAIL, "no write intent on file")
 
+    /* Check for a NULL dataspace */
+    if(H5S_NULL == H5Sget_simple_extent_type(attr->space_id))
+        D_GOTO_DONE(SUCCEED)
+
     /* Get dataspace extent */
     if((ndims = H5Sget_simple_extent_ndims(attr->space_id)) < 0)
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get number of dimensions")
@@ -917,6 +928,9 @@ H5_daos_attribute_write(void *_attr, hid_t mem_type_id, const void *buf,
     attr_size = (uint64_t)1;
     for(i = 0; i < (uint64_t)ndims; i++)
         attr_size *= (uint64_t)dim[i];
+
+    if(0 == attr_size)
+        D_GOTO_DONE(SUCCEED)
 
     /* Set up dkey */
     daos_iov_set(&dkey, (void *)H5_daos_attr_key_g, H5_daos_attr_key_size_g);

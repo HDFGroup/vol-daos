@@ -1383,10 +1383,11 @@ H5_daos_get_obj_ids_callback(hid_t id, void *udata)
         if(NULL == (cur_obj = (H5_daos_obj_t *) H5VLobject(id)))
             D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, H5_ITER_ERROR, "can't retrieve VOL object for ID")
 
-        if(!uuid_compare(cur_obj->item.file->uuid, id_udata->file_id))
-            id_udata->oid_list[id_udata->obj_count++] = id;
-
-        if(id_udata->obj_count >= id_udata->max_objs)
+        if(id_udata->obj_count < id_udata->max_objs) {
+            if(!uuid_compare(cur_obj->item.file->uuid, id_udata->file_id))
+                id_udata->oid_list[id_udata->obj_count++] = id;
+        }
+        else
             ret_value = H5_ITER_STOP;
     } /* end if */
 

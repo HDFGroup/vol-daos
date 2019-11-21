@@ -799,7 +799,7 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
     H5_daos_select_chunk_info_t *chunk_info = NULL; /* Array of info for each chunk selected in the file */
     H5_daos_chunk_io_func single_chunk_read_func;
     H5_daos_dset_t *dset = (H5_daos_dset_t *)_dset;
-    hssize_t num_elem = -1;
+    hssize_t num_elem_file = -1, num_elem_mem;
     uint64_t i;
     uint8_t dkey_buf[1 + (sizeof(uint64_t) * H5S_MAX_RANK)];
     htri_t need_tconv;
@@ -829,11 +829,19 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
     else
         real_mem_space_id = mem_space_id;
 
-    /* Get number of elements in selection */
-    if((num_elem = H5Sget_select_npoints(real_file_space_id)) < 0)
-        D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get number of points in selection")
-    if(num_elem && !buf)
+    /* Get number of elements in selections */
+    if((num_elem_file = H5Sget_select_npoints(real_file_space_id)) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get number of points in file selection")
+    if((num_elem_mem = H5Sget_select_npoints(real_mem_space_id)) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get number of points in memory selection")
+
+    /* Various sanity and special case checks */
+    if(num_elem_file != num_elem_mem)
+        D_GOTO_ERROR(H5E_DATASET, H5E_BADVALUE, FAIL, "number of elements selected in file and memory dataspaces is different")
+    if(num_elem_file && !buf)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "read buffer is NULL but selection has >0 elements")
+    if(num_elem_file == 0)
+        D_GOTO_DONE(SUCCEED)
 
     /* Check for the dataset having a chunked storage layout. If it does not,
      * simply set up the dataset as a single "chunk".
@@ -895,10 +903,10 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
         daos_iov_set(&dkey, dkey_buf, (daos_size_t)(1 + ((size_t)ndims * sizeof(chunk_info[i].chunk_coords[0]))));
 
         /* Get number of elements in selection */
-        if((num_elem = H5Sget_select_npoints(chunk_info[i].fspace_id)) < 0)
+        if((num_elem_file = H5Sget_select_npoints(chunk_info[i].fspace_id)) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get number of points in selection")
 
-        if(single_chunk_read_func(dset, dkey, num_elem, mem_type_id, chunk_info[i].mspace_id, chunk_info[i].fspace_id, dxpl_id, IO_READ, buf) < 0)
+        if(single_chunk_read_func(dset, dkey, num_elem_file, mem_type_id, chunk_info[i].mspace_id, chunk_info[i].fspace_id, dxpl_id, IO_READ, buf) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_READERROR, FAIL, "dataset read failed")
     } /* end for */
 
@@ -1237,7 +1245,7 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
     H5_daos_select_chunk_info_t *chunk_info = NULL; /* Array of info for each chunk selected in the file */
     H5_daos_chunk_io_func single_chunk_write_func;
     H5_daos_dset_t *dset = (H5_daos_dset_t *)_dset;
-    hssize_t num_elem = -1;
+    hssize_t num_elem_file = -1, num_elem_mem;
     uint64_t i;
     uint8_t dkey_buf[1 + (sizeof(uint64_t) * H5S_MAX_RANK)];
     htri_t need_tconv;
@@ -1271,11 +1279,19 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
     else
         real_mem_space_id = mem_space_id;
 
-    /* Get number of elements in selection */
-    if((num_elem = H5Sget_select_npoints(real_file_space_id)) < 0)
-        D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get number of points in selection")
-    if(num_elem && !buf)
+    /* Get number of elements in selections */
+    if((num_elem_file = H5Sget_select_npoints(real_file_space_id)) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get number of points in file selection")
+    if((num_elem_mem = H5Sget_select_npoints(real_mem_space_id)) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get number of points in memory selection")
+
+    /* Various sanity and special case checks */
+    if(num_elem_file != num_elem_mem)
+        D_GOTO_ERROR(H5E_DATASET, H5E_BADVALUE, FAIL, "number of elements selected in file and memory dataspaces is different")
+    if(num_elem_file && !buf)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "write buffer is NULL but selection has >0 elements")
+    if(num_elem_file == 0)
+        D_GOTO_DONE(SUCCEED)
 
     /* Check for the dataset having a chunked storage layout. If it does not,
      * simply set up the dataset as a single "chunk".
@@ -1337,10 +1353,10 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
         daos_iov_set(&dkey, dkey_buf, (daos_size_t)(1 + ((size_t)ndims * sizeof(chunk_info[i].chunk_coords[0]))));
 
         /* Get number of elements in selection */
-        if((num_elem = H5Sget_select_npoints(chunk_info[i].fspace_id)) < 0)
+        if((num_elem_file = H5Sget_select_npoints(chunk_info[i].fspace_id)) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get number of points in selection")
 
-        if(single_chunk_write_func(dset, dkey, num_elem, mem_type_id, chunk_info[i].mspace_id, chunk_info[i].fspace_id, dxpl_id, IO_WRITE, (void *)buf) < 0)
+        if(single_chunk_write_func(dset, dkey, num_elem_file, mem_type_id, chunk_info[i].mspace_id, chunk_info[i].fspace_id, dxpl_id, IO_WRITE, (void *)buf) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_WRITEERROR, FAIL, "dataset write failed")
     } /* end for */
 

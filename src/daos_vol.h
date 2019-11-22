@@ -459,6 +459,14 @@ typedef struct H5_daos_iter_data_t {
     } u;
 } H5_daos_iter_data_t;
 
+/* A union to contain either an hvl_t or a char *, for vlen conversions that
+ * need to be handled explicitly (like for map keys) */
+typedef union {
+    hvl_t   vl;
+    char *  vls;
+} H5_daos_vl_union_t;
+
+
 /* XXX: The following two definitions are only here until they are
  * moved out of their respective H5Xpkg.h header files and into a
  * more public scope. They are still needed for the DAOS VOL to handle

@@ -705,6 +705,7 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_datatype_specific(void *_item, H5VL_datatype_sp
 H5VL_DAOS_PRIVATE herr_t H5_daos_datatype_close(void *_dtype, hid_t dxpl_id, void **req);
 
 /* Other datatype routines */
+H5VL_DAOS_PRIVATE htri_t H5_daos_detect_vl_vlstr_ref(hid_t type_id);
 H5VL_DAOS_PRIVATE htri_t H5_daos_need_tconv(hid_t src_type_id, hid_t dst_type_id);
 H5VL_DAOS_PRIVATE herr_t H5_daos_tconv_init(hid_t src_type_id, size_t *src_type_size,
     hid_t dst_type_id, size_t *dst_type_size, size_t num_elem, void **tconv_buf,

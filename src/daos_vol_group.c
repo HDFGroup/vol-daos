@@ -1073,7 +1073,7 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_group_refresh(H5_daos_group_t *grp, hid_t H5VL_DAOS_UNUSED dxpl_id,
+H5_daos_group_refresh(H5_daos_group_t H5VL_DAOS_UNUSED *grp, hid_t H5VL_DAOS_UNUSED dxpl_id,
     void H5VL_DAOS_UNUSED **req)
 {
     herr_t ret_value = SUCCEED;

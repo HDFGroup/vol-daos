@@ -1316,13 +1316,13 @@ H5_daos_link_get_info(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
 
             /* Check that buffer was large enough to fit link name */
             if(link_name_size > H5_DAOS_LINK_NAME_BUF_SIZE - 1) {
-                if(NULL == (link_name_buf_dyn = DV_malloc(link_name_size + 1)))
+                if(NULL == (link_name_buf_dyn = DV_malloc((size_t)link_name_size + 1)))
                     D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate link name buffer")
 
                 /* Re-issue the call with a larger buffer */
                 if(H5_daos_link_get_name_by_idx(target_grp, loc_params->loc_data.loc_by_idx.idx_type,
                         loc_params->loc_data.loc_by_idx.order, (uint64_t)loc_params->loc_data.loc_by_idx.n,
-                        link_name_buf_dyn, link_name_size + 1) < 0)
+                        link_name_buf_dyn, (size_t)link_name_size + 1) < 0)
                     D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't get link name")
 
                 target_name = link_name_buf_dyn;
@@ -1448,13 +1448,13 @@ H5_daos_link_get_val(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
 
             /* Check that buffer was large enough to fit link name */
             if(link_name_size > H5_DAOS_LINK_NAME_BUF_SIZE - 1) {
-                if(NULL == (link_name_buf_dyn = DV_malloc(link_name_size + 1)))
+                if(NULL == (link_name_buf_dyn = DV_malloc((size_t)link_name_size + 1)))
                     D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate link name buffer")
 
                 /* Re-issue the call with a larger buffer */
                 if(H5_daos_link_get_name_by_idx(target_grp, loc_params->loc_data.loc_by_idx.idx_type,
                         loc_params->loc_data.loc_by_idx.order, (uint64_t)loc_params->loc_data.loc_by_idx.n,
-                        link_name_buf_dyn, link_name_size + 1) < 0)
+                        link_name_buf_dyn, (size_t)link_name_size + 1) < 0)
                     D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't get link name")
 
                 target_link_name = link_name_buf_dyn;
@@ -2215,13 +2215,13 @@ H5_daos_link_delete(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params, h
 
         /* Check that buffer was large enough to fit link name */
         if(link_name_size > H5_DAOS_LINK_NAME_BUF_SIZE - 1) {
-            if(NULL == (link_name_buf_dyn = DV_malloc(link_name_size + 1)))
+            if(NULL == (link_name_buf_dyn = DV_malloc((size_t)link_name_size + 1)))
                 D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "failed to allocate buffer for link name")
 
             /* Re-issue the call with a larger buffer */
             if(H5_daos_link_get_name_by_idx(target_grp, loc_params->loc_data.loc_by_idx.idx_type,
                     loc_params->loc_data.loc_by_idx.order, (uint64_t)loc_params->loc_data.loc_by_idx.n,
-                    link_name_buf_dyn, link_name_size + 1) < 0)
+                    link_name_buf_dyn, (size_t)link_name_size + 1) < 0)
                 D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't get link name")
 
             target_link_name = link_name_buf_dyn;
@@ -2714,7 +2714,7 @@ H5_daos_link_get_name_by_crt_order(H5_daos_group_t *target_grp, H5_iter_order_t 
 
     /* Calculate the correct index of the link, based upon the iteration order */
     if(H5_ITER_DEC == iter_order)
-        fetch_idx = grp_nlinks - index - 1;
+        fetch_idx = (uint64_t)grp_nlinks - index - 1;
     else
         fetch_idx = index;
 

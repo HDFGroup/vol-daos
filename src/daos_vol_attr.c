@@ -681,13 +681,13 @@ H5_daos_attribute_open_by_idx_helper(H5_daos_obj_t *target_obj, const H5VL_loc_p
 
     /* Check that buffer was large enough to fit attribute's name */
     if(attr_name_size > H5_DAOS_ATTR_NAME_BUF_SIZE - 1) {
-        if(NULL == (attr_name_buf_dyn = DV_malloc(attr_name_size + 1)))
+        if(NULL == (attr_name_buf_dyn = DV_malloc((size_t)attr_name_size + 1)))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate attribute name buffer")
 
         /* Re-issue the call with a larger buffer */
         if((attr_name_size = H5_daos_attribute_get_name_by_idx(attr_parent_obj, loc_params->loc_data.loc_by_idx.idx_type,
                 loc_params->loc_data.loc_by_idx.order, (uint64_t)loc_params->loc_data.loc_by_idx.n,
-                attr_name_buf_dyn, attr_name_size + 1)) < 0)
+                attr_name_buf_dyn, (size_t)attr_name_size + 1)) < 0)
             D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute name")
 
         target_name = attr_name_buf_dyn;
@@ -1466,7 +1466,7 @@ H5_daos_attribute_get_info(H5_daos_item_t *item, const H5VL_loc_params_t *loc_pa
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't retrieve number of elements in attribute's dataspace")
 
     /* DSINC - data_size will likely be incorrect currently for VLEN types */
-    local_attr_info.data_size = datatype_size * dataspace_nelmts;
+    local_attr_info.data_size = datatype_size * (size_t)dataspace_nelmts;
 
     memcpy(attr_info, &local_attr_info, sizeof(*attr_info));
 
@@ -1527,13 +1527,13 @@ H5_daos_attribute_delete(H5_daos_obj_t *attr_container_obj, const H5VL_loc_param
 
         /* Check that the buffer was large enough to fit attribute name */
         if(attr_name_size > H5_DAOS_ATTR_NAME_BUF_SIZE - 1) {
-            if(NULL == (attr_name_buf_dyn = DV_malloc(attr_name_size + 1)))
+            if(NULL == (attr_name_buf_dyn = DV_malloc((size_t)attr_name_size + 1)))
                 D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for attribute name")
 
             /* Re-issue the call with a larger buffer */
             if((attr_name_size = H5_daos_attribute_get_name_by_idx(attr_container_obj, loc_params->loc_data.loc_by_idx.idx_type,
                     loc_params->loc_data.loc_by_idx.order, (uint64_t)loc_params->loc_data.loc_by_idx.n,
-                    attr_name_buf_dyn, attr_name_size + 1)) < 0)
+                    attr_name_buf_dyn, (size_t)attr_name_size + 1)) < 0)
                 D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute name")
 
             target_attr_name = attr_name_buf_dyn;
@@ -2584,7 +2584,7 @@ H5_daos_attribute_get_name_by_crt_order(H5_daos_obj_t *target_obj, H5_iter_order
 
     /* Calculate the correct index of the attribute, based upon the iteration order */
     if(H5_ITER_DEC == iter_order)
-        fetch_idx = obj_nattrs - index - 1;
+        fetch_idx = (uint64_t)obj_nattrs - index - 1;
     else
         fetch_idx = index;
 

@@ -1923,7 +1923,7 @@ H5_daos_get_selected_chunk_info(hid_t dcpl_id,
     hbool_t   is_partial_edge_chunk = FALSE;
     htri_t    space_same_shape = FALSE;
     size_t    chunk_info_nalloc = 0;
-    ssize_t   i, j;
+    ssize_t   i = -1, j;
     hid_t     entire_chunk_sel_space_id = H5I_INVALID_HID;
     int       fspace_ndims, mspace_ndims;
     int       increment_dim;

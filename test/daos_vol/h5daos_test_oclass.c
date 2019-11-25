@@ -39,6 +39,10 @@
 uuid_t pool_uuid;
 int    mpi_rank;
 
+int check_plist_oclass(hid_t plist_id, const char *exp_oclass);
+int test_oclass(hid_t fcpl_id, hid_t fapl_id, const char *exp_root_oclass,
+    const char *exp_group_oclass, const char *exp_dset_oclass);
+
 /*
  * Function to check object class on a property list
  */

@@ -1137,7 +1137,7 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_datatype_refresh(H5_daos_dtype_t *dtype, hid_t H5VL_DAOS_UNUSED dxpl_id,
+H5_daos_datatype_refresh(H5_daos_dtype_t H5VL_DAOS_UNUSED *dtype, hid_t H5VL_DAOS_UNUSED dxpl_id,
     void H5VL_DAOS_UNUSED **req)
 {
     herr_t ret_value = SUCCEED;

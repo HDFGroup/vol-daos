@@ -374,14 +374,14 @@ H5_daos_object_open_by_idx(H5_daos_obj_t *loc_obj, const H5VL_loc_params_t *loc_
 
     /* Check that buffer was large enough to fit link name */
     if(link_name_size > H5_DAOS_LINK_NAME_BUF_SIZE - 1) {
-        if(NULL == (link_name_buf_dyn = DV_malloc(link_name_size + 1)))
+        if(NULL == (link_name_buf_dyn = DV_malloc((size_t)link_name_size + 1)))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate link name buffer")
         link_name = link_name_buf_dyn;
 
         /* Re-issue the call with a larger buffer */
         if(H5_daos_link_get_name_by_idx(container_group, loc_params->loc_data.loc_by_idx.idx_type,
                 loc_params->loc_data.loc_by_idx.order, (uint64_t)loc_params->loc_data.loc_by_idx.n,
-                link_name, link_name_size + 1) < 0)
+                link_name, (size_t)link_name_size + 1) < 0)
             D_GOTO_ERROR(H5E_OHDR, H5E_CANTGET, FAIL, "can't get link name")
     } /* end if */
 

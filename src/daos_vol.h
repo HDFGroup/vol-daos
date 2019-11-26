@@ -82,6 +82,7 @@ typedef d_sg_list_t daos_sg_list_t;
 #define H5_DAOS_ITER_SIZE_INIT (4 * 1024)
 #define H5_DAOS_ATTR_NUM_AKEYS 5
 #define H5_DAOS_ATTR_NAME_BUF_SIZE 2048
+#define H5_DAOS_POINT_BUF_LEN 128
 
 /* Size of blob IDs */
 #define H5_DAOS_BLOB_ID_SIZE sizeof(uuid_t)

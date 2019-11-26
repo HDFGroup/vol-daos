@@ -2282,6 +2282,10 @@ H5_daos_attribute_iterate_by_crt_order(H5_daos_obj_t *attr_container_obj, H5_dao
         if((op_ret = iter_data->u.attr_iter_data.attr_iter_op(iter_data->iter_root_obj, attr_name, &ainfo, iter_data->op_data)) < 0)
             D_GOTO_ERROR(H5E_ATTR, H5E_BADITER, op_ret, "operator function returned failure")
 
+        /* Check for short-circuit success */
+        if(op_ret)
+            D_GOTO_DONE(op_ret)
+
         /* Advance idx */
         if(iter_data->idx_p)
             (*iter_data->idx_p)++;

@@ -19,6 +19,12 @@
 #include "util/daos_vol_mem.h"  /* DAOS connector memory management        */
 
 /* Prototypes */
+static herr_t H5_daos_map_key_conv(hid_t src_type_id, hid_t dst_type_id,
+    const void *key, const void **key_buf, size_t *key_size,
+    void **key_buf_alloc, hid_t dxpl_id);
+static herr_t H5_daos_map_key_conv_reverse(hid_t src_type_id, hid_t dst_type_id,
+    void *key, size_t key_size, void **key_buf, void **key_buf_alloc,
+    H5_daos_vl_union_t *vl_union, hid_t dxpl_id);
 static herr_t H5_daos_map_iterate(H5_daos_map_t *map, hid_t map_id,
     hsize_t *idx, hid_t key_mem_type_id, H5M_iterate_t op, void *op_data,
     hid_t dxpl_id, void **req);
@@ -45,6 +51,9 @@ H5_daos_map_create(void *_item,
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_map_t *map = NULL;
     H5_daos_group_t *target_grp = NULL;
+    H5T_class_t ktype_class;
+    htri_t has_vl_vlstr_ref;
+    hid_t ktype_parent_id = H5I_INVALID_HID;
     void *ktype_buf = NULL;
     void *vtype_buf = NULL;
     void *mcpl_buf = NULL;
@@ -60,6 +69,30 @@ H5_daos_map_create(void *_item,
 
     if(!_item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "map parent object is NULL")
+
+    /* Check validity of key type.  Vlens are only allwed at the top level, no
+     * references allowed at all. */
+    if(H5T_NO_CLASS == (ktype_class = H5Tget_class(ktype_id)))
+        D_GOTO_ERROR(H5E_ARGS, H5E_CANTGET, NULL, "can't get key type class")
+    if(ktype_class == H5T_VLEN) {
+        /* Vlen types must not contain any nested vlens */
+        if((ktype_parent_id = H5Tget_super(ktype_id)) < 0)
+            D_GOTO_ERROR(H5E_ARGS, H5E_CANTGET, NULL, "can't get key type parent")
+        if((has_vl_vlstr_ref = H5_daos_detect_vl_vlstr_ref(ktype_parent_id)) < 0)
+            D_GOTO_ERROR(H5E_ARGS, H5E_CANTINIT, NULL, "can't check for vlen or reference type")
+        if(has_vl_vlstr_ref)
+            D_GOTO_ERROR(H5E_ARGS, H5E_UNSUPPORTED, NULL, "key type contains nested vlen or reference")
+    } /* end if */
+    else if(ktype_class == H5T_REFERENCE)
+        /* References not supported */
+        D_GOTO_ERROR(H5E_ARGS, H5E_UNSUPPORTED, NULL, "key type is a reference type")
+    else if(ktype_class != H5T_STRING) {
+        /* No nested vlens */
+        if((has_vl_vlstr_ref = H5_daos_detect_vl_vlstr_ref(ktype_id)) < 0)
+            D_GOTO_ERROR(H5E_ARGS, H5E_CANTINIT, NULL, "can't check for vlen or reference type")
+        if(has_vl_vlstr_ref)
+            D_GOTO_ERROR(H5E_ARGS, H5E_UNSUPPORTED, NULL, "key type contains nested vlen or reference")
+    } /* end if */
 
     /* Check for write access */
     if(!(item->file->flags & H5F_ACC_RDWR))
@@ -91,10 +124,10 @@ H5_daos_map_create(void *_item,
     map->obj.item.file = item->file;
     map->obj.item.rc = 1;
     map->obj.obj_oh = DAOS_HDL_INVAL;
-    map->ktype_id = FAIL;
-    map->vtype_id = FAIL;
-    map->mcpl_id = FAIL;
-    map->mapl_id = FAIL;
+    map->ktype_id = H5I_INVALID_HID;
+    map->vtype_id = H5I_INVALID_HID;
+    map->mcpl_id = H5I_INVALID_HID;
+    map->mapl_id = H5I_INVALID_HID;
 
     /* Generate map oid */
     if(H5_daos_oid_generate(&map->obj.oid, H5I_MAP, mcpl_id == H5P_MAP_CREATE_DEFAULT ? H5P_DEFAULT : mcpl_id, item->file, collective) < 0)
@@ -268,6 +301,10 @@ done:
     if(target_grp && H5_daos_group_close(target_grp, dxpl_id, NULL) < 0)
         D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't close group")
 
+    /* Close key type parent type */
+    if(ktype_parent_id >= 0 && H5Tclose(ktype_parent_id) < 0)
+        D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't close key type parent type")
+
     if(int_req) {
         /* Create task to finalize H5 operation */
         if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &item->file->sched, int_req, &finalize_task)))
@@ -341,6 +378,9 @@ H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
     H5_daos_map_t *map = NULL;
     H5_daos_group_t *target_grp = NULL;
     const char *target_name = NULL;
+    H5T_class_t ktype_class;
+    htri_t has_vl_vlstr_ref;
+    hid_t ktype_parent_id = H5I_INVALID_HID;
     daos_key_t dkey;
     daos_iod_t iod[3];
     daos_sg_list_t sgl[3];
@@ -552,13 +592,37 @@ H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
 
     /* Decode datatypes and MCPL */
     if((map->ktype_id = H5Tdecode(p)) < 0)
-        D_GOTO_ERROR(H5E_ARGS, H5E_CANTDECODE, NULL, "can't deserialize datatype")
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTDECODE, NULL, "can't deserialize datatype")
     p += ktype_len;
     if((map->vtype_id = H5Tdecode(p)) < 0)
-        D_GOTO_ERROR(H5E_ARGS, H5E_CANTDECODE, NULL, "can't deserialize datatype")
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTDECODE, NULL, "can't deserialize datatype")
     p += vtype_len;
     if((map->mcpl_id = H5Pdecode(p)) < 0)
-        D_GOTO_ERROR(H5E_ARGS, H5E_CANTDECODE, NULL, "can't deserialize map creation property list")
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTDECODE, NULL, "can't deserialize map creation property list")
+
+    /* Check validity of key type.  Vlens are only allwed at the top level, no
+     * references allowed at all. */
+    if(H5T_NO_CLASS == (ktype_class = H5Tget_class(map->ktype_id)))
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, NULL, "can't get key type class")
+    if(ktype_class == H5T_VLEN) {
+        /* Vlen types must not contain any nested vlens */
+        if((ktype_parent_id = H5Tget_super(map->ktype_id)) < 0)
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, NULL, "can't get key type parent")
+        if((has_vl_vlstr_ref = H5_daos_detect_vl_vlstr_ref(ktype_parent_id)) < 0)
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't check for vlen or reference type")
+        if(has_vl_vlstr_ref)
+            D_GOTO_ERROR(H5E_MAP, H5E_UNSUPPORTED, NULL, "key type contains nested vlen or reference")
+    } /* end if */
+    else if(ktype_class == H5T_REFERENCE)
+        /* References not supported */
+        D_GOTO_ERROR(H5E_ARGS, H5E_UNSUPPORTED, NULL, "key type is a reference type")
+    else if(ktype_class != H5T_STRING) {
+        /* No nested vlens */
+        if((has_vl_vlstr_ref = H5_daos_detect_vl_vlstr_ref(map->ktype_id)) < 0)
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't check for vlen or reference type")
+        if(has_vl_vlstr_ref)
+            D_GOTO_ERROR(H5E_MAP, H5E_UNSUPPORTED, NULL, "key type contains nested vlen or reference")
+    } /* end if */
 
     /* Finish setting up map struct */
     if((map->mapl_id = H5Pcopy(mapl_id)) < 0)
@@ -591,6 +655,10 @@ done:
     if(target_grp && H5_daos_group_close(target_grp, dxpl_id, req) < 0)
         D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't close group")
 
+    /* Close key type parent type */
+    if(ktype_parent_id >= 0 && H5Tclose(ktype_parent_id) < 0)
+        D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't close key type parent type")
+
     /* Free memory */
     minfo_buf_dyn = (uint8_t *)DV_free(minfo_buf_dyn);
 
@@ -599,165 +667,397 @@ done:
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_map_get_size
+ * Function:    H5_daos_map_key_conv
  *
- * Purpose:     Retrieves the size of a Key or Value binary 
- *              buffer given its datatype and buffer contents.
+ * Purpose:     Converts the provided key from the source to destination
+ *              type.  Handles vlens differently from other conversions in
+ *              this connector, flattening them into a buffer.  Does not
+ *              support nested vlens.
  *
- * Return:      Success:        SUCCEED 
- *              Failure:        Negative
+ * Parameters:  hid_t src_type_id: IN: Type ID that describes the data
+ *                  currently in key.
+ *              hid_t dst_type_id: IN: Type ID to convert data in key to.
+ *              const void *key: IN: Buffer containing the key to be
+ *                  converted.
+ *              const void **key_buf: OUT: A pointer to a buffer
+ *                  containing the converted key will be placed here.
+ *              size_t *key_size: OUT: The size in bytes of the data
+ *                  pointed to by *key_buf will be placed here.
+ *              void **key_buf_alloc: OUT: A pointer to a buffer allocated
+ *                  by this function to hold the key, if any, will be
+ *                  placed here.  This must be freed by the caller when
+ *                  key_buf is no longer needed.
+ *              hid_t dxpl_id: IN: Dataset transfer property list ID.
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
  *
  *-------------------------------------------------------------------------
  */
 static herr_t
-H5_daos_map_get_size(hid_t type_id, const void *buf,
-    /*out*/uint64_t H5VL_DAOS_UNUSED *checksum,  /*out*/size_t *size,
-    /*out*/H5T_class_t *ret_class)
+H5_daos_map_key_conv(hid_t src_type_id, hid_t dst_type_id, const void *key,
+    const void **key_buf, size_t *key_size, void **key_buf_alloc, hid_t dxpl_id)
 {
-    size_t buf_size = 0;
-    H5T_class_t dt_class;
-    htri_t is_variable_str;
-    hid_t super = -1;
+    htri_t need_tconv;
+    size_t src_type_size;
+    size_t dst_type_size;
+    hid_t src_parent_type_id = H5I_INVALID_HID;
+    hid_t dst_parent_type_id = H5I_INVALID_HID;
+    void *tconv_buf = NULL;
+    void *bkg_buf = NULL;
+    hbool_t fill_bkg = FALSE;
     herr_t ret_value = SUCCEED;
 
-    assert(buf);
-    assert(size);
+    assert(src_type_id >= 0);
+    assert(dst_type_id >= 0);
+    assert(key);
+    assert(key_buf);
+    assert(key_size);
+    assert(key_buf_alloc);
+    assert(!*key_buf_alloc);
 
-    if(H5T_NO_CLASS == (dt_class = H5Tget_class(type_id)))
-        D_GOTO_ERROR(H5E_ARGS, H5E_CANTINIT, FAIL, "can't get datatype class")
+    /* Check if type conversion is needed for the key */
+    if((need_tconv = H5_daos_need_tconv(src_type_id, dst_type_id)) < 0)
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTCOMPARE, FAIL, "can't check if type conversion is needed")
+    if(need_tconv) {
+        H5T_class_t type_class;
 
-    switch(dt_class) {
-        case H5T_STRING:
-            /* If this is a variable length string, get the size using strlen(). */
-            if((is_variable_str = H5Tis_variable_str(type_id)) < 0)
-                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't check for vl string")
-            if(is_variable_str) {
-                buf_size = strlen((const char*)buf) + 1;
+        /* Get class */
+        if(H5T_NO_CLASS == (type_class = H5Tget_class(src_type_id)))
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't get datatype class")
 
-                break;
+        /* Check for vlen */
+        if(type_class == H5T_VLEN) {
+            size_t src_parent_type_size;
+            size_t dst_parent_type_size;
+            const hvl_t *vl = (const hvl_t *)key;
+            htri_t parent_need_tconv;
+
+            /* Get parent types */
+            if((src_parent_type_id = H5Tget_super(src_type_id)) < 0)
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get source type parent")
+            if((dst_parent_type_id = H5Tget_super(dst_type_id)) < 0)
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get destination type parent")
+
+            /* Check if type conversion is needed for the parent type */
+            if((parent_need_tconv = H5_daos_need_tconv(src_parent_type_id, dst_parent_type_id)) < 0)
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTCOMPARE, FAIL, "can't check if type conversion is needed")
+            if(parent_need_tconv) {
+                /* Initialize type conversion */
+                if(H5_daos_tconv_init(src_parent_type_id, &src_parent_type_size, dst_parent_type_id, &dst_parent_type_size, vl->len, &tconv_buf, &bkg_buf, NULL, &fill_bkg) < 0)
+                    D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't initialize type conversion")
+
+                /* If needed, fill the background buffer (with zeros) */
+                if(fill_bkg) {
+                    assert(bkg_buf);
+                    memset(bkg_buf, 0, vl->len * dst_parent_type_size);
+                } /* end if */
+
+                /* Copy data to type conversion buffer */
+                (void)memcpy(tconv_buf, vl->p, vl->len * src_parent_type_size);
+
+                /* Perform type conversion */
+                if(H5Tconvert(src_parent_type_id, dst_parent_type_id, vl->len, tconv_buf, bkg_buf, dxpl_id) < 0)
+                    D_GOTO_ERROR(H5E_MAP, H5E_CANTCONVERT, FAIL, "can't perform type conversion")
+
+                /* Set return values to point to converted buffer */
+                *key_buf = (const void *)tconv_buf;
+                *key_size = vl->len * dst_parent_type_size;
+                *key_buf_alloc = tconv_buf;
+                tconv_buf = NULL;
             }
-        case H5T_INTEGER:
-        case H5T_FLOAT:
-        case H5T_TIME:
-        case H5T_BITFIELD:
-        case H5T_OPAQUE:
-        case H5T_ENUM:
-        case H5T_ARRAY:
-        case H5T_NO_CLASS:
-        case H5T_REFERENCE:
-        case H5T_NCLASSES:
-        case H5T_COMPOUND:
-            /* Data is not variable length, so use H5Tget_size() */
-            /* MSC - This is not correct. Compound/Array can contian
-               VL datatypes, but for now we don't support that. Need
-               to check for that too */
-            if(0 == (buf_size = H5Tget_size(type_id)))
-                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't get size of datatype")
+            else {
+                /* Just get parent size and set return values to point to vlen
+                 * buffer */
+                if(0 == (dst_parent_type_size = H5Tget_size(dst_parent_type_id)))
+                    D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't get size of datatype")
+                *key_buf = vl->p;
+                *key_size = vl->len * dst_parent_type_size;
+            } /* end else */
+        } /* end if */
+        else {
+            htri_t is_vl_str = FALSE;
 
-            break;
+            /* Check for VL string */
+            if(type_class == H5T_STRING)
+                if((is_vl_str = H5Tis_variable_str(src_type_id)) < 0)
+                    D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't check for variable length string")
+            if(is_vl_str) {
+                /* Set return values to point to string (exclude null terminator
+                 * since it's not needed */
+                *key_buf = (const void *)*((const char * const *)key);
+                *key_size = strlen(*(const char * const *)key);
+            } /* end if */
+            else {
+                /* Initialize type conversion */
+                if(H5_daos_tconv_init(src_type_id, &src_type_size, dst_type_id, &dst_type_size, 1, &tconv_buf, &bkg_buf, NULL, &fill_bkg) < 0)
+                    D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't initialize type conversion")
 
-            /* If this is a variable length datatype, iterate over it */
-        case H5T_VLEN:
-            {
-                const hvl_t *vl;
-                vl = (const hvl_t *)buf;
+                /* If needed, fill the background buffer (with zeros) */
+                if(fill_bkg) {
+                    assert(bkg_buf);
+                    memset(bkg_buf, 0, dst_type_size);
+                } /* end if */
 
-                if((super = H5Tget_super(type_id)) < 0)
-                    D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "invalid super type of VL type");
+                /* Copy data to type conversion buffer */
+                (void)memcpy(tconv_buf, key, src_type_size);
 
-                if(0 == (buf_size = H5Tget_size(super)))
-                    D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't get size of super datatype")
-                buf_size *= vl->len;
-                H5Tclose(super);
-                super = -1;
-                break;
-            } /* end block */
-        default:
-            D_GOTO_ERROR(H5E_ARGS, H5E_CANTINIT, FAIL, "unsupported datatype");
-    } /* end switch */
+                /* Perform type conversion */
+                if(H5Tconvert(src_type_id, dst_type_id, 1, tconv_buf, bkg_buf, dxpl_id) < 0)
+                    D_GOTO_ERROR(H5E_MAP, H5E_CANTCONVERT, FAIL, "can't perform type conversion")
 
-    *size = buf_size;
-    if(ret_class)
-        *ret_class = dt_class;
+                /* Set return values to point to converted buffer */
+                *key_buf = (const void *)tconv_buf;
+                *key_size = dst_type_size;
+                *key_buf_alloc = tconv_buf;
+                tconv_buf = NULL;
+            } /* end else */
+        } /* end else */
+    } /* end if */
+    else {
+        /* Just get size and return key */
+        if(0 == (dst_type_size = H5Tget_size(dst_type_id)))
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't get size of datatype")
+        *key_buf = key;
+        *key_size = dst_type_size;
+    } /* end else */
 
 done:
-    if(super >= 0 && H5Tclose(super) < 0)
-        D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't close super datatype")
+    /* Cleanup */
+    if(src_parent_type_id > 0 && H5Tclose(src_parent_type_id) < 0)
+        D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't close source type parent type")
+    if(dst_parent_type_id > 0 && H5Tclose(dst_parent_type_id) < 0)
+        D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't close destination type parent type")
+    tconv_buf = DV_free(tconv_buf);
+    bkg_buf = DV_free(bkg_buf);
 
     D_FUNC_LEAVE
-} /* end H5_daos_map_get_size */
+} /* end H5_daos_map_key_conv() */
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_map_dtype_info
+ * Function:    H5_daos_map_key_conv_reverse
  *
- * Purpose:     Retrieves information about the datatype of Map Key or
- *              value datatype, whether it's VL or not. If it is not VL
- *              return the size.
+ * Purpose:     Converts the provided key from the source to destination
+ *              type.  Handles vlens differently from other conversions in
+ *              this connector, un-flattening them into buffers and hvl_t
+ *              / char * pointers.  Does not support nested vlens.
  *
- * Return:      Success:        SUCCEED 
- *              Failure:        Negative
+ * Parameters:  hid_t src_type_id: IN: Type ID that describes the data
+ *                  currently in key.
+ *              hid_t dst_type_id: IN: Type ID to convert data in key to.
+ *              void *key: IN: Buffer containing the key to be converted.
+ *                  This function may convert it in place or otherwise
+ *                  change the contents of the buffer!
+ *              size_t key_size: IN: Size in bytes of the data pointed to
+ *                  by key.
+ *              void **key_buf: OUT: A pointer to a buffer containing the
+ *                  converted key will be placed here.
+ *              void **key_buf_alloc: IN/OUT: On entry, optionally
+ *                  contains a buffer of size *key_size.  On exit, will
+ *                  contain either this buffer or another one that must
+ *                  eventually be freed by the caller when key_buf is no
+ *                  longer needed.
+ *              H5_daos_vl_union_t *vl_union: IN: A pointer to a buffer
+ *                  large enough to hold an H5_daos_vl_union_t.  Must not
+ *                  be freed or go out of scope until key_buf is no longer
+ *                  needed.
+ *              hid_t dxpl_id: IN: Dataset transfer property list ID.
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
  *
  *-------------------------------------------------------------------------
  */
 static herr_t
-H5_daos_map_dtype_info(hid_t type_id, hbool_t *is_vl, size_t *size,
-    H5T_class_t *cls)
+H5_daos_map_key_conv_reverse(hid_t src_type_id, hid_t dst_type_id,
+    void *key, size_t key_size, void **key_buf, void **key_buf_alloc,
+    H5_daos_vl_union_t *vl_union, hid_t dxpl_id)
 {
-    size_t buf_size = 0;
-    H5T_class_t dt_class;
-    htri_t is_variable_str;
+    htri_t need_tconv;
+    size_t src_type_size;
+    size_t dst_type_size;
+    hid_t src_parent_type_id = H5I_INVALID_HID;
+    hid_t dst_parent_type_id = H5I_INVALID_HID;
+    void *tconv_buf = NULL;
+    void *bkg_buf = NULL;
+    H5_daos_tconv_reuse_t reuse = H5_DAOS_TCONV_REUSE_NONE;
+    hbool_t fill_bkg = FALSE;
     herr_t ret_value = SUCCEED;
 
-    assert(is_vl);
+    assert(src_type_id >= 0);
+    assert(dst_type_id >= 0);
+    assert(key);
+    assert(key_size > 0);
+    assert(key_buf);
+    assert(key_buf_alloc);
+    assert(vl_union);
 
-    if(H5T_NO_CLASS == (dt_class = H5Tget_class(type_id)))
-        D_GOTO_ERROR(H5E_ARGS, H5E_CANTINIT, FAIL, "can't get datatype class")
+    /* Check if type conversion is needed for the key */
+    if((need_tconv = H5_daos_need_tconv(src_type_id, dst_type_id)) < 0)
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTCOMPARE, FAIL, "can't check if type conversion is needed")
+    if(need_tconv) {
+        H5T_class_t type_class;
 
-    switch(dt_class) {
-        case H5T_STRING:
-            /* If this is a variable length string, get the size using strlen(). */
-            if((is_variable_str = H5Tis_variable_str(type_id)) < 0)
-                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't check for vl string")
-            if(is_variable_str) {
-                *is_vl = TRUE;
-                break;
+        /* Get class */
+        if(H5T_NO_CLASS == (type_class = H5Tget_class(src_type_id)))
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't get datatype class")
+
+        /* Check for vlen */
+        if(type_class == H5T_VLEN) {
+            size_t src_parent_type_size;
+            size_t dst_parent_type_size;
+            htri_t parent_need_tconv;
+
+            /* Get parent types */
+            if((src_parent_type_id = H5Tget_super(src_type_id)) < 0)
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get source type parent")
+            if((dst_parent_type_id = H5Tget_super(dst_type_id)) < 0)
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get destination type parent")
+
+            /* Check if type conversion is needed for the parent type */
+            if((parent_need_tconv = H5_daos_need_tconv(src_parent_type_id, dst_parent_type_id)) < 0)
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTCOMPARE, FAIL, "can't check if type conversion is needed")
+            if(parent_need_tconv) {
+                /* Get destination type size */
+                if(0 == (dst_parent_type_size = H5Tget_size(dst_parent_type_id)))
+                    D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't get size of datatype")
+
+                /* Calculate sequence length */
+                if(key_size % src_parent_type_size)
+                    D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "key size is not a multiple of source datatype size")
+                vl_union->vl.len = key_size / src_parent_type_size;
+
+                /* Initialize type conversion */
+                if(H5_daos_tconv_init(src_parent_type_id, &src_parent_type_size, dst_parent_type_id, &dst_parent_type_size, vl_union->vl.len, &tconv_buf, &bkg_buf, &reuse, &fill_bkg) < 0)
+                    D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't initialize type conversion")
+
+                /* Reuse buffer as appropriate */
+                if(reuse == H5_DAOS_TCONV_REUSE_TCONV)
+                    tconv_buf = key;
+                else if(reuse == H5_DAOS_TCONV_REUSE_BKG) {
+                    bkg_buf = key;
+
+                    /* We must fill the background buffer in this case since it
+                     * is not the actual read buffer (there isn't one that's
+                     * analogous to a dataset read here).  Make sure to wait
+                     * until after the data is copied to tconv to fill it since
+                     * otherwise we'd wipe out the data in key! */
+                    fill_bkg = TRUE;
+                } /* end if */
+
+                /* Copy data to type conversion buffer */
+                (void)memcpy(tconv_buf, key, key_size);
+
+                /* If needed, fill the background buffer (with zeros) */
+                if(fill_bkg) {
+                    assert(bkg_buf);
+                    memset(bkg_buf, 0, vl_union->vl.len * dst_parent_type_size);
+                } /* end if */
+
+                /* Perform type conversion */
+                if(H5Tconvert(src_parent_type_id, dst_parent_type_id, vl_union->vl.len, tconv_buf, bkg_buf, dxpl_id) < 0)
+                    D_GOTO_ERROR(H5E_MAP, H5E_CANTCONVERT, FAIL, "can't perform type conversion")
+
+                /* Set return values to point to converted buffer */
+                vl_union->vl.p = tconv_buf;
+                *key_buf = (void *)&(vl_union->vl);
+                if(tconv_buf != key) {
+                    *key_buf_alloc = tconv_buf;
+                    tconv_buf = NULL;
+                } /* end if */
             }
-        case H5T_INTEGER:
-        case H5T_FLOAT:
-        case H5T_TIME:
-        case H5T_BITFIELD:
-        case H5T_OPAQUE:
-        case H5T_ENUM:
-        case H5T_ARRAY:
-        case H5T_NO_CLASS:
-        case H5T_REFERENCE:
-        case H5T_NCLASSES:
-        case H5T_COMPOUND:
-            /* Data is not variable length, so use H5Tget_size() */
-            /* MSC - This is not correct. Compound/Array can contian
-               VL datatypes, but for now we don't support that. Need
-               to check for that too */
-            if(0 == (buf_size = H5Tget_size(type_id)))
-                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't get size of datatype")
-            *is_vl = FALSE;
-            break;
+            else {
+                /* Just get parent size and set return values to point to vlen
+                 * buffer */
+                if(0 == (dst_parent_type_size = H5Tget_size(dst_parent_type_id)))
+                    D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't get size of datatype")
 
-            /* If this is a variable length datatype, iterate over it */
-        case H5T_VLEN:
-            *is_vl = TRUE;
-            break;
-        default:
-            D_GOTO_ERROR(H5E_ARGS, H5E_CANTINIT, FAIL, "unsupported datatype");
-    }
+                /* Calculate sequence length */
+                if(key_size % dst_parent_type_size)
+                    D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "key size is not a multiple of source datatype size")
+                vl_union->vl.len = key_size / dst_parent_type_size;
+                vl_union->vl.p = key;
+                *key_buf = (void *)&(vl_union->vl);
+            } /* end else */
+        } /* end if */
+        else {
+            htri_t is_vl_str = FALSE;
 
-    if(size)
-        *size = buf_size;
-    if(cls)
-        *cls = dt_class;
+            /* Check for VL string */
+            if(type_class == H5T_STRING)
+                if((is_vl_str = H5Tis_variable_str(src_type_id)) < 0)
+                    D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't check for variable length string")
+            if(is_vl_str) {
+                /* Assign pointer and make sure it's NULL terminated */
+                vl_union->vls = (char *)key;
+                assert(vl_union->vls[key_size] == '\0');
+
+                /* Set return values to point to string  */
+                *key_buf = (void *)&(vl_union->vls);
+            } /* end if */
+            else {
+                /* Initialize type conversion */
+                if(H5_daos_tconv_init(src_type_id, &src_type_size, dst_type_id, &dst_type_size, 1, &tconv_buf, &bkg_buf, &reuse, &fill_bkg) < 0)
+                    D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't initialize type conversion")
+
+                /* Check size is correct */
+                if(key_size != src_type_size)
+                    D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "key size does not match source datatype size")
+
+                /* Reuse buffer as appropriate */
+                if(reuse == H5_DAOS_TCONV_REUSE_TCONV)
+                    tconv_buf = key;
+                else if(reuse == H5_DAOS_TCONV_REUSE_BKG) {
+                    bkg_buf = key;
+
+                    /* We must fill the background buffer in this case since it
+                     * is not the actual read buffer (there isn't one that's
+                     * analogous to a dataset read here).  Make sure to wait
+                     * until after the data is copied to tconv to fill it since
+                     * otherwise we'd wipe out the data in key! */
+                    fill_bkg = TRUE;
+                } /* end if */
+
+                /* Copy data to type conversion buffer */
+                (void)memcpy(tconv_buf, key, src_type_size);
+
+                /* If needed, fill the background buffer (with zeros) */
+                if(fill_bkg) {
+                    assert(bkg_buf);
+                    memset(bkg_buf, 0, dst_type_size);
+                } /* end if */
+
+                /* Perform type conversion */
+                if(H5Tconvert(src_type_id, dst_type_id, 1, tconv_buf, bkg_buf, dxpl_id) < 0)
+                    D_GOTO_ERROR(H5E_MAP, H5E_CANTCONVERT, FAIL, "can't perform type conversion")
+
+                /* Set return values to point to converted buffer */
+                *key_buf = tconv_buf;
+                if(tconv_buf != key) {
+                    *key_buf_alloc = tconv_buf;
+                    tconv_buf = NULL;
+                } /* end if */
+            } /* end else */
+        } /* end else */
+    } /* end if */
+    else
+        /* Just return key */
+        *key_buf = key;
+
 done:
+    /* Cleanup */
+    if(src_parent_type_id > 0 && H5Tclose(src_parent_type_id) < 0)
+        D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't close source type parent type")
+    if(dst_parent_type_id > 0 && H5Tclose(dst_parent_type_id) < 0)
+        D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't close destination type parent type")
+    if(tconv_buf && (tconv_buf != key))
+        DV_free(tconv_buf);
+    if(bkg_buf && (bkg_buf != key))
+        DV_free(bkg_buf);
+
     D_FUNC_LEAVE
-} /* end H5_daos_map_dtype_info */
+} /* end H5_daos_map_key_conv_reverse() */
 
 
 /*-------------------------------------------------------------------------
@@ -782,17 +1082,24 @@ done:
  */
 herr_t 
 H5_daos_map_get_val(void *_map, hid_t key_mem_type_id, const void *key,
-    hid_t val_mem_type_id, void *value, hid_t H5VL_DAOS_UNUSED dxpl_id,
+    hid_t val_mem_type_id, void *value, hid_t dxpl_id,
     void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_map_t *map = (H5_daos_map_t *)_map;
-    size_t key_size, val_size;
-    hbool_t val_is_vl;
+    const void *key_buf = NULL;
+    void *key_buf_alloc = NULL;
+    size_t key_size = 0;
+    htri_t val_need_tconv;
+    size_t val_mem_type_size = 0;
+    size_t val_file_type_size = 0;
+    void *tconv_buf = NULL;
+    void *bkg_buf = NULL;
+    H5_daos_tconv_reuse_t reuse = H5_DAOS_TCONV_REUSE_NONE;
+    hbool_t fill_bkg = FALSE;
     daos_key_t dkey;
     daos_iod_t iod;
     daos_sg_list_t sgl;
     daos_iov_t sg_iov;
-    H5T_class_t cls;
     int ret;
     herr_t ret_value = SUCCEED;
 
@@ -803,79 +1110,86 @@ H5_daos_map_get_val(void *_map, hid_t key_mem_type_id, const void *key,
     if(!value)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map value is NULL")
 
-    /* get the key size and checksum from the provdied key datatype & buffer */
-    if(H5_daos_map_get_size(key_mem_type_id, key, NULL, &key_size, NULL) < 0)
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get key size");
-
-    /* get information about the datatype of the value. Get the values
-       size if it is not VL. val_size will be 0 if it is VL */
-    if(H5_daos_map_dtype_info(val_mem_type_id, &val_is_vl, &val_size, &cls) < 0)
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get key size");
+    /* Convert key (if necessary) */
+    if(H5_daos_map_key_conv(key_mem_type_id, map->ktype_id, key, &key_buf, &key_size, &key_buf_alloc, dxpl_id) < 0)
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't convert key")
 
     /* Set up dkey */
-    daos_iov_set(&dkey, (void *)key, (daos_size_t)key_size);
+    daos_iov_set(&dkey, (void *)key_buf, (daos_size_t)key_size);
+
+    /* Check if the type conversion is needed */
+    if((val_need_tconv = H5_daos_need_tconv(map->vtype_id, val_mem_type_id)) < 0)
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTCOMPARE, FAIL, "can't check if type conversion is needed")
+
+    /* Type conversion */
+    if(val_need_tconv) {
+        /* Initialize type conversion */
+        if(H5_daos_tconv_init(map->vtype_id, &val_file_type_size, val_mem_type_id, &val_mem_type_size, 1, &tconv_buf, &bkg_buf, &reuse, &fill_bkg) < 0)
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't initialize type conversion")
+
+        /* Reuse buffer as appropriate */
+        if(reuse == H5_DAOS_TCONV_REUSE_TCONV)
+            tconv_buf = value;
+        else if(reuse == H5_DAOS_TCONV_REUSE_BKG)
+            bkg_buf = value;
+
+        /* Fill background buffer if necessary */
+        if(fill_bkg && (bkg_buf != value))
+            (void)memcpy(bkg_buf, value, val_mem_type_size);
+
+        /* Set up sgl_iov to point to tconv_buf */
+        daos_iov_set(&sg_iov, tconv_buf, (daos_size_t)val_file_type_size);
+    } /* end if */
+    else {
+        /* Get datatype size */
+        if((val_file_type_size = H5Tget_size(map->vtype_id)) == 0)
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get datatype size for value datatype")
+
+        /* Set up sgl_iov to point to value */
+        daos_iov_set(&sg_iov, value, (daos_size_t)val_file_type_size);
+    } /* end else */
 
     /* Set up iod */
     memset(&iod, 0, sizeof(iod));
     daos_iov_set(&iod.iod_name, (void *)H5_daos_map_key_g, H5_daos_map_key_size_g);
     iod.iod_nr = 1u;
+    iod.iod_size = (daos_size_t)val_file_type_size;
     iod.iod_type = DAOS_IOD_SINGLE;
 
-    if (!val_is_vl) {
-        iod.iod_size = (daos_size_t)val_size;
+    /* Set up sgl */
+    sgl.sg_nr = 1;
+    sgl.sg_nr_out = 0;
+    sgl.sg_iovs = &sg_iov;
 
-        /* Set up sgl */
-        daos_iov_set(&sg_iov, value, (daos_size_t)val_size);
-        sgl.sg_nr = 1;
-        sgl.sg_nr_out = 0;
-        sgl.sg_iovs = &sg_iov;
+    /* Read value */
+    if(0 != (ret = daos_obj_fetch(map->obj.obj_oh,
+                   DAOS_TX_NONE, &dkey,
+                   1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "MAP get failed: %s", H5_daos_err_to_string(ret));
 
-        if(0 != (ret = daos_obj_fetch(map->obj.obj_oh,
-                       DAOS_TX_NONE, &dkey,
-                       1, &iod, &sgl, NULL , NULL)))
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "MAP get failed: %s", H5_daos_err_to_string(ret));
+    /* Check for no key-value pair found */
+    if(iod.iod_size == (uint64_t)0)
+        D_GOTO_ERROR(H5E_MAP, H5E_NOTFOUND, FAIL, "key not found")
 
-        /* Check for no key-value pair found */
-        if(iod.iod_size == (uint64_t)0)
-            D_GOTO_ERROR(H5E_MAP, H5E_NOTFOUND, FAIL, "key not found")
-    }
-    else {
-        iod.iod_size = DAOS_REC_ANY;
-        if(0 != (ret = daos_obj_fetch(map->obj.obj_oh,
-                       DAOS_TX_NONE, &dkey,
-                       1, &iod, NULL, NULL , NULL)))
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "MAP get failed: %s", H5_daos_err_to_string(ret));
+    /* Perform type conversion if necessary */
+    if(val_need_tconv) {
+        /* Type conversion */
+        if(H5Tconvert(map->vtype_id, val_mem_type_id, 1, tconv_buf, bkg_buf, dxpl_id) < 0)
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTCONVERT, FAIL, "can't perform type conversion")
 
-        val_size = iod.iod_size;
-
-        if(cls == H5T_STRING) {
-            char *val;
-
-            val = (char *)malloc(val_size);
-            daos_iov_set(&sg_iov, val, (daos_size_t)val_size);
-            (*(void **) value) = val;
-        }
-        else {
-            hvl_t *vl_buf = (hvl_t *)value;
-
-            assert(H5T_VLEN == cls);
-
-            vl_buf->len = val_size;
-            vl_buf->p = malloc(val_size);
-            daos_iov_set(&sg_iov, vl_buf->p, (daos_size_t)val_size);
-        }
-
-        sgl.sg_nr = 1;
-        sgl.sg_nr_out = 0;
-        sgl.sg_iovs = &sg_iov;
-
-        if(0 != (ret = daos_obj_fetch(map->obj.obj_oh,
-                       DAOS_TX_NONE, &dkey,
-                       1, &iod, &sgl, NULL , NULL)))
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "MAP get failed: %s", H5_daos_err_to_string(ret));
-    }
+        /* Copy to user's buffer if necessary */
+        if(value != tconv_buf)
+            (void)memcpy(value, tconv_buf, val_mem_type_size);
+    } /* end if */
 
 done:
+    /* Free memory */
+    key_buf_alloc = DV_free(key_buf_alloc);
+    if(tconv_buf && (tconv_buf != value))
+        DV_free(tconv_buf);
+    if(bkg_buf && (bkg_buf != value))
+        DV_free(bkg_buf);
+
     D_FUNC_LEAVE
 } /* end H5_daos_map_get_val() */
 
@@ -903,12 +1217,19 @@ H5_daos_map_put(void *_map, hid_t key_mem_type_id, const void *key,
     void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_map_t *map = (H5_daos_map_t *)_map;
-    size_t key_size, val_size;
+    const void *key_buf = NULL;
+    void *key_buf_alloc = NULL;
+    size_t key_size = 0;
+    htri_t val_need_tconv;
+    size_t val_mem_type_size = 0;
+    size_t val_file_type_size = 0;
+    void *tconv_buf = NULL;
+    void *bkg_buf = NULL;
+    hbool_t fill_bkg = FALSE;
     daos_key_t dkey;
     daos_iod_t iod;
     daos_sg_list_t sgl;
     daos_iov_t sg_iov;
-    H5T_class_t key_cls, val_cls;
     int ret;
     herr_t ret_value = SUCCEED;
 
@@ -923,37 +1244,82 @@ H5_daos_map_put(void *_map, hid_t key_mem_type_id, const void *key,
     if(!(map->obj.item.file->flags & H5F_ACC_RDWR))
         D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, FAIL, "no write intent on file")
 
-    /* get the key size and checksum from the provdied key datatype & buffer */
-    if(H5_daos_map_get_size(key_mem_type_id, key, NULL, &key_size, &key_cls) < 0)
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get key size");
-
-    /* get the val size and checksum from the provdied val datatype & buffer */
-    if(H5_daos_map_get_size(val_mem_type_id, value, NULL, &val_size, &val_cls) < 0)
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get val size");
+    /* Convert key (if necessary) */
+    if(H5_daos_map_key_conv(key_mem_type_id, map->ktype_id, key, &key_buf, &key_size, &key_buf_alloc, dxpl_id) < 0)
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't convert key")
 
     /* Set up dkey */
-    daos_iov_set(&dkey, (void *)(H5T_VLEN == key_cls ? ((const hvl_t *)key)->p : key), (daos_size_t)key_size);
+    daos_iov_set(&dkey, (void *)key_buf, (daos_size_t)key_size);
+
+    /* Check if the type conversion is needed */
+    if((val_need_tconv = H5_daos_need_tconv(map->vtype_id, val_mem_type_id)) < 0)
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTCOMPARE, FAIL, "can't check if type conversion is needed")
+
+    /* Type conversion */
+    if(val_need_tconv) {
+        /* Initialize type conversion */
+        if(H5_daos_tconv_init(val_mem_type_id, &val_mem_type_size, map->vtype_id, &val_file_type_size, 1, &tconv_buf, &bkg_buf, NULL, &fill_bkg) < 0)
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't initialize type conversion")
+    } /* end if */
+    else
+        /* Get datatype size */
+        if((val_file_type_size = H5Tget_size(map->vtype_id)) == 0)
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get datatype size for value datatype")
 
     /* Set up iod */
     memset(&iod, 0, sizeof(iod));
     daos_iov_set(&iod.iod_name, (void *)H5_daos_map_key_g, H5_daos_map_key_size_g);
     iod.iod_nr = 1u;
-    iod.iod_size = (daos_size_t)val_size;
+    iod.iod_size = (daos_size_t)val_file_type_size;
     iod.iod_type = DAOS_IOD_SINGLE;
 
-    /* Set up sgl */
-    daos_iov_set(&sg_iov, (void *)(H5T_VLEN == val_cls ? ((const hvl_t *)value)->p : value), (daos_size_t)val_size);
+    /* Set up constant sgl info */
     sgl.sg_nr = 1;
     sgl.sg_nr_out = 0;
     sgl.sg_iovs = &sg_iov;
 
+    /* Check for type conversion */
+    if(val_need_tconv) {
+        /* Check if we need to fill background buffer */
+        if(fill_bkg) {
+            assert(bkg_buf);
+
+            /* Read data from attribute to background buffer */
+            daos_iov_set(&sg_iov, bkg_buf, (daos_size_t)val_file_type_size);
+
+            if(0 != (ret = daos_obj_fetch(map->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
+                D_GOTO_ERROR(H5E_MAP, H5E_READERROR, FAIL, "can't read value from map: %s", H5_daos_err_to_string(ret))
+        } /* end if */
+
+        /* Copy data to type conversion buffer */
+        (void)memcpy(tconv_buf, value, (size_t)val_mem_type_size);
+
+        /* Perform type conversion */
+        if(H5Tconvert(val_mem_type_id, map->vtype_id, 1, tconv_buf, bkg_buf, dxpl_id) < 0)
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTCONVERT, FAIL, "can't perform type conversion")
+
+        /* Set sgl to write from tconv_buf */
+        daos_iov_set(&sg_iov, tconv_buf, (daos_size_t)val_file_type_size);
+    } /* end if */
+    else
+        /* Set sgl to write from value */
+        daos_iov_set(&sg_iov, (void *)value, (daos_size_t)val_file_type_size);
+
+
     /* Write key/value pair to map */
     if(0 != (ret = daos_obj_update(map->obj.obj_oh,
                    DAOS_TX_NONE, &dkey,
-                   1, &iod, &sgl, NULL)))
+                   1, &iod, &sgl, NULL /*event*/)))
         D_GOTO_ERROR(H5E_MAP, H5E_CANTSET, FAIL, "map put failed: %s", H5_daos_err_to_string(ret));
 
 done:
+    /* Free memory */
+    key_buf_alloc = DV_free(key_buf_alloc);
+    if(tconv_buf && (tconv_buf != value))
+        DV_free(tconv_buf);
+    if(bkg_buf && (bkg_buf != value))
+        DV_free(bkg_buf);
+
     D_FUNC_LEAVE
 } /* end H5_daos_map_put() */
 
@@ -1054,7 +1420,9 @@ H5_daos_map_exists(void *_map, hid_t key_mem_type_id, const void *key,
     void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_map_t *map = (H5_daos_map_t *)_map;
-    size_t key_size;
+    const void *key_buf = NULL;
+    void *key_buf_alloc = NULL;
+    size_t key_size = 0;
     daos_key_t dkey;
     daos_iod_t iod;
     int ret;
@@ -1067,19 +1435,19 @@ H5_daos_map_exists(void *_map, hid_t key_mem_type_id, const void *key,
     if(!exists)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map exists pointer is NULL")
 
-    /* get the key size and checksum from the provdied key datatype & buffer */
-    if(H5_daos_map_get_size(key_mem_type_id, key, NULL, &key_size, NULL) < 0)
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get key size");
+    /* Convert key (if necessary) */
+    if(H5_daos_map_key_conv(key_mem_type_id, map->ktype_id, key, &key_buf, &key_size, &key_buf_alloc, dxpl_id) < 0)
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't convert key")
 
     /* Set up dkey */
-    daos_iov_set(&dkey, (void *)key, (daos_size_t)key_size);
+    daos_iov_set(&dkey, (void *)key_buf, (daos_size_t)key_size);
 
     /* Set up iod */
     memset(&iod, 0, sizeof(iod));
     daos_iov_set(&iod.iod_name, (void *)H5_daos_map_key_g, H5_daos_map_key_size_g);
     iod.iod_nr = 1u;
-    iod.iod_type = DAOS_IOD_SINGLE;
     iod.iod_size = DAOS_REC_ANY;
+    iod.iod_type = DAOS_IOD_SINGLE;
 
     if(0 != (ret = daos_obj_fetch(map->obj.obj_oh,
                    DAOS_TX_NONE, &dkey,
@@ -1092,6 +1460,9 @@ H5_daos_map_exists(void *_map, hid_t key_mem_type_id, const void *key,
         *exists = FALSE;
 
 done:
+    /* Free memory */
+    key_buf_alloc = DV_free(key_buf_alloc);
+
     D_FUNC_LEAVE
 } /* end H5_daos_map_exists() */
 
@@ -1234,25 +1605,24 @@ done:
  */
 static herr_t 
 H5_daos_map_iterate(H5_daos_map_t *map, hid_t map_id, hsize_t *idx,
-    hid_t key_mem_type_id, H5M_iterate_t op, void *op_data,
-    hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req)
+    hid_t key_mem_type_id, H5M_iterate_t op, void *op_data, hid_t dxpl_id,
+    void H5VL_DAOS_UNUSED **req)
 {
     daos_anchor_t anchor;
     uint32_t nr;
     daos_key_desc_t kds[H5_DAOS_ITER_LEN];
+    void *key_buf = NULL;
+    void *key_buf_alloc = NULL;
+    size_t key_size = 0;
+    H5_daos_vl_union_t vl_union;
     daos_key_t dkey;
     daos_iod_t iod;
     daos_sg_list_t sgl;
     daos_iov_t sg_iov;
-    size_t key_size;
-    hbool_t key_is_vl;
-    H5T_class_t key_cls;
     herr_t op_ret;
     char tmp_char;
     char *dkey_buf = NULL;
     size_t dkey_buf_len = 0;
-    const void *key;
-    hvl_t vl_key;
     char *p;
     int ret;
     uint32_t i;
@@ -1266,15 +1636,6 @@ H5_daos_map_iterate(H5_daos_map_t *map, hid_t map_id, hsize_t *idx,
     /* Iteration restart not supported */
     if(idx && (*idx != 0))
         D_GOTO_ERROR(H5E_SYM, H5E_UNSUPPORTED, FAIL, "iteration restart not supported (must start from 0)")
-
-    /* get information about the datatype of the key. Get the key's
-       size if it is not VL. vkey_size will be 0 if it is VL */
-    if(H5_daos_map_dtype_info(key_mem_type_id, &key_is_vl, &key_size, &key_cls) < 0)
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get key size");
-
-    /* Set key to point to vl_key if key is a non-string vlen */
-    if(key_is_vl && (key_cls != H5T_STRING))
-        key = &vl_key;
 
     /* Initialize anchor */
     memset(&anchor, 0, sizeof(anchor));
@@ -1336,26 +1697,25 @@ H5_daos_map_iterate(H5_daos_map_t *map, hid_t map_id, hsize_t *idx,
             tmp_char = p[kds[i].kd_key_len];
             p[kds[i].kd_key_len] = '\0';
 
-            /* Set key pointer for callback */
-            if(key_is_vl) {
-                if(key_cls == H5T_STRING)
-                    /* VL string */
-                    key = &p;
-                else {
-                    /* VL array */
-                    vl_key.len = kds[i].kd_key_len;
-                    vl_key.p = p;
-                } /* end else */
-            } /* end if */
-            else
-                key = p;
+            /* Convert key (if necessary) */
+            if(H5_daos_map_key_conv_reverse(key_mem_type_id, map->ktype_id, p, (size_t)kds[i].kd_key_len, &key_buf, &key_buf_alloc, &vl_union, dxpl_id) < 0)
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't convert key")
 
             /* Make callback */
-            if((op_ret = op(map_id, key, op_data)) < 0)
+            if((op_ret = op(map_id, key_buf, op_data)) < 0)
                 D_GOTO_ERROR(H5E_MAP, H5E_BADITER, op_ret, "operator function returned failure")
 
             /* Replace null terminator */
             p[kds[i].kd_key_len] = tmp_char;
+
+            /* Free allocated buffer */
+            /* While the free/alloc cycle for the key buffer could be a
+             * performance problem, this will only happen when the key types
+             * require conversion and are not vlen, or if they are vlen and the
+             * parent types require conversion (it will never happen for
+             * strings), which should be a rare case. */
+            if(key_buf_alloc)
+                key_buf_alloc = DV_free(key_buf_alloc);
 
             /* Advance idx */
             if(idx)
@@ -1370,6 +1730,7 @@ H5_daos_map_iterate(H5_daos_map_t *map, hid_t map_id, hsize_t *idx,
 
 done:
     dkey_buf = (char *)DV_free(dkey_buf);
+    key_buf_alloc = DV_free(key_buf_alloc);
 
     D_FUNC_LEAVE
 } /* end H5_daos_map_iterate() */
@@ -1395,9 +1756,10 @@ H5_daos_map_delete_key(H5_daos_map_t *map, hid_t key_mem_type_id,
     const void *key, hid_t H5VL_DAOS_UNUSED dxpl_id,
     void H5VL_DAOS_UNUSED **req)
 {
+    const void *key_buf = NULL;
+    void *key_buf_alloc = NULL;
     size_t key_size;
     daos_key_t dkey;
-    H5T_class_t key_cls;
     int ret;
     herr_t ret_value = SUCCEED;
 
@@ -1410,12 +1772,12 @@ H5_daos_map_delete_key(H5_daos_map_t *map, hid_t key_mem_type_id,
     if(!(map->obj.item.file->flags & H5F_ACC_RDWR))
         D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, FAIL, "no write intent on file")
 
-    /* get the key size and checksum from the provdied key datatype & buffer */
-    if(H5_daos_map_get_size(key_mem_type_id, key, NULL, &key_size, &key_cls) < 0)
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get key size");
+    /* Convert key (if necessary) */
+    if(H5_daos_map_key_conv(key_mem_type_id, map->ktype_id, key, &key_buf, &key_size, &key_buf_alloc, dxpl_id) < 0)
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't convert key")
 
     /* Set up dkey */
-    daos_iov_set(&dkey, (void *)(H5T_VLEN == key_cls ? ((const hvl_t *)key)->p : key), (daos_size_t)key_size);
+    daos_iov_set(&dkey, (void *)key_buf, (daos_size_t)key_size);
 
     /* Check for key sharing dkey with other metadata.  If dkey is shared, only
      * delete akey, otherwise delete dkey. */
@@ -1440,6 +1802,9 @@ H5_daos_map_delete_key(H5_daos_map_t *map, hid_t key_mem_type_id,
             D_GOTO_ERROR(H5E_MAP, H5E_CANTSET, FAIL, "map dkey delete failed: %s", H5_daos_err_to_string(ret));
 
 done:
+    /* Free memory */
+    key_buf_alloc = DV_free(key_buf_alloc);
+
     D_FUNC_LEAVE
 } /* end H5_daos_map_delete_key() */
 

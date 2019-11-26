@@ -1855,7 +1855,6 @@ error:
     return 1;
 }
 
-#ifdef TMP
 static int 
 test_vl(hid_t file_id)
 {
@@ -1899,7 +1898,6 @@ test_vl(hid_t file_id)
 error:
     return 1;
 }
-#endif
 
 static int
 test_compound(hid_t file_id)
@@ -2156,8 +2154,8 @@ main( int argc, char** argv )
     nerrors += test_integer(file_id);
     nerrors += test_enum(file_id);
     nerrors += test_compound(file_id);
-#ifdef TMP
     nerrors += test_vl(file_id);
+#ifdef TMP
     nerrors += test_nested_compound(file_id);
 #endif
     nerrors += test_many_entries(file_id);

@@ -459,6 +459,14 @@ typedef struct H5_daos_iter_data_t {
     } u;
 } H5_daos_iter_data_t;
 
+/* A union to contain either an hvl_t or a char *, for vlen conversions that
+ * need to be handled explicitly (like for map keys) */
+typedef union {
+    hvl_t   vl;
+    char *  vls;
+} H5_daos_vl_union_t;
+
+
 /* XXX: The following two definitions are only here until they are
  * moved out of their respective H5Xpkg.h header files and into a
  * more public scope. They are still needed for the DAOS VOL to handle
@@ -705,6 +713,7 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_datatype_specific(void *_item, H5VL_datatype_sp
 H5VL_DAOS_PRIVATE herr_t H5_daos_datatype_close(void *_dtype, hid_t dxpl_id, void **req);
 
 /* Other datatype routines */
+H5VL_DAOS_PRIVATE htri_t H5_daos_detect_vl_vlstr_ref(hid_t type_id);
 H5VL_DAOS_PRIVATE htri_t H5_daos_need_tconv(hid_t src_type_id, hid_t dst_type_id);
 H5VL_DAOS_PRIVATE herr_t H5_daos_tconv_init(hid_t src_type_id, size_t *src_type_size,
     hid_t dst_type_id, size_t *dst_type_size, size_t num_elem, void **tconv_buf,

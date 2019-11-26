@@ -115,8 +115,9 @@ H5_daos_dset_fill_dcpl_cache(H5_daos_dset_t *dset)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get layout property")
 
     /* Retrieve chunk dimensions */
-    if(H5Pget_chunk(dset->dcpl_id, H5S_MAX_RANK, dset->dcpl_cache.chunk_dims) < 0)
-        D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get chunk dimensions")
+    if(dset->dcpl_cache.layout == H5D_CHUNKED)
+        if(H5Pget_chunk(dset->dcpl_id, H5S_MAX_RANK, dset->dcpl_cache.chunk_dims) < 0)
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get chunk dimensions")
 
     /* Retrieve fill status */
     if(H5Pfill_value_defined(dset->dcpl_id, &dset->dcpl_cache.fill_status) < 0)
@@ -367,7 +368,7 @@ H5_daos_dataset_create(void *_item,
             /* Set up iod */
             daos_iov_set(&iod[nr].iod_name, (void *)H5_daos_fillval_key_g, H5_daos_fillval_key_size_g);
             iod[nr].iod_nr = 1u;
-            iod[nr].iod_size = (uint64_t)type_size;
+            iod[nr].iod_size = (uint64_t)fill_val_size;
             iod[nr].iod_type = DAOS_IOD_SINGLE;
 
             /* Set up sgl */
@@ -660,13 +661,13 @@ H5_daos_dataset_open(void *_item,
 
         /* Allocate dataset info buffer if necessary */
         if((tot_len + (6 * sizeof(uint64_t))) > sizeof(dinfo_buf_static)) {
-            if(NULL == (dinfo_buf_dyn = (uint8_t *)DV_malloc(tot_len + (5 * sizeof(uint64_t)))))
+            if(NULL == (dinfo_buf_dyn = (uint8_t *)DV_malloc(tot_len + (6 * sizeof(uint64_t)))))
                 D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate dataset info buffer")
             dinfo_buf = dinfo_buf_dyn;
         } /* end if */
 
         /* Set up sgl */
-        p = dinfo_buf + (5 * sizeof(uint64_t));
+        p = dinfo_buf + (6 * sizeof(uint64_t));
         daos_iov_set(&sg_iov[0], p, (daos_size_t)type_len);
         sgl[0].sg_nr = 1;
         sgl[0].sg_nr_out = 0;

@@ -131,7 +131,7 @@ H5_daos_dset_fill_dcpl_cache(H5_daos_dset_t *dset)
     /* Determine fill method */
     if(fill_time == H5D_FILL_TIME_NEVER) {
         /* Check for fill time never with vl/ref (illegal) */
-        if(is_vl_ref) 
+        if(is_vl_ref)
             D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "can't use fill time of NEVER with vlen or reference type")
 
         /* Never write fill values even if defined */

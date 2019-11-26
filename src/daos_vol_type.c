@@ -372,8 +372,9 @@ done:
  */
 herr_t
 H5_daos_tconv_init(hid_t src_type_id, size_t *src_type_size,
-    hid_t dst_type_id, size_t *dst_type_size, size_t num_elem, void **tconv_buf,
-    void **bkg_buf, H5_daos_tconv_reuse_t *reuse, hbool_t *fill_bkg)
+    hid_t dst_type_id, size_t *dst_type_size, size_t num_elem,
+    hbool_t clear_tconv_buf, void **tconv_buf, void **bkg_buf,
+    H5_daos_tconv_reuse_t *reuse, hbool_t *fill_bkg)
 {
     htri_t need_bkg;
     herr_t ret_value = SUCCEED;
@@ -415,10 +416,17 @@ H5_daos_tconv_init(hid_t src_type_id, size_t *src_type_size,
     } /* end if */
 
     /* Allocate conversion buffer if it is not being reused */
-    if(!reuse || (*reuse != H5_DAOS_TCONV_REUSE_TCONV))
-        if(NULL == (*tconv_buf = DV_malloc(num_elem * (*src_type_size
-                > *dst_type_size ? *src_type_size : *dst_type_size))))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate type conversion buffer")
+    if(!reuse || (*reuse != H5_DAOS_TCONV_REUSE_TCONV)) {
+        if(clear_tconv_buf) {
+            if(NULL == (*tconv_buf = DV_calloc(num_elem * (*src_type_size
+                    > *dst_type_size ? *src_type_size : *dst_type_size))))
+                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate type conversion buffer")
+        } /* end if */
+        else
+            if(NULL == (*tconv_buf = DV_malloc(num_elem * (*src_type_size
+                    > *dst_type_size ? *src_type_size : *dst_type_size))))
+                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate type conversion buffer")
+    } /* end if */
 
     /* Allocate background buffer if one is needed and it is not being
      * reused */

@@ -69,6 +69,7 @@ typedef herr_t (*H5_daos_chunk_io_func)(H5_daos_dset_t *dset, daos_key_t dkey,
     hid_t dxpl_id, dset_io_type io_type, void *buf);
 
 /* Prototypes */
+static herr_t H5_daos_dset_fill_dcpl_cache(H5_daos_dset_t *dset);
 static herr_t H5_daos_sel_to_recx_iov(hid_t space_id, size_t type_size,
     void *buf, daos_recx_t **recxs, daos_iov_t **sg_iovs, size_t *list_nused);
 static herr_t H5_daos_scatter_cb(const void **src_buf,
@@ -81,9 +82,81 @@ static herr_t H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t 
     hid_t dxpl_id, dset_io_type io_type, void *buf);
 static herr_t H5_daos_dataset_set_extent(H5_daos_dset_t *dset,
     const hsize_t *size, hid_t dxpl_id, void **req);
-static herr_t H5_daos_get_selected_chunk_info(hid_t dcpl_id,
+static herr_t H5_daos_get_selected_chunk_info(H5_daos_dcpl_cache_t *dcpl_cache,
     hid_t file_space_id, hid_t mem_space_id,
     H5_daos_select_chunk_info_t **chunk_info, size_t *chunk_info_len);
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_dset_fill_dcpl_cache
+ *
+ * Purpose:     Fills the "dcpl_cache" field of the dataset struct, using
+ *              the dataset's DCPL.  Assumes dset->dcpl_cache has been
+ *              initialized to all zeros.
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_dset_fill_dcpl_cache(H5_daos_dset_t *dset)
+{
+    H5D_fill_time_t fill_time;
+    htri_t is_vl_ref;
+    herr_t ret_value = SUCCEED;
+
+    assert(dset);
+
+    /* Retrieve layout */
+    if((dset->dcpl_cache.layout = H5Pget_layout(dset->dcpl_id)) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get layout property")
+
+    /* Retrieve chunk dimensions */
+    if(H5Pget_chunk(dset->dcpl_id, H5S_MAX_RANK, dset->dcpl_cache.chunk_dims) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get chunk dimensions")
+
+    /* Retrieve fill status */
+    if(H5Pfill_value_defined(dset->dcpl_id, &dset->dcpl_cache.fill_status) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get fill value status")
+
+    /* Check for vlen or reference */
+    if((is_vl_ref = H5_daos_detect_vl_vlstr_ref(dset->type_id)) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't check for vl or reference type")
+
+    /* Retrieve fill time */
+    if(H5Pget_fill_time(dset->dcpl_id, &fill_time) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get fill time")
+
+    /* Determine fill method */
+    if(fill_time == H5D_FILL_TIME_NEVER) {
+        /* Check for fill time never with vl/ref (illegal) */
+        if(is_vl_ref) 
+            D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "can't use fill time of NEVER with vlen or reference type")
+
+        /* Never write fill values even if defined */
+        dset->dcpl_cache.fill_method = H5_DAOS_NO_FILL;
+    } /* end if */
+    else if(dset->dcpl_cache.fill_status == H5D_FILL_VALUE_UNDEFINED) {
+        /* If the fill value is undefined, must still write zeros for vl/ref,
+         * otherwise write nothing */
+        if(is_vl_ref)
+            dset->dcpl_cache.fill_method = H5_DAOS_ZERO_FILL;
+        else
+            dset->dcpl_cache.fill_method = H5_DAOS_NO_FILL;
+    } /* end if */
+    else if(dset->dcpl_cache.fill_status == H5D_FILL_VALUE_DEFAULT)
+        /* Always fill with zeros */
+        dset->dcpl_cache.fill_method = H5_DAOS_ZERO_FILL;
+    else {
+        /* Always copy the fill value */
+        assert(dset->dcpl_cache.fill_status == H5D_FILL_VALUE_USER_DEFINED);
+        dset->dcpl_cache.fill_method = H5_DAOS_COPY_FILL;
+    } /* end else */
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_dset_fill_dcpl_cache() */
 
 
 /*-------------------------------------------------------------------------
@@ -112,6 +185,8 @@ H5_daos_dataset_create(void *_item,
     void *space_buf = NULL;
     void *dcpl_buf = NULL;
     hbool_t collective;
+    size_t fill_val_size;
+    htri_t is_vl_ref;
     tse_task_t *finalize_task;
     int finalize_ndeps = 0;
     tse_task_t *finalize_deps[2];
@@ -164,6 +239,25 @@ H5_daos_dataset_create(void *_item,
     dset->dcpl_id = FAIL;
     dset->dapl_id = FAIL;
 
+    /* Set up datatypes, dataspace, property list fields.  Do this earlier
+     * because we need some of these things */
+    if((dset->type_id = H5Tcopy(type_id)) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, NULL, "failed to copy datatype")
+    if((dset->file_type_id = H5VLget_file_type(item->file, H5_DAOS_g, type_id)) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "failed to get file datatype")
+    if((dset->space_id = H5Scopy(space_id)) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, NULL, "failed to copy dataspace")
+    if(H5Sselect_all(dset->space_id) < 0)
+        D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTDELETE, NULL, "can't change selection")
+    if((dset->dcpl_id = H5Pcopy(dcpl_id)) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, NULL, "failed to copy dcpl")
+    if((dset->dapl_id = H5Pcopy(dapl_id)) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, NULL, "failed to copy dapl")
+
+    /* Fill DCPL cache */
+    if(H5_daos_dset_fill_dcpl_cache(dset) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "failed to fill DCPL cache")
+
     /* Generate dataset oid */
     if(H5_daos_oid_generate(&dset->obj.oid, H5I_DATASET, dcpl_id == H5P_DATASET_CREATE_DEFAULT ? H5P_DEFAULT : dcpl_id, item->file, collective) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't generate object id")
@@ -172,9 +266,10 @@ H5_daos_dataset_create(void *_item,
     if(!collective || (item->file->my_rank == 0)) {
         const char *target_name = NULL;
         daos_key_t dkey;
-        daos_iod_t iod[3];
-        daos_sg_list_t sgl[3];
-        daos_iov_t sg_iov[3];
+        daos_iod_t iod[4];
+        daos_sg_list_t sgl[4];
+        daos_iov_t sg_iov[4];
+        unsigned nr;
         size_t type_size = 0;
         size_t space_size = 0;
         size_t dcpl_size = 0;
@@ -249,8 +344,55 @@ H5_daos_dataset_create(void *_item,
         sgl[2].sg_nr_out = 0;
         sgl[2].sg_iovs = &sg_iov[2];
 
+        /* Set nr */
+        nr = 3;
+
+        /* Encode fill value if necessary.  Note that H5Pget_fill_value()
+         * triggers type conversion and therefore writing any VL blobs to the
+         * file. */
+        /* Could potentially skip this and use value encoded in dcpl for non-vl/
+         * ref types, or for all types once H5Pencode/decode works properly with
+         * vl/ref fill values.  Latter would require a different code path for
+         * filling in read values after conversion instead of before.  -NAF */
+        if(dset->dcpl_cache.fill_status == H5D_FILL_VALUE_USER_DEFINED) {
+            if(0 == (fill_val_size = H5Tget_size(dset->file_type_id)))
+                D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, NULL, "can't get file type size")
+            if(NULL == (dset->fill_val = DV_malloc(fill_val_size)))
+                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for fill value")
+            if(H5Pget_fill_value(dcpl_id, dset->file_type_id, dset->fill_val) < 0)
+                D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, NULL, "can't get fill value")
+
+            /* Set up iod */
+            daos_iov_set(&iod[nr].iod_name, (void *)H5_daos_fillval_key_g, H5_daos_fillval_key_size_g);
+            iod[nr].iod_nr = 1u;
+            iod[nr].iod_size = (uint64_t)type_size;
+            iod[nr].iod_type = DAOS_IOD_SINGLE;
+
+            /* Set up sgl */
+            daos_iov_set(&sg_iov[nr], dset->fill_val, (daos_size_t)fill_val_size);
+            sgl[nr].sg_nr = 1;
+            sgl[nr].sg_nr_out = 0;
+            sgl[nr].sg_iovs = &sg_iov[0];
+
+            /* Adjust nr */
+            nr++;
+
+            /* Broadcast fill value if it contains any vl or reference types and
+             * there are other processes that need it.  Needed for vl and
+             * reference types because calling H5Pget_fill_value on each process
+             * would write a separate vl sequence on each process. */
+            if(collective && (item->file->num_procs > 1)) {
+                if((is_vl_ref = H5_daos_detect_vl_vlstr_ref(type_id)) < 0)
+                    D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, NULL, "can't check for vl or reference type")
+                if(is_vl_ref)
+                    /* MPI_Bcast dset->fill_val */
+                    if(MPI_SUCCESS != MPI_Bcast((char *)dset->fill_val, fill_val_size, MPI_BYTE, 0, item->file->comm))
+                        D_GOTO_ERROR(H5E_DATASET, H5E_MPI, NULL, "can't broadcast fill value")
+            } /* end if */
+        } /* end if */
+
         /* Write internal metadata to dataset */
-        if(0 != (ret = daos_obj_update(dset->obj.obj_oh, DAOS_TX_NONE, &dkey, 3, iod, sgl, NULL /*event*/)))
+        if(0 != (ret = daos_obj_update(dset->obj.obj_oh, DAOS_TX_NONE, &dkey, nr, iod, sgl, NULL /*event*/)))
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't write metadata to dataset: %s", H5_daos_err_to_string(ret))
 
         /* Create link to dataset */
@@ -273,24 +415,31 @@ H5_daos_dataset_create(void *_item,
          * There is probably never an issue with file reopen since all commits
          * are from process 0, same as the dataset create above. */
 
+        /* Handle fill value */
+        if(dset->dcpl_cache.fill_status == H5D_FILL_VALUE_USER_DEFINED) {
+            if(0 == (fill_val_size = H5Tget_size(dset->file_type_id)))
+                D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, NULL, "can't get file type size")
+            if(NULL == (dset->fill_val = DV_malloc(fill_val_size)))
+                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for fill value")
+
+            /* If there's a vl or reference type, receive fill value from lead
+             * process above (see note above), otherwise just retrieve from DCPL
+             */
+            if((is_vl_ref = H5_daos_detect_vl_vlstr_ref(type_id)) < 0)
+                D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, NULL, "can't check for vl or reference type")
+            if(is_vl_ref) {
+                if(MPI_SUCCESS != MPI_Bcast((char *)dset->fill_val, fill_val_size, MPI_BYTE, 0, item->file->comm))
+                    D_GOTO_ERROR(H5E_DATASET, H5E_MPI, NULL, "can't retrieve broadcastes fill value")
+            } /* end if */
+            else
+                if(H5Pget_fill_value(dcpl_id, dset->file_type_id, dset->fill_val) < 0)
+                    D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, NULL, "can't get fill value")
+        } /* end if */
+
         /* Open dataset */
         if(0 != (ret = daos_obj_open(item->file->coh, dset->obj.oid, DAOS_OO_RW, &dset->obj.obj_oh, NULL /*event*/)))
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTOPENOBJ, NULL, "can't open dataset: %s", H5_daos_err_to_string(ret))
     } /* end else */
-
-    /* Finish setting up dataset struct */
-    if((dset->type_id = H5Tcopy(type_id)) < 0)
-        D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, NULL, "failed to copy datatype")
-    if((dset->file_type_id = H5VLget_file_type(item->file, H5_DAOS_g, type_id)) < 0)
-        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "failed to get file datatype")
-    if((dset->space_id = H5Scopy(space_id)) < 0)
-        D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, NULL, "failed to copy dataspace")
-    if(H5Sselect_all(dset->space_id) < 0)
-        D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTDELETE, NULL, "can't change selection")
-    if((dset->dcpl_id = H5Pcopy(dcpl_id)) < 0)
-        D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, NULL, "failed to copy dcpl")
-    if((dset->dapl_id = H5Pcopy(dapl_id)) < 0)
-        D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, NULL, "failed to copy dapl")
 
     /* Fill OCPL cache */
     if(H5_daos_fill_ocpl_cache(&dset->obj, dset->dcpl_id) < 0)
@@ -374,16 +523,19 @@ H5_daos_dataset_open(void *_item,
     H5_daos_group_t *target_grp = NULL;
     const char *target_name = NULL;
     daos_key_t dkey;
-    daos_iod_t iod[3];
-    daos_sg_list_t sgl[3];
-    daos_iov_t sg_iov[3];
+    daos_iod_t iod[4];
+    daos_sg_list_t sgl[4];
+    daos_iov_t sg_iov[4];
     uint64_t type_len = 0;
     uint64_t space_len = 0;
     uint64_t dcpl_len = 0;
+    uint64_t fill_val_len = 0;
     uint64_t tot_len;
     uint8_t dinfo_buf_static[H5_DAOS_DINFO_BUF_SIZE];
     uint8_t *dinfo_buf_dyn = NULL;
     uint8_t *dinfo_buf = dinfo_buf_static;
+    void *tconv_buf = NULL;
+    void *bkg_buf = NULL;
     uint8_t *p;
     hbool_t collective;
     hbool_t must_bcast = FALSE;
@@ -425,6 +577,8 @@ H5_daos_dataset_open(void *_item,
     /* Check if we're actually opening the group or just receiving the dataset
      * info from the leader */
     if(!collective || (item->file->my_rank == 0)) {
+        unsigned nr;
+
         if(collective && (item->file->num_procs > 1))
             must_bcast = TRUE;
 
@@ -480,8 +634,13 @@ H5_daos_dataset_open(void *_item,
         iod[2].iod_size = DAOS_REC_ANY;
         iod[2].iod_type = DAOS_IOD_SINGLE;
 
+        daos_iov_set(&iod[3].iod_name, (void *)H5_daos_fillval_key_g, H5_daos_fillval_key_size_g);
+        iod[3].iod_nr = 1u;
+        iod[3].iod_size = DAOS_REC_ANY;
+        iod[3].iod_type = DAOS_IOD_SINGLE;
+
         /* Read internal metadata sizes from dataset */
-        if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, DAOS_TX_NONE, &dkey, 3, iod, NULL,
+        if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, DAOS_TX_NONE, &dkey, 4, iod, NULL,
                       NULL /*maps*/, NULL /*event*/)))
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTDECODE, NULL, "can't read metadata sizes from dataset: %s", H5_daos_err_to_string(ret))
 
@@ -494,10 +653,11 @@ H5_daos_dataset_open(void *_item,
         type_len = iod[0].iod_size;
         space_len = iod[1].iod_size;
         dcpl_len = iod[2].iod_size;
-        tot_len = type_len + space_len + dcpl_len;
+        fill_val_len = iod[3].iod_size;
+        tot_len = type_len + space_len + dcpl_len + fill_val_len;
 
         /* Allocate dataset info buffer if necessary */
-        if((tot_len + (5 * sizeof(uint64_t))) > sizeof(dinfo_buf_static)) {
+        if((tot_len + (6 * sizeof(uint64_t))) > sizeof(dinfo_buf_static)) {
             if(NULL == (dinfo_buf_dyn = (uint8_t *)DV_malloc(tot_len + (5 * sizeof(uint64_t)))))
                 D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate dataset info buffer")
             dinfo_buf = dinfo_buf_dyn;
@@ -520,14 +680,27 @@ H5_daos_dataset_open(void *_item,
         sgl[2].sg_nr_out = 0;
         sgl[2].sg_iovs = &sg_iov[2];
 
+        /* Set nr */
+        nr = 3;
+
+        /* Check for fill value */
+        if(fill_val_len > 0) {
+            p += dcpl_len;
+            daos_iov_set(&sg_iov[3], p, (daos_size_t)fill_val_len);
+            sgl[3].sg_nr = 1;
+            sgl[3].sg_nr_out = 0;
+            sgl[3].sg_iovs = &sg_iov[3];
+            nr++;
+        } /* end if */
+
         /* Read internal metadata from dataset */
-        if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, DAOS_TX_NONE, &dkey, 3, iod, sgl, NULL /*maps*/, NULL /*event*/)))
+        if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, DAOS_TX_NONE, &dkey, nr, iod, sgl, NULL /*maps*/, NULL /*event*/)))
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTDECODE, NULL, "can't read metadata from dataset: %s", H5_daos_err_to_string(ret))
 
         /* Broadcast dataset info if there are other processes that need it */
         if(collective && (item->file->num_procs > 1)) {
             assert(dinfo_buf);
-            assert(sizeof(dinfo_buf_static) >= 5 * sizeof(uint64_t));
+            assert(sizeof(dinfo_buf_static) >= 6 * sizeof(uint64_t));
 
             /* Encode oid */
             p = dinfo_buf;
@@ -538,6 +711,7 @@ H5_daos_dataset_open(void *_item,
             UINT64ENCODE(p, type_len)
             UINT64ENCODE(p, space_len)
             UINT64ENCODE(p, dcpl_len)
+            UINT64ENCODE(p, fill_val_len)
 
             /* MPI_Bcast dinfo_buf */
             if(MPI_SUCCESS != MPI_Bcast((char *)dinfo_buf, sizeof(dinfo_buf_static), MPI_BYTE, 0, item->file->comm))
@@ -545,12 +719,12 @@ H5_daos_dataset_open(void *_item,
 
             /* Need a second bcast if it did not fit in the receivers' static
              * buffer */
-            if(tot_len + (5 * sizeof(uint64_t)) > sizeof(dinfo_buf_static))
+            if(tot_len + (6 * sizeof(uint64_t)) > sizeof(dinfo_buf_static))
                 if(MPI_SUCCESS != MPI_Bcast((char *)p, (int)tot_len, MPI_BYTE, 0, item->file->comm))
                     D_GOTO_ERROR(H5E_DATASET, H5E_MPI, NULL, "can't broadcast dataset info (second broadcast)")
         } /* end if */
         else
-            p = dinfo_buf + (5 * sizeof(uint64_t));
+            p = dinfo_buf + (6 * sizeof(uint64_t));
     } /* end if */
     else {
         /* Receive dataset info */
@@ -566,14 +740,15 @@ H5_daos_dataset_open(void *_item,
         UINT64DECODE(p, type_len)
         UINT64DECODE(p, space_len)
         UINT64DECODE(p, dcpl_len)
-        tot_len = type_len + space_len + dcpl_len;
+        UINT64DECODE(p, fill_val_len)
+        tot_len = type_len + space_len + dcpl_len + fill_val_len;
 
         /* Check for type_len set to 0 - indicates failure */
         if(type_len == 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "lead process failed to open dataset")
 
         /* Check if we need to perform another bcast */
-        if(tot_len + (5 * sizeof(uint64_t)) > sizeof(dinfo_buf_static)) {
+        if(tot_len + (6 * sizeof(uint64_t)) > sizeof(dinfo_buf_static)) {
             /* Allocate a dynamic buffer if necessary */
             if(tot_len > sizeof(dinfo_buf_static)) {
                 if(NULL == (dinfo_buf_dyn = (uint8_t *)DV_malloc(tot_len)))
@@ -611,6 +786,62 @@ H5_daos_dataset_open(void *_item,
     if((dset->dapl_id = H5Pcopy(dapl_id)) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, NULL, "failed to copy dapl");
 
+    /* Fill DCPL cache */
+    if(H5_daos_dset_fill_dcpl_cache(dset) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "failed to fill DCPL cache")
+
+    /* Check for fill value */
+    if(fill_val_len > 0) {
+        htri_t is_vl_ref;
+
+        /* Copy fill value to dataset struct */
+        p += dcpl_len;
+        if(NULL == (dset->fill_val = DV_malloc(fill_val_len)))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for fill value")
+        (void)memcpy(dset->fill_val, p, fill_val_len);
+
+        /* Set fill value in DCPL if it contains a VL or reference.  This is
+         * necessary because the code in H5Pencode/decode for fill values does
+         * not deep copy or flatten VL sequeneces, so the pointers stored in the
+         * property list are invalid once decoded in a different context.  Note
+         * this will cause every process to read the same VL sequence(s).  We
+         * could remove this code once this feature is properly supported,
+         * though once the library supports flattening VL we should consider
+         * fundamentally changing how VL types work in this connector.  -NAF */
+        if((is_vl_ref = H5_daos_detect_vl_vlstr_ref(dset->type_id)) < 0)
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, NULL, "can't check for vl or reference type")
+        if(is_vl_ref) {
+            size_t fill_val_size;
+            size_t fill_val_mem_size;
+            hbool_t fill_bkg;
+
+            /* Initialize type conversion */
+            if(H5_daos_tconv_init(dset->file_type_id, &fill_val_size,
+                    dset->type_id, &fill_val_mem_size, 1, FALSE, &tconv_buf,
+                    &bkg_buf, NULL, &fill_bkg) < 0)
+                D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't initialize type conversion")
+
+            /* Sanity check */
+            if(fill_val_size != fill_val_len)
+                D_GOTO_ERROR(H5E_DATASET, H5E_BADVALUE, NULL, "size of stored fill value does not match size of datatype")
+
+            /* Copy file type fill value to tconv_buf */
+            (void)memcpy(tconv_buf, dset->fill_val, fill_val_size);
+
+            /* Perform type conversion */
+            if(H5Tconvert(dset->file_type_id, dset->type_id, 1, tconv_buf, bkg_buf, dxpl_id) < 0)
+                D_GOTO_ERROR(H5E_DATASET, H5E_CANTCONVERT, NULL, "can't perform type conversion")
+
+            /* Set fill value on DCPL */
+            if(H5Pset_fill_value(dset->dcpl_id, dset->type_id, tconv_buf) < 0)
+                D_GOTO_ERROR(H5E_DATASET, H5E_CANTSET, NULL, "can't set fill value")
+        } /* end if */
+    } /* end if */
+    else
+        /* Check for missing fill value */
+        if(dset->dcpl_cache.fill_status == H5D_FILL_VALUE_USER_DEFINED)
+            D_GOTO_ERROR(H5E_DATASET, H5E_BADVALUE, NULL, "fill value defined on property list but not found in metadata")
+
     /* Fill OCPL cache */
     if(H5_daos_fill_ocpl_cache(&dset->obj, dset->dcpl_id) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "failed to fill OCPL cache")
@@ -619,6 +850,21 @@ H5_daos_dataset_open(void *_item,
     ret_value = (void *)dset;
 
 done:
+    /* Free tconv_buf (early since it needs dcpl) */
+    if(tconv_buf) {
+        hid_t scalar_space_id;
+
+        if((scalar_space_id = H5Screate(H5S_SCALAR)) < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't create scalar dataspace")
+        else {
+            if(H5Treclaim(dset->type_id, scalar_space_id, dxpl_id, tconv_buf) < 0)
+                D_DONE_ERROR(H5E_DATASET, H5E_CANTGC, NULL, "can't reclaim memory from fill value conversion buffer")
+            if(H5Sclose(scalar_space_id) < 0)
+                D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, NULL, "can't close scalar dataspace")
+        } /* end else */
+        tconv_buf = DV_free(tconv_buf);
+    } /* end if */
+
     /* Cleanup on failure */
     if(NULL == ret_value) {
         /* Bcast dinfo_buf as '0' if necessary - this will trigger failures in
@@ -640,6 +886,7 @@ done:
 
     /* Free memory */
     dinfo_buf_dyn = (uint8_t *)DV_free(dinfo_buf_dyn);
+    bkg_buf = DV_free(bkg_buf);
 
     D_FUNC_LEAVE_API
 } /* end H5_daos_dataset_open() */
@@ -846,7 +1093,7 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
     /* Check for the dataset having a chunked storage layout. If it does not,
      * simply set up the dataset as a single "chunk".
      */
-    switch(H5Pget_layout(dset->dcpl_id)) {
+    switch(dset->dcpl_cache.layout) {
         case H5D_COMPACT:
         case H5D_CONTIGUOUS:
             if (NULL == (chunk_info = (H5_daos_select_chunk_info_t *) DV_malloc(sizeof(H5_daos_select_chunk_info_t))))
@@ -862,7 +1109,7 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
 
         case H5D_CHUNKED:
             /* Get the coordinates of the currently selected chunks in the file, setting up memory and file dataspaces for them */
-            if(H5_daos_get_selected_chunk_info(dset->dcpl_id, real_file_space_id, real_mem_space_id, &chunk_info, &chunk_info_len) < 0)
+            if(H5_daos_get_selected_chunk_info(&dset->dcpl_cache, real_file_space_id, real_mem_space_id, &chunk_info, &chunk_info_len) < 0)
                 D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get selected chunk info")
 
             close_spaces = TRUE;
@@ -1003,6 +1250,29 @@ H5_daos_dataset_io_types_equal(H5_daos_dset_t *dset, daos_key_t dkey, hssize_t H
         D_GOTO_DONE(SUCCEED);
 
     if(io_type == IO_READ) {
+        /* Handle fill values */
+        size_t i;
+
+        if(dset->dcpl_cache.fill_method == H5_DAOS_ZERO_FILL) {
+            /* Just set all locations pointed to by sg_iovs to zero */
+            for(i = 0; i < tot_nseq; i++)
+                (void)memset(sg_iovs[i].iov_buf, 0, sg_iovs[i].iov_len);
+        } /* end if */
+        else if(dset->dcpl_cache.fill_method == H5_DAOS_COPY_FILL) {
+            /* Copy fill value to all locations pointed to by sg_iovs */
+            size_t iov_buf_written;
+
+            assert(dset->fill_val);
+
+            for(i = 0; i < tot_nseq; i++) {
+                for(iov_buf_written = 0; iov_buf_written < sg_iovs[i].iov_len;
+                        iov_buf_written += file_type_size)
+                    (void)memcpy((uint8_t *)sg_iovs[i].iov_buf + iov_buf_written,
+                            dset->fill_val, file_type_size);
+                assert(iov_buf_written == sg_iovs[i].iov_len);
+            } /* end for */
+        } /* end if */
+
         /* Read data from dataset */
         if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
             D_GOTO_ERROR(H5E_DATASET, H5E_READERROR, FAIL, "can't read data from dataset: %s", H5_daos_err_to_string(ret))
@@ -1071,19 +1341,6 @@ H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t dkey, hssize_t
         hsize_t sel_off;
         size_t sel_len;
 
-        /* Initialize type conversion */
-        if(H5_daos_tconv_init(
-                dset->file_type_id,
-                &file_type_size,
-                mem_type_id,
-                &mem_type_size,
-                (size_t)num_elem,
-                &tconv_buf,
-                &bkg_buf,
-                &reuse,
-                &fill_bkg) < 0)
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't initialize type conversion")
-
         /* Initialize selection iterator.  We use 1 for the element size here so
          * that the sequence list offsets and lengths are returned in terms of
          * numbers of elements, not bytes.  In this case it just saves us from
@@ -1098,6 +1355,20 @@ H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t dkey, hssize_t
         if(H5Ssel_iter_get_seq_list(sel_iter, (size_t)1, (size_t)-1, &nseq_tmp, &nelem_tmp, &sel_off, &sel_len) < 0)
             D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, FAIL, "sequence length generation failed")
         contig = (sel_len == (size_t)num_elem);
+
+        /* Initialize type conversion */
+        if(H5_daos_tconv_init(
+                dset->file_type_id,
+                &file_type_size,
+                mem_type_id,
+                &mem_type_size,
+                (size_t)num_elem,
+                dset->dcpl_cache.fill_method == H5_DAOS_ZERO_FILL,
+                &tconv_buf,
+                &bkg_buf,
+                contig ? &reuse : NULL,
+                &fill_bkg) < 0)
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't initialize type conversion")
 
         /* Reuse buffer as appropriate */
         if(contig) {
@@ -1116,6 +1387,7 @@ H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t dkey, hssize_t
                 dset->file_type_id,
                 &file_type_size,
                 (size_t)num_elem,
+                FALSE,
                 &tconv_buf,
                 &bkg_buf,
                 NULL,
@@ -1146,6 +1418,24 @@ H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t dkey, hssize_t
     sgl.sg_iovs = &sg_iov;
 
     if(io_type == IO_READ) {
+        /* Handle fill values */
+        if(dset->dcpl_cache.fill_method == H5_DAOS_ZERO_FILL) {
+            /* H5_daos_tconv_init() will have cleared the tconv buf, but not if
+             * we're reusing buf as tconv_buf */
+            if(reuse == H5_DAOS_TCONV_REUSE_TCONV)
+                (void)memset(tconv_buf, 0, (daos_size_t)num_elem * (daos_size_t)file_type_size);
+        } /* end if */
+        else if(dset->dcpl_cache.fill_method == H5_DAOS_COPY_FILL) {
+            hssize_t i;
+
+            assert(dset->fill_val);
+
+            /* Copy the fill value to every element in tconv_buf */
+            for(i = 0; i < num_elem; i++)
+                (void)memcpy((uint8_t *)tconv_buf + ((size_t)i * file_type_size),
+                        dset->fill_val, file_type_size);
+        } /* end if */
+
         /* Set sg_iov to point to tconv_buf */
         daos_iov_set(&sg_iov, tconv_buf, (daos_size_t)num_elem * (daos_size_t)file_type_size);
 
@@ -1211,9 +1501,9 @@ done:
     if(sg_iovs != &sg_iov)
         DV_free(sg_iovs);
 
-    if((io_type == IO_WRITE) || (io_type == IO_READ && reuse != H5_DAOS_TCONV_REUSE_TCONV))
+    if(reuse != H5_DAOS_TCONV_REUSE_TCONV)
         tconv_buf = DV_free(tconv_buf);
-    if((io_type == IO_WRITE) || (io_type == IO_READ && reuse != H5_DAOS_TCONV_REUSE_BKG))
+    if(reuse != H5_DAOS_TCONV_REUSE_BKG)
         bkg_buf = DV_free(bkg_buf);
 
     /* Release selection iterator */
@@ -1296,7 +1586,7 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
     /* Check for the dataset having a chunked storage layout. If it does not,
      * simply set up the dataset as a single "chunk".
      */
-    switch(H5Pget_layout(dset->dcpl_id)) {
+    switch(dset->dcpl_cache.layout) {
         case H5D_COMPACT:
         case H5D_CONTIGUOUS:
             if (NULL == (chunk_info = (H5_daos_select_chunk_info_t *) DV_malloc(sizeof(H5_daos_select_chunk_info_t))))
@@ -1312,7 +1602,7 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
 
         case H5D_CHUNKED:
             /* Get the coordinates of the currently selected chunks in the file, setting up memory and file dataspaces for them */
-            if(H5_daos_get_selected_chunk_info(dset->dcpl_id, real_file_space_id, real_mem_space_id, &chunk_info, &chunk_info_len) < 0)
+            if(H5_daos_get_selected_chunk_info(&dset->dcpl_cache, real_file_space_id, real_mem_space_id, &chunk_info, &chunk_info_len) < 0)
                 D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get selected chunk info")
 
             close_spaces = TRUE;
@@ -1491,16 +1781,12 @@ H5_daos_dataset_specific(void *_item, H5VL_dataset_specific_t specific_type,
     switch (specific_type) {
         case H5VL_DATASET_SET_EXTENT:
             {
-                H5D_layout_t storage_layout;
                 const hsize_t *size = va_arg(arguments, const hsize_t *);
 
                 if(!size)
                     D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "size parameter is NULL")
 
-                if (H5D_LAYOUT_ERROR == (storage_layout = H5Pget_layout(dset->dcpl_id)))
-                    D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "failed to retrieve dataset storage layout")
-
-                if (H5D_CHUNKED != storage_layout)
+                if (H5D_CHUNKED != dset->dcpl_cache.layout)
                     D_GOTO_ERROR(H5E_DATASET, H5E_BADVALUE, FAIL, "dataset storage layout is not chunked")
 
                 /* Call main routine */
@@ -1577,6 +1863,8 @@ H5_daos_dataset_close(void *_dset, hid_t H5VL_DAOS_UNUSED dxpl_id,
             D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close dcpl")
         if(dset->dapl_id != FAIL && H5Idec_ref(dset->dapl_id) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close dapl")
+        if(dset->fill_val)
+            dset->fill_val = DV_free(dset->fill_val);
         dset = H5FL_FREE(H5_daos_dset_t, dset);
     } /* end if */
 
@@ -1821,7 +2109,7 @@ done:
  *-------------------------------------------------------------------------
  */
 static herr_t
-H5_daos_get_selected_chunk_info(hid_t dcpl_id,
+H5_daos_get_selected_chunk_info(H5_daos_dcpl_cache_t *dcpl_cache,
     hid_t file_space_id, hid_t mem_space_id,
     H5_daos_select_chunk_info_t **chunk_info, size_t *chunk_info_len)
 {
@@ -1829,7 +2117,8 @@ H5_daos_get_selected_chunk_info(hid_t dcpl_id,
     hssize_t  num_sel_points;
     hssize_t  chunk_file_space_adjust[H5O_LAYOUT_NDIMS];
     hsize_t   file_space_dims[H5S_MAX_RANK];
-    hsize_t   chunk_dims[H5S_MAX_RANK], curr_chunk_dims[H5S_MAX_RANK] = {0};
+    hsize_t   *chunk_dims;
+    hsize_t   curr_chunk_dims[H5S_MAX_RANK] = {0};
     hsize_t   file_sel_start[H5S_MAX_RANK], file_sel_end[H5S_MAX_RANK];
     hsize_t   mem_sel_start[H5S_MAX_RANK], mem_sel_end[H5S_MAX_RANK];
     hsize_t   start_coords[H5O_LAYOUT_NDIMS], end_coords[H5O_LAYOUT_NDIMS];
@@ -1856,10 +2145,10 @@ H5_daos_get_selected_chunk_info(hid_t dcpl_id,
     if (num_sel_points == 0)
         D_GOTO_DONE(SUCCEED);
 
-    /* Get the chunking information */
-    if (H5Pget_chunk(dcpl_id, H5S_MAX_RANK, chunk_dims) < 0)
-        D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, FAIL, "can't get chunking information");
+    /* Set convenience pointer to chunk dimensions */
+    chunk_dims = dcpl_cache->chunk_dims;
 
+    /* Get dataspace ranks */
     if ((fspace_ndims = H5Sget_simple_extent_ndims(file_space_id)) < 0)
         D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, FAIL, "can't get file space dimensionality");
     if ((mspace_ndims = H5Sget_simple_extent_ndims(mem_space_id)) < 0)

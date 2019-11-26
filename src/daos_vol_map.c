@@ -744,7 +744,7 @@ H5_daos_map_key_conv(hid_t src_type_id, hid_t dst_type_id, const void *key,
                 D_GOTO_ERROR(H5E_MAP, H5E_CANTCOMPARE, FAIL, "can't check if type conversion is needed")
             if(parent_need_tconv) {
                 /* Initialize type conversion */
-                if(H5_daos_tconv_init(src_parent_type_id, &src_parent_type_size, dst_parent_type_id, &dst_parent_type_size, vl->len, &tconv_buf, &bkg_buf, NULL, &fill_bkg) < 0)
+                if(H5_daos_tconv_init(src_parent_type_id, &src_parent_type_size, dst_parent_type_id, &dst_parent_type_size, vl->len, FALSE, &tconv_buf, &bkg_buf, NULL, &fill_bkg) < 0)
                     D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't initialize type conversion")
 
                 /* If needed, fill the background buffer (with zeros) */
@@ -790,7 +790,7 @@ H5_daos_map_key_conv(hid_t src_type_id, hid_t dst_type_id, const void *key,
             } /* end if */
             else {
                 /* Initialize type conversion */
-                if(H5_daos_tconv_init(src_type_id, &src_type_size, dst_type_id, &dst_type_size, 1, &tconv_buf, &bkg_buf, NULL, &fill_bkg) < 0)
+                if(H5_daos_tconv_init(src_type_id, &src_type_size, dst_type_id, &dst_type_size, 1, FALSE, &tconv_buf, &bkg_buf, NULL, &fill_bkg) < 0)
                     D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't initialize type conversion")
 
                 /* If needed, fill the background buffer (with zeros) */
@@ -929,7 +929,7 @@ H5_daos_map_key_conv_reverse(hid_t src_type_id, hid_t dst_type_id,
                 vl_union->vl.len = key_size / src_parent_type_size;
 
                 /* Initialize type conversion */
-                if(H5_daos_tconv_init(src_parent_type_id, &src_parent_type_size, dst_parent_type_id, &dst_parent_type_size, vl_union->vl.len, &tconv_buf, &bkg_buf, &reuse, &fill_bkg) < 0)
+                if(H5_daos_tconv_init(src_parent_type_id, &src_parent_type_size, dst_parent_type_id, &dst_parent_type_size, vl_union->vl.len, FALSE, &tconv_buf, &bkg_buf, &reuse, &fill_bkg) < 0)
                     D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't initialize type conversion")
 
                 /* Reuse buffer as appropriate */
@@ -998,7 +998,7 @@ H5_daos_map_key_conv_reverse(hid_t src_type_id, hid_t dst_type_id,
             } /* end if */
             else {
                 /* Initialize type conversion */
-                if(H5_daos_tconv_init(src_type_id, &src_type_size, dst_type_id, &dst_type_size, 1, &tconv_buf, &bkg_buf, &reuse, &fill_bkg) < 0)
+                if(H5_daos_tconv_init(src_type_id, &src_type_size, dst_type_id, &dst_type_size, 1, FALSE, &tconv_buf, &bkg_buf, &reuse, &fill_bkg) < 0)
                     D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't initialize type conversion")
 
                 /* Check size is correct */
@@ -1124,7 +1124,7 @@ H5_daos_map_get_val(void *_map, hid_t key_mem_type_id, const void *key,
     /* Type conversion */
     if(val_need_tconv) {
         /* Initialize type conversion */
-        if(H5_daos_tconv_init(map->vtype_id, &val_file_type_size, val_mem_type_id, &val_mem_type_size, 1, &tconv_buf, &bkg_buf, &reuse, &fill_bkg) < 0)
+        if(H5_daos_tconv_init(map->vtype_id, &val_file_type_size, val_mem_type_id, &val_mem_type_size, 1, FALSE, &tconv_buf, &bkg_buf, &reuse, &fill_bkg) < 0)
             D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't initialize type conversion")
 
         /* Reuse buffer as appropriate */
@@ -1258,7 +1258,7 @@ H5_daos_map_put(void *_map, hid_t key_mem_type_id, const void *key,
     /* Type conversion */
     if(val_need_tconv) {
         /* Initialize type conversion */
-        if(H5_daos_tconv_init(val_mem_type_id, &val_mem_type_size, map->vtype_id, &val_file_type_size, 1, &tconv_buf, &bkg_buf, NULL, &fill_bkg) < 0)
+        if(H5_daos_tconv_init(val_mem_type_id, &val_mem_type_size, map->vtype_id, &val_file_type_size, 1, FALSE, &tconv_buf, &bkg_buf, NULL, &fill_bkg) < 0)
             D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't initialize type conversion")
     } /* end if */
     else

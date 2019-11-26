@@ -52,6 +52,7 @@ H5VL_DAOS_PUBLIC herr_t H5Pset_fapl_daos(hid_t fapl_id, MPI_Comm comm, MPI_Info 
 H5VL_DAOS_PUBLIC herr_t H5daos_set_object_class(hid_t plist_id, char *object_class);
 H5VL_DAOS_PUBLIC ssize_t H5daos_get_object_class(hid_t plist_id, char *object_class, size_t size);
 H5VL_DAOS_PUBLIC herr_t H5daos_set_root_open_object_class(hid_t fapl_id, char *object_class);
+H5VL_DAOS_PUBLIC ssize_t H5daos_get_root_open_object_class(hid_t fapl_id, char *object_class, size_t size);
 #ifdef DSINC
 H5VL_DAOS_PUBLIC herr_t H5daos_snap_create(hid_t loc_id,
     H5_daos_snap_id_t *snap_id);

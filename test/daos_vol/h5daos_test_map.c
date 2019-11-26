@@ -515,7 +515,7 @@ test_map_nonexistent_key(hid_t file_id, const char *map_name, hid_t key_dtype, h
         non_existent_key.p = malloc(NUMB_KEYS*sizeof(short));
         non_existent_key.len = NUMB_KEYS;
         for(i=0; i < NUMB_KEYS; i++)
-            ((short *)non_existent_key.p)[i] = i * 10 + 13;
+            ((short *)non_existent_key.p)[i] = (short) (i * 10 + 13);
 
         H5E_BEGIN_TRY {
             error = H5Mget(map_id, key_dtype, &non_existent_key, value_dtype, &non_existent_value, H5P_DEFAULT);
@@ -790,8 +790,8 @@ test_map_update(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t valu
 
         for(i = 0; i < NUMB_KEYS; i++) {
             for(j=0; j<(i + NUMB_KEYS); j++) {
-                updated_values[i].p = malloc((i + 2 * NUMB_KEYS) * sizeof(int));
-                updated_values[i].len = i + 2 * NUMB_KEYS;
+                updated_values[i].p = malloc((size_t) (i + 2 * NUMB_KEYS) * sizeof(int));
+                updated_values[i].len = (size_t) (i + 2 * NUMB_KEYS);
             }
 
             for(j=0; j<(i + 2*NUMB_KEYS); j++)
@@ -849,8 +849,8 @@ test_map_update(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t valu
             updated_values[i].b = (float)rand();
 
             for(j=0; j<(i + NUMB_KEYS); j++) {
-                updated_values[i].c.p = malloc((i + 2 * NUMB_KEYS) * sizeof(int));
-                updated_values[i].c.len = i + 2 * NUMB_KEYS;
+                updated_values[i].c.p = malloc((size_t) (i + 2 * NUMB_KEYS) * sizeof(int));
+                updated_values[i].c.len = (size_t) (i + 2 * NUMB_KEYS);
             }
 
             for(j=0; j<(i + 2*NUMB_KEYS); j++)
@@ -998,7 +998,7 @@ test_map_exists(hid_t file_id, const char *map_name, hid_t key_dtype)
         nonexist_key_vl.p = malloc(10*sizeof(short));
         nonexist_key_vl.len = 10;
         for(i=0; i<10; i++)
-            ((short *)nonexist_key_vl.p)[i] = 100 + i;
+            ((short *)nonexist_key_vl.p)[i] = (short) (100 + i);
 
         /* Check if the nonexisting key exists (should be FALSE) */
         if(H5Mexists(map_id, key_dtype, &nonexist_key_vl, &exists, H5P_DEFAULT) < 0) {
@@ -1855,7 +1855,6 @@ error:
     return 1;
 }
 
-#ifdef TMP
 static int 
 test_vl(hid_t file_id)
 {
@@ -1899,7 +1898,6 @@ test_vl(hid_t file_id)
 error:
     return 1;
 }
-#endif
 
 static int
 test_compound(hid_t file_id)
@@ -2156,8 +2154,8 @@ main( int argc, char** argv )
     nerrors += test_integer(file_id);
     nerrors += test_enum(file_id);
     nerrors += test_compound(file_id);
-#ifdef TMP
     nerrors += test_vl(file_id);
+#ifdef TMP
     nerrors += test_nested_compound(file_id);
 #endif
     nerrors += test_many_entries(file_id);

@@ -19,13 +19,12 @@
 #include "util/daos_vol_mem.h"  /* DAOS connector memory management        */
 
 /* Prototypes */
-static htri_t H5_daos_need_tconv_recurse(hid_t type_id);
 static htri_t H5_daos_need_bkg(hid_t src_type_id, hid_t dst_type_id,
     size_t *dst_type_size, hbool_t *fill_bkg);
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_need_tconv_recurse
+ * Function:    H5_daos_detect_vl_vlstr_ref
  *
  * Purpose:     Determine if datatype conversion is necessary even if the
  *              types are the same.
@@ -35,8 +34,8 @@ static htri_t H5_daos_need_bkg(hid_t src_type_id, hid_t dst_type_id,
  *
  *-------------------------------------------------------------------------
  */
-static htri_t
-H5_daos_need_tconv_recurse(hid_t type_id)
+htri_t
+H5_daos_detect_vl_vlstr_ref(hid_t type_id)
 {
     hid_t memb_type_id = -1;
     H5T_class_t tclass;
@@ -83,7 +82,7 @@ H5_daos_need_tconv_recurse(hid_t type_id)
 
                     /* Recursively check member type, this will fill in the
                      * member size */
-                    if((ret_value = H5_daos_need_tconv_recurse(memb_type_id)) < 0)
+                    if((ret_value = H5_daos_detect_vl_vlstr_ref(memb_type_id)) < 0)
                         D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't check if background buffer needed")
 
                     /* Close member type */
@@ -108,7 +107,7 @@ H5_daos_need_tconv_recurse(hid_t type_id)
                 D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't get array parent type")
 
             /* Recursively check parent type */
-            if((ret_value = H5_daos_need_tconv_recurse(memb_type_id)) < 0)
+            if((ret_value = H5_daos_detect_vl_vlstr_ref(memb_type_id)) < 0)
                 D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't check if background buffer needed")
 
             /* Close parent type */
@@ -138,7 +137,7 @@ done:
             D_DONE_ERROR(H5E_DATATYPE, H5E_CANTDEC, FAIL, "failed to close member type")
 
     D_FUNC_LEAVE
-} /* end H5_daos_need_tconv_recurse() */
+} /* end H5_daos_detect_vl_vlstr_ref() */
 
 
 /*-------------------------------------------------------------------------
@@ -162,9 +161,10 @@ H5_daos_need_tconv(hid_t src_type_id, hid_t dst_type_id)
         D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTCOMPARE, FAIL, "can't check if types are equal")
 
     if(types_equal) {
-        /* Check if conversion is needed anyways */
-        if((ret_value = H5_daos_need_tconv_recurse(src_type_id)) < 0)
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't check if type conversion is needed")
+        /* Check if conversion is needed anyways due to presence of a vlen or
+         * reference type */
+        if((ret_value = H5_daos_detect_vl_vlstr_ref(src_type_id)) < 0)
+            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't check for vlen or reference type")
     } /* end if */
     else
         ret_value = TRUE;
@@ -1137,7 +1137,7 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_datatype_refresh(H5_daos_dtype_t *dtype, hid_t H5VL_DAOS_UNUSED dxpl_id,
+H5_daos_datatype_refresh(H5_daos_dtype_t H5VL_DAOS_UNUSED *dtype, hid_t H5VL_DAOS_UNUSED dxpl_id,
     void H5VL_DAOS_UNUSED **req)
 {
     herr_t ret_value = SUCCEED;

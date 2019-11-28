@@ -576,7 +576,7 @@ H5_daos_object_get(void *_item, const H5VL_loc_params_t *loc_params,
     H5VL_object_get_t get_type, hid_t H5VL_DAOS_UNUSED dxpl_id,
     void H5VL_DAOS_UNUSED **req, va_list H5VL_DAOS_UNUSED arguments)
 {
-    H5_daos_item_t *item = (H5_daos_item_t *) item;
+    H5_daos_item_t *item = (H5_daos_item_t *) _item;
     herr_t          ret_value = SUCCEED;
 
     if(!_item)
@@ -585,8 +585,74 @@ H5_daos_object_get(void *_item, const H5VL_loc_params_t *loc_params,
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "location parameters object is NULL")
 
     switch (get_type) {
+        case H5VL_OBJECT_GET_FILE:
+        {
+            void **ret_file = va_arg(arguments, void **);
+
+            if(H5VL_OBJECT_BY_SELF != loc_params->type)
+                D_GOTO_ERROR(H5E_OHDR, H5E_UNSUPPORTED, FAIL, "unsupported object operation location parameters type")
+
+            *ret_file = item->file;
+
+            break;
+        } /* H5VL_OBJECT_GET_FILE */
+
         case H5VL_OBJECT_GET_NAME:
+            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "unsupported object get operation")
+
         case H5VL_OBJECT_GET_TYPE:
+        {
+            daos_obj_id_t oid;
+            H5O_type_t *obj_type = va_arg(arguments, H5O_type_t *);
+            H5I_type_t obj_itype;
+
+            if(H5VL_OBJECT_BY_TOKEN != loc_params->type)
+                D_GOTO_ERROR(H5E_OHDR, H5E_UNSUPPORTED, FAIL, "unsupported object operation location parameters type")
+
+            /* Retrieve the OID of the referenced object and then determine the object's type */
+            if(H5_daos_token_to_oid(loc_params->loc_data.loc_by_token.token, &oid) < 0)
+                D_GOTO_ERROR(H5E_OHDR, H5E_CANTINIT, FAIL, "can't convert object token to OID")
+            if(H5I_BADID == (obj_itype = H5_daos_oid_to_type(oid)))
+                D_GOTO_ERROR(H5E_OHDR, H5E_CANTGET, FAIL, "can't get object type")
+
+            switch(obj_itype) {
+                case H5I_FILE:
+                case H5I_GROUP:
+                    *obj_type = H5O_TYPE_GROUP;
+                    break;
+
+                case H5I_DATATYPE:
+                    *obj_type = H5O_TYPE_NAMED_DATATYPE;
+                    break;
+
+                case H5I_DATASET:
+                    *obj_type = H5O_TYPE_DATASET;
+                    break;
+
+                case H5I_MAP:
+                    *obj_type = H5O_TYPE_MAP;
+                    break;
+
+                case H5I_UNINIT:
+                case H5I_BADID:
+                case H5I_DATASPACE:
+                case H5I_ATTR:
+                case H5I_VFL:
+                case H5I_VOL:
+                case H5I_GENPROP_CLS:
+                case H5I_GENPROP_LST:
+                case H5I_ERROR_CLASS:
+                case H5I_ERROR_MSG:
+                case H5I_ERROR_STACK:
+                case H5I_SPACE_SEL_ITER:
+                case H5I_NTYPES:
+                default:
+                    D_GOTO_ERROR(H5E_VOL, H5E_BADTYPE, FAIL, "invalid object type")
+            } /* end switch */
+
+            break;
+        } /* H5VL_OBJECT_GET_TYPE */
+
         default:
             D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported object get operation")
     } /* end switch */
@@ -688,7 +754,7 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
             if(H5VL_OBJECT_BY_NAME != loc_params->type)
                 D_GOTO_ERROR(H5E_OHDR, H5E_BADVALUE, FAIL, "invalid loc_params type")
 
-            if(H5_daos_oid_to_token(target_obj->oid, (H5VL_token_t *)&token) < 0)
+            if(H5_daos_oid_to_token(target_obj->oid, token) < 0)
                 D_GOTO_ERROR(H5E_OHDR, H5E_CANTENCODE, FAIL, "can't convert OID to object token")
 
             break;

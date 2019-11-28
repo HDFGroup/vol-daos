@@ -1035,6 +1035,19 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
             break;
         } /* H5VL_FILE_DELETE */
 
+        /* Check if two files are the same */
+        case H5VL_FILE_IS_EQUAL:
+        {
+            H5_daos_file_t *file2 = (H5_daos_file_t *)va_arg(arguments, void *);
+            hbool_t *is_equal = va_arg(arguments, hbool_t *);
+
+            if(!file || !file2)
+                *is_equal = FALSE;
+            else
+                *is_equal = (memcmp(&file->uuid, &file2->uuid, sizeof(file->uuid)) == 0);
+            break;
+        } /* H5VL_FILE_IS_EQUAL */
+
         default:
             D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported file specific operation")
     } /* end switch */

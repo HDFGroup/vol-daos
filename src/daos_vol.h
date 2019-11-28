@@ -741,7 +741,7 @@ H5VL_DAOS_PRIVATE htri_t H5_daos_detect_vl_vlstr_ref(hid_t type_id);
 H5VL_DAOS_PRIVATE htri_t H5_daos_need_tconv(hid_t src_type_id, hid_t dst_type_id);
 H5VL_DAOS_PRIVATE herr_t H5_daos_tconv_init(hid_t src_type_id, size_t *src_type_size,
     hid_t dst_type_id, size_t *dst_type_size, size_t num_elem,
-    hbool_t clear_tconv_buf, void **tconv_buf, void **bkg_buf,
+    hbool_t clear_tconv_buf, hbool_t dst_file, void **tconv_buf, void **bkg_buf,
     H5_daos_tconv_reuse_t *reuse, hbool_t *fill_bkg);
 
 /* Object callbacks */

@@ -787,7 +787,7 @@ H5_daos_attribute_read(void *_attr, hid_t mem_type_id, void *buf,
     /* Type conversion */
     if(need_tconv) {
         /* Initialize type conversion */
-        if(H5_daos_tconv_init(attr->file_type_id, &file_type_size, mem_type_id, &mem_type_size, (size_t)attr_size, FALSE, &tconv_buf, &bkg_buf, &reuse, &fill_bkg) < 0)
+        if(H5_daos_tconv_init(attr->file_type_id, &file_type_size, mem_type_id, &mem_type_size, (size_t)attr_size, FALSE, FALSE, &tconv_buf, &bkg_buf, &reuse, &fill_bkg) < 0)
             D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't initialize type conversion")
 
         /* Reuse buffer as appropriate */
@@ -942,7 +942,7 @@ H5_daos_attribute_write(void *_attr, hid_t mem_type_id, const void *buf,
     /* Type conversion */
     if(need_tconv) {
         /* Initialize type conversion */
-        if(H5_daos_tconv_init(mem_type_id, &mem_type_size, attr->file_type_id, &file_type_size, (size_t)attr_size, FALSE, &tconv_buf, &bkg_buf, NULL, &fill_bkg) < 0)
+        if(H5_daos_tconv_init(mem_type_id, &mem_type_size, attr->file_type_id, &file_type_size, (size_t)attr_size, FALSE, TRUE, &tconv_buf, &bkg_buf, NULL, &fill_bkg) < 0)
             D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't initialize type conversion")
     } /* end if */
     else

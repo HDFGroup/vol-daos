@@ -333,6 +333,25 @@ typedef struct H5_daos_group_t {
     H5_daos_gcpl_cache_t gcpl_cache;
 } H5_daos_group_t;
 
+/* Different algorithms for handling fill values on dataset reads */
+typedef enum {
+    /* Do not touch the user's buffer for unwritten elements */
+    H5_DAOS_NO_FILL,
+    /* Fill the conversion/read buffer with zeros prior to read */
+    H5_DAOS_ZERO_FILL,
+    /* Copy the fill value to each element in the conversion/read buffer prior
+     * to read */
+    H5_DAOS_COPY_FILL
+} H5_daos_fill_method_t;
+
+/* The DCPL cache struct */
+typedef struct H5_daos_dcpl_cache_t {
+    H5D_layout_t layout;
+    hsize_t chunk_dims[H5S_MAX_RANK];
+    H5D_fill_value_t fill_status;
+    H5_daos_fill_method_t fill_method;
+} H5_daos_dcpl_cache_t;
+
 /* The dataset struct */
 typedef struct H5_daos_dset_t {
     H5_daos_obj_t obj; /* Must be first */
@@ -341,6 +360,8 @@ typedef struct H5_daos_dset_t {
     hid_t space_id;
     hid_t dcpl_id;
     hid_t dapl_id;
+    H5_daos_dcpl_cache_t dcpl_cache;
+    void *fill_val;
 } H5_daos_dset_t;
 
 /* The datatype struct */
@@ -560,6 +581,7 @@ extern H5VL_DAOS_PRIVATE const char H5_daos_ktype_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_vtype_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_map_key_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_blob_key_g[];
+extern H5VL_DAOS_PRIVATE const char H5_daos_fillval_key_g[];
 
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_int_md_key_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_root_grp_oid_key_size_g;
@@ -577,6 +599,7 @@ extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_ktype_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_vtype_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_map_key_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_blob_key_size_g;
+extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_fillval_key_size_g;
 
 /**********************/
 /* Private Prototypes */
@@ -717,8 +740,9 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_datatype_close(void *_dtype, hid_t dxpl_id, voi
 H5VL_DAOS_PRIVATE htri_t H5_daos_detect_vl_vlstr_ref(hid_t type_id);
 H5VL_DAOS_PRIVATE htri_t H5_daos_need_tconv(hid_t src_type_id, hid_t dst_type_id);
 H5VL_DAOS_PRIVATE herr_t H5_daos_tconv_init(hid_t src_type_id, size_t *src_type_size,
-    hid_t dst_type_id, size_t *dst_type_size, size_t num_elem, void **tconv_buf,
-    void **bkg_buf, H5_daos_tconv_reuse_t *reuse, hbool_t *fill_bkg);
+    hid_t dst_type_id, size_t *dst_type_size, size_t num_elem,
+    hbool_t clear_tconv_buf, hbool_t dst_file, void **tconv_buf, void **bkg_buf,
+    H5_daos_tconv_reuse_t *reuse, hbool_t *fill_bkg);
 
 /* Object callbacks */
 H5VL_DAOS_PRIVATE void *H5_daos_object_open(void *_item, const H5VL_loc_params_t *loc_params,

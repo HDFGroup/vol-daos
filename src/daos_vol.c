@@ -225,6 +225,7 @@ const char H5_daos_ktype_g[]               = "Key Datatype";
 const char H5_daos_vtype_g[]               = "Value Datatype";
 const char H5_daos_map_key_g[]             = "Map Record";
 const char H5_daos_blob_key_g[]            = "Blob";
+const char H5_daos_fillval_key_g[]         = "Fill Value";
 
 const daos_size_t H5_daos_int_md_key_size_g          = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
 const daos_size_t H5_daos_root_grp_oid_key_size_g    = (daos_size_t)(sizeof(H5_daos_root_grp_oid_key_g) - 1);
@@ -242,6 +243,7 @@ const daos_size_t H5_daos_ktype_size_g               = (daos_size_t)(sizeof(H5_d
 const daos_size_t H5_daos_vtype_size_g               = (daos_size_t)(sizeof(H5_daos_vtype_g) - 1);
 const daos_size_t H5_daos_map_key_size_g             = (daos_size_t)(sizeof(H5_daos_map_key_g) - 1);
 const daos_size_t H5_daos_blob_key_size_g            = (daos_size_t)(sizeof(H5_daos_blob_key_g) - 1);
+const daos_size_t H5_daos_fillval_key_size_g            = (daos_size_t)(sizeof(H5_daos_fillval_key_g) - 1);
 
 
 /*-------------------------------------------------------------------------

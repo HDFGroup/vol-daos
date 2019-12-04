@@ -20,7 +20,7 @@
 
 /* Prototypes */
 static htri_t H5_daos_need_bkg(hid_t src_type_id, hid_t dst_type_id,
-    size_t *dst_type_size, hbool_t *fill_bkg);
+    hbool_t dst_file, size_t *dst_type_size, hbool_t *fill_bkg);
 
 
 /*-------------------------------------------------------------------------
@@ -188,8 +188,8 @@ done:
  *-------------------------------------------------------------------------
  */
 static htri_t
-H5_daos_need_bkg(hid_t src_type_id, hid_t dst_type_id, size_t *dst_type_size,
-    hbool_t *fill_bkg)
+H5_daos_need_bkg(hid_t src_type_id, hid_t dst_type_id, hbool_t dst_file,
+    size_t *dst_type_size, hbool_t *fill_bkg)
 {
     hid_t memb_type_id = -1;
     hid_t src_memb_type_id = -1;
@@ -217,10 +217,23 @@ H5_daos_need_bkg(hid_t src_type_id, hid_t dst_type_id, size_t *dst_type_size,
         case H5T_BITFIELD:
         case H5T_OPAQUE:
         case H5T_ENUM:
-        case H5T_REFERENCE:
-        case H5T_VLEN:
+
             /* No background buffer necessary */
             ret_value = FALSE;
+
+            break;
+
+        case H5T_REFERENCE:
+        case H5T_VLEN:
+
+            /* If the destination type is in the the file, the background buffer
+             * is necessary so we can delete old sequences. */
+            if(dst_file) {
+                ret_value = TRUE;
+                *fill_bkg = TRUE;
+            } /* end if */
+            else
+                ret_value = FALSE;
 
             break;
 
@@ -277,7 +290,7 @@ H5_daos_need_bkg(hid_t src_type_id, hid_t dst_type_id, size_t *dst_type_size,
 
                     /* Recursively check member type, this will fill in the
                      * member size */
-                    if(H5_daos_need_bkg(src_memb_type_id, memb_type_id, &memb_size, fill_bkg) < 0)
+                    if(H5_daos_need_bkg(src_memb_type_id, memb_type_id, dst_file, &memb_size, fill_bkg) < 0)
                         D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't check if background buffer needed")
 
                     /* Close source member type */
@@ -320,7 +333,7 @@ H5_daos_need_bkg(hid_t src_type_id, hid_t dst_type_id, size_t *dst_type_size,
                 D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't get array parent type")
 
             /* Recursively check parent type */
-            if((ret_value = H5_daos_need_bkg(src_memb_type_id, memb_type_id, &memb_size, fill_bkg)) < 0)
+            if((ret_value = H5_daos_need_bkg(src_memb_type_id, memb_type_id, dst_file, &memb_size, fill_bkg)) < 0)
                 D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't check if background buffer needed")
 
             /* Close source parent type */
@@ -372,8 +385,9 @@ done:
  */
 herr_t
 H5_daos_tconv_init(hid_t src_type_id, size_t *src_type_size,
-    hid_t dst_type_id, size_t *dst_type_size, size_t num_elem, void **tconv_buf,
-    void **bkg_buf, H5_daos_tconv_reuse_t *reuse, hbool_t *fill_bkg)
+    hid_t dst_type_id, size_t *dst_type_size, size_t num_elem,
+    hbool_t clear_tconv_buf, hbool_t dst_file, void **tconv_buf, void **bkg_buf,
+    H5_daos_tconv_reuse_t *reuse, hbool_t *fill_bkg)
 {
     htri_t need_bkg;
     herr_t ret_value = SUCCEED;
@@ -399,7 +413,7 @@ H5_daos_tconv_init(hid_t src_type_id, size_t *src_type_size,
         D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't get source type size")
 
     /* Check if we need a background buffer */
-    if((need_bkg = H5_daos_need_bkg(src_type_id, dst_type_id, dst_type_size, fill_bkg)) < 0)
+    if((need_bkg = H5_daos_need_bkg(src_type_id, dst_type_id, dst_file, dst_type_size, fill_bkg)) < 0)
         D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't check if background buffer needed")
 
     /* Check for reusable destination buffer */
@@ -415,10 +429,17 @@ H5_daos_tconv_init(hid_t src_type_id, size_t *src_type_size,
     } /* end if */
 
     /* Allocate conversion buffer if it is not being reused */
-    if(!reuse || (*reuse != H5_DAOS_TCONV_REUSE_TCONV))
-        if(NULL == (*tconv_buf = DV_malloc(num_elem * (*src_type_size
-                > *dst_type_size ? *src_type_size : *dst_type_size))))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate type conversion buffer")
+    if(!reuse || (*reuse != H5_DAOS_TCONV_REUSE_TCONV)) {
+        if(clear_tconv_buf) {
+            if(NULL == (*tconv_buf = DV_calloc(num_elem * (*src_type_size
+                    > *dst_type_size ? *src_type_size : *dst_type_size))))
+                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate type conversion buffer")
+        } /* end if */
+        else
+            if(NULL == (*tconv_buf = DV_malloc(num_elem * (*src_type_size
+                    > *dst_type_size ? *src_type_size : *dst_type_size))))
+                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate type conversion buffer")
+    } /* end if */
 
     /* Allocate background buffer if one is needed and it is not being
      * reused */

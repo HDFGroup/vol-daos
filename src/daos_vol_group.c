@@ -41,17 +41,23 @@ static herr_t H5_daos_group_get_info(H5_daos_group_t *grp, const H5VL_loc_params
  */
 H5_daos_group_t *
 H5_daos_group_traverse(H5_daos_item_t *item, const char *path,
-    hid_t dxpl_id, void **req, const char **obj_name, void **gcpl_buf_out,
-    uint64_t *gcpl_len_out)
+    hid_t lcpl_id, hid_t dxpl_id, void **req, const char **obj_name,
+    void **gcpl_buf_out, uint64_t *gcpl_len_out)
 {
     H5_daos_group_t *grp = NULL;
     const char *next_obj;
     daos_obj_id_t oid;
+    unsigned crt_intermed_grp;
+    char *tmp_grp_name = NULL;
     H5_daos_group_t *ret_value = NULL;
 
     assert(item);
     assert(path);
     assert(obj_name);
+
+    /* Determine if intermediate groups should be created */
+    if((H5P_LINK_CREATE_DEFAULT != lcpl_id) && H5Pget_create_intermediate_group(lcpl_id, &crt_intermed_grp) < 0)
+        D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, NULL, "can't get intermediate group creation property value")
 
     /* Initialize obj_name */
     *obj_name = path;
@@ -97,17 +103,50 @@ H5_daos_group_traverse(H5_daos_item_t *item, const char *path,
         assert(next_obj > *obj_name);
         if((link_resolved = H5_daos_link_follow(grp, *obj_name, (size_t)(next_obj - *obj_name), dxpl_id, req, &oid)) < 0)
             D_GOTO_ERROR(H5E_SYM, H5E_TRAVERSE, NULL, "can't follow link to group")
-        if(!link_resolved)
-            D_GOTO_ERROR(H5E_SYM, H5E_TRAVERSE, NULL, "link to group did not resolve")
+        if(link_resolved) {
+            /* Close previous group */
+            if(H5_daos_group_close(grp, dxpl_id, req) < 0)
+                D_GOTO_ERROR(H5E_SYM, H5E_CLOSEERROR, NULL, "can't close group")
+            grp = NULL;
 
-        /* Close previous group */
-        if(H5_daos_group_close(grp, dxpl_id, req) < 0)
-            D_GOTO_ERROR(H5E_SYM, H5E_CLOSEERROR, NULL, "can't close group")
-        grp = NULL;
+            /* Open next group in path */
+            if(NULL == (grp = (H5_daos_group_t *)H5_daos_group_open_helper(item->file, oid, H5P_GROUP_ACCESS_DEFAULT, dxpl_id, NULL, gcpl_buf_out, gcpl_len_out)))
+                D_GOTO_ERROR(H5E_SYM, H5E_CANTOPENOBJ, NULL, "can't open group")
+        } /* end if */
+        else {
+            H5_daos_group_t *temp_group;
+            H5VL_loc_params_t tmp_loc_params;
 
-        /* Open group */
-        if(NULL == (grp = (H5_daos_group_t *)H5_daos_group_open_helper(item->file, oid, H5P_GROUP_ACCESS_DEFAULT, dxpl_id, NULL, gcpl_buf_out, gcpl_len_out)))
-            D_GOTO_ERROR(H5E_SYM, H5E_CANTOPENOBJ, NULL, "can't open group")
+            /* Link didn't resolve - this is an error unless intermediate group creation is enabled. */
+            if(!crt_intermed_grp)
+                D_GOTO_ERROR(H5E_SYM, H5E_TRAVERSE, NULL, "link to group did not resolve")
+
+            /* Setup temporary loc_params needed for group creation */
+            tmp_loc_params.type = H5VL_OBJECT_BY_SELF;
+            tmp_loc_params.obj_type = H5I_GROUP;
+
+            /* Create a copy of the current object name which only
+             * contains the name of the next link in the path.
+             */
+            if(NULL == (tmp_grp_name = DV_malloc((size_t)((next_obj - *obj_name + 1)))))
+                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate space for intermediate group's name")
+            strncpy(tmp_grp_name, *obj_name, (size_t)(next_obj - *obj_name));
+            tmp_grp_name[next_obj - *obj_name] = '\0';
+
+            /* Create this intermediate group. */
+            if(NULL == (temp_group = H5_daos_group_create(grp, &tmp_loc_params, tmp_grp_name,
+                    lcpl_id, grp->gcpl_id, grp->gapl_id, dxpl_id, NULL)))
+                D_GOTO_ERROR(H5E_SYM, H5E_PATH, NULL, "failed to create intermediate group")
+
+            tmp_grp_name = DV_free(tmp_grp_name);
+
+            /* Close previous group */
+            if(H5_daos_group_close(grp, dxpl_id, req) < 0)
+                D_GOTO_ERROR(H5E_SYM, H5E_CLOSEERROR, NULL, "can't close group")
+
+            /* Set current group to newly-created intermediate group */
+            grp = temp_group;
+        } /* end else */
 
         /* Advance to next path element */
         *obj_name = next_obj + 1;
@@ -118,6 +157,8 @@ H5_daos_group_traverse(H5_daos_item_t *item, const char *path,
     ret_value = grp;
 
 done:
+    tmp_grp_name = DV_free(tmp_grp_name);
+
     /* Cleanup on failure */
     if(NULL == ret_value)
         /* Close group */
@@ -382,7 +423,7 @@ done:
 void *
 H5_daos_group_create(void *_item,
     const H5VL_loc_params_t H5VL_DAOS_UNUSED *loc_params, const char *name,
-    hid_t H5VL_DAOS_UNUSED lcpl_id, hid_t gcpl_id, hid_t gapl_id, hid_t dxpl_id,
+    hid_t lcpl_id, hid_t gcpl_id, hid_t gapl_id, hid_t dxpl_id,
     void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
@@ -428,9 +469,15 @@ H5_daos_group_create(void *_item,
         int_req->th_open = TRUE;
 
         /* Traverse the path */
-        if(name)
-            if(NULL == (target_grp = H5_daos_group_traverse(item, name, dxpl_id, NULL, &target_name, NULL, NULL)))
+        if(name) {
+            if(NULL == (target_grp = H5_daos_group_traverse(item, name, lcpl_id, dxpl_id,
+                    NULL, &target_name, NULL, NULL)))
                 D_GOTO_ERROR(H5E_SYM, H5E_BADITER, NULL, "can't traverse path")
+
+            /* Reject invalid object names during object creation */
+            if(!strncmp(target_name, ".", 2))
+                D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, NULL, "invalid group name - '.'")
+        } /* end if */
     } /* end if */
 
     /* Generate object index */
@@ -438,7 +485,8 @@ H5_daos_group_create(void *_item,
         D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't generate object index")
 
     /* Create group and link to group */
-    if(NULL == (grp = (H5_daos_group_t *)H5_daos_group_create_helper(item->file, gcpl_id, gapl_id, dxpl_id, int_req, target_grp, target_name, target_name ? strlen(target_name) : 0, oidx, collective)))
+    if(NULL == (grp = (H5_daos_group_t *)H5_daos_group_create_helper(item->file, gcpl_id, gapl_id, dxpl_id,
+            int_req, target_grp, target_name, target_name ? strlen(target_name) : 0, oidx, collective)))
         D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't create group")
 
     /* Set return value */
@@ -737,7 +785,8 @@ H5_daos_group_open(void *_item, const H5VL_loc_params_t *loc_params,
                 D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "group name is NULL")
 
             /* Traverse the path */
-            if(NULL == (target_grp = H5_daos_group_traverse(item, name, dxpl_id, req, &target_name, (collective && (item->file->num_procs > 1)) ? (void **)&gcpl_buf : NULL, &gcpl_len)))
+            if(NULL == (target_grp = H5_daos_group_traverse(item, name, H5P_LINK_CREATE_DEFAULT, dxpl_id, req,
+                    &target_name, (collective && (item->file->num_procs > 1)) ? (void **)&gcpl_buf : NULL, &gcpl_len)))
                 D_GOTO_ERROR(H5E_SYM, H5E_BADITER, NULL, "can't traverse path")
 
             /* Check for no target_name, in this case just return target_grp */

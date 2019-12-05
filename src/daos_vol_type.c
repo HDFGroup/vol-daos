@@ -476,7 +476,7 @@ done:
 void *
 H5_daos_datatype_commit(void *_item,
     const H5VL_loc_params_t H5VL_DAOS_UNUSED *loc_params, const char *name,
-    hid_t type_id, hid_t H5VL_DAOS_UNUSED lcpl_id, hid_t tcpl_id, hid_t tapl_id,
+    hid_t type_id, hid_t lcpl_id, hid_t tcpl_id, hid_t tapl_id,
     hid_t dxpl_id, void **req)
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
@@ -547,9 +547,15 @@ H5_daos_datatype_commit(void *_item,
         tse_task_t *link_write_task;
 
         /* Traverse the path */
-        if(name)
-            if(NULL == (target_grp = H5_daos_group_traverse(item, name, dxpl_id, req, &target_name, NULL, NULL)))
+        if(name) {
+            if(NULL == (target_grp = H5_daos_group_traverse(item, name, lcpl_id, dxpl_id,
+                    req, &target_name, NULL, NULL)))
                 D_GOTO_ERROR(H5E_DATATYPE, H5E_BADITER, NULL, "can't traverse path")
+
+            /* Reject invalid object names during object creation */
+            if(!strncmp(target_name, ".", 2))
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_BADVALUE, NULL, "invalid datatype name - '.'")
+        } /* end if */
 
         /* Create datatype */
         /* Open datatype */
@@ -779,7 +785,8 @@ H5_daos_datatype_open(void *_item,
                 D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "datatype name is NULL")
 
             /* Traverse the path */
-            if(NULL == (target_grp = H5_daos_group_traverse(item, name, dxpl_id, req, &target_name, NULL, NULL)))
+            if(NULL == (target_grp = H5_daos_group_traverse(item, name, H5P_LINK_CREATE_DEFAULT, dxpl_id,
+                    req, &target_name, NULL, NULL)))
                 D_GOTO_ERROR(H5E_DATATYPE, H5E_BADITER, NULL, "can't traverse path")
 
             /* Follow link to datatype */

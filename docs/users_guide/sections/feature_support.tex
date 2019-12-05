@@ -26,7 +26,7 @@ The following sections serve to illustrate the \dvc{}'s support for features in 
 \multicolumn{2}{| l |}{} & Variable-length & Yes & \\ [30pt] \cline{3-4}
 \multicolumn{2}{| l |}{} & Array & Yes & \\ [30pt] \cline{3-4}
 \multicolumn{2}{| l |}{} & Opaque & Yes & \\ [30pt] \cline{3-4}
-\multicolumn{2}{| l |}{} & Reference & No\footnotemark[1] & \\ [30pt] \cline{3-4}
+\multicolumn{2}{| l |}{} & Reference & Yes & \\ [30pt] \cline{3-4}
 \hline
 
 \multirow[c]{2}{\linewidth}{Properties} & \multirow[c]{2}{\linewidth}{Name Encoding} & ASCII & Yes & \\ \cline{3-5}
@@ -49,7 +49,7 @@ The following sections serve to illustrate the \dvc{}'s support for features in 
 \multirow[c]{7}{\linewidth}[-45pt]{Dataspace} & \multirow[c]{3}{\linewidth}{Dimensionality} & H5S\_NULL & Yes & \\ \cline{3-4}
 & & H5S\_SCALAR & Yes & \\ \cline{3-4}
 & & SIMPLE & Yes & \\ \cline{3-4} \cline{2-5}
-& \multirow[c]{4}{\linewidth}[-55pt]{Selection Type} & NONE & Yes & \multirow[c]{4}{\linewidth}{For chunked datasets, the selection currently must be the same shape in the memory and file dataspaces.\footnotemark[1]} \\ [28pt] \cline{3-4}
+& \multirow[c]{4}{\linewidth}[-55pt]{Selection Type} & NONE & Yes & \\ [28pt] \cline{3-4}
 & & H5S\_ALL & Yes & \\ [28pt] \cline{3-4}
 & & Hyperslab Selection & Yes & \\ [28pt] \cline{3-4}
 & & Point Selection & Yes & \\ [28pt] \cline{3-4} \hline
@@ -59,7 +59,7 @@ The following sections serve to illustrate the \dvc{}'s support for features in 
 \multicolumn{2}{| l |}{} & Variable-length & Yes & \\ [30pt] \cline{3-4}
 \multicolumn{2}{| l |}{} & Array & Yes & \\ [30pt] \cline{3-4}
 \multicolumn{2}{| l |}{} & Opaque & Yes & \\ [30pt] \cline{3-4}
-\multicolumn{2}{| l |}{} & Reference & No\footnotemark[1] & \\ [30pt] \cline{3-4}
+\multicolumn{2}{| l |}{} & Reference & Yes & \\ [30pt] \cline{3-4}
 \hline
 
 \end{tabularx}
@@ -80,13 +80,11 @@ The following sections serve to illustrate the \dvc{}'s support for features in 
 & & Chunked & Yes & \\ \cline{3-5}
 & & VDS & No & The VDS feature is not currently planned to be supported.\\ \cline{2-5}
 & \multirow[c]{4}{\linewidth}[-45pt]{Other Properties (creation)} & Attribute Creation Order & Yes & In order to work correctly, the attribute creation order feature requires that a file is touched collectively. \\ \cline{3-5}
-& & Fill Value & No\footnotemark[1] & \\ \cline{3-5}
+& & Fill Value & Yes & \\ \cline{3-5}
 & & Filters & No & HDF5 does not expose any public APIs for working with the filter pipeline; however, this feature may be supported in the future. \\ \cline{3-5}
 & & Storage Allocation Time & N/A & \\ \hline
 
 \end{tabularx}
-
-\footnotetext[1]{Will be supported by end of Q4 2019.}
 
 \newpage
 
@@ -273,8 +271,8 @@ H5Dopen(1/2) & \\ \hline
 H5Dwrite & \\ \hline
 H5Dread & \\ \hline
 H5Dclose & \\ \hline
-H5Dextend & Upon dataset expansion or shrinking, data is currently left uninitialized instead of being initialized to 0\footnotemark[1]\\ \hline
-H5Dset\_extent & Upon dataset expansion or shrinking, data is currently left uninitialized instead of being initialized to 0\footnotemark[1]\\ \hline
+H5Dextend & Upon dataset shrinking, data is currently not cleared.\footnotemark[1]\\ \hline
+H5Dset\_extent & Upon dataset shrinking, data is currently not cleared.\footnotemark[1]\\ \hline
 H5Dget\_space & \\ \hline
 H5Dget\_type & \\ \hline
 H5Dget\_create\_plist & \\ \hline
@@ -327,6 +325,7 @@ H5Fget\_intent & \\ \hline
 H5Fget\_name & \\ \hline
 H5Fget\_obj\_count & \\ \hline
 H5Fget\_obj\_ids & \\ \hline
+H5Fdelete & \\ \hline
 H5Fflush & \texttt{H5Fflush} is currently implemented as a no-op.\\ \hline
 H5Fclose & \\ \hline
 
@@ -468,10 +467,6 @@ H5Lget\_name\_by\_idx & \texttt{H5\_ITER\_DEC} is currently unsupported for the 
 
 H5Lcopy & Currently no support for the following properties:
 \begin{itemize}
- \item LCPL
- \begin{itemize}
-  \item H5Pset\_create\_intermediate\_group\footnotemark[1]
- \end{itemize}
  \item LAPL
  \begin{itemize}
   \item H5Pset\_char\_encoding\footnotemark[1]
@@ -481,10 +476,6 @@ H5Lcopy & Currently no support for the following properties:
 \end{itemize}\\ \hline
 H5Lmove & Currently no support for the following properties:
 \begin{itemize}
- \item LCPL
- \begin{itemize}
-  \item H5Pset\_create\_intermediate\_group\footnotemark[1]
- \end{itemize}
  \item LAPL
  \begin{itemize}
   \item H5Pset\_char\_encoding\footnotemark[1]
@@ -546,11 +537,6 @@ H5Ocopy & Currently no support for the following properties: \begin{itemize}
                                                                      \item {\small\texttt{H5O\_COPY\_EXPAND\_REFERENCE\_FLAG}}\footnotemark[1]
                                                                      \item {\small\texttt{H5O\_COPY\_MERGE\_COMMITTED\_DTYPE\_FLAG}}
                                                                  \end{itemize}
-                                                                 \item LCPL
-                                                                 \begin{itemize}
-                                                                     \setlength{\itemindent}{-2.5em}
-                                                                     \item H5Pset\_create\_intermediate\_group\footnotemark[1]
-                                                                 \end{itemize}
                                                              \end{itemize}\\ \hline
 H5Oflush & \texttt{H5Oflush} delegates to the appropriate \texttt{H5Xflush} routine based upon the given object's type, but that particular object's flush routine may be implemented as a no-op. \\ \hline
 H5Orefresh & \texttt{H5Orefresh} delegates to the appropriate \texttt{H5Xrefresh} routine based upon the given object's type, but that particular object's refresh routine may be implemented as a no-op. \\ \hline
@@ -586,7 +572,7 @@ H5Odecr\_refcount\footnotemark[1] & \\ \hline
 
 \begin{center}
 
-\textbf{Supported API calls\footnotemark[1]}
+\textbf{Supported API calls}
 \vspace{.2in} \\
 
 \begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
@@ -595,7 +581,14 @@ H5Odecr\_refcount\footnotemark[1] & \\ \hline
 % Center just the header row
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
- & \\ \hline
+H5Rcreate\_object & Object lookup and retrieval of a container's info (which are needed for \texttt{H5Rcreate\_object}) are supported.\\ \hline
+H5Rcreate\_region & Object lookup and retrieval of a container's info (which are needed for \texttt{H5Rcreate\_region}) are supported.\\ \hline
+H5Rcreate\_attr & Object lookup and retrieval of a container's info (which are needed for \texttt{H5Rcreate\_attr}) are supported.\\ \hline
+H5Ropen\_object & Object opening (which is needed for \texttt{H5Ropen\_object}) is supported.\\ \hline
+H5Ropen\_region & Object opening and retrieval of a dataset's dataspace (which are needed for \texttt{H5Ropen\_region}) are supported.\\ \hline
+H5Ropen\_attr & Object opening and attribute opening (which are needed for \texttt{H5Ropen\_attr}) are supported.\\ \hline
+H5Rget\_obj\_type3 & \\ \hline
+H5Rget\_file\_name & Retrieval of a file's name (which is needed for \texttt{H5Rget\_file\_name}) is supported.\\ \hline
 
 \end{tabularx}
 
@@ -608,17 +601,11 @@ H5Odecr\_refcount\footnotemark[1] & \\ \hline
 % Center just the header row
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
-H5Rcreate & \\ \hline
-H5Rdereference(1/2) & Causes an assertion failure\\ \hline
-H5Rget\_name & \\ \hline
-H5Rget\_obj\_type(1/2) & \\ \hline
-H5Rget\_region & \\ \hline
+H5Rget\_obj\_name & \\ \hline
 
 \end{tabularx}
 
 \end{center}
-
-\footnotetext[1]{New reference API will be supported by end of Q4 2019.}
 
 \newpage
 
@@ -669,7 +656,6 @@ The following sections outline the known current limitations of the \dvc{}.
 \subsubsection{Limitations in regards to the HDF5 API}
 
 \begin{itemize}
- \item When performing dataset I/O, the selections in the memory and file dataspaces must currently be the same shape; using selections of different shapes will result in an error stating this.\footnotemark[1]
  \item If an application abnormally exits, the \dvc{} currently leaves the file in an unusable state. Currently, the only way to re-use the same filename after an application interruption is to use a new \acrshort{daos} pool. This issue will be resolved when rollback
 to a previous snapshot is supported.
 \end{itemize}
@@ -682,5 +668,4 @@ to a previous snapshot is supported.
 \item There is currently no support for distributed transactions.
 \end{itemize}
 
-\footnotetext[1]{Will be supported by end of Q4 2019.}
 \end{document}

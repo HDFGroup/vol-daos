@@ -798,14 +798,16 @@ H5_daos_group_open(void *_item, const H5VL_loc_params_t *loc_params,
                 grp = target_grp;
                 target_grp = NULL;
 
-                /* Encode GCPL */
-                if(H5Pencode2(grp->gcpl_id, NULL, &gcpl_size, item->file->fapl_id) < 0)
-                    D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of gcpl")
-                if(NULL == (gcpl_buf = (uint8_t *)DV_malloc(gcpl_size)))
-                    D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized gcpl")
-                gcpl_len = (uint64_t)gcpl_size;
-                if(H5Pencode2(grp->gcpl_id, gcpl_buf, &gcpl_size, item->file->fapl_id) < 0)
-                    D_GOTO_ERROR(H5E_SYM, H5E_CANTENCODE, NULL, "can't serialize gcpl")
+                if(!gcpl_buf) {
+                    /* Encode GCPL */
+                    if(H5Pencode2(grp->gcpl_id, NULL, &gcpl_size, item->file->fapl_id) < 0)
+                        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of gcpl")
+                    if(NULL == (gcpl_buf = (uint8_t *)DV_malloc(gcpl_size)))
+                        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized gcpl")
+                    gcpl_len = (uint64_t)gcpl_size;
+                    if(H5Pencode2(grp->gcpl_id, gcpl_buf, &gcpl_size, item->file->fapl_id) < 0)
+                        D_GOTO_ERROR(H5E_SYM, H5E_CANTENCODE, NULL, "can't serialize gcpl")
+                } /* end if */
             } /* end if */
             else {
                 htri_t link_resolved;

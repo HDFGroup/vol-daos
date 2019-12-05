@@ -14,7 +14,7 @@ transport_config:
 # single server instance per config file for now
 servers:
 -
-  targets: 1
+  targets: [1-4]
   first_core: 0
   nr_xs_helpers: 0
   fabric_iface: @DAOS_SERVER_IFACE@  # map to OFI_INTERFACE

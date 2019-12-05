@@ -830,7 +830,7 @@ H5_daos_attribute_read(void *_attr, hid_t mem_type_id, void *buf,
     daos_iov_set(&iod.iod_name, (void *)akey, (daos_size_t)akey_len);
     iod.iod_nr = 1u;
     iod.iod_recxs = &recx;
-    iod.iod_size = (uint64_t)file_type_size;
+    iod.iod_size = (daos_size_t)file_type_size;
     iod.iod_type = DAOS_IOD_ARRAY;
 
     /* Set up sgl */
@@ -841,6 +841,10 @@ H5_daos_attribute_read(void *_attr, hid_t mem_type_id, void *buf,
     /* Read data from attribute */
     if(0 != (ret = daos_obj_fetch(attr->parent->obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
         D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, FAIL, "can't read data from attribute: %s", H5_daos_err_to_string(ret))
+
+    /* Check for nothing read, in this case we must clear the read buffer */
+    if(sgl.sg_nr_out == 0)
+        (void)memset(sg_iov.iov_buf, 0, (size_t)attr_size * file_type_size);
 
     /* Perform type conversion if necessary */
     if(need_tconv) {
@@ -968,7 +972,7 @@ H5_daos_attribute_write(void *_attr, hid_t mem_type_id, const void *buf,
     daos_iov_set(&iod.iod_name, (void *)akey, (daos_size_t)akey_len);
     iod.iod_nr = 1u;
     iod.iod_recxs = &recx;
-    iod.iod_size = (uint64_t)file_type_size;
+    iod.iod_size = (daos_size_t)file_type_size;
     iod.iod_type = DAOS_IOD_ARRAY;
 
     /* Set up constant sgl info */
@@ -987,6 +991,10 @@ H5_daos_attribute_write(void *_attr, hid_t mem_type_id, const void *buf,
 
             if(0 != (ret = daos_obj_fetch(attr->parent->obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
                 D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, FAIL, "can't read data from attribute: %s", H5_daos_err_to_string(ret))
+
+            /* Reset iod_size, if the attribute was not writted to then it could
+             * have been overwritten by daos_obj_fetch */
+            iod.iod_size = (daos_size_t)file_type_size;
         } /* end if */
 
         /* Copy data to type conversion buffer */
@@ -2136,7 +2144,7 @@ H5_daos_attribute_iterate_by_name_order(H5_daos_obj_t *attr_container_obj, H5_da
     /* Loop to retrieve keys and make callbacks */
     do {
         /* Loop to retrieve keys (exit as soon as we get at least 1 key) */
-        H5_DAOS_RETRIEVE_KEYS_LOOP(akey_buf, akey_buf_len, sg_iov, nr, H5E_ATTR, daos_obj_list_akey,
+        H5_DAOS_RETRIEVE_KEYS_LOOP(akey_buf, akey_buf_len, sg_iov, nr, H5_DAOS_ITER_LEN, H5E_ATTR, daos_obj_list_akey,
                 attr_container_obj->obj_oh, DAOS_TX_NONE, &dkey, &nr, kds, &sgl, &anchor, NULL /*event*/);
 
         /* Loop over returned akeys */

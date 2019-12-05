@@ -1559,7 +1559,21 @@ static herr_t H5_daos_optional(void *item, hid_t dxpl_id, void **req,
             break;
         } /* end block */
 
-        /* Specific operations (currently only H5Miterate) */
+        /* Operations that get misc info from the map */
+        case H5VL_MAP_GET:
+        {
+            H5VL_map_get_t get_type = va_arg(arguments, H5VL_map_get_t);
+
+            /* All arguments will be checked by H5_daos_map_get. */
+
+            /* Pass the call */
+            if((ret_value = H5_daos_map_get(item, get_type, dxpl_id, req, arguments)) < 0)
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, ret_value, "can't perform map get operation")
+
+            break;
+        } /* end block */
+
+        /* Specific operations (H5Miterate and H5Mdelete) */
         case H5VL_MAP_SPECIFIC:
         {
             const H5VL_loc_params_t *loc_params = va_arg(arguments, const H5VL_loc_params_t *);

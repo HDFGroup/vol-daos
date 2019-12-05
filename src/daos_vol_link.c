@@ -1685,7 +1685,7 @@ H5_daos_link_iterate_by_name_order(H5_daos_group_t *target_grp, H5_daos_iter_dat
         int ret;
 
         /* Loop to retrieve keys (exit as soon as we get at least 1 key) */
-        H5_DAOS_RETRIEVE_KEYS_LOOP(dkey_buf, dkey_buf_len, sg_iov, nr, H5E_SYM, daos_obj_list_dkey,
+        H5_DAOS_RETRIEVE_KEYS_LOOP(dkey_buf, dkey_buf_len, sg_iov, nr, H5_DAOS_ITER_LEN, H5E_SYM, daos_obj_list_dkey,
                 target_grp->obj.obj_oh, DAOS_TX_NONE, &nr, kds, &sgl, &anchor, NULL /*event*/);
 
         /* Loop over returned dkeys */

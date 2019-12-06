@@ -117,7 +117,7 @@ H5_daos_object_open(void *_item, const H5VL_loc_params_t *loc_params,
     /* Set up sub_loc_params */
     sub_loc_params.obj_type = item->type;
     sub_loc_params.type = H5VL_OBJECT_BY_TOKEN;
-    sub_loc_params.loc_data.loc_by_token.token = obj_token;
+    sub_loc_params.loc_data.loc_by_token.token = &obj_token;
 
     /* Call type's open function */
     if(obj_type == H5I_GROUP) {
@@ -749,7 +749,7 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
 
         case H5VL_OBJECT_LOOKUP:
         {
-            void *token = va_arg(arguments, void *);
+            H5VL_token_t *token = va_arg(arguments, H5VL_token_t *);
 
             if(H5VL_OBJECT_BY_NAME != loc_params->type)
                 D_GOTO_ERROR(H5E_OHDR, H5E_BADVALUE, FAIL, "invalid loc_params type")

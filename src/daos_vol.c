@@ -1848,7 +1848,7 @@ H5_daos_oid_to_token(daos_obj_id_t oid, H5VL_token_t *obj_token)
     assert(obj_token);
     H5daos_compile_assert(H5_DAOS_ENCODED_OID_SIZE <= H5VL_MAX_TOKEN_SIZE);
 
-    p = (uint8_t *) *obj_token;
+    p = (uint8_t *) obj_token;
 
     UINT64ENCODE(p, oid.lo);
     UINT64ENCODE(p, oid.hi);
@@ -1868,13 +1868,13 @@ H5_daos_oid_to_token(daos_obj_id_t oid, H5VL_token_t *obj_token)
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_token_to_oid(H5VL_token_t obj_token, daos_obj_id_t *oid)
+H5_daos_token_to_oid(H5VL_token_t *obj_token, daos_obj_id_t *oid)
 {
     uint8_t *p;
     herr_t ret_value = SUCCEED;
 
-    assert(oid);
     assert(obj_token);
+    assert(oid);
     H5daos_compile_assert(H5_DAOS_ENCODED_OID_SIZE <= H5VL_MAX_TOKEN_SIZE);
 
     p = (uint8_t *) obj_token;

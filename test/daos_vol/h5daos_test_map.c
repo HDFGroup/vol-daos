@@ -309,7 +309,7 @@ test_map_get(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t value_d
                 goto error;
             } /* end if */
 
-            if(vl_vl_vals[i].len != vl_vals_out[i].len || memcmp(vl_vl_vals[i].p, vl_vals_out[i].p, vl_vl_vals[i].len)) {
+            if(vl_vl_vals[i].len != vl_vals_out[i].len || memcmp(vl_vl_vals[i].p, vl_vals_out[i].p, vl_vl_vals[i].len * sizeof(short))) {
                     H5_FAILED(); AT();
                     printf("incorrect value returned\n");
                     goto error;
@@ -1872,7 +1872,7 @@ test_vl(hid_t file_id)
         vl_vl_keys[i].p = malloc((i+1)*sizeof(short));
         vl_vl_keys[i].len = i+1;
         for(j=0; j<(i+1); j++)
-            ((short *)vl_vl_keys[i].p)[j] = i*10+j+7;
+            ((short *)(vl_vl_keys[i].p))[j] = (short)(i * 10 + j + 7);
 
         vl_vl_vals[i].p = malloc((i + NUMB_KEYS)*sizeof(int));
         vl_vl_vals[i].len = i + NUMB_KEYS;

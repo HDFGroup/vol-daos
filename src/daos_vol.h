@@ -211,10 +211,10 @@ typedef d_sg_list_t daos_sg_list_t;
  * necessary and try again. The variadic portion of this macro corresponds
  * to the arguments given to daos_obj_list_akey/dkey.
  */
-#define H5_DAOS_RETRIEVE_KEYS_LOOP(key_buf, key_buf_len, sg_iov, nr, maj_err, daos_obj_list_func, ...)  \
+#define H5_DAOS_RETRIEVE_KEYS_LOOP(key_buf, key_buf_len, sg_iov, nr, nr_init, maj_err, daos_obj_list_func, ...)  \
 do {                                                                                                    \
     /* Reset nr */                                                                                      \
-    nr = H5_DAOS_ITER_LEN;                                                                              \
+    nr = nr_init;                                                                              \
                                                                                                         \
     /* Ask DAOS for a list of keys, break out if we succeed */                                          \
     if(0 == (ret = daos_obj_list_func(__VA_ARGS__)))                                                    \
@@ -377,8 +377,10 @@ typedef struct H5_daos_dtype_t {
 /* The map struct */
 typedef struct H5_daos_map_t {
     H5_daos_obj_t obj; /* Must be first */
-    hid_t ktype_id;
-    hid_t vtype_id;
+    hid_t key_type_id;
+    hid_t key_file_type_id;
+    hid_t val_type_id;
+    hid_t val_file_type_id;
     hid_t mcpl_id;
     hid_t mapl_id;
 } H5_daos_map_t;
@@ -810,6 +812,8 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_map_exists(void *_map, hid_t key_mem_type_id,
 H5VL_DAOS_PRIVATE herr_t H5_daos_map_put(void *_map, hid_t key_mem_type_id,
     const void *key,  hid_t val_mem_type_id, const void *value, hid_t dxpl_id,
     void **req);
+H5VL_DAOS_PRIVATE herr_t H5_daos_map_get(void *_map, H5VL_map_get_t get_type,
+    hid_t H5VL_DAOS_UNUSED dxpl_id, void **req, va_list arguments);
 H5VL_DAOS_PRIVATE herr_t H5_daos_map_specific(void *_item,
     const H5VL_loc_params_t *loc_params, H5VL_map_specific_t specific_type,
     hid_t dxpl_id, void **req, va_list arguments);

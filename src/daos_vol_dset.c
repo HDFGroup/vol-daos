@@ -1250,7 +1250,7 @@ H5_daos_dataset_io_types_equal(H5_daos_dset_t *dset, daos_key_t dkey, hssize_t H
     /* Set up iod */
     memset(&iod, 0, sizeof(iod));
     daos_iov_set(&iod.iod_name, (void *)&akey, (daos_size_t)(sizeof(akey)));
-    iod.iod_size = file_type_size;
+    iod.iod_size = (daos_size_t)file_type_size;
     iod.iod_type = DAOS_IOD_ARRAY;
 
     /* Check for a memory space of H5S_ALL, use file space in this case */
@@ -1433,7 +1433,7 @@ H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t dkey, hssize_t
     /* Set up iod */
     memset(&iod, 0, sizeof(iod));
     daos_iov_set(&iod.iod_name, (void *)&akey, (daos_size_t)(sizeof(akey)));
-    iod.iod_size = file_type_size;
+    iod.iod_size = (daos_size_t)file_type_size;
     iod.iod_type = DAOS_IOD_ARRAY;
 
     /* Build recxs and sg_iovs */

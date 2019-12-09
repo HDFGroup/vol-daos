@@ -22,6 +22,7 @@ hid_t H5Mcreate(hid_t loc_id, const char *name, hid_t keytype, hid_t valtype,
 
 \mintcinline{H5Mcreate()} creates a new Map object in the specified location in the \acrshort{hdf5} file and with the specified name. The datatype for keys and values can be specified separately, and any further options can be specified through the property lists \mintcinline{lcpl_id}, \mintcinline{mcpl_id}, and \mintcinline{mapl_id}.
 
+There are currently some restrictions on the key datatype when used with the \acrshort{daos} \gls{connector}. The key datatype may not contain a reference type, and it may not contain a nested variable-length (vlen) type, that is, there cannot be a vlen present inside a compound, array, or another vlen type.
 
 \subsubsection{H5Mopen}
 

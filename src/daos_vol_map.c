@@ -903,7 +903,6 @@ H5_daos_map_key_conv_reverse(hid_t src_type_id, hid_t dst_type_id,
     hid_t dst_parent_type_id = H5I_INVALID_HID;
     void *tconv_buf = NULL;
     void *bkg_buf = NULL;
-    H5_daos_tconv_reuse_t reuse = H5_DAOS_TCONV_REUSE_NONE;
     hbool_t fill_bkg = FALSE;
     herr_t ret_value = SUCCEED;
 
@@ -951,22 +950,12 @@ H5_daos_map_key_conv_reverse(hid_t src_type_id, hid_t dst_type_id,
                 vl_union->vl.len = key_size / src_parent_type_size;
 
                 /* Initialize type conversion */
-                if(H5_daos_tconv_init(src_parent_type_id, &src_parent_type_size, dst_parent_type_id, &dst_parent_type_size, vl_union->vl.len, FALSE, FALSE, &tconv_buf, &bkg_buf, &reuse, &fill_bkg) < 0)
+                if(H5_daos_tconv_init(src_parent_type_id, &src_parent_type_size, dst_parent_type_id, &dst_parent_type_size, vl_union->vl.len, FALSE, FALSE, &tconv_buf, &bkg_buf, NULL, &fill_bkg) < 0)
                     D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't initialize type conversion")
 
-                /* Reuse buffer as appropriate */
-                if(reuse == H5_DAOS_TCONV_REUSE_TCONV)
-                    tconv_buf = key;
-                else if(reuse == H5_DAOS_TCONV_REUSE_BKG) {
-                    bkg_buf = key;
-
-                    /* We must fill the background buffer in this case since it
-                     * is not the actual read buffer (there isn't one that's
-                     * analogous to a dataset read here).  Make sure to wait
-                     * until after the data is copied to tconv to fill it since
-                     * otherwise we'd wipe out the data in key! */
-                    fill_bkg = TRUE;
-                } /* end if */
+                /* Note we could reuse buffers here if we change around some of
+                 * the logic in H5_daos_tconv_init() to support being passed the
+                 * source buffer instead of the destination buffer */
 
                 /* Copy data to type conversion buffer */
                 (void)memcpy(tconv_buf, key, key_size);
@@ -984,10 +973,10 @@ H5_daos_map_key_conv_reverse(hid_t src_type_id, hid_t dst_type_id,
                 /* Set return values to point to converted buffer */
                 vl_union->vl.p = tconv_buf;
                 *key_buf = (void *)&(vl_union->vl);
-                if(tconv_buf != key) {
+                //if(tconv_buf != key) {
                     *key_buf_alloc = tconv_buf;
                     tconv_buf = NULL;
-                } /* end if */
+                //} /* end if */
             }
             else {
                 /* Just get parent size and set return values to point to vlen
@@ -1020,26 +1009,16 @@ H5_daos_map_key_conv_reverse(hid_t src_type_id, hid_t dst_type_id,
             } /* end if */
             else {
                 /* Initialize type conversion */
-                if(H5_daos_tconv_init(src_type_id, &src_type_size, dst_type_id, &dst_type_size, 1, FALSE, FALSE, &tconv_buf, &bkg_buf, &reuse, &fill_bkg) < 0)
+                if(H5_daos_tconv_init(src_type_id, &src_type_size, dst_type_id, &dst_type_size, 1, FALSE, FALSE, &tconv_buf, &bkg_buf, NULL, &fill_bkg) < 0)
                     D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't initialize type conversion")
 
                 /* Check size is correct */
                 if(key_size != src_type_size)
                     D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "key size does not match source datatype size")
 
-                /* Reuse buffer as appropriate */
-                if(reuse == H5_DAOS_TCONV_REUSE_TCONV)
-                    tconv_buf = key;
-                else if(reuse == H5_DAOS_TCONV_REUSE_BKG) {
-                    bkg_buf = key;
-
-                    /* We must fill the background buffer in this case since it
-                     * is not the actual read buffer (there isn't one that's
-                     * analogous to a dataset read here).  Make sure to wait
-                     * until after the data is copied to tconv to fill it since
-                     * otherwise we'd wipe out the data in key! */
-                    fill_bkg = TRUE;
-                } /* end if */
+                /* Note we could reuse buffers here if we change around some of
+                 * the logic in H5_daos_tconv_init() to support being passed the
+                 * source buffer instead of the destination buffer */
 
                 /* Copy data to type conversion buffer */
                 (void)memcpy(tconv_buf, key, src_type_size);
@@ -1056,10 +1035,10 @@ H5_daos_map_key_conv_reverse(hid_t src_type_id, hid_t dst_type_id,
 
                 /* Set return values to point to converted buffer */
                 *key_buf = tconv_buf;
-                if(tconv_buf != key) {
+                //if(tconv_buf != key) {
                     *key_buf_alloc = tconv_buf;
                     tconv_buf = NULL;
-                } /* end if */
+                //} /* end if */
             } /* end else */
         } /* end else */
     } /* end if */

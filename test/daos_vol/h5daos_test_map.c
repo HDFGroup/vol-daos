@@ -16,6 +16,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include <string.h>
+#include <assert.h>
 #include <hdf5.h>
 
 #include "daos_vol_public.h"
@@ -35,10 +36,11 @@
 #define MAP_INT_INT_NAME        "map_int_int"
 #define MAP_ENUM_ENUM_NAME      "map_enum_enum"
 #define MAP_VL_VL_NAME          "map_vl_vl"
+#define MAP_VLS_VLS_NAME        "map_vls_vls"
 #define MAP_COMP_COMP_NAME      "map_comp_comp"
 #define MAP_NESTED_COMP_NAME    "map_nested_comp"
-#define MAP_SIMPLE_TCONV1_NAME   "map_simple_tconv1"
-#define MAP_SIMPLE_TCONV2_NAME   "map_simple_tconv2"
+#define MAP_SIMPLE_TCONV1_NAME  "map_simple_tconv1"
+#define MAP_SIMPLE_TCONV2_NAME  "map_simple_tconv2"
 #define MAP_MANY_ENTRIES_NAME   "map_many_entries"
 #define MAP_NONEXISTENT_MAP     "map_nonexistent"
 
@@ -91,6 +93,11 @@ enum_value_t enum_vals_out[NUMB_KEYS];
 hvl_t vl_vl_keys[NUMB_KEYS];
 hvl_t vl_vl_vals[NUMB_KEYS];
 hvl_t vl_vals_out[NUMB_KEYS];
+
+/* Keys and values for vls-vls map */
+char *vls_vls_keys[NUMB_KEYS];
+char *vls_vls_vals[NUMB_KEYS];
+char *vls_vals_out[NUMB_KEYS];
 
 /* Keys and values for compound-compound map */
 typedef struct compound_t {
@@ -227,6 +234,14 @@ test_map_set(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t value_d
                 printf("failed to set key-value pair\n");
                 goto error;
             } /* end if */
+    } else if(!strcmp(map_name, MAP_VLS_VLS_NAME)) {
+        /* Set the values */
+        for(i = 0; i < NUMB_KEYS; i++)
+            if(H5Mput(map_id, key_dtype, &vls_vls_keys[i], value_dtype, &vls_vls_vals[i], H5P_DEFAULT) < 0) {
+                H5_FAILED(); AT();
+                printf("failed to set key-value pair\n");
+                goto error;
+            } /* end if */
     } else if(!strcmp(map_name, MAP_COMP_COMP_NAME)) {
         /* Set the values */
         for(i = 0; i < NUMB_KEYS; i++)
@@ -339,9 +354,23 @@ test_map_get(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t value_d
             } /* end if */
 
             if(vl_vl_vals[i].len != vl_vals_out[i].len || memcmp(vl_vl_vals[i].p, vl_vals_out[i].p, vl_vl_vals[i].len * sizeof(short))) {
-                    H5_FAILED(); AT();
-                    printf("incorrect value returned\n");
-                    goto error;
+                H5_FAILED(); AT();
+                printf("incorrect value returned\n");
+                goto error;
+            }
+        } /* end for */
+    } else if(!strcmp(map_name, MAP_VLS_VLS_NAME)) {
+        for(i = 0; i < NUMB_KEYS; i++) {
+            if(H5Mget(map_id, key_dtype, &(vls_vls_keys[i]), value_dtype, &(vls_vals_out[i]), H5P_DEFAULT) < 0) {
+                H5_FAILED(); AT();
+                printf("failed to get key-value pair\n");
+                goto error;
+            } /* end if */
+
+            if(!vls_vls_vals[i] != !vls_vals_out[i] || (vls_vls_vals[i] && strcmp(vls_vls_vals[i], vls_vals_out[i]))) {
+                H5_FAILED(); AT();
+                printf("incorrect value returned\n");
+                goto error;
             }
         } /* end for */
     } else if(!strcmp(map_name, MAP_COMP_COMP_NAME)) {
@@ -2348,6 +2377,49 @@ error:
     return 1;
 }
 
+static int 
+test_vls(hid_t file_id)
+{
+    hid_t   dtype_id = -1;
+    int     nerrors = 0;
+
+    TESTING("variable-length strings as the datatype of keys and values"); HDputs("");
+
+    if((dtype_id = H5Tcreate(H5T_STRING, H5T_VARIABLE)) < 0) {
+        H5_FAILED(); AT();
+        printf("failed to create datatype\n");
+        goto error;
+    } /* end if */
+
+    /* Initialize VLS data to keys and values */
+    assert(NUMB_KEYS == 4);
+    vls_vls_keys[0] = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.";
+    vls_vls_keys[1] = NULL;
+    vls_vls_keys[2] = "";
+    vls_vls_keys[3] = "?";
+    vls_vls_vals[0] = NULL;
+    vls_vls_vals[1] = "!";
+    vls_vls_vals[2] = "The quick brown fox jumps over the lazy dog";
+    vls_vls_vals[3] = "";
+
+    nerrors += test_create_map(file_id, MAP_VLS_VLS_NAME, dtype_id, dtype_id, TRUE);
+    nerrors += test_open_map(file_id, MAP_VLS_VLS_NAME, TRUE);
+    nerrors += test_map_set(file_id, MAP_VLS_VLS_NAME, dtype_id, dtype_id, TRUE);
+    nerrors += test_map_get(file_id, MAP_VLS_VLS_NAME, dtype_id, dtype_id, TRUE);
+    /*nerrors += test_map_exists(file_id, MAP_VLS_VLS_NAME, dtype_id);
+    nerrors += test_map_iterate(file_id, MAP_VLS_VLS_NAME, dtype_id);
+    nerrors += test_map_update(file_id, MAP_VLS_VLS_NAME, dtype_id, dtype_id);
+    nerrors += test_map_nonexistent_key(file_id, MAP_VLS_VLS_NAME, dtype_id, dtype_id);
+    nerrors += test_map_delete_key(file_id, MAP_VLS_VLS_NAME, dtype_id);*/
+
+    if(H5Tclose(dtype_id) < 0) goto error;
+
+    return nerrors;
+
+error:
+    return 1;
+}
+
 static int
 test_compound(hid_t file_id)
 {
@@ -2463,11 +2535,9 @@ test_simple_tconv(hid_t file_id)
                 if(stconv_long_long_keys[i] == stconv_long_long_keys[j])
                     break;
         } while(j < i);
-printf("%lld, ", stconv_long_long_keys[i]);
         stconv_int_vals[i] = rand();
         stconv_double_vals[i] = (double)rand();
     } /* end for */
-printf("\n");
 
     nerrors += test_create_map(file_id, MAP_SIMPLE_TCONV1_NAME, H5T_NATIVE_LLONG, H5T_NATIVE_DOUBLE, TRUE);
     nerrors += test_open_map(file_id, MAP_SIMPLE_TCONV1_NAME, TRUE);
@@ -2654,6 +2724,7 @@ main( int argc, char** argv )
     nerrors += test_enum(file_id);
     nerrors += test_compound(file_id);
     nerrors += test_vl(file_id);
+    nerrors += test_vls(file_id);
     nerrors += test_nested_compound(file_id);
     nerrors += test_simple_tconv(file_id);
     //nerrors += test_vl_tconv(file_id);

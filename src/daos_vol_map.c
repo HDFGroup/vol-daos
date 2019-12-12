@@ -815,7 +815,22 @@ H5_daos_map_key_conv(hid_t src_type_id, hid_t dst_type_id, const void *key,
                 /* Set return values to point to string (exclude null terminator
                  * since it's not needed */
                 *key_buf = (const void *)*((const char * const *)key);
-                *key_size = strlen(*(const char * const *)key);
+                if(*key_buf) {
+                    *key_size = strlen(*(const char * const *)key);
+
+                    /* If the key is '\0' (null string), write the null
+                     * terminator (to distinguish from NULL pointer) */
+                    if(*key_size == 0)
+                        *key_size = 1;
+                } /* end if */
+                else {
+                    /* If NULL was passed as the key, set the key to be the
+                     * magic value of {'\0', '\0'} */
+                    if(NULL == (*key_buf_alloc = DV_calloc(2)))
+                        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate space for NULL key")
+                    *key_buf = (const void *)key_buf_alloc;
+                    *key_size = 2;
+                } /* end else */
             } /* end if */
             else {
                 /* Initialize type conversion */
@@ -980,10 +995,10 @@ H5_daos_map_key_conv_reverse(hid_t src_type_id, hid_t dst_type_id,
                 /* Set return values to point to converted buffer */
                 vl_union->vl.p = tconv_buf;
                 *key_buf = (void *)&(vl_union->vl);
-                //if(tconv_buf != key) {
+                /*if(tconv_buf != key) {*/
                     *key_buf_alloc = tconv_buf;
                     tconv_buf = NULL;
-                //} /* end if */
+                /*}*/ /* end if */
             }
             else {
                 /* Just get parent size and set return values to point to vlen
@@ -1007,11 +1022,17 @@ H5_daos_map_key_conv_reverse(hid_t src_type_id, hid_t dst_type_id,
                 if((is_vl_str = H5Tis_variable_str(src_type_id)) < 0)
                     D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't check for variable length string")
             if(is_vl_str) {
-                /* Assign pointer and make sure it's NULL terminated */
-                vl_union->vls = (char *)key;
-                assert(vl_union->vls[key_size] == '\0');
+                /* Check for magic value indicating key was passed as a NULL
+                 * pointer */
+                if(((char *)key)[0] == '\0' && key_size == 2)
+                    vl_union->vls = NULL;
+                else {
+                    /* Assign pointer and make sure it's NULL terminated */
+                    vl_union->vls = (char *)key;
+                    assert(vl_union->vls[key_size] == '\0');
+                } /* end if */
 
-                /* Set return values to point to string  */
+                /* Set return value to point to string  */
                 *key_buf = (void *)&(vl_union->vls);
             } /* end if */
             else {
@@ -1042,10 +1063,10 @@ H5_daos_map_key_conv_reverse(hid_t src_type_id, hid_t dst_type_id,
 
                 /* Set return values to point to converted buffer */
                 *key_buf = tconv_buf;
-                //if(tconv_buf != key) {
+                /*if(tconv_buf != key) {*/
                     *key_buf_alloc = tconv_buf;
                     tconv_buf = NULL;
-                //} /* end if */
+                /*}*/ /* end if */
             } /* end else */
         } /* end else */
     } /* end if */

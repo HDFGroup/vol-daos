@@ -117,7 +117,7 @@ H5_daos_object_open(void *_item, const H5VL_loc_params_t *loc_params,
     /* Set up sub_loc_params */
     sub_loc_params.obj_type = item->type;
     sub_loc_params.type = H5VL_OBJECT_BY_TOKEN;
-    sub_loc_params.loc_data.loc_by_token.token = obj_token;
+    sub_loc_params.loc_data.loc_by_token.token = &obj_token;
 
     /* Call type's open function */
     if(obj_type == H5I_GROUP) {
@@ -258,7 +258,7 @@ H5_daos_object_open_by_name(H5_daos_obj_t *loc_obj, const H5VL_loc_params_t *loc
         else {
             /* Traverse the path */
             if(NULL == (target_grp = H5_daos_group_traverse((H5_daos_item_t *)loc_obj, loc_params->loc_data.loc_by_name.name,
-                    dxpl_id, req, &target_name, NULL, NULL)))
+                    H5P_LINK_CREATE_DEFAULT, dxpl_id, req, &target_name, NULL, NULL)))
                 D_GOTO_ERROR(H5E_OHDR, H5E_TRAVERSE, FAIL, "can't traverse path")
 
             /* Check for no target_name, in this case just reopen target_grp */
@@ -737,7 +737,7 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
 
             /* Open group containing the link in question */
             if(NULL == (target_grp = (H5_daos_group_t *)H5_daos_group_traverse(item, loc_params->loc_data.loc_by_name.name,
-                    dxpl_id, req, &obj_name, NULL, NULL)))
+                    H5P_LINK_CREATE_DEFAULT, dxpl_id, req, &obj_name, NULL, NULL)))
                 D_GOTO_ERROR(H5E_SYM, H5E_CANTOPENOBJ, FAIL, "can't open group")
 
             /* Check if the link resolves */
@@ -749,7 +749,7 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
 
         case H5VL_OBJECT_LOOKUP:
         {
-            void *token = va_arg(arguments, void *);
+            H5VL_token_t *token = va_arg(arguments, H5VL_token_t *);
 
             if(H5VL_OBJECT_BY_NAME != loc_params->type)
                 D_GOTO_ERROR(H5E_OHDR, H5E_BADVALUE, FAIL, "invalid loc_params type")

@@ -47,8 +47,8 @@ static herr_t  H5_daos_map_delete_key(H5_daos_map_t *map, hid_t key_mem_type_id,
 void *
 H5_daos_map_create(void *_item,
     const H5VL_loc_params_t H5VL_DAOS_UNUSED *loc_params, const char *name,
-    hid_t H5VL_DAOS_UNUSED lcpl_id, hid_t ktype_id, hid_t vtype_id,
-    hid_t mcpl_id, hid_t mapl_id, hid_t dxpl_id, void H5VL_DAOS_UNUSED **req)
+    hid_t lcpl_id, hid_t ktype_id, hid_t vtype_id, hid_t mcpl_id, hid_t mapl_id,
+    hid_t dxpl_id, void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_map_t *map = NULL;
@@ -156,9 +156,15 @@ H5_daos_map_create(void *_item,
         int_req->th_open = TRUE;
 
         /* Traverse the path */
-        if(name)
-            if(NULL == (target_grp = H5_daos_group_traverse(item, name, dxpl_id, NULL, &target_name, NULL, NULL)))
+        if(name) {
+            if(NULL == (target_grp = H5_daos_group_traverse(item, name, lcpl_id, dxpl_id,
+                    NULL, &target_name, NULL, NULL)))
                 D_GOTO_ERROR(H5E_MAP, H5E_BADITER, NULL, "can't traverse path")
+
+            /* Reject invalid object names during object creation */
+            if(!strncmp(target_name, ".", 2))
+                D_GOTO_ERROR(H5E_MAP, H5E_BADVALUE, NULL, "invalid map name - '.'")
+        } /* end if */
 
         /* Create map */
         /* Allocate argument struct */
@@ -460,7 +466,8 @@ H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
                 D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "map name is NULL")
 
             /* Traverse the path */
-            if(NULL == (target_grp = H5_daos_group_traverse(item, name, dxpl_id, req, &target_name, NULL, NULL)))
+            if(NULL == (target_grp = H5_daos_group_traverse(item, name, H5P_LINK_CREATE_DEFAULT, dxpl_id,
+                    req, &target_name, NULL, NULL)))
                 D_GOTO_ERROR(H5E_MAP, H5E_BADITER, NULL, "can't traverse path")
 
             /* Follow link to map */

@@ -41,7 +41,7 @@ do {                                                                     \
 } while(0)
 
 /* Prototypes */
-static herr_t H5_daos_link_read(H5_daos_group_t *grp, const char *name,
+static htri_t H5_daos_link_read(H5_daos_group_t *grp, const char *name,
     size_t name_len, H5_daos_link_val_t *val);
 static herr_t H5_daos_link_get_info(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
     H5L_info_t *link_info_out, H5_daos_link_val_t *link_val_out, hid_t dxpl_id, void **req);
@@ -93,7 +93,8 @@ typedef struct H5_daos_link_crt_idx_iter_ud_t {
  *              if the returned link is a soft link, val->target.soft must
  *              eventually be freed.
  *
- * Return:      Success:        SUCCEED 
+ * Return:      Success:        TRUE if the link could be read
+ *                              or FALSE if the link did not exist
  *              Failure:        FAIL
  *
  * Programmer:  Neil Fortner
@@ -101,7 +102,7 @@ typedef struct H5_daos_link_crt_idx_iter_ud_t {
  *
  *-------------------------------------------------------------------------
  */
-static herr_t
+static htri_t
 H5_daos_link_read(H5_daos_group_t *grp, const char *name, size_t name_len,
     H5_daos_link_val_t *val)
 {
@@ -114,7 +115,7 @@ H5_daos_link_read(H5_daos_group_t *grp, const char *name, size_t name_len,
     uint8_t *val_buf_dyn = NULL;
     uint8_t *p;
     int ret;
-    herr_t ret_value = SUCCEED;
+    htri_t ret_value = TRUE;
 
     assert(grp);
     assert(name);
@@ -145,7 +146,7 @@ H5_daos_link_read(H5_daos_group_t *grp, const char *name, size_t name_len,
 
     /* Check for no link found */
     if(iod.iod_size == (uint64_t)0)
-        D_GOTO_ERROR(H5E_SYM, H5E_NOTFOUND, FAIL, "link not found")
+        D_GOTO_DONE(FALSE);
 
     /* Check if val_buf was large enough */
     if(iod.iod_size > (uint64_t)H5_DAOS_LINK_VAL_BUF_SIZE) {
@@ -503,7 +504,7 @@ done:
  */
 herr_t
 H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
-    const H5VL_loc_params_t *loc_params, hid_t H5VL_DAOS_UNUSED lcpl_id,
+    const H5VL_loc_params_t *loc_params, hid_t lcpl_id,
     hid_t H5VL_DAOS_UNUSED lapl_id, hid_t dxpl_id, void **req, va_list arguments)
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
@@ -603,8 +604,13 @@ H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
     int_req->failed_task = NULL;
 
     /* Find target group */
-    if(NULL == (link_grp = H5_daos_group_traverse(item, loc_params->loc_data.loc_by_name.name, dxpl_id, req, &link_name, NULL, NULL)))
+    if(NULL == (link_grp = H5_daos_group_traverse(item, loc_params->loc_data.loc_by_name.name,
+            lcpl_id, dxpl_id, req, &link_name, NULL, NULL)))
         D_GOTO_ERROR(H5E_SYM, H5E_BADITER, FAIL, "can't traverse path")
+
+    /* Reject invalid link names during link creation */
+    if(!strncmp(link_name, ".", 2))
+        D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, FAIL, "invalid link name - '.'")
 
     /* Create link */
     if(H5_daos_link_write(link_grp, link_name, strlen(link_name), &link_val, int_req, &link_write_task) < 0)
@@ -665,7 +671,7 @@ done:
  */
 herr_t
 H5_daos_link_copy(void *src_obj, const H5VL_loc_params_t *loc_params1,
-    void *dst_obj, const H5VL_loc_params_t *loc_params2, hid_t H5VL_DAOS_UNUSED lcpl,
+    void *dst_obj, const H5VL_loc_params_t *loc_params2, hid_t lcpl,
     hid_t H5VL_DAOS_UNUSED lapl, hid_t dxpl_id, void **req)
 {
     H5_daos_link_val_t link_val = {0};
@@ -679,6 +685,7 @@ H5_daos_link_copy(void *src_obj, const H5VL_loc_params_t *loc_params1,
     int finalize_ndeps = 0;
     tse_task_t *finalize_deps[2];
     H5_daos_req_t *int_req = NULL;
+    htri_t link_read;
     int ret;
     herr_t ret_value = SUCCEED;
 
@@ -695,17 +702,24 @@ H5_daos_link_copy(void *src_obj, const H5VL_loc_params_t *loc_params1,
 
     /* Determine the group containing the link to be copied + the source link's name */
     if(NULL == (src_grp = H5_daos_group_traverse(src_obj ? src_obj : dst_obj, /* Accounting for H5L_SAME_LOC usage */
-            loc_params1->loc_data.loc_by_name.name, dxpl_id, req, &src_link_name, NULL, NULL)))
+            loc_params1->loc_data.loc_by_name.name, H5P_LINK_CREATE_DEFAULT, dxpl_id,
+            req, &src_link_name, NULL, NULL)))
         D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't get source group and source link name")
 
     /* Determine the target group for the new link + the new link's name */
     if(NULL == (target_grp = H5_daos_group_traverse(dst_obj ? dst_obj : src_obj, /* Accounting for H5L_SAME_LOC usage */
-            loc_params2->loc_data.loc_by_name.name, dxpl_id, req, &new_link_name, NULL, NULL)))
+            loc_params2->loc_data.loc_by_name.name, lcpl, dxpl_id, req, &new_link_name, NULL, NULL)))
         D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't get destination group and destination link name")
 
+    /* Reject invalid link names during link creation */
+    if(!strncmp(new_link_name, ".", 2))
+        D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, FAIL, "invalid destination link name - '.'")
+
     /* Retrieve the source link's value */
-    if(H5_daos_link_read(src_grp, src_link_name, strlen(src_link_name), &link_val) < 0)
+    if((link_read = H5_daos_link_read(src_grp, src_link_name, strlen(src_link_name), &link_val)) < 0)
         D_GOTO_ERROR(H5E_LINK, H5E_READERROR, FAIL, "can't read source link")
+    if(!link_read)
+        D_GOTO_ERROR(H5E_LINK, H5E_READERROR, FAIL, "source link didn't exist")
 
     /* Start H5 operation */
     if(NULL == (int_req = (H5_daos_req_t *)DV_malloc(sizeof(H5_daos_req_t))))
@@ -782,7 +796,7 @@ done:
  */
 herr_t
 H5_daos_link_move(void *src_obj, const H5VL_loc_params_t *loc_params1,
-    void *dst_obj, const H5VL_loc_params_t *loc_params2, hid_t H5VL_DAOS_UNUSED lcpl,
+    void *dst_obj, const H5VL_loc_params_t *loc_params2, hid_t lcpl,
     hid_t H5VL_DAOS_UNUSED lapl, hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_link_val_t link_val = {0};
@@ -796,6 +810,7 @@ H5_daos_link_move(void *src_obj, const H5VL_loc_params_t *loc_params1,
     int finalize_ndeps = 0;
     tse_task_t *finalize_deps[2];
     H5_daos_req_t *int_req = NULL;
+    htri_t link_read;
     int ret;
     herr_t ret_value = SUCCEED;
 
@@ -812,17 +827,24 @@ H5_daos_link_move(void *src_obj, const H5VL_loc_params_t *loc_params1,
 
     /* Determine the group containing the link to be copied + the source link's name */
     if(NULL == (src_grp = H5_daos_group_traverse(src_obj ? src_obj : dst_obj, /* Accounting for H5L_SAME_LOC usage */
-            loc_params1->loc_data.loc_by_name.name, dxpl_id, req, &src_link_name, NULL, NULL)))
+            loc_params1->loc_data.loc_by_name.name, H5P_LINK_CREATE_DEFAULT, dxpl_id,
+            req, &src_link_name, NULL, NULL)))
         D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't get source group and source link name")
 
     /* Determine the target group for the new link + the new link's name */
     if(NULL == (target_grp = H5_daos_group_traverse(dst_obj ? dst_obj : src_obj, /* Accounting for H5L_SAME_LOC usage */
-            loc_params2->loc_data.loc_by_name.name, dxpl_id, req, &new_link_name, NULL, NULL)))
+            loc_params2->loc_data.loc_by_name.name, lcpl, dxpl_id, req, &new_link_name, NULL, NULL)))
         D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't get destination group and destination link name")
 
+    /* Reject invalid link names during link creation */
+    if(!strncmp(new_link_name, ".", 2))
+        D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, FAIL, "invalid destination link name - '.'")
+
     /* Retrieve the source link's value */
-    if(H5_daos_link_read(src_grp, src_link_name, strlen(src_link_name), &link_val) < 0)
+    if((link_read = H5_daos_link_read(src_grp, src_link_name, strlen(src_link_name), &link_val)) < 0)
         D_GOTO_ERROR(H5E_LINK, H5E_READERROR, FAIL, "can't read source link")
+    if(!link_read)
+        D_GOTO_ERROR(H5E_LINK, H5E_READERROR, FAIL, "source link didn't exist")
 
     /* Start H5 operation */
     if(NULL == (int_req = (H5_daos_req_t *)DV_malloc(sizeof(H5_daos_req_t))))
@@ -1160,9 +1182,9 @@ done:
  * Purpose:     Follows the link in grp identified with name, and returns
  *              in oid the oid of the target object.
  *
- * Return:      Success:        TRUE (for hard links and soft/external
- *                              links which resolve) or FALSE (for soft
- *                              links which do not resolve)
+ * Return:      Success:        TRUE (for links which resolve)
+ *                              or FALSE (for links which do not
+ *                              resolve/do not exist)
  *              Failure:        FAIL
  *
  * Programmer:  Neil Fortner
@@ -1177,6 +1199,7 @@ H5_daos_link_follow(H5_daos_group_t *grp, const char *name,
     H5_daos_link_val_t link_val;
     hbool_t link_val_alloc = FALSE;
     H5_daos_group_t *target_grp = NULL;
+    htri_t link_read;
     htri_t ret_value = TRUE;
 
     assert(grp);
@@ -1184,8 +1207,10 @@ H5_daos_link_follow(H5_daos_group_t *grp, const char *name,
     assert(oid);
 
     /* Read link to group */
-    if(H5_daos_link_read(grp, name, name_len, &link_val) < 0)
+    if((link_read = H5_daos_link_read(grp, name, name_len, &link_val)) < 0)
         D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't read link")
+    if(!link_read)
+        D_GOTO_DONE(FALSE);
 
     switch(link_val.type) {
        case H5L_TYPE_HARD:
@@ -1201,7 +1226,8 @@ H5_daos_link_follow(H5_daos_group_t *grp, const char *name,
                 link_val_alloc = TRUE;
 
                 /* Traverse the soft link path */
-                if(NULL == (target_grp = H5_daos_group_traverse(&grp->obj.item, link_val.target.soft, dxpl_id, req, &target_name, NULL, NULL)))
+                if(NULL == (target_grp = H5_daos_group_traverse(&grp->obj.item, link_val.target.soft,
+                        H5P_LINK_CREATE_DEFAULT, dxpl_id, req, &target_name, NULL, NULL)))
                     D_GOTO_ERROR(H5E_SYM, H5E_BADITER, FAIL, "can't traverse path")
 
                 /* Check for no target_name, in this case just return
@@ -1213,12 +1239,10 @@ H5_daos_link_follow(H5_daos_group_t *grp, const char *name,
                     htri_t link_resolves;
 
                     /* Attempt to follow the last element in the path */
-                    H5E_BEGIN_TRY {
-                        link_resolves = H5_daos_link_follow(target_grp, target_name, strlen(target_name), dxpl_id, req, oid);
-                    } H5E_END_TRY;
-
+                    if((link_resolves = H5_daos_link_follow(target_grp, target_name, strlen(target_name), dxpl_id, req, oid)) < 0)
+                        D_GOTO_ERROR(H5E_LINK, H5E_TRAVERSE, FAIL, "can't follow link")
                     /* Check if the soft link resolved to something */
-                    if(link_resolves < 0)
+                    if(!link_resolves)
                         D_GOTO_DONE(FALSE)
                 } /* end else */
 
@@ -1277,6 +1301,7 @@ H5_daos_link_get_info(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
     char *link_name_buf_dyn = NULL;
     char link_name_buf_static[H5_DAOS_LINK_NAME_BUF_SIZE];
     uint64_t link_crt_order;
+    htri_t link_read;
     herr_t ret_value = SUCCEED;
 
     assert(item);
@@ -1290,7 +1315,7 @@ H5_daos_link_get_info(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
         {
             /* Traverse the path */
             if(NULL == (target_grp = H5_daos_group_traverse(item, loc_params->loc_data.loc_by_name.name,
-                    dxpl_id, req, &target_name, NULL, NULL)))
+                    H5P_LINK_CREATE_DEFAULT, dxpl_id, req, &target_name, NULL, NULL)))
                 D_GOTO_ERROR(H5E_SYM, H5E_TRAVERSE, FAIL, "failed to traverse path")
 
             break;
@@ -1339,8 +1364,10 @@ H5_daos_link_get_info(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
             D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, FAIL, "invalid loc_params type")
     } /* end switch */
 
-    if(H5_daos_link_read(target_grp, target_name, strlen(target_name), &local_link_val) < 0)
+    if((link_read = H5_daos_link_read(target_grp, target_name, strlen(target_name), &local_link_val)) < 0)
         D_GOTO_ERROR(H5E_LINK, H5E_READERROR, FAIL, "failed to read link")
+    if(!link_read)
+        D_GOTO_ERROR(H5E_LINK, H5E_READERROR, FAIL, "link didn't exist")
 
     /*
      * Fill in link type and link object address (hard link) or
@@ -1408,6 +1435,7 @@ H5_daos_link_get_val(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
     const char *target_link_name;
     char *link_name_buf_dyn = NULL;
     char link_name_buf_static[H5_DAOS_LINK_NAME_BUF_SIZE];
+    htri_t link_read;
     herr_t ret_value = SUCCEED;
 
     assert(item);
@@ -1422,7 +1450,7 @@ H5_daos_link_get_val(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
         {
             /* Traverse the path */
             if(NULL == (target_grp = H5_daos_group_traverse(item, loc_params->loc_data.loc_by_name.name,
-                    dxpl_id, req, &target_link_name, NULL, NULL)))
+                    H5P_LINK_CREATE_DEFAULT, dxpl_id, req, &target_link_name, NULL, NULL)))
                 D_GOTO_ERROR(H5E_SYM, H5E_TRAVERSE, FAIL, "failed to traverse path")
 
             break;
@@ -1472,8 +1500,10 @@ H5_daos_link_get_val(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
     } /* end switch */
 
     /* Read the link's value */
-    if(H5_daos_link_read(target_grp, target_link_name, strlen(target_link_name), link_val_out) < 0)
+    if((link_read = H5_daos_link_read(target_grp, target_link_name, strlen(target_link_name), link_val_out)) < 0)
         D_GOTO_ERROR(H5E_LINK, H5E_READERROR, FAIL, "failed to read link")
+    if(!link_read)
+        D_GOTO_ERROR(H5E_LINK, H5E_READERROR, FAIL, "link didn't exist")
 
     if(H5L_TYPE_HARD == link_val_out->type)
         D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, FAIL, "link value cannot be retrieved from a hard link")
@@ -1515,7 +1545,8 @@ H5_daos_link_exists(H5_daos_item_t *item, const char *link_path, hid_t dxpl_id, 
     assert(link_path);
 
     /* Traverse the path */
-    if(NULL == (target_grp = H5_daos_group_traverse(item, link_path, dxpl_id, req, &target_name, NULL, NULL)))
+    if(NULL == (target_grp = H5_daos_group_traverse(item, link_path, H5P_LINK_CREATE_DEFAULT, dxpl_id,
+            req, &target_name, NULL, NULL)))
         D_GOTO_ERROR(H5E_SYM, H5E_TRAVERSE, FAIL, "can't traverse path")
 
     /* Set up dkey */
@@ -1980,12 +2011,15 @@ H5_daos_link_iterate_by_crt_order(H5_daos_group_t *target_grp, H5_daos_iter_data
         /* Process the link */
         if(link_exists) {
             uint64_t link_crt_order;
+            htri_t link_read;
             char *link_path = link_name;
             char *cur_link_path_end = NULL;
 
             /* Read the link */
-            if(H5_daos_link_read(target_grp, link_name, strlen(link_name), &link_val) < 0)
+            if((link_read = H5_daos_link_read(target_grp, link_name, strlen(link_name), &link_val)) < 0)
                 D_GOTO_ERROR(H5E_LINK, H5E_READERROR, FAIL, "can't read link")
+            if(!link_read)
+                D_GOTO_ERROR(H5E_LINK, H5E_READERROR, FAIL, "link didn't exist")
 
             /* Update linfo, then free soft link value if necessary */
             H5_DAOS_LINK_VAL_TO_INFO(link_val, linfo);
@@ -2201,7 +2235,7 @@ H5_daos_link_delete(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params, h
 
     /* Traverse the path */
     if(NULL == (target_grp = H5_daos_group_traverse(item, grp_path,
-            dxpl_id, req, &target_link_name, NULL, NULL)))
+            H5P_LINK_CREATE_DEFAULT, dxpl_id, req, &target_link_name, NULL, NULL)))
         D_GOTO_ERROR(H5E_SYM, H5E_TRAVERSE, FAIL, "can't traverse path")
 
     if(H5VL_OBJECT_BY_IDX == loc_params->type) {

@@ -828,7 +828,7 @@ H5_daos_map_key_conv(hid_t src_type_id, hid_t dst_type_id, const void *key,
                      * magic value of {'\0', '\0'} */
                     if(NULL == (*key_buf_alloc = DV_calloc(2)))
                         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate space for NULL key")
-                    *key_buf = (const void *)key_buf_alloc;
+                    *key_buf = (const void *)*key_buf_alloc;
                     *key_size = 2;
                 } /* end else */
             } /* end if */

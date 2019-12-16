@@ -165,6 +165,9 @@ hid_t vl_int_dtype_id = -1;
 hid_t vl_long_long_dtype_id = -1;
 hid_t vl_double_dtype_id = -1;
 
+/* Dataspace to pass to H5Treclaim() */
+hid_t scalar_space_id = -1;
+
 /*
  * Tests creating and closing a map object
  */
@@ -415,6 +418,12 @@ test_map_get(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t value_d
                 printf("incorrect value returned\n");
                 goto error;
             }
+
+            if(H5Treclaim(value_dtype, scalar_space_id, H5P_DEFAULT, &vl_vals_out[i]) < 0) {
+                H5_FAILED(); AT();
+                printf("failed to reclaim space\n");
+                goto error;
+            }
         } /* end for */
     } else if(!strcmp(map_name, MAP_VLS_VLS_NAME)) {
         for(i = 0; i < NUMB_KEYS; i++) {
@@ -427,6 +436,12 @@ test_map_get(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t value_d
             if(STRCMP_NULL(vls_vls_vals[i], vls_vals_out[i])) {
                 H5_FAILED(); AT();
                 printf("incorrect value returned\n");
+                goto error;
+            }
+
+            if(H5Treclaim(value_dtype, scalar_space_id, H5P_DEFAULT, &vls_vals_out[i]) < 0) {
+                H5_FAILED(); AT();
+                printf("failed to reclaim space\n");
                 goto error;
             }
         } /* end for */
@@ -459,6 +474,12 @@ test_map_get(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t value_d
                 printf("incorrect value returned - index is %d\n", i);
                 goto error;
             } /* end if */
+
+            if(H5Treclaim(value_dtype, scalar_space_id, H5P_DEFAULT, &nested_comp_out[i]) < 0) {
+                H5_FAILED(); AT();
+                printf("failed to reclaim space\n");
+                goto error;
+            }
         }
     } else if(!strcmp(map_name, MAP_SIMPLE_TCONV1_NAME)) {
         long long tmp_ll;
@@ -534,6 +555,12 @@ test_map_get(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t value_d
                 goto error;
             } /* end if */
 
+            if(H5Treclaim(vl_int_dtype_id, scalar_space_id, H5P_DEFAULT, &vl_int_vals_out[i]) < 0) {
+                H5_FAILED(); AT();
+                printf("failed to reclaim space\n");
+                goto error;
+            }
+
             if(H5Mget(map_id, vl_long_long_dtype_id, &vl_long_long_keys[i], vl_double_dtype_id, &vl_double_vals_out[i], H5P_DEFAULT) < 0) {
                 H5_FAILED(); AT();
                 printf("failed to get key-value pair\n");
@@ -546,6 +573,12 @@ test_map_get(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t value_d
                 printf("incorrect value returned - index is %d\n", i);
                 goto error;
             } /* end if */
+
+            if(H5Treclaim(vl_double_dtype_id, scalar_space_id, H5P_DEFAULT, &vl_double_vals_out[i]) < 0) {
+                H5_FAILED(); AT();
+                printf("failed to reclaim space\n");
+                goto error;
+            }
         }
     } else if(!strcmp(map_name, MAP_VL_TCONV2_NAME)) {
         int vl_cmp;
@@ -556,6 +589,12 @@ test_map_get(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t value_d
                 printf("failed to get key-value pair\n");
                 goto error;
             } /* end if */
+
+            if(H5Treclaim(vl_double_dtype_id, scalar_space_id, H5P_DEFAULT, &vl_double_vals_out[i]) < 0) {
+                H5_FAILED(); AT();
+                printf("failed to reclaim space\n");
+                goto error;
+            }
 
             VL_FLOAT_CMP(vl_double_vals_out[i], vl_double_vals[i], double, double, vl_cmp)
             if(vl_cmp) {
@@ -576,6 +615,12 @@ test_map_get(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t value_d
                 printf("incorrect value returned - index is %d\n", i);
                 goto error;
             } /* end if */
+
+            if(H5Treclaim(vl_int_dtype_id, scalar_space_id, H5P_DEFAULT, &vl_int_vals_out[i]) < 0) {
+                H5_FAILED(); AT();
+                printf("failed to reclaim space\n");
+                goto error;
+            }
         }
     } else if(!strcmp(map_name, MAP_MANY_ENTRIES_NAME)) {
         for(i = 0; i < LARGE_NUMB_KEYS; i++) {
@@ -806,6 +851,14 @@ test_map_nonexistent_key(hid_t file_id, const char *map_name, hid_t key_dtype, h
             printf("wrong value of key-value pair\n");
             goto error;
         } /* end if */
+
+        if(H5Treclaim(value_dtype, scalar_space_id, H5P_DEFAULT, &out_value) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to reclaim space\n");
+            goto error;
+        }
+
+        free(non_existent_key.p);
     } else if(!strcmp(map_name, MAP_VLS_VLS_NAME)) {
         char   *non_existent_key = "deadbeef", *non_existent_value = "foobar", *out_value;
 
@@ -856,6 +909,12 @@ test_map_nonexistent_key(hid_t file_id, const char *map_name, hid_t key_dtype, h
             printf("wrong value of key-value pair\n");
             goto error;
         } /* end if */
+
+        if(H5Treclaim(value_dtype, scalar_space_id, H5P_DEFAULT, &out_value) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to reclaim space\n");
+            goto error;
+        }
     } else if(!strcmp(map_name, MAP_COMP_COMP_NAME)) {
         compound_t   non_existent_key, non_existent_value, out_value;
 
@@ -980,6 +1039,12 @@ test_map_nonexistent_key(hid_t file_id, const char *map_name, hid_t key_dtype, h
             printf("wrong value of key-value pair\n");
             goto error;
         } /* end if */
+
+        if(H5Treclaim(value_dtype, scalar_space_id, H5P_DEFAULT, &out_value) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to reclaim space\n");
+            goto error;
+        }
     } else if(!strcmp(map_name, MAP_SIMPLE_TCONV1_NAME)) {
         int non_existent_key, non_existent_value, out_value;
 
@@ -1173,6 +1238,12 @@ test_map_nonexistent_key(hid_t file_id, const char *map_name, hid_t key_dtype, h
             printf("wrong value of key-value pair\n");
             goto error;
         } /* end if */
+
+        if(H5Treclaim(value_dtype, scalar_space_id, H5P_DEFAULT, &out_value) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to reclaim space\n");
+            goto error;
+        }
     } else if(!strcmp(map_name, MAP_VL_TCONV2_NAME)) {
         hvl_t non_existent_key, non_existent_value, out_value;
         long long nonexist_key_buf[10];
@@ -1245,6 +1316,12 @@ test_map_nonexistent_key(hid_t file_id, const char *map_name, hid_t key_dtype, h
             printf("wrong value of key-value pair\n");
             goto error;
         } /* end if */
+
+        if(H5Treclaim(value_dtype, scalar_space_id, H5P_DEFAULT, &out_value) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to reclaim space\n");
+            goto error;
+        }
     } else {
         H5_FAILED(); AT();
         printf("unknwon map type\n");
@@ -1366,6 +1443,12 @@ test_map_update(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t valu
                 printf("incorrect value returned\n");
                 goto error;
             }
+
+            if(H5Treclaim(value_dtype, scalar_space_id, H5P_DEFAULT, &vl_vals_out[i]) < 0) {
+                H5_FAILED(); AT();
+                printf("failed to reclaim space\n");
+                goto error;
+            }
         }
     } else if(!strcmp(map_name, MAP_VLS_VLS_NAME)) {
         char *updated_values[NUMB_KEYS] = {"", NULL, "cat", "parasaurolophus"};
@@ -1386,6 +1469,12 @@ test_map_update(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t valu
             if(STRCMP_NULL(updated_values[i], vls_vals_out[i])) {
                 H5_FAILED(); AT();
                 printf("incorrect value returned\n");
+                goto error;
+            }
+
+            if(H5Treclaim(value_dtype, scalar_space_id, H5P_DEFAULT, &vls_vals_out[i]) < 0) {
+                H5_FAILED(); AT();
+                printf("failed to reclaim space\n");
                 goto error;
             }
         }
@@ -1448,6 +1537,12 @@ test_map_update(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t valu
                 printf("incorrect value returned\n");
                 goto error;
             } /* end if */
+
+            if(H5Treclaim(value_dtype, scalar_space_id, H5P_DEFAULT, &nested_comp_out[i]) < 0) {
+                H5_FAILED(); AT();
+                printf("failed to reclaim space\n");
+                goto error;
+            }
         }
     } else if(!strcmp(map_name, MAP_SIMPLE_TCONV1_NAME)) {
         int updated_values[NUMB_KEYS];
@@ -1526,6 +1621,12 @@ test_map_update(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t valu
                 printf("incorrect value returned\n");
                 goto error;
             } /* end if */
+
+            if(H5Treclaim(value_dtype, scalar_space_id, H5P_DEFAULT, &vl_int_vals_out[i]) < 0) {
+                H5_FAILED(); AT();
+                printf("failed to reclaim space\n");
+                goto error;
+            }
         }
     } else if(!strcmp(map_name, MAP_VL_TCONV2_NAME)) {
         hvl_t updated_value;
@@ -1558,6 +1659,12 @@ test_map_update(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t valu
                 printf("incorrect value returned\n");
                 goto error;
             } /* end if */
+
+            if(H5Treclaim(value_dtype, scalar_space_id, H5P_DEFAULT, &vl_double_vals_out[i]) < 0) {
+                H5_FAILED(); AT();
+                printf("failed to reclaim space\n");
+                goto error;
+            }
         }
     } else {
         H5_FAILED(); AT();
@@ -3064,6 +3171,12 @@ test_vl(hid_t file_id)
     if(H5Tclose(key_dtype_id) < 0) goto error;
     if(H5Tclose(value_dtype_id) < 0) goto error;
 
+    /* Free VL data */
+    for(i=0; i<NUMB_KEYS; i++) {
+        free(vl_vl_keys[i].p);
+        free(vl_vl_vals[i].p);
+    } /* end for */
+
     return nerrors;
 
 error:
@@ -3200,6 +3313,10 @@ test_nested_compound(hid_t file_id)
 
     if(H5Tclose(dtype_id) < 0) goto error;
 
+    /* Free VL data */
+    for(i=0; i<NUMB_KEYS; i++)
+        free(nested_comp_vals[i].c.p);
+
     return nerrors;
 
 error:
@@ -3313,6 +3430,14 @@ test_vl_tconv(hid_t file_id)
     if(H5Tclose(vl_int_dtype_id) < 0) goto error;
     if(H5Tclose(vl_long_long_dtype_id) < 0) goto error;
     if(H5Tclose(vl_double_dtype_id) < 0) goto error;
+
+    /* Free VL data */
+    for(i=0; i<NUMB_KEYS; i++) {
+        free(vl_int_keys[i].p);
+        free(vl_long_long_keys[i].p);
+        free(vl_int_vals[i].p);
+        free(vl_double_vals[i].p);
+    } /* end for */
 
     return nerrors;
 
@@ -3478,6 +3603,11 @@ main( int argc, char** argv )
         goto error;
     }
 
+    if((scalar_space_id = H5Screate(H5S_SCALAR)) < 0) {
+        nerrors++;
+        goto error;
+    }
+
     nerrors += test_integer(file_id);
     nerrors += test_enum(file_id);
     nerrors += test_compound(file_id);
@@ -3496,6 +3626,11 @@ main( int argc, char** argv )
     }
 
     if(H5Fclose(file_id) < 0) {
+        nerrors++;
+        goto error;
+    }
+
+    if(H5Sclose(scalar_space_id) < 0) {
         nerrors++;
         goto error;
     }

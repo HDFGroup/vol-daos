@@ -74,12 +74,14 @@ The following sections serve to illustrate the \dvc{}'s support for features in 
 & & Contiguous & Yes & Default storage type. \\ \cline{3-5}
 & & Chunked & Yes & \\ \cline{3-5}
 & & VDS & No & The VDS feature is not currently planned to be supported.\\ \cline{2-5}
-& \multirow[c]{4}{\linewidth}[-45pt]{Other Properties (creation)} & Attribute Creation Order & Yes & In order to work correctly, the attribute creation order feature requires that the dataset is touched collectively or that the application otherwise ensures no concurrent access to the dataset. This restriction may be removed in the future. \\ \cline{3-5}
+& \multirow[c]{4}{\linewidth}[-45pt]{Other Properties (creation)} & Attribute Creation Order & Yes & In order to work correctly, the attribute creation order feature requires that the dataset is touched collectively or that the application otherwise ensures no concurrent access to the dataset\footnotemark[1]. \\ \cline{3-5}
 & & Fill Value & Yes & \\ \cline{3-5}
 & & Filters & No & HDF5 does not expose any public APIs for working with the filter pipeline; however, this feature may be supported in the future. \\ \cline{3-5}
 & & Storage Allocation Time & N/A & \\ \hline
 
 \end{tabularx}
+
+\footnotetext[1]{This restriction may be removed in the future.}
 
 \newpage
 
@@ -111,7 +113,7 @@ The following sections serve to illustrate the \dvc{}'s support for features in 
 \multicolumn{2}{| l |}{\multirow[c]{2}{*}{File opening flags}} & \multicolumn{1}{l |}{H5F\_ACC\_RDWR} & Yes & \\ \cline{3-4}
 \multicolumn{2}{| l |}{} & \multicolumn{1}{l |}{H5F\_ACC\_RDONLY} & Yes & \\ \hline
 
-\multirow[c]{8}{\linewidth}[-100pt]{Properties} & \multirow[c]{1}{\linewidth}[-70pt]{Creation Properties} & Attribute Creation Order & Yes & In order to work correctly, the attribute creation order feature requires that the dataset is touched collectively or that the application otherwise ensures no concurrent access to the dataset. This restriction may be removed in the future. The rest of the file creation properties are related to the native HDF5-specific file format. \\ \cline{2-5}
+\multirow[c]{8}{\linewidth}[-100pt]{Properties} & \multirow[c]{1}{\linewidth}[-70pt]{Creation Properties} & Attribute Creation Order & Yes & In order to work correctly, the attribute creation order feature requires that the dataset is touched collectively or that the application otherwise ensures no concurrent access to the dataset\footnotemark[1]. The rest of the file creation properties are related to the native HDF5-specific file format. \\ \cline{2-5}
 
 & \multirow[c]{7}{\linewidth}{Access Properties (Drivers)} & SEC2 Driver & N/A & \multirow[c]{4}{\linewidth}{These drivers are applicable to native HDF5 only.} \\ \cline{3-4}
 & & Family Driver & N/A & \\ \cline{3-4}
@@ -122,6 +124,8 @@ The following sections serve to illustrate the \dvc{}'s support for features in 
 & & MPI-I/O & Yes & This property just indicates parallel access to the file; it doesn't use HDF5 MPI I/O driver underneath. \\ \hline
 
 \end{tabularx}
+
+\footnotetext[1]{This restriction may be removed in the future.}
 
 \newpage
 
@@ -153,14 +157,15 @@ The following sections serve to illustrate the \dvc{}'s support for features in 
 % Center just the header row
 \multicolumn{3}{| c |}{\textbf{Feature}} & \multicolumn{1}{c |}{\textbf{Supported?}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
-\multirow[c]{4}{\linewidth}[-120pt]{Properties} & \multirow[c]{3}{\linewidth}[-100pt]{Creation Properties} & Link Creation Order & Yes & In order to work correctly, the link creation order feature requires that the parent group is touched collectively or that the application otherwise ensures no concurrent access to the group. This restriction may be removed in the future. \\ \cline{3-5}
-& & Attribute Creation Order & Yes & In order to work correctly, the attribute creation order feature requires that the dataset is touched collectively or that the application otherwise ensures no concurrent access to the dataset. This restriction may be removed in the future. \\ \cline{3-5}
+\multirow[c]{4}{\linewidth}[-120pt]{Properties} & \multirow[c]{3}{\linewidth}[-100pt]{Creation Properties} & Link Creation Order & Yes & In order to work correctly, the link creation order feature requires that the parent group is touched collectively or that the application otherwise ensures no concurrent access to the group.\footnotemark[2] \\ \cline{3-5}
+& & Attribute Creation Order & Yes & In order to work correctly, the attribute creation order feature requires that the dataset is touched collectively or that the application otherwise ensures no concurrent access to the dataset.\footnotemark[2] \\ \cline{3-5}
 & & Other Properties & N/A & These properties are related to the native HDF5-specific file format. \\ \cline{2-5}
 & \multirow[c]{1}{\linewidth}[-35pt]{Access Properties} & MPI-I/O Collective Metadata Ops & Yes & By default, all metadata operations are collective for writes and independent for reads.\footnotemark[1] \\ \hline
 
 \end{tabularx}
 
 \footnotetext[1]{Independent metadata writes will be supported in the future.}
+\footnotetext[2]{This restriction may be removed in the future.}
 
 \newpage
 
@@ -289,7 +294,7 @@ H5Dget\_storage\_size & \texttt{H5Dget\_storage\_size} is not currently planned 
 
 \end{tabularx}
 
-\footnotetext[1]{Will be supported by end of Q5 2020.}
+\footnotetext[1]{Will be supported in the future.}
 
 \end{center}
 
@@ -533,7 +538,7 @@ H5Orefresh & \texttt{H5Orefresh} delegates to the appropriate \texttt{H5Xrefresh
 
 \end{tabularx}
 
-\footnotetext[1]{Will be supported by end of Q5 2020.}
+\footnotetext[1]{Will be supported in the future.}
 \footnotetext[2]{External links are not currently planned to be supported.}
 
 \newpage

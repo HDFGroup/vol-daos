@@ -762,6 +762,10 @@ H5_daos_map_key_conv(hid_t src_type_id, hid_t dst_type_id, const void *key,
             const hvl_t *vl = (const hvl_t *)key;
             htri_t parent_need_tconv;
 
+            /* Check for empty key - currently unsupported */
+            if(vl->len == 0)
+                D_GOTO_ERROR(H5E_MAP, H5E_UNSUPPORTED, FAIL, "vl key cannot have length of 0")
+
             /* Get parent types */
             if((src_parent_type_id = H5Tget_super(src_type_id)) < 0)
                 D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get source type parent")
@@ -962,8 +966,8 @@ H5_daos_map_key_conv_reverse(hid_t src_type_id, hid_t dst_type_id,
             if((parent_need_tconv = H5_daos_need_tconv(src_parent_type_id, dst_parent_type_id)) < 0)
                 D_GOTO_ERROR(H5E_MAP, H5E_CANTCOMPARE, FAIL, "can't check if type conversion is needed")
             if(parent_need_tconv) {
-                /* Get destination type size */
-                if(0 == (dst_parent_type_size = H5Tget_size(dst_parent_type_id)))
+                /* Get source parent type size */
+                if(0 == (src_parent_type_size = H5Tget_size(src_parent_type_id)))
                     D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't get size of datatype")
 
                 /* Calculate sequence length */

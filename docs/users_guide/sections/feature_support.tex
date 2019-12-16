@@ -91,12 +91,12 @@ The following sections serve to illustrate the \dvc{}'s support for features in 
 
 \multirow[c]{4}{\linewidth}[-55pt]{Properties (cont.)} & \multirow[c]{3}{\linewidth}[-50pt]{Access Properties} & Chunk cache & No & HDF5 does not expose any public APIs for implementing a chunk cache for arbitrary VOL connectors; however, this feature may be supported in the future. \\ \cline{3-5}
 & & VDS views and printf & No & The VDS feature is not currently planned to be supported.\\ \cline{3-5}
-& & MPI-I/O Collective Metadata Ops & Yes & By default, all metadata operations are collective for writes and independent for reads.\footnotemark[2] \\ \cline{2-5}
+& & MPI-I/O Collective Metadata Ops & Yes & By default, all metadata operations are collective for writes and independent for reads.\footnotemark[1] \\ \cline{2-5}
 & \multirow[c]{1}{\linewidth}[-10pt]{Transfer Properties} & MPI-I/O Independent or Collective I/O mode & N/A & \\ \hline
 
 \end{tabularx}
 
-\footnotetext[2]{Independent metadata writes will be supported in the future.}
+\footnotetext[1]{Independent metadata writes will be supported in the future.}
 
 \subsubsection{File Features}
 
@@ -131,7 +131,7 @@ The following sections serve to illustrate the \dvc{}'s support for features in 
 % Center just the header row
 \multicolumn{3}{| c |}{\textbf{Feature}} & \multicolumn{1}{c |}{\textbf{Supported?}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
-\multirow[c]{10}{\linewidth}[-100pt]{Properties (cont.)} & \multirow[c]{8}{\linewidth}[-60pt]{Access Properties (Other)} & MPI-I/O Collective Metadata Ops & Yes & By default, all metadata operations are collective for writes and independent for reads.\footnotemark[2] \\ \cline{3-5}
+\multirow[c]{10}{\linewidth}[-100pt]{Properties (cont.)} & \multirow[c]{8}{\linewidth}[-60pt]{Access Properties (Other)} & MPI-I/O Collective Metadata Ops & Yes & By default, all metadata operations are collective for writes and independent for reads.\footnotemark[1] \\ \cline{3-5}
 
 & & User block & N/A & \\ \cline{3-5}
 & & Chunk Cache & No & HDF5 does not expose any public APIs for implementing a chunk cache for arbitrary VOL connectors; however, this feature may be supported in the future. \\ \cline{3-5}
@@ -143,7 +143,7 @@ The following sections serve to illustrate the \dvc{}'s support for features in 
 
 \end{tabularx}
 
-\footnotetext[2]{Independent metadata writes will be supported in the future.}
+\footnotetext[1]{Independent metadata writes will be supported in the future.}
 
 \subsubsection{Group Features}
 
@@ -156,11 +156,11 @@ The following sections serve to illustrate the \dvc{}'s support for features in 
 \multirow[c]{4}{\linewidth}[-120pt]{Properties} & \multirow[c]{3}{\linewidth}[-100pt]{Creation Properties} & Link Creation Order & Yes & In order to work correctly, the link creation order feature requires that the parent group is touched collectively or that the application otherwise ensures no concurrent access to the group. This restriction may be removed in the future. \\ \cline{3-5}
 & & Attribute Creation Order & Yes & In order to work correctly, the attribute creation order feature requires that the dataset is touched collectively or that the application otherwise ensures no concurrent access to the dataset. This restriction may be removed in the future. \\ \cline{3-5}
 & & Other Properties & N/A & These properties are related to the native HDF5-specific file format. \\ \cline{2-5}
-& \multirow[c]{1}{\linewidth}[-35pt]{Access Properties} & MPI-I/O Collective Metadata Ops & Yes & By default, all metadata operations are collective for writes and independent for reads.\footnotemark[2] \\ \hline
+& \multirow[c]{1}{\linewidth}[-35pt]{Access Properties} & MPI-I/O Collective Metadata Ops & Yes & By default, all metadata operations are collective for writes and independent for reads.\footnotemark[1] \\ \hline
 
 \end{tabularx}
 
-\footnotetext[2]{Independent metadata writes will be supported in the future.}
+\footnotetext[1]{Independent metadata writes will be supported in the future.}
 
 \newpage
 
@@ -237,11 +237,9 @@ H5Aget\_create\_plist & \\ \hline
 % Center just the header row
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
-H5Aget\_storage\_size\footnotemark[1] & \\ \hline
+H5Aget\_storage\_size & \texttt{H5Aget\_storage\_size} is not currently planned to be supported.\\ \hline
 
 \end{tabularx}
-
-\footnotetext[1]{Will be supported by end of Q4 2019.}
 
 \end{center}
 
@@ -278,8 +276,6 @@ H5Drefresh & \\ \hline
 
 \end{tabularx}
 
-\footnotetext[1]{Will be supported by end of Q4 2019.}
-
 \textbf{Currently unsupported API calls}
 \vspace{.2in} \\
 
@@ -289,9 +285,11 @@ H5Drefresh & \\ \hline
 % Center just the header row
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
-H5Dget\_storage\_size\footnotemark[1] & \\ \hline
+H5Dget\_storage\_size & \texttt{H5Dget\_storage\_size} is not currently planned to be supported.\\ \hline
 
 \end{tabularx}
+
+\footnotetext[1]{Will be supported by end of Q5 2020.}
 
 \end{center}
 
@@ -374,14 +372,14 @@ H5Gget\_info(\_by\_name/\_by\_idx) & Of the four fields in the \texttt{H5G\_info
 H5Gget\_linkval & \\ \hline
 H5Gget\_num\_objs & \\ \hline
 H5Gget\_objname\_by\_idx & \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type\\ \hline
-H5Glink(2) & Currently only hard and soft link creation are supported\footnotemark[2]\\ \hline
+H5Glink(2) & Currently only hard and soft link creation are supported\footnotemark[1]\\ \hline
 H5Gmove(2) & Refer to Notes for \texttt{H5Lmove}\\ \hline
 H5Gflush & \texttt{H5Gflush} is currently implemented as a no-op.\\ \hline
 H5Grefresh & \texttt{H5Grefresh} is currently implemented as a no-op.\\ \hline
 
 \end{tabularx}
 
-\footnotetext[2]{External links are not currently planned to be supported.}
+\footnotetext[1]{External links are not currently planned to be supported.}
 
 \textbf{Currently unsupported API calls}
 \vspace{.2in} \\
@@ -464,18 +462,16 @@ H5Lcopy & Currently no support for the following properties:
 \begin{itemize}
  \item LAPL
  \begin{itemize}
-  \item H5Pset\_char\_encoding\footnotemark[1]
   \item H5Pset\_nlinks
-  \item H5Pset\_elink\_prefix\footnotemark[2]
+  \item H5Pset\_elink\_prefix\footnotemark[1]
  \end{itemize}
 \end{itemize}\\ \hline
 H5Lmove & Currently no support for the following properties:
 \begin{itemize}
  \item LAPL
  \begin{itemize}
-  \item H5Pset\_char\_encoding\footnotemark[1]
   \item H5Pset\_nlinks
-  \item H5Pset\_elink\_prefix\footnotemark[2]
+  \item H5Pset\_elink\_prefix\footnotemark[1]
  \end{itemize}
 \end{itemize}\\ \hline
 
@@ -495,8 +491,7 @@ H5Lcreate\_ud & \texttt{H5Lcreate\_ud} is not currently planned to be supported.
 
 \end{tabularx}
 
-\footnotetext[1]{Will be supported by end of Q4 2019.}
-\footnotetext[2]{External links are not currently planned to be supported.}
+\footnotetext[1]{External links are not currently planned to be supported.}
 
 \end{center}
 
@@ -538,7 +533,7 @@ H5Orefresh & \texttt{H5Orefresh} delegates to the appropriate \texttt{H5Xrefresh
 
 \end{tabularx}
 
-\footnotetext[1]{Will be supported by end of Q4 2019.}
+\footnotetext[1]{Will be supported by end of Q5 2020.}
 \footnotetext[2]{External links are not currently planned to be supported.}
 
 \newpage

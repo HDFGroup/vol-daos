@@ -332,7 +332,7 @@
 \ihead[\thedate]{\thedate}%
 \chead[]{}%
 \ifx\@requirerfc\@empty
-\ohead[\theorganization-\therfcversion]{\theorganization-\therfcversion}
+\ohead[\therfcversion]{\therfcversion}
 \else%
 \ohead[RFC-\theorganization-\therfcversion]{RFC-\theorganization-\therfcversion}
 \fi%

@@ -9,9 +9,15 @@ This section outlines the unique aspects of writing, building and running
 
 \subsection{Building the HDF5 DAOS VOL connector}
 
-The following is a quick set of instructions for building the HDF5 DAOS VOL connector. Note that these instructions are not comprehensive and may be slightly out of date; please refer to the HDF5 DAOS VOL connector's \href{https://bitbucket.hdfgroup.org/projects/HDF5VOL/repos/daos-vol/browse/README.md}{README} file for the most updated building instructions.
+The following is a quick set of instructions for building the \dvc{} connector.
+Note that these instructions are not comprehensive and may be subject to change
+in future releases; please refer to the \dvc{}'s
+\href{https://bitbucket.hdfgroup.org/projects/HDF5VOL/repos/daos-vol/browse/README.md}{README} file for the most up to date instructions.
 
-The HDF5 DAOS VOL connector is built using CMake. CMake version 2.8.12.2 or greater is required to build the connector itself, but version 3.1 or greater is required to build the connector's tests. To build the connector, first one should create a build directory within the source tree:
+The \dvc{} is built using CMake. CMake version 2.8.12.2 or greater is required
+to build the connector itself, but version 3.1 or greater is required to build
+the connector's tests. To build the connector, one should create a build
+directory within the source tree:
 
 \begin{verbatim}
 cd daos-vol
@@ -19,36 +25,43 @@ mkdir build
 cd build
 \end{verbatim}
 
-After that, if all of the required components (DAOS, CaRT, MPI and HDF5) are located within the system path, building the connector should be as simple as running the following two commands to have CMake generate the build files for \texttt{make} to use.
+After that, if all of the required components (DAOS, CaRT, MPI and HDF5) are
+located within the system path, building the connector should be as simple as
+running the following two commands to have CMake generate the build files for
+\texttt{make} to use.
 
 \begin{verbatim}
-cmake ..
+ccmake ..
 make && make install
 \end{verbatim}
 
-Some notable CMake variables are listed below. These can be used to control the build process and can be supplied to the \texttt{cmake} command by prepending them with \texttt{-D}. Some of the connector-specific options may be needed if the required components mentioned previously cannot be found within the system path.
+Some notable CMake variables are listed below. These can be used to control
+the build process and can be supplied to the \texttt{cmake} command by
+prepending them with \texttt{-D} or turned on in \texttt{ccmake}. Some of the
+connector-specific options may be needed if the required components mentioned
+previously cannot be found within the system path.
 
 CMake-specific options:
 
 \begin{itemize}
-  \item \texttt{CMAKE\_INSTALL\_PREFIX} - This variable controls the install directory that the resulting output files are written to.
-  \item \texttt{CMAKE\_BUILD\_TYPE} - This variable controls the type of build used for the VOL connector. Valid values are Release, Debug, RelWithDebInfo and MinSizeRel.
+  \item \texttt{CMAKE\_INSTALL\_PREFIX} --- This variable controls the install directory that the resulting output files are written to.
+  \item \texttt{CMAKE\_BUILD\_TYPE} --- This variable controls the type of build used for the VOL connector. Valid values are Release, Debug, RelWithDebInfo and MinSizeRel. (\textit{Default: RelWithDebInfo})
 \end{itemize}
 
-DAOS VOL connector-specific options:
+\dvc{}-specific options:
 
 \begin{itemize}
-  \item \texttt{BUILD\_TESTING} - This variable is used to enable/disable building of the DAOS VOL connector's tests.
-  \item \texttt{BUILD\_EXAMPLES} - This variable is used to enable/disable building of the DAOS VOL connector's HDF5 examples.
-  \item \texttt{CART\_INCLUDE\_DIR} - This variable controls the CaRT include directory used by the VOL connector build process. Used in conjunction with the \texttt{CART\_LIBRARY} variable.
-  \item \texttt{CART\_LIBRARY} - This variable controls the CaRT library used by the VOL connector build process. It should be set to the full path to the CaRT library, including the library's name (e.g., /path/libcart.so). Used in conjunction with the \texttt{CART\_INCLUDE\_DIR} variable.
-  \item \texttt{DAOS\_LIBRARY} - This variable controls the DAOS library used by the VOL connector build process. It should be set to the full path to the DAOS library, including the library's name (e.g., /path/libdaos.so). Used in conjunction with the \texttt{DAOS\_COMMON\_LIBRARY} and \texttt{DAOS\_INCLUDE\_DIR} variables.
-  \item \texttt{DAOS\_COMMON\_LIBRARY} - This variable controls the DAOS 'common' library used by the VOL connector build process. It should be set to the full path to the DAOS common library, including the library's name (e.g., /path/libdaos\_common.so). Used in conjunction with the \texttt{DAOS\_LIBRARY} and \texttt{DAOS\_INCLUDE\_DIR} variables.
-  \item \texttt{DAOS\_INCLUDE\_DIR} - This variable controls the DAOS include directory used by the VOL connector build process. Used in conjunction with the \texttt{DAOS\_LIBRARY} and \texttt{DAOS\_COMMON\_LIBRARY} variables.
-  \item \texttt{MPI\_C\_COMPILER} - This variable controls the MPI C Compiler used by the VOL connector build process. It should be set to the full path to the MPI C Compiler, including the name of the executable.
-  \item \texttt{HDF5\_C\_COMPILER\_EXECUTABLE} - This variable controls the HDF5 compiler wrapper script used by the VOL connector build process. It should be set to the full path to the HDF5 compiler wrapper, including the name of the wrapper script. The following two variables may also need to be set.
-  \item \texttt{HDF5\_C\_LIBRARY\_hdf5} - This variable controls the HDF5 library used by the VOL connector build process. It should be set to the full path to the HDF5 library, including the library's name (e.g., /path/libhdf5.so). Used in conjunction with the \texttt{HDF5\_C\_INCLUDE\_DIR} variable.
-  \item \texttt{HDF5\_C\_INCLUDE\_DIR} - This variable controls the HDF5 include directory used by the VOL connector build process. Used in conjunction with the \texttt{HDF5\_C\_LIBRARY\_hdf5} variable.
+  \item \texttt{BUILD\_TESTING} --- This variable is used to enable/disable building of the \dvc{}'s tests.
+  \item \texttt{BUILD\_EXAMPLES} --- This variable is used to enable/disable building of the DAOS VOL connector's HDF5 examples.
+  \item \texttt{CART\_INCLUDE\_DIR} --- This variable controls the CaRT include directory used by the VOL connector build process. Used in conjunction with the \texttt{CART\_LIBRARY} variable.
+  \item \texttt{CART\_LIBRARY} --- This variable controls the CaRT library used by the VOL connector build process. It should be set to the full path to the CaRT library, including the library's name (e.g., /path/libcart.so). Used in conjunction with the \texttt{CART\_INCLUDE\_DIR} variable.
+  \item \texttt{DAOS\_LIBRARY} --- This variable controls the DAOS library used by the VOL connector build process. It should be set to the full path to the DAOS library, including the library's name (e.g., /path/libdaos.so). Used in conjunction with the \texttt{DAOS\_COMMON\_LIBRARY} and \texttt{DAOS\_INCLUDE\_DIR} variables.
+  \item \texttt{DAOS\_COMMON\_LIBRARY} --- This variable controls the DAOS 'common' library used by the VOL connector build process. It should be set to the full path to the DAOS common library, including the library's name (e.g., /path/libdaos\_common.so). Used in conjunction with the \texttt{DAOS\_LIBRARY} and \texttt{DAOS\_INCLUDE\_DIR} variables.
+  \item \texttt{DAOS\_INCLUDE\_DIR} --- This variable controls the DAOS include directory used by the VOL connector build process. Used in conjunction with the \texttt{DAOS\_LIBRARY} and \texttt{DAOS\_COMMON\_LIBRARY} variables.
+  \item \texttt{MPI\_C\_COMPILER} --- This variable controls the MPI C Compiler used by the VOL connector build process. It should be set to the full path to the MPI C Compiler, including the name of the executable.
+  \item \texttt{HDF5\_C\_COMPILER\_EXECUTABLE} --- This variable controls the HDF5 compiler wrapper script used by the VOL connector build process. It should be set to the full path to the HDF5 compiler wrapper, including the name of the wrapper script. The following two variables may also need to be set.
+  \item \texttt{HDF5\_C\_LIBRARY\_hdf5} --- This variable controls the HDF5 library used by the VOL connector build process. It should be set to the full path to the HDF5 library, including the library's name (e.g., /path/libhdf5.so). Used in conjunction with the \texttt{HDF5\_C\_INCLUDE\_DIR} variable.
+  \item \texttt{HDF5\_C\_INCLUDE\_DIR} --- This variable controls the HDF5 include directory used by the VOL connector build process. Used in conjunction with the \texttt{HDF5\_C\_LIBRARY\_hdf5} variable.
 \end{itemize}
 
 \subsection{Writing HDF5 DAOS VOL connector applications}
@@ -104,11 +117,11 @@ Appendix~\ref{apdx:ref_manual} for more details):
 
     Called upon application startup, before any file is accessed.
 
- \item \texttt{\hyperref[ref:h5pset_fapl_daos]{H5Pset\_fapl\_daos()}} --- Set \dvc{} access on File Access Property List.
+ \item \texttt{\hyperref[ref:h5pset_fapl_daos]{H5Pset\_fapl\_daos()}} --- Sets \dvc{} access on File Access Property List.
 
     Called to prepare a FAPL to open a file through the \dvc{}. See \href{https://support.hdfgroup.org/HDF5/Tutor/property.html#fa}{HDF5 File Access Property Lists} for more information about File Access Property Lists.
 
- \item \texttt{\hyperref[ref:h5daos_term]{H5daos\_term()}} --- Cleanly shutdown the \dvc{}
+ \item \texttt{\hyperref[ref:h5daos_term]{H5daos\_term()}} --- Cleanly shutdowns the \dvc{}
 
     Called on application shutdown, after all files have been closed.
 \end{itemize}
@@ -161,9 +174,10 @@ int main(void)
 
 \subsection{Building HDF5 DAOS VOL connector applications}
 
-Assuming an \acrshort{hdf5} application has been written following the instructions in the previous section, the application must be built prior to running. In general, the
-application should be built as normal for any other \acrshort{hdf5} application. However,
-if the \dvc{} is not being dynamically loaded, the steps in the following section are required to build the application.
+Assuming an \acrshort{hdf5} application has been written following the instructions in the previous section, the application should be built as normal for any other
+\acrshort{hdf5} application. However,
+if the \dvc{} is not being dynamically loaded, the steps in the following
+section are required to build the application.
 
 \subsubsection{Without the DAOS VOL connector as a dynamically-loaded plugin}
 

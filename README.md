@@ -11,12 +11,8 @@ HDF5 DAOS VOL connector - currently under development
             i. External Libraries
         B. Building the DAOS VOL connector
             i. Obtaining the Source
-            ii. Quick one-Step Build
-                a. Build Script Options
-            iii. Manual Build
-                a. Options for `configure`
-                b. Options for CMake
-            iv. Build Results
+            ii. Building
+            iii. Build Options for CMake
     III. Using/testing the DAOS VOL connector
     IV. More Information
 
@@ -50,8 +46,6 @@ change.
 Notes and instructions related to obtaining, building and installing the DAOS VOL
 connector and accompanying HDF5 library.
 
-
-
 ## II.A. Prerequisites
 
 Before building and using the HDF5 DAOS VOL connector, a few requirements must be met.
@@ -60,6 +54,12 @@ Before building and using the HDF5 DAOS VOL connector, a few requirements must b
 
 To build the DAOS VOL connector, the following libraries are required:
 
++ libhdf5 - The [HDF5](https://www.hdfgroup.org/downloads/hdf5/) library. The HDF5 library
+            used must be at least version 1.12.0; for convenience, a source distribution of
+            HDF5 has been included with the DAOS VOL connector and can be used during the
+            build process. It should also be noted that the HDF5 parallel option and map API
+            option must be enabled for the DAOS VOL connector to be built properly.
+
 + libdaos - [DAOS](https://github.com/daos-stack/daos) (Distributed Asynchronous Object Storage)
 
 + libcart - DAOS CART dependency
@@ -67,11 +67,12 @@ To build the DAOS VOL connector, the following libraries are required:
 + libuuid - UUID (Universally unique identifier) support
 
 Compiled libraries must either exist in the system's library paths or must be
-supplied to the DAOS VOL connector's build scripts. Refer to section II.B.ii. below
+pointed to during the DAOS VOL connector build process. Refer to section II.B. below
 for more information.
 
-
 ## II.B. Building the DAOS VOL connector
+
+The HDF5 DAOS VOL connector is built using CMake. CMake version 2.8.12.2 or greater is required for building the connector itself, but version 3.1 or greater is required to build the connector's tests. To build the connector, one should first obtain the connector's source:
 
 ### II.B.i. Obtaining the Source
 
@@ -83,195 +84,24 @@ and can directly be obtained from:
 
 `https://bitbucket.hdfgroup.org/scm/hdf5vol/daos-vol.git`
 
-A source distribution of HDF5 has been included in the DAOS VOL connector source
-in the `src/hdf5` directory. This version of HDF5 has been modified to support
-the DAOS VOL connector.
+### II.B.ii. Building
 
-### II.B.ii. Quick one-step Build
+After obtaining the connector's source code, one should create a build directory within the source tree:
 
-Use one of the supplied Autotools or CMake build scripts, depending on preference or
-system support:
+```
+cd daos-vol
+mkdir build
+cd build
+```
 
-+ Autotools
+Then, if all of the required components (HDF5, DAOS, CaRT and MPI) are located within the system path, building the connector should be as simple as running the following two commands to first have CMake generate the build files to use and then to build the connector. If the required components are located somewhere other than the system path, refer to section II.B.iii. for information on how to point to their locations.
 
-    Run `build_vol_autotools.sh`. See section II.B.ii.a for configuration options.
+```
+cmake [options] ..
+make && make install
+```
 
-
-+ CMake
-
-    Run `build_vol_cmake.sh`. See section II.B.ii.a for configuration options.
-
-
-These scripts are simply convenient wrappers around the necessary build commands
-and they use default options. For example, the default installation directory is
-`daos_vol_install` under the root of the source code tree.
-
-By default, these build scripts will compile and link with the provided HDF5 source
-distribution. However, if you wish to use a manually built version of the HDF5 library,
-include the flag `-H <dir>` where `dir` is the path to the HDF5 install prefix. Refer
-to the documentation in `src/hdf5/release_docs` (where `src/hdf5` is the included HDF5
-distribution root directory) for more information on building HDF5 manually.
-Note that if you wish to use a manually built version of the HDF5 library, it must be
-a version which contains the VOL abstraction layer; otherwise, the DAOS VOL connector will
-not function correctly. It is also important to note that the current version of the
-DAOS VOL connector requires a specialized version of [HDF5](https://bitbucket.hdfgroup.org/projects/HDFFV/repos/hdf5/browse?at=refs%2Fheads%2Ffeature%2Fdaos_vol_support) which was modified to
-support the DAOS VOL connector. This will not be required in the future.
-
-NOTE: For those who are capable of using both build systems, the autotools build currently
-does not support out-of-tree builds. If the DAOS VOL source directory is used for an autotools
-build, it is important not to re-use the source directory for a later build using CMake.
-This will cause build conflicts and result in strange and unexpected behavior.
-
-
-### II.B.ii.a. Build Script Options
-
-The following configuration options are available to the build scripts:
-
-    -h      Prints out a help message indicating script usage and available options.
-
-    -d      Enables debugging information printouts within the DAOS VOL connector.
-
-    -m      Enables memory usage tracking within the DAOS VOL connector. This option is
-            mostly useful in helping to diagnose any possible memory leaks or other
-            memory errors within the connector.
-
-    -P DIR  Specifies where the DAOS VOL connector should be installed. The default
-            installation prefix is `daos_vol_install` inside the DAOS VOL connector source
-            root directory.
-
-    -H DIR  Prevents building of the provided HDF5 source. Instead, uses the compiled
-            library found at directory `DIR`, where `DIR` is the path used as the
-            installation prefix when building HDF5 manually.
-
-    -D DIR  Specifies the top-level directory where DAOS is installed. Used if DAOS is
-            not installed to a system path or used to override.
-
-    -C DIR  Specifies the top-level directory where CART is installed. Used if CART is
-            not installed to a system path or used to override.
-
-    -U DIR  Specifies the top-level directory where UUID is installed. Used if UUID is
-            not installed to a system path or used to override.
-
-Additionally, the CMake build script has the following configuration option:
-
-    -B DIR  Specifies the directory that CMake should use as the build tree location.
-            The default build tree location is `daos_vol_build` inside the
-            DAOS VOL connector source root directory. Note that the DAOS VOL does not
-            support in-source CMake builds.
-
-    -G DIR  Specifies the CMake Generator to use when generating the build files
-            for the project. On Unix systems, the default is "Unix Makefiles".
-
-### II.B.iii. Manual Build
-
-First, make sure that the necessary git submodules are available:
-
-    $ cd daos-vol
-    $ git submodule init
-    $ git submodule update
-
-Following this, the general process for building the DAOS VOL connector involves first building the
-included HDF5 source distribution (`src/hdf5`) or building one from source by obtaining a specialized
-version of [HDF5](https://bitbucket.hdfgroup.org/projects/HDFFV/repos/hdf5/browse?at=refs%2Fheads%2Ffeature%2Fdaos_vol_support) which was modified to support the DAOS VOL connector. Then, the DAOS VOL connector is built using that HDF5 distribution by including the appropriate header files and linking against the HDF5 library.
-
-The following should be noted when building HDF5 for use with the DAOS VOL connector:
-
-+ The HDF5 parallel option must be enabled for the DAOS VOL connector to be built properly.
-
-+ If the DAOS VOL connector is to be built using CMake, HDF5 must be built with CMake as well.
-
-Once a suitable HDF5 distribution has been built and is available, follow the instructions below
-for your respective build system in order to build the DAOS VOL connector against the HDF5 distribution.
-
-Autotools
----------
-
-    $ autogen.sh
-    $ configure --with-hdf5[=DIR] --prefix=DIR [options]
-    $ make
-    $ make install
-
-Optionally, `make check` can be run before `make install` in order to run the DAOS VOL connector tests.
-
-CMake
------
-
-    $ mkdir build
-    $ cd build
-    $ cmake -DHDF5_VOL_DAOS_USE_SYSTEM_HDF5=ON -DCMAKE_INSTALL_PREFIX=install_dir [options] daos_vol_src_dir
-    $ build command (e.g. `make && make install` for CMake Generator "Unix Makefiles")
-
-### II.B.iii.a. Options for `configure`
-
-When building the DAOS VOL connector manually using Autotools, the following options are
-available to `configure`.
-
-The options in the supplied Autotools build script are mapped to the corresponding options here:
-
-    -h, --help      Prints out a help message indicating script usage and available
-                    options.
-
-    --prefix=DIR    Specifies the location for the resulting files. The default location
-                    is `daos_vol_build` in the same directory as configure.
-
-    --with-hdf5=DIR Used to specify the directory where an HDF5 distribution that uses
-                    the VOL layer has already been built. This is to help the DAOS VOL
-                    connector locate the HDF5 header files that it needs to include.
-
-    --with-uuid=DIR Used to specify the top-level directory where the UUID library is
-                    installed, if it is not installed to a system path.
-
-    --enable-build-mode=(production|debug)
-                    Sets the build mode to be used.
-                    Debug - enable debugging printouts within the DAOS VOL connector.
-                    Production - Focus more on optimization.
-
-    --enable-mem-tracking
-                    Enables memory tracking within the DAOS VOL connector. This option is
-                    mostly useful in helping to diagnose any possible memory leaks or
-                    other memory errors within the connector.
-
-    --enable-tests
-                    Enables/Disables building of the DAOS VOL connector tests.
-
-    --enable-examples
-                    Enables/Disables building of the DAOS VOL HDF5 examples.
-
-
-### II.B.iii.b. Options for CMake
-
-When building the DAOS VOL connector manually using CMake, the following options are available.
-
-Some of the options in the supplied CMake build script are mapped to the corresponding options here:
-
-    CMAKE_INSTALL_PREFIX (Default: `daos_vol_build` in DAOS VOL connector source root
-                          directory)
-                    Specifies the directory where CMake will install the resulting
-                    files to.
-
-    HDF5_VOL_DAOS_USE_SYSTEM_HDF5 (Default: ON)
-                    Specifies whether to use the system-installed HDF5 when building
-                    the DAOS VOL connector. If this option is turned off, the included
-                    HDF5 source distribution will be built and used.
-
-    HDF5_VOL_DAOS_ENABLE_DEBUG (Default: OFF)
-                    Enables/Disables debugging printouts within the DAOS VOL connector.
-
-    HDF5_VOL_DAOS_ENABLE_MEM_TRACKING (Default: OFF)
-                    Enables/Disables memory tracking withing the DAOS VOL connector. This
-                    options is mostly useful in helping to diagnose any possible memory
-                    leaks or other memory errors within the connector.
-
-    BUILD_SHARED_LIBS (Default: ON)
-                    Enables/Disables building of the DAOS VOL as a shared library.
-
-    BUILD_EXAMPLES (Default: ON)
-                    Enables/Disables building of the DAOS VOL connector HDF5 examples.
-
-    BUILD_TESTING (Default: ON)
-                    Enables/Disables building of the DAOS VOL connector tests.
-
-### II.B.iv. Build Results
+The options that can be specified to control the build process are covered in section II.B.iii. Note that by default CMake will generate Unix Makefiles for the build, but other build files can be generated by specifying the `-G` option for the `cmake` command; see [CMake Generators](https://cmake.org/cmake/help/v3.16/manual/cmake-generators.7.html) for more information. 
 
 If the build is successful, the following files will be written into the installation directory:
 
@@ -288,7 +118,6 @@ lib/
 
     libhdf5_vol_daos.so - The DAOS VOL connector library
 
-If built with CMake:
 share/
     cmake/
         hdf5_vol_daos/
@@ -298,11 +127,29 @@ share/
             hdf5_vol_daos-targets-relwithdebinfo.cmake
 ```
 
-If the DAOS VOL connector was built using one of the included build scripts, all of the usual files
-from an HDF5 source build should also appear in the respective `bin`, `include`, `lib` and `share`
-directories in the install directory. Notable among these is `bin/h5pcc` (when built with
-Autotools) or `bin/h5cc` (when built with CMake), special-purpose compiler wrapper scripts that streamline the process of building HDF5 applications.
+### II.B.iii. Build Options for CMake
 
+In order to control the build process, the following CMake variables are available. These can be supplied to the `cmake` command by prepending them with `-D`. Some of these options may be needed if, for example, the required components mentioned previously cannot be found within the system path.
+
+CMake-specific options:
+
+  * `CMAKE_INSTALL_PREFIX` - This option controls the install directory that the resulting output files are written to. The default value is `/usr/local`. 
+  * `CMAKE_BUILD_TYPE` - This option controls the type of build used for the VOL connector. Valid values are Release, Debug, RelWithDebInfo and MinSizeRel; the default build type is RelWithDebInfo.
+
+DAOS VOL Connector-specific options:
+
+  * `BUILD_TESTING` - This option is used to enable/disable building of the DAOS VOL connector's tests. The default value is `ON`.
+  * `BUILD_EXAMPLES` - This option is used to enable/disable building of the DAOS VOL connector's HDF5 examples. The default value is `ON`.
+  * `HDF5_VOL_DAOS_USE_SYSTEM_HDF5` - This option is used to specify whether the system-installed HDF5 should be used when building the connector. The default value is `ON`; if this option is turned off, the included HDF5 source distribution will be built and used instead.
+  * `HDF5_C_COMPILER_EXECUTABLE` - This option controls the HDF5 compiler wrapper script used by the VOL connector build process. It should be set to the full path to the HDF5 compiler wrapper (usually `bin/h5cc`), including the name of the wrapper script. The following two options may also need to be set.
+  * `HDF5_C_LIBRARY_hdf5` - This option controls the HDF5 library used by the VOL connector build process. It should be set to the full path to the HDF5 library, including the library's name (e.g., `/path/libhdf5.so`). Used in conjunction with the `HDF5_C_INCLUDE_DIR` option.
+  * `HDF5_C_INCLUDE_DIR` - This option controls the HDF5 include directory used by the VOL connector build process. Used in conjunction with the `HDF5_C_LIBRARY_hdf5` variable.
+  * `DAOS_LIBRARY` - This option controls the DAOS library used by the VOL connector build process. It should be set to the full path to the DAOS library, including the library's name (e.g., `/path/libdaos.so`). Used in conjunction with the `DAOS_COMMON_LIBRARY` and `DAOS_INCLUDE_DIR` options.
+  * `DAOS_COMMON_LIBRARY` - This option controls the DAOS 'common' library used by the VOL connector build process. It should be set to the full path to the DAOS common library, including the library's name (e.g., `/path/libdaos_common.so`). Used in conjunction with the `DAOS_LIBRARY` and `DAOS_INCLUDE_DIR` options.
+  * `DAOS_INCLUDE_DIR` - This option controls the DAOS include directory used by the VOL connector build process. Used in conjunction with the `DAOS_LIBRARY` and `DAOS_COMMON_LIBRARY` options.
+  * `CART_LIBRARY` - This option controls the CaRT library used by the VOL connector build process. It should be set to the full path to the CaRT library, including the library's name (e.g., `/path/libcart.so`). Used in conjunction with the `CART_INCLUDE_DIR` option.
+  * `CART_INCLUDE_DIR` - This option controls the CaRT include directory used by the VOL connector build process. Used in conjunction with the `CART_LIBRARY` option.
+  * `MPI_C_COMPILER` - This option controls the MPI C Compiler used by the VOL connector build process. It should be set to the full path to the MPI C Compiler, including the name of the executable.
 
 --------------------------------------------------------------------------------
 
@@ -310,11 +157,11 @@ Autotools) or `bin/h5cc` (when built with CMake), special-purpose compiler wrapp
 
 For information on how to use the DAOS VOL connector with an HDF5 application, as well as
 how to test that the VOL connector is functioning properly, please refer to the DAOS VOL
-User's Guide under `docs/HDF5 DAOS VOL User's Guide.pdf`.
+User's Guide under `docs/users_guide.pdf`.
 
 
 --------------------------------------------------------------------------------
 
 # IV. More Information
 
-https://wiki.hpdd.intel.com/display/DC/DAOS+Community+Home
+https://daos-stack.github.io/

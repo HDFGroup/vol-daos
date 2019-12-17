@@ -49,7 +49,7 @@
 #define CPTR(VAR,CONST) ((VAR)=(CONST),&(VAR))
 
 #define FLOAT_EQUAL(VAR1, VAR2) \
-((((VAR1) - (VAR1)) < 0.001) && (((VAR1) - (VAR2)) > -0.001))
+((((VAR1) - (VAR2)) < 0.001) && (((VAR1) - (VAR2)) > -0.001))
 
 #define STRCMP_NULL(A, B) \
 (!(A) != !(B) || ((A) && strcmp(A, B)))

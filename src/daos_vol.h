@@ -436,6 +436,19 @@ typedef struct H5_daos_md_update_cb_ud_t {
     const char *task_name;
 } H5_daos_md_update_cb_ud_t;
 
+typedef struct H5_daos_chunk_io_ud_t {
+    H5_daos_req_t *req;
+    H5_daos_dset_t *dset;
+    daos_key_t dkey;
+    uint8_t akey_buf;
+    daos_iod_t iod;
+    daos_sg_list_t sgl;
+    daos_recx_t recx;
+    daos_recx_t *recxs;
+    daos_iov_t sg_iov;
+    daos_iov_t *sg_iovs;
+} H5_daos_chunk_io_ud_t;
+
 /*
  * Enum values for determining the type of iteration
  * being done with a given H5_daos_iter_data_t.

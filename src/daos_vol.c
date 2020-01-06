@@ -2278,7 +2278,7 @@ int
 H5_daos_md_update_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
     H5_daos_md_update_cb_ud_t *udata;
-    daos_obj_update_t *update_args;
+    daos_obj_rw_t *update_args;
 
     /* Get private data */
     udata = tse_task_get_priv(task);
@@ -2297,6 +2297,7 @@ H5_daos_md_update_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     update_args = daos_task_get_args(task);
     update_args->oh = udata->obj->obj_oh;
     update_args->th = DAOS_TX_NONE;
+    update_args->flags = 0;
     update_args->dkey = &udata->dkey;
     update_args->nr = udata->nr;
     update_args->iods = udata->iod;
@@ -2344,7 +2345,7 @@ H5_daos_md_update_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     /* Free private data */
     H5_daos_req_free_int(udata->req);
-    if(H5_daos_object_close(udata->obj, -1, NULL) < 0)
+    if(H5_daos_object_close(udata->obj, H5I_INVALID_HID, NULL) < 0)
         D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, H5_DAOS_CLOSE_ERROR, "can't close object")
     if(udata->free_dkey)
         DV_free(udata->dkey.iov_buf);
@@ -2363,6 +2364,105 @@ H5_daos_md_update_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     return ret_value;
 } /* end H5_daos_md_update_comp_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_chunk_io_prep_cb
+ *
+ * Purpose:     Prepare callback for asynchronous daos_obj_update or
+ *              daos_obj_fetch for raw data I/O.  Currently checks for
+ *              errors from previous tasks then sets arguments for daos
+ *              task.
+ *
+ * Return:      0 (Never fails)
+ *
+ *-------------------------------------------------------------------------
+ */
+int
+H5_daos_chunk_io_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_chunk_io_ud_t *udata;
+    daos_obj_rw_t *update_args;
+
+    /* Get private data */
+    udata = tse_task_get_priv(task);
+
+    assert(udata);
+    assert(udata->dset);
+    assert(udata->req);
+    assert(udata->req->file);
+    assert(!udata->req->file->closed);
+
+    /* Handle errors */
+    if(udata->req->status < H5_DAOS_INCOMPLETE)
+        tse_task_complete(task, H5_DAOS_PRE_ERROR);
+
+    /* Set I/O task arguments */
+    update_args = daos_task_get_args(task);
+    update_args->oh = udata->dset->obj.obj_oh;
+    update_args->th = DAOS_TX_NONE;
+    update_args->flags = 0;
+    update_args->dkey = &udata->dkey;
+    update_args->nr = 1;
+    update_args->iods = &udata->iod;
+    update_args->sgls = &udata->sgl;
+    update_args->maps = NULL;
+
+    return 0;
+} /* end H5_daos_chunk_io_prep_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_chunk_io_comp_cb
+ *
+ * Purpose:     Complete callback for asynchronous daos_obj_update or
+ *              daos_obj_fetch for raw data I/O.  Currently checks for a
+ *              failed task then frees private data.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+int
+H5_daos_chunk_io_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_chunk_io_ud_t *udata;
+    unsigned i;
+    int ret_value = 0;
+
+    /* Get private data */
+    udata = tse_task_get_priv(task);
+
+    assert(!udata->req->file->closed);
+
+    /* Handle errors in update task.  Only record error in udata->req_status if
+     * it does not already contain an error (it could contain an error if
+     * another task this task is not dependent on also failed). */
+    if(task->dt_result < H5_DAOS_PRE_ERROR
+            && udata->req->status >= H5_DAOS_INCOMPLETE) {
+        udata->req->status = task->dt_result;
+        udata->req->failed_task = "raw data I/O";
+    } /* end if */
+
+    /* Free private data */
+    H5_daos_req_free_int(udata->req);
+    if(H5_daos_dataset_close(udata->dset, H5I_INVALID_HID, NULL) < 0)
+        D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, H5_DAOS_CLOSE_ERROR, "can't close object")
+    if(udata->recxs != &udata->recx)
+        DV_free(udata->recxs);
+    if(udata->sg_iovs != &udata->sg_iov)
+        DV_free(udata->sg_iovs);
+    DV_free(udata);
+
+    /* Handle errors in this function */
+    if(ret_value < 0 && udata->req->status >= H5_DAOS_INCOMPLETE) {
+        udata->req->status = ret_value;
+        udata->req->failed_task = "raw data I/O completion callback";
+    } /* end if */
+
+    return ret_value;
+} /* end H5_daos_chunk_io_comp_cb() */
 
 
 /*-------------------------------------------------------------------------

@@ -503,7 +503,7 @@ H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
         iod[2].iod_type = DAOS_IOD_SINGLE;
 
         /* Read internal metadata sizes from map */
-        if(0 != (ret = daos_obj_fetch(map->obj.obj_oh, DAOS_TX_NONE, &dkey, 3, iod, NULL,
+        if(0 != (ret = daos_obj_fetch(map->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 3, iod, NULL,
                       NULL /*maps*/, NULL /*event*/)))
             D_GOTO_ERROR(H5E_MAP, H5E_CANTDECODE, NULL, "can't read metadata sizes from map: %s", H5_daos_err_to_string(ret))
 
@@ -543,7 +543,7 @@ H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
         sgl[2].sg_iovs = &sg_iov[2];
 
         /* Read internal metadata from map */
-        if(0 != (ret = daos_obj_fetch(map->obj.obj_oh, DAOS_TX_NONE, &dkey, 3, iod, sgl, NULL /*maps*/, NULL /*event*/)))
+        if(0 != (ret = daos_obj_fetch(map->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 3, iod, sgl, NULL /*maps*/, NULL /*event*/)))
             D_GOTO_ERROR(H5E_MAP, H5E_CANTDECODE, NULL, "can't read metadata from map: %s", H5_daos_err_to_string(ret))
 
         /* Broadcast map info if there are other processes that need it */
@@ -1196,7 +1196,7 @@ H5_daos_map_get_val(void *_map, hid_t key_mem_type_id, const void *key,
 
     /* Read value */
     if(0 != (ret = daos_obj_fetch(map->obj.obj_oh,
-                   DAOS_TX_NONE, &dkey,
+                   DAOS_TX_NONE, 0 /*flags*/, &dkey,
                    1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
         D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "MAP get failed: %s", H5_daos_err_to_string(ret));
 
@@ -1320,7 +1320,7 @@ H5_daos_map_put(void *_map, hid_t key_mem_type_id, const void *key,
             /* Read data from map to background buffer */
             daos_iov_set(&sg_iov, bkg_buf, (daos_size_t)val_file_type_size);
 
-            if(0 != (ret = daos_obj_fetch(map->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
+            if(0 != (ret = daos_obj_fetch(map->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
                 D_GOTO_ERROR(H5E_MAP, H5E_READERROR, FAIL, "can't read value from map: %s", H5_daos_err_to_string(ret))
 
             /* Reset iod_size, if the key was not created then it could have
@@ -1344,7 +1344,7 @@ H5_daos_map_put(void *_map, hid_t key_mem_type_id, const void *key,
 
     /* Write key/value pair to map */
     if(0 != (ret = daos_obj_update(map->obj.obj_oh,
-                   DAOS_TX_NONE, &dkey,
+                   DAOS_TX_NONE, 0 /*flags*/, &dkey,
                    1, &iod, &sgl, NULL /*event*/)))
         D_GOTO_ERROR(H5E_MAP, H5E_CANTSET, FAIL, "map put failed: %s", H5_daos_err_to_string(ret));
 
@@ -1407,7 +1407,7 @@ H5_daos_map_exists(void *_map, hid_t key_mem_type_id, const void *key,
     iod.iod_type = DAOS_IOD_SINGLE;
 
     if(0 != (ret = daos_obj_fetch(map->obj.obj_oh,
-                   DAOS_TX_NONE, &dkey,
+                   DAOS_TX_NONE, 0 /*flags*/, &dkey,
                    1, &iod, NULL, NULL , NULL)))
         D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "MAP get failed: %s", H5_daos_err_to_string(ret));
 
@@ -1749,7 +1749,7 @@ H5_daos_map_iterate(H5_daos_map_t *map, hid_t map_id, hsize_t *idx,
 
                 /* Query map record in dkey */
                 if(0 != (ret = daos_obj_fetch(map->obj.obj_oh, DAOS_TX_NONE,
-                        &dkey, 1, &iod, NULL, NULL , NULL)))
+                        0 /*flags*/, &dkey, 1, &iod, NULL, NULL , NULL)))
                     D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't check for value in map: %s", H5_daos_err_to_string(ret));
 
                 /* If there is no value, skip this dkey */
@@ -1863,13 +1863,13 @@ H5_daos_map_delete_key(H5_daos_map_t *map, hid_t key_mem_type_id,
         daos_iov_set(&akey, (void *)H5_daos_map_key_g, H5_daos_map_key_size_g);
 
         /* Delete key/value pair from map */
-        if(0 != (ret = daos_obj_punch_akeys(map->obj.obj_oh, DAOS_TX_NONE, &dkey,
+        if(0 != (ret = daos_obj_punch_akeys(map->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey,
                1, &akey, NULL /*event*/)))
             D_GOTO_ERROR(H5E_MAP, H5E_CANTSET, FAIL, "map akey delete failed: %s", H5_daos_err_to_string(ret));
     } /* end if */
     else
         /* Delete dkey from map */
-        if(0 != (ret = daos_obj_punch_dkeys(map->obj.obj_oh, DAOS_TX_NONE, 1,
+        if(0 != (ret = daos_obj_punch_dkeys(map->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, 1,
                 &dkey, NULL /*event*/)))
             D_GOTO_ERROR(H5E_MAP, H5E_CANTSET, FAIL, "map dkey delete failed: %s", H5_daos_err_to_string(ret));
 

@@ -919,7 +919,8 @@ H5_daos_object_optional(void *_item, hid_t dxpl_id, void **req,
 
     switch (optional_type) {
         /* H5Oget_info / H5Oget_info_by_name / H5Oget_info_by_idx */
-        case H5VL_OBJECT_GET_INFO:
+        /* This is a temporary hack until H5Oget_info3 is available */
+        case H5VL_NATIVE_OBJECT_GET_INFO:
             {
                 H5O_info_t *obj_info = va_arg(arguments, H5O_info_t *);
                 unsigned fields = va_arg(arguments, unsigned);
@@ -930,9 +931,6 @@ H5_daos_object_optional(void *_item, hid_t dxpl_id, void **req,
                 break;
             } /* end block */
 
-        case H5VL_OBJECT_GET_COMMENT:
-        case H5VL_OBJECT_SET_COMMENT:
-            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "unsupported optional operation")
         default:
             D_GOTO_ERROR(H5E_VOL, H5E_BADVALUE, FAIL, "invalid optional operation")
     } /* end switch */
@@ -1288,7 +1286,7 @@ H5_daos_object_get_num_attrs(H5_daos_obj_t *target_obj)
         sgl.sg_iovs = &sg_iov;
 
         /* Read number of attributes */
-        if(0 != (ret = daos_obj_fetch(target_obj->obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
+        if(0 != (ret = daos_obj_fetch(target_obj->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
             D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, (-1), "can't read number of attributes attached to object: %s", H5_daos_err_to_string(ret))
 
         p = nattrs_buf;
@@ -1383,7 +1381,7 @@ H5_daos_object_update_num_attrs_key(H5_daos_obj_t *target_obj, uint64_t new_natt
     sgl.sg_iovs = &sg_iov;
 
     /* Issue write */
-    if(0 != (ret = daos_obj_update(target_obj->obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*event*/)))
+    if(0 != (ret = daos_obj_update(target_obj->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod, &sgl, NULL /*event*/)))
         D_GOTO_ERROR(H5E_ATTR, H5E_WRITEERROR, FAIL, "can't write number of attributes to object: %s", H5_daos_err_to_string(ret))
 
 done:

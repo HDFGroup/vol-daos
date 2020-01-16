@@ -937,11 +937,6 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
         file = ((H5_daos_item_t *)item)->file;
 
     switch (specific_type) {
-        /* H5Fcreate/open post open callback */
-        case H5VL_FILE_POST_OPEN:
-            /* No-op */
-            break;
-
         /* H5Fflush */
         case H5VL_FILE_FLUSH:
         {

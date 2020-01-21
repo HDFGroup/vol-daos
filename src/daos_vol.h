@@ -18,9 +18,6 @@
 /* Public headers needed by this file */
 #include "daos_vol_public.h"
 
-/* Temporarily included until token changes and H5Oget_info3 are available */
-#include "H5VLnative.h"
-
 /* CART headers */
 #include <gurt/types.h>
 #include <gurt/common.h>

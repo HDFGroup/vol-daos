@@ -471,7 +471,7 @@ typedef struct H5_daos_iter_data_t {
         } attr_iter_data;
 
         struct {
-            H5L_iterate_t    link_iter_op;
+            H5L_iterate2_t   link_iter_op;
             dv_hash_table_t *visited_link_table;
             char            *recursive_link_path;
             size_t           recursive_link_path_nalloc;
@@ -479,7 +479,7 @@ typedef struct H5_daos_iter_data_t {
         } link_iter_data;
 
         struct {
-            H5O_iterate_t   obj_iter_op;
+            H5O_iterate2_t  obj_iter_op;
             unsigned        fields;
             const char     *obj_name;
         } obj_iter_data;
@@ -585,10 +585,9 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_oid_encode(daos_obj_id_t *oid, uint64_t oidx,
 H5VL_DAOS_PRIVATE herr_t H5_daos_oid_generate(daos_obj_id_t *oid,
     H5I_type_t obj_type, hid_t crt_plist_id, H5_daos_file_t *file,
     hbool_t collective);
-H5VL_DAOS_PRIVATE haddr_t H5_daos_oid_to_addr(daos_obj_id_t oid);
 H5VL_DAOS_PRIVATE herr_t H5_daos_addr_to_oid(daos_obj_id_t *oid, haddr_t addr);
-H5VL_DAOS_PRIVATE herr_t H5_daos_oid_to_token(daos_obj_id_t oid, H5VL_token_t *obj_token);
-H5VL_DAOS_PRIVATE herr_t H5_daos_token_to_oid(H5VL_token_t *obj_token, daos_obj_id_t *oid);
+H5VL_DAOS_PRIVATE herr_t H5_daos_oid_to_token(daos_obj_id_t oid, H5O_token_t *obj_token);
+H5VL_DAOS_PRIVATE herr_t H5_daos_token_to_oid(H5O_token_t *obj_token, daos_obj_id_t *oid);
 H5VL_DAOS_PRIVATE H5I_type_t H5_daos_oid_to_type(daos_obj_id_t oid);
 H5VL_DAOS_PRIVATE void H5_daos_hash128(const char *name, void *hash);
 H5VL_DAOS_PRIVATE int H5_daos_h5op_finalize(tse_task_t *task);
@@ -643,7 +642,7 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_link_get_crt_order_by_name(H5_daos_group_t *tar
 
 /* Link iterate callbacks */
 H5VL_DAOS_PRIVATE herr_t H5_daos_link_iterate_count_links_callback(hid_t group, const char *name,
-    const H5L_info_t *info, void *op_data);
+    const H5L_info2_t *info, void *op_data);
 
 /* Group callbacks */
 H5VL_DAOS_PRIVATE void *H5_daos_group_create(void *_item, const H5VL_loc_params_t *loc_params,
@@ -719,8 +718,6 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_object_get(void *_item, const H5VL_loc_params_t
     H5VL_object_get_t get_type, hid_t dxpl_id, void **req, va_list arguments);
 H5VL_DAOS_PRIVATE herr_t H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
     H5VL_object_specific_t specific_type, hid_t dxpl_id, void **req, va_list arguments);
-H5VL_DAOS_PRIVATE herr_t H5_daos_object_optional(void *_item, hid_t dxpl_id, void **req,
-    va_list arguments);
 
 /* Other object routines */
 H5VL_DAOS_PRIVATE herr_t H5_daos_object_visit(H5_daos_obj_t *target_obj, H5_daos_iter_data_t *obj_iter_data);

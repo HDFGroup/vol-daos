@@ -1508,7 +1508,7 @@ H5_daos_attribute_delete(H5_daos_obj_t *attr_container_obj, const H5VL_loc_param
     daos_key_t dkey;
     daos_key_t akeys[H5_DAOS_ATTR_NUM_AKEYS];
     size_t akey_len;
-    char *target_attr_name = attr_name;
+    const char *target_attr_name = attr_name;
     char *attr_name_buf_dyn = NULL;
     char attr_name_buf_static[H5_DAOS_ATTR_NAME_BUF_SIZE];
     char *type_key = NULL;

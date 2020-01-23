@@ -26,14 +26,16 @@
 /*
  * Given an H5_daos_link_val_t, uses this to fill out the
  * link type and link object address (hard link) or link
- * value size (soft/external link) fields of an H5L_info_t
+ * value size (soft/external link) fields of an H5L_info2_t
  * for a link.
  */
-#define H5_DAOS_LINK_VAL_TO_INFO(link_val, link_info)                    \
+#define H5_DAOS_LINK_VAL_TO_INFO(link_val, link_info, ERR)               \
 do {                                                                     \
     link_info.type = link_val.type;                                      \
-    if(link_val.type == H5L_TYPE_HARD)                                   \
-        link_info.u.address = H5_daos_oid_to_addr(link_val.target.hard); \
+    if(link_val.type == H5L_TYPE_HARD) {                                 \
+        if(H5_daos_oid_to_token(link_val.target.hard, &link_info.u.token) < 0) \
+            D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, ERR, "can't get link target object token") \
+    }                                                                    \
     else {                                                               \
         assert(link_val.type == H5L_TYPE_SOFT);                          \
         link_info.u.val_size = strlen(link_val.target.soft) + 1;         \
@@ -44,7 +46,7 @@ do {                                                                     \
 static htri_t H5_daos_link_read(H5_daos_group_t *grp, const char *name,
     size_t name_len, H5_daos_link_val_t *val);
 static herr_t H5_daos_link_get_info(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
-    H5L_info_t *link_info_out, H5_daos_link_val_t *link_val_out, hid_t dxpl_id, void **req);
+    H5L_info2_t *link_info_out, H5_daos_link_val_t *link_val_out, hid_t dxpl_id, void **req);
 static herr_t H5_daos_link_get_val(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
     H5_daos_link_val_t *link_val_out, hid_t dxpl_id, void **req);
 static herr_t H5_daos_link_iterate_by_name_order(H5_daos_group_t *target_grp, H5_daos_iter_data_t *iter_data);
@@ -55,9 +57,9 @@ static ssize_t H5_daos_link_get_name_by_crt_order(H5_daos_group_t *target_grp, H
     uint64_t index, char *link_name_out, size_t link_name_out_size);
 static ssize_t H5_daos_link_get_name_by_name_order(H5_daos_group_t *target_grp, H5_iter_order_t iter_order,
     uint64_t index, char *link_name_out, size_t link_name_out_size);
-static herr_t H5_daos_link_get_name_by_name_order_cb(hid_t group, const char *name, const H5L_info_t *info, void *op_data);
+static herr_t H5_daos_link_get_name_by_name_order_cb(hid_t group, const char *name, const H5L_info2_t *info, void *op_data);
 static herr_t H5_daos_link_remove_from_crt_idx(H5_daos_group_t *target_grp, const H5VL_loc_params_t *loc_params);
-static herr_t H5_daos_link_remove_from_crt_idx_name_cb(hid_t group, const char *name, const H5L_info_t *info, void *op_data);
+static herr_t H5_daos_link_remove_from_crt_idx_name_cb(hid_t group, const char *name, const H5L_info2_t *info, void *op_data);
 static herr_t H5_daos_link_shift_crt_idx_keys_down(H5_daos_group_t *target_grp, uint64_t idx_begin, uint64_t idx_end);
 static uint64_t H5_daos_hash_obj_id(dv_hash_table_key_t obj_id_lo);
 static int H5_daos_cmp_obj_id(dv_hash_table_key_t obj_id_lo1, dv_hash_table_key_t obj_id_lo2);
@@ -141,7 +143,7 @@ H5_daos_link_read(H5_daos_group_t *grp, const char *name, size_t name_len,
     sgl.sg_iovs = &sg_iov;
 
     /* Read link */
-    if(0 != (ret = daos_obj_fetch(grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
+    if(0 != (ret = daos_obj_fetch(grp->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
         D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't read link: %s", H5_daos_err_to_string(ret))
 
     /* Check for no link found */
@@ -159,7 +161,7 @@ H5_daos_link_read(H5_daos_group_t *grp, const char *name, size_t name_len,
         daos_iov_set(&sg_iov, val_buf, (daos_size_t)iod.iod_size);
 
         /* Reissue read */
-        if(0 != (ret = daos_obj_fetch(grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps */, NULL /*event*/)))
+        if(0 != (ret = daos_obj_fetch(grp->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod, &sgl, NULL /*maps */, NULL /*event*/)))
             D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't read link: %s", H5_daos_err_to_string(ret))
     } /* end if */
 
@@ -436,7 +438,7 @@ H5_daos_link_write(H5_daos_group_t *grp, const char *name,
         sgl[3].sg_iovs = &sg_iov[3];
 
         /* Issue write */
-        if(0 != (ret = daos_obj_update(grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 4, iod, sgl, NULL /*event*/)))
+        if(0 != (ret = daos_obj_update(grp->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 4, iod, sgl, NULL /*event*/)))
             D_GOTO_ERROR(H5E_SYM, H5E_WRITEERROR, FAIL, "can't write link creation order information: %s", H5_daos_err_to_string(ret))
 
         /* Add link name->creation order mapping key-value pair to main write */
@@ -580,7 +582,7 @@ H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
 
             /* Retrieve target name */
             link_val.type = H5L_TYPE_SOFT;
-            link_val.target.soft = va_arg(arguments, const char *);
+            link_val.target.soft = (char *)va_arg(arguments, const char *);
 
             break;
 
@@ -980,7 +982,7 @@ H5_daos_link_get(void *_item, const H5VL_loc_params_t *loc_params,
     switch (get_type) {
         case H5VL_LINK_GET_INFO:
         {
-            H5L_info_t *link_info = va_arg(arguments, H5L_info_t *);
+            H5L_info2_t *link_info = va_arg(arguments, H5L_info2_t *);
 
             if(H5_daos_link_get_info(item, loc_params, link_info, NULL, dxpl_id, req) < 0)
                 D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't retrieve link's info")
@@ -1093,7 +1095,7 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
                 H5_index_t idx_type = (H5_index_t) va_arg(arguments, int);
                 H5_iter_order_t iter_order = (H5_iter_order_t) va_arg(arguments, int);
                 hsize_t *idx_p = va_arg(arguments, hsize_t *);
-                H5L_iterate_t iter_op = va_arg(arguments, H5L_iterate_t);
+                H5L_iterate2_t iter_op = va_arg(arguments, H5L_iterate2_t);
                 void *op_data = va_arg(arguments, void *);
 
                 /* Determine group containing link in question */
@@ -1277,7 +1279,7 @@ done:
  * Function:    H5_daos_link_get_info
  *
  * Purpose:     Helper routine to retrieve a link's info and populate a
- *              H5L_info_t struct.
+ *              H5L_info2_t struct.
  *
  *              If the link_val_out parameter is non-NULL, the link's value
  *              is returned through it. If the link in question is a soft
@@ -1291,12 +1293,12 @@ done:
  */
 static herr_t
 H5_daos_link_get_info(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
-    H5L_info_t *link_info_out, H5_daos_link_val_t *link_val_out, hid_t dxpl_id,
+    H5L_info2_t *link_info_out, H5_daos_link_val_t *link_val_out, hid_t dxpl_id,
     void **req)
 {
     H5_daos_link_val_t local_link_val = { 0 };
     H5_daos_group_t *target_grp = NULL;
-    H5L_info_t local_link_info;
+    H5L_info2_t local_link_info;
     const char *target_name = NULL;
     char *link_name_buf_dyn = NULL;
     char link_name_buf_static[H5_DAOS_LINK_NAME_BUF_SIZE];
@@ -1375,7 +1377,7 @@ H5_daos_link_get_info(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
      * value if this is a soft link and the link's value is not
      * being returned through link_val_out.
      */
-    H5_DAOS_LINK_VAL_TO_INFO(local_link_val, local_link_info);
+    H5_DAOS_LINK_VAL_TO_INFO(local_link_val, local_link_info, FAIL);
     if(!link_val_out && (H5L_TYPE_SOFT == local_link_val.type))
         local_link_val.target.soft = (char *)DV_free(local_link_val.target.soft);
 
@@ -1560,7 +1562,7 @@ H5_daos_link_exists(H5_daos_item_t *item, const char *link_path, hid_t dxpl_id, 
     iod.iod_type = DAOS_IOD_SINGLE;
 
     /* Read link */
-    if(0 != (ret = daos_obj_fetch(target_grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, NULL /*sgl*/, NULL /*maps*/, NULL /*event*/)))
+    if(0 != (ret = daos_obj_fetch(target_grp->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod, NULL /*sgl*/, NULL /*maps*/, NULL /*event*/)))
         D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't read link: %s", H5_daos_err_to_string(ret))
 
     /* Set return value */
@@ -1647,7 +1649,7 @@ H5_daos_link_iterate_by_name_order(H5_daos_group_t *target_grp, H5_daos_iter_dat
     daos_anchor_t anchor;
     daos_sg_list_t sgl;
     daos_iov_t sg_iov;
-    H5L_info_t linfo;
+    H5L_info2_t linfo;
     char *dkey_buf = NULL;
     size_t dkey_buf_len = 0;
     herr_t op_ret;
@@ -1917,7 +1919,7 @@ H5_daos_link_iterate_by_crt_order(H5_daos_group_t *target_grp, H5_daos_iter_data
 {
     H5_daos_link_val_t link_val = { 0 };
     H5_daos_group_t *subgroup = NULL;
-    H5L_info_t linfo;
+    H5L_info2_t linfo;
     uint64_t cur_idx;
     ssize_t grp_nlinks;
     herr_t op_ret;
@@ -2022,7 +2024,7 @@ H5_daos_link_iterate_by_crt_order(H5_daos_group_t *target_grp, H5_daos_iter_data
                 D_GOTO_ERROR(H5E_LINK, H5E_READERROR, FAIL, "link didn't exist")
 
             /* Update linfo, then free soft link value if necessary */
-            H5_DAOS_LINK_VAL_TO_INFO(link_val, linfo);
+            H5_DAOS_LINK_VAL_TO_INFO(link_val, linfo, FAIL);
             if(H5_daos_link_get_crt_order_by_name(target_grp, link_name, &link_crt_order) < 0)
                 D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't get link's creation order value")
             linfo.corder = (int64_t)link_crt_order; /* DSINC - no check for overflow */
@@ -2194,7 +2196,7 @@ done:
  */
 herr_t
 H5_daos_link_iterate_count_links_callback(hid_t H5VL_DAOS_UNUSED group, const char H5VL_DAOS_UNUSED *name,
-    const H5L_info_t H5VL_DAOS_UNUSED *info, void *op_data)
+    const H5L_info2_t H5VL_DAOS_UNUSED *info, void *op_data)
 {
     (*((uint64_t *) op_data))++;
     return 0;
@@ -2268,7 +2270,7 @@ H5_daos_link_delete(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params, h
     daos_iov_set(&dkey, (void *)target_link_name, strlen(target_link_name));
 
     /* Punch the link's dkey, along with all of its akeys */
-    if(0 != (ret = daos_obj_punch_dkeys(target_grp->obj.obj_oh, DAOS_TX_NONE, 1, &dkey, NULL /*event*/)))
+    if(0 != (ret = daos_obj_punch_dkeys(target_grp->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, 1, &dkey, NULL /*event*/)))
         D_GOTO_ERROR(H5E_LINK, H5E_CANTREMOVE, FAIL, "failed to punch link dkey: %s", H5_daos_err_to_string(ret))
 
     /* TODO: If no more hard links point to the object in question, it should be
@@ -2396,7 +2398,7 @@ H5_daos_link_remove_from_crt_idx(H5_daos_group_t *target_grp, const H5VL_loc_par
     daos_iov_set(&akeys[1], (void *)crt_order_target_buf, H5_DAOS_CRT_ORDER_TO_LINK_TRGT_BUF_SIZE);
 
     /* Remove the akeys */
-    if(0 != (ret = daos_obj_punch_akeys(target_grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 2, akeys, NULL /*event*/)))
+    if(0 != (ret = daos_obj_punch_akeys(target_grp->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 2, akeys, NULL /*event*/)))
         D_GOTO_ERROR(H5E_LINK, H5E_CANTREMOVE, FAIL, "failed to punch link akeys: %s", H5_daos_err_to_string(ret))
 
     /*
@@ -2432,7 +2434,7 @@ done:
  */
 static herr_t
 H5_daos_link_remove_from_crt_idx_name_cb(hid_t H5VL_DAOS_UNUSED group, const char *name,
-    const H5L_info_t H5VL_DAOS_UNUSED *info, void *op_data)
+    const H5L_info2_t H5VL_DAOS_UNUSED *info, void *op_data)
 {
     H5_daos_link_crt_idx_iter_ud_t *cb_ud = (H5_daos_link_crt_idx_iter_ud_t *) op_data;
 
@@ -2559,7 +2561,7 @@ H5_daos_link_shift_crt_idx_keys_down(H5_daos_group_t *target_grp,
     } /* end for */
 
     /* Fetch the data size for each akey */
-    if(0 != (ret = daos_obj_fetch(target_grp->obj.obj_oh, DAOS_TX_NONE, &dkey, (unsigned) 2 * nlinks_shift,
+    if(0 != (ret = daos_obj_fetch(target_grp->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, (unsigned) 2 * nlinks_shift,
             iods, NULL, NULL /*maps*/, NULL /*event*/)))
         D_GOTO_ERROR(H5E_LINK, H5E_READERROR, FAIL, "can't read akey data sizes: %s", H5_daos_err_to_string(ret))
 
@@ -2591,7 +2593,7 @@ H5_daos_link_shift_crt_idx_keys_down(H5_daos_group_t *target_grp,
     } /* end for */
 
     /* Read the akey's data */
-    if(0 != (ret = daos_obj_fetch(target_grp->obj.obj_oh, DAOS_TX_NONE, &dkey, (unsigned) 2 * nlinks_shift,
+    if(0 != (ret = daos_obj_fetch(target_grp->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, (unsigned) 2 * nlinks_shift,
             iods, sgls, NULL /*maps*/, NULL /*event*/)))
         D_GOTO_ERROR(H5E_LINK, H5E_READERROR, FAIL, "can't read akey data: %s", H5_daos_err_to_string(ret))
 
@@ -2615,7 +2617,7 @@ H5_daos_link_shift_crt_idx_keys_down(H5_daos_group_t *target_grp,
     } /* end for */
 
     /* Write the akeys back */
-    if(0 != (ret = daos_obj_update(target_grp->obj.obj_oh, DAOS_TX_NONE, &dkey, (unsigned) 2 * nlinks_shift,
+    if(0 != (ret = daos_obj_update(target_grp->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, (unsigned) 2 * nlinks_shift,
             iods, sgls, NULL /*event*/)))
         D_GOTO_ERROR(H5E_LINK, H5E_WRITEERROR, FAIL, "can't write akey data: %s", H5_daos_err_to_string(ret))
 
@@ -2630,7 +2632,7 @@ H5_daos_link_shift_crt_idx_keys_down(H5_daos_group_t *target_grp,
     *p++ = 0;
     daos_iov_set(&tail_akeys[1], (void *)crt_order_link_trgt_buf, H5_DAOS_ENCODED_CRT_ORDER_SIZE + 1);
 
-    if(0 != (ret = daos_obj_punch_akeys(target_grp->obj.obj_oh, DAOS_TX_NONE, &dkey,
+    if(0 != (ret = daos_obj_punch_akeys(target_grp->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey,
             2, tail_akeys, NULL /*event*/)))
         D_GOTO_ERROR(H5E_LINK, H5E_CANTDELETE, FAIL, "can't trim tail akeys from link creation order index")
 
@@ -2774,7 +2776,7 @@ H5_daos_link_get_name_by_crt_order(H5_daos_group_t *target_grp, H5_iter_order_t 
     } /* end if */
 
     /* Fetch the size of the link's name + link's name if link_name_out is supplied */
-    if(0 != (ret = daos_obj_fetch(target_grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod,
+    if(0 != (ret = daos_obj_fetch(target_grp->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod,
             link_name_out ? &sgl : NULL, NULL /*maps*/, NULL /*event*/)))
         D_GOTO_ERROR(H5E_LINK, H5E_READERROR, (-1), "can't fetch%s link name: %s", link_name_out ? "" : " size of", H5_daos_err_to_string(ret))
 
@@ -2873,7 +2875,7 @@ done:
  */
 static herr_t
 H5_daos_link_get_name_by_name_order_cb(hid_t H5VL_DAOS_UNUSED group, const char *name,
-    const H5L_info_t H5VL_DAOS_UNUSED *info, void *op_data)
+    const H5L_info2_t H5VL_DAOS_UNUSED *info, void *op_data)
 {
     H5_daos_link_find_name_by_idx_ud_t *cb_ud = (H5_daos_link_find_name_by_idx_ud_t *) op_data;
 
@@ -2943,7 +2945,7 @@ H5_daos_link_get_crt_order_by_name(H5_daos_group_t *target_grp, const char *link
     sgl.sg_iovs = &sg_iov;
 
     /* Read link creation order value */
-    if(0 != (ret = daos_obj_fetch(target_grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
+    if(0 != (ret = daos_obj_fetch(target_grp->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
         D_GOTO_ERROR(H5E_LINK, H5E_READERROR, FAIL, "can't read link's creation order value: %s", H5_daos_err_to_string(ret))
 
     if(iod.iod_size == 0)

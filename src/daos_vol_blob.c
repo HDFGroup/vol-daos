@@ -77,7 +77,7 @@ H5_daos_blob_put(void *_file, const void *buf, size_t size, void *blob_id,
         sgl.sg_iovs = &sg_iov;
 
         /* Write blob */
-        if(0 != (ret = daos_obj_update(file->glob_md_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*event*/)))
+        if(0 != (ret = daos_obj_update(file->glob_md_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod, &sgl, NULL /*event*/)))
             D_GOTO_ERROR(H5E_VOL, H5E_WRITEERROR, FAIL, "can't write blob to object: %s", H5_daos_err_to_string(ret))
     } /* end if */
 
@@ -134,7 +134,7 @@ H5_daos_blob_get(void *_file, const void *blob_id, void *buf, size_t size,
         sgl.sg_iovs = &sg_iov;
 
         /* Read blob */
-        if(0 != (ret = daos_obj_fetch(file->glob_md_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
+        if(0 != (ret = daos_obj_fetch(file->glob_md_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
             D_GOTO_ERROR(H5E_VOL, H5E_READERROR, FAIL, "can't read blob from object: %s", H5_daos_err_to_string(ret))
     } /* end if */
 
@@ -213,7 +213,7 @@ H5_daos_blob_specific(void *_file, void *blob_id,
                 /* Punch the blob's dkey, along with all of its akeys.  Due to
                  * the (practical) guarantee of uniqueness of UUIDs, we can
                  * assume we won't delete any unintended akeys. */
-                if(0 != (ret = daos_obj_punch_dkeys(file->glob_md_oh, DAOS_TX_NONE, 1, &dkey, NULL /*event*/)))
+                if(0 != (ret = daos_obj_punch_dkeys(file->glob_md_oh, DAOS_TX_NONE, 0 /*flags*/, 1, &dkey, NULL /*event*/)))
                     D_GOTO_ERROR(H5E_VOL, H5E_CANTREMOVE, FAIL, "failed to punch blob dkey: %s", H5_daos_err_to_string(ret))
 
                 break;

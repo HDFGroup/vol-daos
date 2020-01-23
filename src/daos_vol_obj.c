@@ -28,7 +28,7 @@ static herr_t H5_daos_object_open_by_name(H5_daos_obj_t *loc_obj, const H5VL_loc
     daos_obj_id_t *opened_obj_id, hid_t dxpl_id, void **req);
 static herr_t H5_daos_object_open_by_idx(H5_daos_obj_t *loc_obj, const H5VL_loc_params_t *loc_params,
     daos_obj_id_t *opened_obj_id, hid_t dxpl_id, void **req);
-static herr_t H5_daos_object_visit_link_iter_cb(hid_t group, const char *name, const H5L_info_t *info, void *op_data);
+static herr_t H5_daos_object_visit_link_iter_cb(hid_t group, const char *name, const H5L_info2_t *info, void *op_data);
 static herr_t H5_daos_object_get_info(H5_daos_obj_t *target_obj, unsigned fields, H5O_info_t *obj_info_out);
 static herr_t H5_daos_object_copy_helper(H5_daos_obj_t *src_obj, H5I_type_t src_obj_type,
     H5_daos_group_t *dst_obj, const char *dst_name, unsigned obj_copy_options,
@@ -75,7 +75,7 @@ H5_daos_object_open(void *_item, const H5VL_loc_params_t *loc_params,
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_obj_t *obj = NULL;
     daos_obj_id_t oid = {0};
-    H5VL_token_t obj_token;
+    H5O_token_t obj_token;
     H5I_type_t obj_type = H5I_UNINIT;
     void *ret_value = NULL;
 
@@ -577,6 +577,7 @@ H5_daos_object_get(void *_item, const H5VL_loc_params_t *loc_params,
     void H5VL_DAOS_UNUSED **req, va_list H5VL_DAOS_UNUSED arguments)
 {
     H5_daos_item_t *item = (H5_daos_item_t *) _item;
+    H5_daos_obj_t *target_obj = NULL;
     herr_t          ret_value = SUCCEED;
 
     if(!_item)
@@ -653,11 +654,52 @@ H5_daos_object_get(void *_item, const H5VL_loc_params_t *loc_params,
             break;
         } /* H5VL_OBJECT_GET_TYPE */
 
+        /* H5Oget_info(_by_name|_by_idx)3 */
+        case H5VL_OBJECT_GET_INFO:
+        {
+            H5O_info2_t *oinfo = va_arg(arguments, H5O_info2_t *);
+            unsigned fields = va_arg(arguments, unsigned);
+
+            /* Determine target object */
+            switch (loc_params->type) {
+                case H5VL_OBJECT_BY_SELF:
+                    /* Use item as attribute parent object, or the root group if item is a file */
+                    if(item->type == H5I_FILE)
+                        target_obj = (H5_daos_obj_t *)((H5_daos_file_t *)item)->root_grp;
+                    else
+                        target_obj = (H5_daos_obj_t *)item;
+
+                    target_obj->item.rc++;
+                    break;
+
+                case H5VL_OBJECT_BY_NAME:
+                case H5VL_OBJECT_BY_IDX:
+                    /* Open target object */
+                    if(NULL == (target_obj = (H5_daos_obj_t *)H5_daos_object_open(item, loc_params, NULL, dxpl_id, req)))
+                        D_GOTO_ERROR(H5E_OHDR, H5E_CANTOPENOBJ, FAIL, "can't open object")
+                    break;
+
+                default:
+                    D_GOTO_ERROR(H5E_OHDR, H5E_UNSUPPORTED, FAIL, "unsupported object operation location parameters type")
+            } /* end switch */
+
+            if(H5_daos_object_get_info(target_obj, fields, oinfo) < 0)
+                D_GOTO_ERROR(H5E_OHDR, H5E_CANTGET, FAIL, "can't retrieve info for object")
+
+            break;
+        } /* H5VL_OBJECT_GET_INFO */
+
         default:
             D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported object get operation")
     } /* end switch */
 
 done:
+    if(target_obj) {
+        if(H5_daos_object_close(target_obj, dxpl_id, req) < 0)
+            D_DONE_ERROR(H5E_OHDR, H5E_CLOSEERROR, FAIL, "can't close object")
+        target_obj = NULL;
+    } /* end else */
+
     D_FUNC_LEAVE_API
 } /* end H5_daos_object_get() */
 
@@ -749,7 +791,7 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
 
         case H5VL_OBJECT_LOOKUP:
         {
-            H5VL_token_t *token = va_arg(arguments, H5VL_token_t *);
+            H5O_token_t *token = va_arg(arguments, H5O_token_t *);
 
             if(H5VL_OBJECT_BY_NAME != loc_params->type)
                 D_GOTO_ERROR(H5E_OHDR, H5E_BADVALUE, FAIL, "invalid loc_params type")
@@ -766,7 +808,7 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
             H5_daos_iter_data_t iter_data;
             H5_index_t idx_type = (H5_index_t) va_arg(arguments, int);
             H5_iter_order_t iter_order = (H5_iter_order_t) va_arg(arguments, int);
-            H5O_iterate_t iter_op = va_arg(arguments, H5O_iterate_t);
+            H5O_iterate2_t iter_op = va_arg(arguments, H5O_iterate_t);
             void *op_data = va_arg(arguments, void *);
             unsigned fields = va_arg(arguments, unsigned);
 
@@ -866,86 +908,6 @@ done:
 
     D_FUNC_LEAVE_API
 } /* end H5_daos_object_specific() */
-
-
-/*-------------------------------------------------------------------------
- * Function:    H5_daos_object_optional
- *
- * Purpose:     Optional operations with objects
- *
- * Return:      Success:        0
- *              Failure:        -1
- *
- * Programmer:  Neil Fortner
- *              May, 2017
- *
- *-------------------------------------------------------------------------
- */
-herr_t
-H5_daos_object_optional(void *_item, hid_t dxpl_id, void **req,
-    va_list arguments)
-{
-    H5_daos_item_t *item = (H5_daos_item_t *)_item;
-    H5_daos_obj_t *target_obj = NULL;
-    H5VL_object_optional_t optional_type = (H5VL_object_optional_t)va_arg(arguments, int);
-    H5VL_loc_params_t *loc_params = va_arg(arguments, H5VL_loc_params_t *);
-    herr_t ret_value = SUCCEED;    /* Return value */
-
-    if(!_item)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL")
-
-    /* Determine target object */
-    switch (loc_params->type) {
-        case H5VL_OBJECT_BY_SELF:
-            /* Use item as attribute parent object, or the root group if item is a file */
-            if(item->type == H5I_FILE)
-                target_obj = (H5_daos_obj_t *)((H5_daos_file_t *)item)->root_grp;
-            else
-                target_obj = (H5_daos_obj_t *)item;
-
-            target_obj->item.rc++;
-            break;
-
-        case H5VL_OBJECT_BY_NAME:
-        case H5VL_OBJECT_BY_IDX:
-            /* Open target object */
-            if(NULL == (target_obj = (H5_daos_obj_t *)H5_daos_object_open(item, loc_params, NULL, dxpl_id, req)))
-                D_GOTO_ERROR(H5E_OHDR, H5E_CANTOPENOBJ, FAIL, "can't open object")
-            break;
-
-        default:
-            D_GOTO_ERROR(H5E_OHDR, H5E_UNSUPPORTED, FAIL, "unsupported object operation location parameters type")
-    } /* end switch */
-
-    switch (optional_type) {
-        /* H5Oget_info / H5Oget_info_by_name / H5Oget_info_by_idx */
-        case H5VL_OBJECT_GET_INFO:
-            {
-                H5O_info_t *obj_info = va_arg(arguments, H5O_info_t *);
-                unsigned fields = va_arg(arguments, unsigned);
-
-                if(H5_daos_object_get_info(target_obj, fields, obj_info) < 0)
-                    D_GOTO_ERROR(H5E_OHDR, H5E_CANTGET, FAIL, "can't retrieve info for object")
-
-                break;
-            } /* end block */
-
-        case H5VL_OBJECT_GET_COMMENT:
-        case H5VL_OBJECT_SET_COMMENT:
-            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "unsupported optional operation")
-        default:
-            D_GOTO_ERROR(H5E_VOL, H5E_BADVALUE, FAIL, "invalid optional operation")
-    } /* end switch */
-
-done:
-    if(target_obj) {
-        if(H5_daos_object_close(target_obj, dxpl_id, req) < 0)
-            D_DONE_ERROR(H5E_OHDR, H5E_CLOSEERROR, FAIL, "can't close object")
-        target_obj = NULL;
-    } /* end else */
-
-    D_FUNC_LEAVE_API
-} /* end H5_daos_object_optional() */
 
 
 /*-------------------------------------------------------------------------
@@ -1092,13 +1054,13 @@ done:
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_object_visit_link_iter_cb
  *
- * Purpose:     Link iteration callback (H5L_iterate_t) which is
+ * Purpose:     Link iteration callback (H5L_iterate2_t) which is
  *              recursively called for each link in a group during a call
  *              to H5Ovisit(_by_name).
  *
  *              The callback expects to receive an H5_daos_iter_data_t
  *              which contains a pointer to the object iteration operator
- *              callback function (H5O_iterate_t) to call on the object
+ *              callback function (H5O_iterate2_t) to call on the object
  *              which each link points to.
  *
  * Return:      Non-negative on success/Negative on failure
@@ -1106,7 +1068,7 @@ done:
  *-------------------------------------------------------------------------
  */
 static herr_t
-H5_daos_object_visit_link_iter_cb(hid_t group, const char *name, const H5L_info_t *info,
+H5_daos_object_visit_link_iter_cb(hid_t group, const char *name, const H5L_info2_t *info,
     void *op_data)
 {
     H5_daos_iter_data_t *iter_data = (H5_daos_iter_data_t *)op_data;
@@ -1169,7 +1131,7 @@ done:
  *-------------------------------------------------------------------------
  */
 static herr_t
-H5_daos_object_get_info(H5_daos_obj_t *target_obj, unsigned fields, H5O_info_t *obj_info_out)
+H5_daos_object_get_info(H5_daos_obj_t *target_obj, unsigned fields, H5O_info2_t *obj_info_out)
 {
     hssize_t num_attrs = 0;
     herr_t ret_value = SUCCEED;
@@ -1186,7 +1148,7 @@ H5_daos_object_get_info(H5_daos_obj_t *target_obj, unsigned fields, H5O_info_t *
     /* Fill in fields of object info */
 
     /* Basic fields */
-    if(fields & H5O_INFO_ALL) {
+    if(fields & H5O_INFO_BASIC) {
         uint64_t fileno64;
         uint8_t *uuid_p = (uint8_t *)&target_obj->item.file->uuid;
 
@@ -1196,9 +1158,9 @@ H5_daos_object_get_info(H5_daos_obj_t *target_obj, unsigned fields, H5O_info_t *
         UINT64DECODE(uuid_p, fileno64)
         obj_info_out->fileno = (unsigned long)fileno64;
 
-        /* Encode oid to address.  Note that if the object index grows beyond 30
-         * bits this will return HADDR_UNDEF. */
-        obj_info_out->addr = H5_daos_oid_to_addr(target_obj->oid);
+        /* Get token */
+        if(H5_daos_oid_to_token(target_obj->oid, &obj_info_out->token) < 0)
+            D_GOTO_ERROR(H5E_OHDR, H5E_CANTGET, FAIL, "can't get object token")
 
         /* Set object type */
         switch(target_obj->item.type) {
@@ -1288,7 +1250,7 @@ H5_daos_object_get_num_attrs(H5_daos_obj_t *target_obj)
         sgl.sg_iovs = &sg_iov;
 
         /* Read number of attributes */
-        if(0 != (ret = daos_obj_fetch(target_obj->obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
+        if(0 != (ret = daos_obj_fetch(target_obj->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
             D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, (-1), "can't read number of attributes attached to object: %s", H5_daos_err_to_string(ret))
 
         p = nattrs_buf;
@@ -1383,7 +1345,7 @@ H5_daos_object_update_num_attrs_key(H5_daos_obj_t *target_obj, uint64_t new_natt
     sgl.sg_iovs = &sg_iov;
 
     /* Issue write */
-    if(0 != (ret = daos_obj_update(target_obj->obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*event*/)))
+    if(0 != (ret = daos_obj_update(target_obj->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod, &sgl, NULL /*event*/)))
         D_GOTO_ERROR(H5E_ATTR, H5E_WRITEERROR, FAIL, "can't write number of attributes to object: %s", H5_daos_err_to_string(ret))
 
 done:
@@ -1421,7 +1383,7 @@ done:
  */
 static herr_t
 H5_daos_group_copy_cb(hid_t group, const char *name,
-    const H5L_info_t *info, void *op_data)
+    const H5L_info2_t *info, void *op_data)
 {
     group_copy_op_data *copy_op_data = (group_copy_op_data *) op_data;
     H5VL_loc_params_t sub_loc_params;

@@ -1502,11 +1502,7 @@ H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t *dkey, hssize_
             daos_iov_set(&sg_iov, bkg_buf, (daos_size_t)num_elem * (daos_size_t)file_type_size);
 
             /* Read data from dataset to background buffer */
-<<<<<<< HEAD
-            if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, DAOS_TX_NONE, dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
-=======
-            if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
->>>>>>> master
+            if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
                 D_GOTO_ERROR(H5E_DATASET, H5E_READERROR, FAIL, "can't read data from dataset: %s", H5_daos_err_to_string(ret))
 
             /* Reset iod_size, if the dataset was not allocated then it could
@@ -1526,11 +1522,7 @@ H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t *dkey, hssize_
         daos_iov_set(&sg_iov, tconv_buf, (daos_size_t)num_elem * (daos_size_t)file_type_size);
 
         /* Write data to dataset */
-<<<<<<< HEAD
-        if(0 != (ret = daos_obj_update(dset->obj.obj_oh, DAOS_TX_NONE, dkey, 1, &iod, &sgl, NULL /*event*/)))
-=======
-        if(0 != (ret = daos_obj_update(dset->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod, &sgl, NULL /*event*/)))
->>>>>>> master
+        if(0 != (ret = daos_obj_update(dset->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, dkey, 1, &iod, &sgl, NULL /*event*/)))
             D_GOTO_ERROR(H5E_DATASET, H5E_WRITEERROR, FAIL, "can't write data to dataset: %s", H5_daos_err_to_string(ret))
     } /* end (io_type == IO_WRITE) */
 

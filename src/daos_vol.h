@@ -481,7 +481,7 @@ typedef struct H5_daos_iter_data_t {
         } attr_iter_data;
 
         struct {
-            H5L_iterate_t    link_iter_op;
+            H5L_iterate2_t   link_iter_op;
             dv_hash_table_t *visited_link_table;
             char            *recursive_link_path;
             size_t           recursive_link_path_nalloc;
@@ -489,7 +489,7 @@ typedef struct H5_daos_iter_data_t {
         } link_iter_data;
 
         struct {
-            H5O_iterate_t   obj_iter_op;
+            H5O_iterate2_t  obj_iter_op;
             unsigned        fields;
             const char     *obj_name;
         } obj_iter_data;
@@ -503,46 +503,6 @@ typedef union {
     char *  vls;
 } H5_daos_vl_union_t;
 
-
-/* XXX: The following two definitions are only here until they are
- * moved out of their respective H5Xpkg.h header files and into a
- * more public scope. They are still needed for the DAOS VOL to handle
- * these API calls being made.
- */
-typedef enum H5VL_file_optional_t {
-    H5VL_FILE_CLEAR_ELINK_CACHE,        /* Clear external link cache               */
-    H5VL_FILE_GET_FILE_IMAGE,           /* file image                              */
-    H5VL_FILE_GET_FREE_SECTIONS,        /* file free selections                    */
-    H5VL_FILE_GET_FREE_SPACE,           /* file freespace                          */
-    H5VL_FILE_GET_INFO,                 /* file info                               */
-    H5VL_FILE_GET_MDC_CONF,             /* file metadata cache configuration       */
-    H5VL_FILE_GET_MDC_HR,               /* file metadata cache hit rate            */
-    H5VL_FILE_GET_MDC_SIZE,             /* file metadata cache size                */
-    H5VL_FILE_GET_SIZE,                 /* file size                               */
-    H5VL_FILE_GET_VFD_HANDLE,           /* file VFD handle                         */
-    H5VL_FILE_GET_FILE_ID,              /* retrieve or resurrect file ID of object */
-    H5VL_FILE_RESET_MDC_HIT_RATE,       /* get metadata cache hit rate             */
-    H5VL_FILE_SET_MDC_CONFIG,           /* set metadata cache configuration        */
-    H5VL_FILE_GET_METADATA_READ_RETRY_INFO,
-    H5VL_FILE_START_SWMR_WRITE,
-    H5VL_FILE_START_MDC_LOGGING,
-    H5VL_FILE_STOP_MDC_LOGGING,
-    H5VL_FILE_GET_MDC_LOGGING_STATUS,
-    H5VL_FILE_FORMAT_CONVERT,
-    H5VL_FILE_RESET_PAGE_BUFFERING_STATS,
-    H5VL_FILE_GET_PAGE_BUFFERING_STATS,
-    H5VL_FILE_GET_MDC_IMAGE_INFO,
-    H5VL_FILE_GET_EOA,
-    H5VL_FILE_INCR_FILESIZE,
-    H5VL_FILE_SET_LIBVER_BOUNDS
-} H5VL_file_optional_t;
-
-/* types for object optional VOL operations */
-typedef enum H5VL_object_optional_t {
-    H5VL_OBJECT_GET_COMMENT,            /* get object comment                   */
-    H5VL_OBJECT_GET_INFO,               /* get object info                      */
-    H5VL_OBJECT_SET_COMMENT             /* set object comment                   */
-} H5VL_object_optional_t;
 
 /*********************/
 /* Private Variables */
@@ -635,10 +595,9 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_oid_encode(daos_obj_id_t *oid, uint64_t oidx,
 H5VL_DAOS_PRIVATE herr_t H5_daos_oid_generate(daos_obj_id_t *oid,
     H5I_type_t obj_type, hid_t crt_plist_id, H5_daos_file_t *file,
     hbool_t collective);
-H5VL_DAOS_PRIVATE haddr_t H5_daos_oid_to_addr(daos_obj_id_t oid);
 H5VL_DAOS_PRIVATE herr_t H5_daos_addr_to_oid(daos_obj_id_t *oid, haddr_t addr);
-H5VL_DAOS_PRIVATE herr_t H5_daos_oid_to_token(daos_obj_id_t oid, H5VL_token_t *obj_token);
-H5VL_DAOS_PRIVATE herr_t H5_daos_token_to_oid(H5VL_token_t *obj_token, daos_obj_id_t *oid);
+H5VL_DAOS_PRIVATE herr_t H5_daos_oid_to_token(daos_obj_id_t oid, H5O_token_t *obj_token);
+H5VL_DAOS_PRIVATE herr_t H5_daos_token_to_oid(H5O_token_t *obj_token, daos_obj_id_t *oid);
 H5VL_DAOS_PRIVATE H5I_type_t H5_daos_oid_to_type(daos_obj_id_t oid);
 H5VL_DAOS_PRIVATE void H5_daos_hash128(const char *name, void *hash);
 H5VL_DAOS_PRIVATE int H5_daos_h5op_finalize(tse_task_t *task);
@@ -693,7 +652,7 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_link_get_crt_order_by_name(H5_daos_group_t *tar
 
 /* Link iterate callbacks */
 H5VL_DAOS_PRIVATE herr_t H5_daos_link_iterate_count_links_callback(hid_t group, const char *name,
-    const H5L_info_t *info, void *op_data);
+    const H5L_info2_t *info, void *op_data);
 
 /* Group callbacks */
 H5VL_DAOS_PRIVATE void *H5_daos_group_create(void *_item, const H5VL_loc_params_t *loc_params,
@@ -769,8 +728,6 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_object_get(void *_item, const H5VL_loc_params_t
     H5VL_object_get_t get_type, hid_t dxpl_id, void **req, va_list arguments);
 H5VL_DAOS_PRIVATE herr_t H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
     H5VL_object_specific_t specific_type, hid_t dxpl_id, void **req, va_list arguments);
-H5VL_DAOS_PRIVATE herr_t H5_daos_object_optional(void *_item, hid_t dxpl_id, void **req,
-    va_list arguments);
 
 /* Other object routines */
 H5VL_DAOS_PRIVATE herr_t H5_daos_object_visit(H5_daos_obj_t *target_obj, H5_daos_iter_data_t *obj_iter_data);

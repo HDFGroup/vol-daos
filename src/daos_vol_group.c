@@ -584,7 +584,7 @@ H5_daos_group_open_helper(H5_daos_file_t *file, daos_obj_id_t oid,
     iod.iod_type = DAOS_IOD_SINGLE;
 
     /* Read internal metadata size from group */
-    if(0 != (ret = daos_obj_fetch(grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, NULL, NULL /*maps*/, NULL /*event*/)))
+    if(0 != (ret = daos_obj_fetch(grp->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod, NULL, NULL /*maps*/, NULL /*event*/)))
         D_GOTO_ERROR(H5E_SYM, H5E_CANTDECODE, NULL, "can't read metadata size from group: %s", H5_daos_err_to_string(ret))
 
     /* Check for metadata not found */
@@ -603,7 +603,7 @@ H5_daos_group_open_helper(H5_daos_file_t *file, daos_obj_id_t oid,
     sgl.sg_iovs = &sg_iov;
 
     /* Read internal metadata from group */
-    if(0 != (ret = daos_obj_fetch(grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
+    if(0 != (ret = daos_obj_fetch(grp->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
         D_GOTO_ERROR(H5E_SYM, H5E_CANTDECODE, NULL, "can't read metadata from group: %s", H5_daos_err_to_string(ret))
 
     /* Decode GCPL */
@@ -1292,7 +1292,7 @@ H5_daos_group_get_num_links(H5_daos_group_t *target_grp)
         sgl.sg_iovs = &sg_iov;
 
         /* Read num links */
-        if(0 != (ret = daos_obj_fetch(target_grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
+        if(0 != (ret = daos_obj_fetch(target_grp->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
             D_GOTO_ERROR(H5E_SYM, H5E_READERROR, (-1), "can't read number of links in group: %s", H5_daos_err_to_string(ret))
 
         p = nlinks_buf;
@@ -1389,7 +1389,7 @@ H5_daos_group_update_num_links_key(H5_daos_group_t *target_grp, uint64_t new_nli
     sgl.sg_iovs = &sg_iov;
 
     /* Issue write */
-    if(0 != (ret = daos_obj_update(target_grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*event*/)))
+    if(0 != (ret = daos_obj_update(target_grp->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod, &sgl, NULL /*event*/)))
         D_GOTO_ERROR(H5E_SYM, H5E_WRITEERROR, FAIL, "can't write number of links to group: %s", H5_daos_err_to_string(ret))
 
 done:
@@ -1448,7 +1448,7 @@ H5_daos_group_get_max_crt_order(H5_daos_group_t *target_grp, uint64_t *max_corde
     sgl.sg_iovs = &sg_iov;
 
     /* Read the max. creation order value */
-    if(0 != (ret = daos_obj_fetch(target_grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
+    if(0 != (ret = daos_obj_fetch(target_grp->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
         D_GOTO_ERROR(H5E_SYM, H5E_READERROR, FAIL, "can't read max creation order: %s", H5_daos_err_to_string(ret))
 
     p = max_corder_buf;
@@ -1526,7 +1526,7 @@ H5_daos_group_update_max_crt_order_key(H5_daos_group_t *target_grp, uint64_t new
     sgl.sg_iovs = &sg_iov;
 
     /* Issue write */
-    if(0 != (ret = daos_obj_update(target_grp->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*event*/)))
+    if(0 != (ret = daos_obj_update(target_grp->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod, &sgl, NULL /*event*/)))
         D_GOTO_ERROR(H5E_SYM, H5E_WRITEERROR, FAIL, "can't write maximum creation order value to group: %s", H5_daos_err_to_string(ret))
 
 done:

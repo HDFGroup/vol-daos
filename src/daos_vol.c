@@ -63,8 +63,12 @@ static herr_t H5_daos_pool_disconnect(void);
 static herr_t H5_daos_pool_handle_bcast(int rank);
 static void *H5_daos_fapl_copy(const void *_old_fa);
 static herr_t H5_daos_fapl_free(void *_fa);
-static herr_t H5_daos_optional(void *item, hid_t dxpl_id, void **req,
-    va_list arguments);
+static herr_t H5_daos_get_conn_cls(void *item, H5VL_get_conn_lvl_t lvl,
+    const H5VL_class_t **conn_cls);
+static herr_t H5_daos_opt_query(void *item, H5VL_subclass_t cls, int opt_type,
+    hbool_t *supported);
+static herr_t H5_daos_optional(void *item, int op_type, hid_t dxpl_id,
+    void **req, va_list arguments);
 
 /*******************/
 /* Local Variables */
@@ -79,19 +83,19 @@ static const H5VL_class_t H5_daos_g = {
     H5_daos_init,                            /* Plugin initialize */
     H5_daos_term,                            /* Plugin terminate */
     {
-    sizeof(H5_daos_fapl_t),                  /* Plugin Info size */
-    H5_daos_fapl_copy,                       /* Plugin Info copy */
-    NULL,                                    /* Plugin Info compare */
-    H5_daos_fapl_free,                       /* Plugin Info free */
-    NULL,                                    /* Plugin Info To String */
-    NULL,                                    /* Plugin String To Info */
+        sizeof(H5_daos_fapl_t),              /* Plugin Info size */
+        H5_daos_fapl_copy,                   /* Plugin Info copy */
+        NULL,                                /* Plugin Info compare */
+        H5_daos_fapl_free,                   /* Plugin Info free */
+        NULL,                                /* Plugin Info To String */
+        NULL,                                /* Plugin String To Info */
     },
     {
-    NULL,                                    /* Plugin Get Object */
-    NULL,                                    /* Plugin Get Wrap Ctx */
-    NULL,                                    /* Plugin Wrap Object */
-    NULL,                                    /* Plugin Unwrap Object */
-    NULL,                                    /* Plugin Free Wrap Ctx */
+        NULL,                                /* Plugin Get Object */
+        NULL,                                /* Plugin Get Wrap Ctx */
+        NULL,                                /* Plugin Wrap Object */
+        NULL,                                /* Plugin Unwrap Object */
+        NULL,                                /* Plugin Free Wrap Ctx */
     },
     {                                        /* Plugin Attribute cls */
         H5_daos_attribute_create,            /* Plugin Attribute create */
@@ -150,7 +154,11 @@ static const H5VL_class_t H5_daos_g = {
         H5_daos_object_copy,                 /* Plugin Object copy */
         H5_daos_object_get,                  /* Plugin Object get */
         H5_daos_object_specific,             /* Plugin Object specific */
-        H5_daos_object_optional              /* Plugin Object optional */
+        NULL                                 /* Plugin Object optional */
+    },
+    {
+        H5_daos_get_conn_cls,                /* Plugin get connector class */
+        H5_daos_opt_query                    /* Plugin optional callback query */
     },
     {
         NULL,                                /* Plugin Request wait */
@@ -164,7 +172,12 @@ static const H5VL_class_t H5_daos_g = {
         H5_daos_blob_put,                    /* Plugin 'blob' put */
         H5_daos_blob_get,                    /* Plugin 'blob' get */
         H5_daos_blob_specific,               /* Plugin 'blob' specific */
-        NULL,                                /* Plugin 'blob' optional */
+        NULL                                 /* Plugin 'blob' optional */
+    },
+    {
+        NULL,                                /* Plugin Token compare */
+        NULL,                                /* Plugin Token to string */
+        NULL                                 /* Plugin Token from string */
     },
     H5_daos_optional                         /* Plugin optional */
 };
@@ -323,7 +336,7 @@ H5daos_init(MPI_Comm pool_comm, uuid_t pool_uuid, const char *pool_grp, const ch
                 D_GOTO_ERROR(H5E_ATOM, H5E_CANTINSERT, FAIL, "can't create ID for DAOS VOL connector")
         } /* end if */
         else {
-            if((H5_DAOS_g = H5VLget_connector_id(H5_daos_g.name)) < 0)
+            if((H5_DAOS_g = H5VLget_connector_id_by_name(H5_daos_g.name)) < 0)
                 D_GOTO_ERROR(H5E_ATOM, H5E_CANTGET, FAIL, "unable to get registered ID for DAOS VOL connector")
         } /* end else */
     } /* end if */
@@ -1444,6 +1457,62 @@ done:
 } /* end H5_daos_fapl_free() */
 
 
+/*---------------------------------------------------------------------------
+ * Function:    H5_daos_get_conn_cls
+ *
+ * Purpose:     Query the connector class.
+ *
+ * Return:      Success:    0
+ *              Failure:    -1
+ *
+ *---------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_get_conn_cls(void H5VL_DAOS_UNUSED *item,
+    H5VL_get_conn_lvl_t H5VL_DAOS_UNUSED lvl, const H5VL_class_t **conn_cls)
+{
+    herr_t          ret_value = SUCCEED;
+
+    if(!conn_cls)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "conn_cls parameter not supplied")
+
+    /* Retrieve the DAOS VOL connector class */
+    *conn_cls = &H5_daos_g;
+
+done:
+    D_FUNC_LEAVE_API
+} /* end H5_daos_get_conn_cls() */
+
+
+/*---------------------------------------------------------------------------
+ * Function:    H5_daos_opt_query
+ *
+ * Purpose:     Query if an optional operation is supported by this connector
+ *
+ * Return:      Success:    0
+ *              Failure:    -1
+ *
+ *---------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_opt_query(void H5VL_DAOS_UNUSED *item,
+    H5VL_subclass_t H5VL_DAOS_UNUSED cls, int H5VL_DAOS_UNUSED opt_type,
+    hbool_t *supported)
+{
+    herr_t          ret_value = SUCCEED;
+
+    if(!supported)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "\"supported\" parameter not supplied")
+
+    /* This VOL connector currently supports no optional operations queried by
+     * this function */
+    *supported = FALSE;
+
+done:
+    D_FUNC_LEAVE_API
+} /* end H5_daos_opt_query() */
+
+
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_optional
  *
@@ -1456,10 +1525,9 @@ done:
  *
  *-------------------------------------------------------------------------
  */
-static herr_t H5_daos_optional(void *item, hid_t dxpl_id, void **req,
-    va_list arguments)
+static herr_t H5_daos_optional(void *item, int op_type, hid_t dxpl_id,
+    void **req, va_list arguments)
 {
-    int             op_type = va_arg(arguments, int);
     herr_t          ret_value = SUCCEED;
 
     /* Check operation type */
@@ -1787,35 +1855,6 @@ done:
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_oid_to_addr
- *
- * Purpose:     Convert an OID to a compacted "address", which is a unique
- *              haddr_t type value that can be used later to reconstruct
- *              this OID.  If oid.lo uses more than the lower 30 bits, the
- *              address will overflow, so this function will return
- *              HADDR_UNDEF.
- *
- * Return:      Address that maps to oid, or HADDR_UNDEF in the case of
- *              overflow
- *
- *-------------------------------------------------------------------------
- */
-haddr_t
-H5_daos_oid_to_addr(daos_obj_id_t oid)
-{
-    /* Check if the oidx goes beyond the maximum value that can be represented
-     * in an haddr_t, in this case return HADDR_UNDEF */
-    if(oid.lo & ~H5_DAOS_ADDR_OIDLO_MASK)
-        return HADDR_UNDEF;
-
-    /* Build address from the 32 internal DAOS bits, 2 object type bits, and 30
-     * object index bits */
-    return (haddr_t)((oid.lo & H5_DAOS_ADDR_OIDLO_MASK)
-            | (oid.hi & H5_DAOS_ADDR_OIDHI_MASK));
-} /* end H5_daos_oid_to_addr() */
-
-
-/*-------------------------------------------------------------------------
  * Function:    H5_daos_addr_to_oid
  *
  * Purpose:     Convert a compacted address to an OID
@@ -1854,13 +1893,13 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_oid_to_token(daos_obj_id_t oid, H5VL_token_t *obj_token)
+H5_daos_oid_to_token(daos_obj_id_t oid, H5O_token_t *obj_token)
 {
     uint8_t *p;
     herr_t ret_value = SUCCEED;
 
     assert(obj_token);
-    H5daos_compile_assert(H5_DAOS_ENCODED_OID_SIZE <= H5VL_MAX_TOKEN_SIZE);
+    H5daos_compile_assert(H5_DAOS_ENCODED_OID_SIZE <= H5O_MAX_TOKEN_SIZE);
 
     p = (uint8_t *) obj_token;
 
@@ -1882,14 +1921,14 @@ H5_daos_oid_to_token(daos_obj_id_t oid, H5VL_token_t *obj_token)
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_token_to_oid(H5VL_token_t *obj_token, daos_obj_id_t *oid)
+H5_daos_token_to_oid(H5O_token_t *obj_token, daos_obj_id_t *oid)
 {
     uint8_t *p;
     herr_t ret_value = SUCCEED;
 
     assert(obj_token);
     assert(oid);
-    H5daos_compile_assert(H5_DAOS_ENCODED_OID_SIZE <= H5VL_MAX_TOKEN_SIZE);
+    H5daos_compile_assert(H5_DAOS_ENCODED_OID_SIZE <= H5O_MAX_TOKEN_SIZE);
 
     p = (uint8_t *) obj_token;
 

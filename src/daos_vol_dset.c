@@ -420,7 +420,7 @@ H5_daos_dataset_create(void *_item,
         } /* end if */
 
         /* Write internal metadata to dataset */
-        if(0 != (ret = daos_obj_update(dset->obj.obj_oh, DAOS_TX_NONE, &dkey, nr, iod, sgl, NULL /*event*/)))
+        if(0 != (ret = daos_obj_update(dset->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, nr, iod, sgl, NULL /*event*/)))
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't write metadata to dataset: %s", H5_daos_err_to_string(ret))
 
         /* Create link to dataset */
@@ -673,7 +673,7 @@ H5_daos_dataset_open(void *_item,
         iod[3].iod_type = DAOS_IOD_SINGLE;
 
         /* Read internal metadata sizes from dataset */
-        if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, DAOS_TX_NONE, &dkey, 4, iod, NULL,
+        if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 4, iod, NULL,
                       NULL /*maps*/, NULL /*event*/)))
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTDECODE, NULL, "can't read metadata sizes from dataset: %s", H5_daos_err_to_string(ret))
 
@@ -727,7 +727,7 @@ H5_daos_dataset_open(void *_item,
         } /* end if */
 
         /* Read internal metadata from dataset */
-        if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, DAOS_TX_NONE, &dkey, nr, iod, sgl, NULL /*maps*/, NULL /*event*/)))
+        if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, nr, iod, sgl, NULL /*maps*/, NULL /*event*/)))
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTDECODE, NULL, "can't read metadata from dataset: %s", H5_daos_err_to_string(ret))
 
         /* Broadcast dataset info if there are other processes that need it */
@@ -1303,6 +1303,7 @@ H5_daos_dataset_io_types_equal(H5_daos_dset_t *dset, daos_key_t *dkey, hssize_t 
     chunk_io_ud->req->rc++;
     chunk_io_ud->dset->obj.item.rc++;
 
+
 done:
     /* Cleanup on failure */
     if(ret_value < 0 && chunk_io_ud) {
@@ -1470,7 +1471,7 @@ H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t *dkey, hssize_
         daos_iov_set(&sg_iov, tconv_buf, (daos_size_t)num_elem * (daos_size_t)file_type_size);
 
         /* Read data to tconv_buf */
-        if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, DAOS_TX_NONE, dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
+        if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
             D_GOTO_ERROR(H5E_DATASET, H5E_READERROR, FAIL, "can't read data from dataset: %s", H5_daos_err_to_string(ret))
 
         /* Gather data to background buffer if necessary */
@@ -1501,7 +1502,11 @@ H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t *dkey, hssize_
             daos_iov_set(&sg_iov, bkg_buf, (daos_size_t)num_elem * (daos_size_t)file_type_size);
 
             /* Read data from dataset to background buffer */
+<<<<<<< HEAD
             if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, DAOS_TX_NONE, dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
+=======
+            if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
+>>>>>>> master
                 D_GOTO_ERROR(H5E_DATASET, H5E_READERROR, FAIL, "can't read data from dataset: %s", H5_daos_err_to_string(ret))
 
             /* Reset iod_size, if the dataset was not allocated then it could
@@ -1521,7 +1526,11 @@ H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t *dkey, hssize_
         daos_iov_set(&sg_iov, tconv_buf, (daos_size_t)num_elem * (daos_size_t)file_type_size);
 
         /* Write data to dataset */
+<<<<<<< HEAD
         if(0 != (ret = daos_obj_update(dset->obj.obj_oh, DAOS_TX_NONE, dkey, 1, &iod, &sgl, NULL /*event*/)))
+=======
+        if(0 != (ret = daos_obj_update(dset->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod, &sgl, NULL /*event*/)))
+>>>>>>> master
             D_GOTO_ERROR(H5E_DATASET, H5E_WRITEERROR, FAIL, "can't write data to dataset: %s", H5_daos_err_to_string(ret))
     } /* end (io_type == IO_WRITE) */
 
@@ -2241,7 +2250,7 @@ H5_daos_dataset_refresh(H5_daos_dset_t *dset, hid_t H5VL_DAOS_UNUSED dxpl_id,
     iod.iod_type = DAOS_IOD_SINGLE;
 
     /* Read dataspace size from dataset */
-    if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, NULL,
+    if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod, NULL,
             NULL /*maps*/, NULL /*event*/)))
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTDECODE, FAIL, "can't read dataspace size from dataset: %s", H5_daos_err_to_string(ret))
 
@@ -2263,7 +2272,7 @@ H5_daos_dataset_refresh(H5_daos_dset_t *dset, hid_t H5VL_DAOS_UNUSED dxpl_id,
     sgl.sg_iovs = &sg_iov;
 
     /* Read dataspace from dataset */
-    if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
+    if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTDECODE, FAIL, "can't read metadata from dataset: %s", H5_daos_err_to_string(ret))
 
     /* Decode dataspace */
@@ -2367,7 +2376,7 @@ H5_daos_dataset_set_extent(H5_daos_dset_t *dset, const hsize_t *size,
         sgl.sg_iovs = &sg_iov;
 
         /* Write updated dataspace to dataset */
-        if(0 != (ret = daos_obj_update(dset->obj.obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*event*/)))
+        if(0 != (ret = daos_obj_update(dset->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod, &sgl, NULL /*event*/)))
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't write metadata to dataset: %s", H5_daos_err_to_string(ret))
     } /* end if */
 

@@ -291,7 +291,7 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
         sgl[4].sg_iovs = &sg_iov[4];
 
         /* Read num attributes and max creation order */
-        if(0 != (ret = daos_obj_fetch(attr->parent->obj_oh, DAOS_TX_NONE, &dkey, 2, &iod[3], &sgl[3], NULL /*maps*/, NULL /*event*/)))
+        if(0 != (ret = daos_obj_fetch(attr->parent->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 2, &iod[3], &sgl[3], NULL /*maps*/, NULL /*event*/)))
             D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't read num attributes: %s", H5_daos_err_to_string(ret))
 
         p = &nattr_old_buf[1];
@@ -398,7 +398,7 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
     } /* end if */
 
     /* Write attribute metadata to parent object */
-    if(0 != (ret = daos_obj_update(attr->parent->obj_oh, DAOS_TX_NONE, &dkey, attr->parent->ocpl_cache.track_acorder ? 7 : 3, iod, sgl, NULL /*event*/)))
+    if(0 != (ret = daos_obj_update(attr->parent->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, attr->parent->ocpl_cache.track_acorder ? 7 : 3, iod, sgl, NULL /*event*/)))
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't write attribute metadata: %s", H5_daos_err_to_string(ret))
 
     /* Finish setting up attribute struct */
@@ -563,7 +563,7 @@ H5_daos_attribute_open(void *_item, const H5VL_loc_params_t *loc_params,
     iod[2].iod_type = DAOS_IOD_SINGLE;
 
     /* Read attribute metadata sizes from parent object */
-    if(0 != (ret = daos_obj_fetch(attr->parent->obj_oh, DAOS_TX_NONE, &dkey, 3, iod, NULL, NULL /*maps*/, NULL /*event*/)))
+    if(0 != (ret = daos_obj_fetch(attr->parent->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 3, iod, NULL, NULL /*maps*/, NULL /*event*/)))
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTDECODE, NULL, "can't read attribute metadata sizes: %s", H5_daos_err_to_string(ret))
 
     if(iod[0].iod_size == (uint64_t)0 || iod[1].iod_size == (uint64_t)0 || iod[2].iod_size == (uint64_t)0)
@@ -592,7 +592,7 @@ H5_daos_attribute_open(void *_item, const H5VL_loc_params_t *loc_params,
     sgl[2].sg_iovs = &sg_iov[2];
 
     /* Read attribute metadata from parent object */
-    if(0 != (ret = daos_obj_fetch(attr->parent->obj_oh, DAOS_TX_NONE, &dkey, 3, iod, sgl, NULL /*maps*/, NULL /*event*/)))
+    if(0 != (ret = daos_obj_fetch(attr->parent->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 3, iod, sgl, NULL /*maps*/, NULL /*event*/)))
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTDECODE, NULL, "can't read attribute metadata: %s", H5_daos_err_to_string(ret))
 
     /* Decode datatype and dataspace */
@@ -839,7 +839,7 @@ H5_daos_attribute_read(void *_attr, hid_t mem_type_id, void *buf,
     sgl.sg_iovs = &sg_iov;
 
     /* Read data from attribute */
-    if(0 != (ret = daos_obj_fetch(attr->parent->obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
+    if(0 != (ret = daos_obj_fetch(attr->parent->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
         D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, FAIL, "can't read data from attribute: %s", H5_daos_err_to_string(ret))
 
     /* Check for nothing read, in this case we must clear the read buffer */
@@ -989,7 +989,7 @@ H5_daos_attribute_write(void *_attr, hid_t mem_type_id, const void *buf,
             /* Read data from attribute to background buffer */
             daos_iov_set(&sg_iov, bkg_buf, (daos_size_t)(attr_size * (uint64_t)file_type_size));
 
-            if(0 != (ret = daos_obj_fetch(attr->parent->obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
+            if(0 != (ret = daos_obj_fetch(attr->parent->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
                 D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, FAIL, "can't read data from attribute: %s", H5_daos_err_to_string(ret))
 
             /* Reset iod_size, if the attribute was not writted to then it could
@@ -1012,7 +1012,7 @@ H5_daos_attribute_write(void *_attr, hid_t mem_type_id, const void *buf,
         daos_iov_set(&sg_iov, (void *)buf, (daos_size_t)(attr_size * (uint64_t)file_type_size));
 
     /* Write data to attribute */
-    if(0 != (ret = daos_obj_update(attr->parent->obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*event*/)))
+    if(0 != (ret = daos_obj_update(attr->parent->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod, &sgl, NULL /*event*/)))
         D_GOTO_ERROR(H5E_ATTR, H5E_WRITEERROR, FAIL, "can't write data to attribute: %s", H5_daos_err_to_string(ret))
 
 done:
@@ -1508,7 +1508,7 @@ H5_daos_attribute_delete(H5_daos_obj_t *attr_container_obj, const H5VL_loc_param
     daos_key_t dkey;
     daos_key_t akeys[H5_DAOS_ATTR_NUM_AKEYS];
     size_t akey_len;
-    char *target_attr_name = attr_name;
+    const char *target_attr_name = attr_name;
     char *attr_name_buf_dyn = NULL;
     char attr_name_buf_static[H5_DAOS_ATTR_NAME_BUF_SIZE];
     char *type_key = NULL;
@@ -1566,7 +1566,7 @@ H5_daos_attribute_delete(H5_daos_obj_t *attr_container_obj, const H5VL_loc_param
     daos_iov_set(&akeys[4], (void *)data_key, (daos_size_t)akey_len);
 
     /* DSINC - currently no support for deleting vlen data akeys */
-    if(0 != (ret = daos_obj_punch_akeys(attr_container_obj->obj_oh, DAOS_TX_NONE, &dkey,
+    if(0 != (ret = daos_obj_punch_akeys(attr_container_obj->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey,
             nr, akeys, NULL /*event*/)))
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTDELETE, FAIL, "unable to delete attribute")
 
@@ -1690,7 +1690,7 @@ H5_daos_attribute_remove_from_crt_idx(H5_daos_obj_t *target_obj, const H5VL_loc_
     daos_iov_set(&crt_akey, (void *)idx_buf, H5_DAOS_ENCODED_CRT_ORDER_SIZE);
 
     /* Remove the akey */
-    if(0 != (ret = daos_obj_punch_akeys(target_obj->obj_oh, DAOS_TX_NONE, &dkey, 1, &crt_akey, NULL /*event*/)))
+    if(0 != (ret = daos_obj_punch_akeys(target_obj->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &crt_akey, NULL /*event*/)))
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTREMOVE, FAIL, "failed to punch attribute akey: %s", H5_daos_err_to_string(ret))
 
     /*
@@ -1837,7 +1837,7 @@ H5_daos_attribute_shift_crt_idx_keys_down(H5_daos_obj_t *target_obj,
     } /* end for */
 
     /* Fetch the data size for each akey */
-    if(0 != (ret = daos_obj_fetch(target_obj->obj_oh, DAOS_TX_NONE, &dkey, (unsigned) nattrs_shift,
+    if(0 != (ret = daos_obj_fetch(target_obj->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, (unsigned) nattrs_shift,
             iods, NULL, NULL /*maps*/, NULL /*event*/)))
         D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, FAIL, "can't read akey data sizes: %s", H5_daos_err_to_string(ret))
 
@@ -1857,7 +1857,7 @@ H5_daos_attribute_shift_crt_idx_keys_down(H5_daos_obj_t *target_obj,
     } /* end for */
 
     /* Read the akey's data */
-    if(0 != (ret = daos_obj_fetch(target_obj->obj_oh, DAOS_TX_NONE, &dkey, (unsigned) nattrs_shift,
+    if(0 != (ret = daos_obj_fetch(target_obj->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, (unsigned) nattrs_shift,
             iods, sgls, NULL /*maps*/, NULL /*event*/)))
         D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, FAIL, "can't read akey data: %s", H5_daos_err_to_string(ret))
 
@@ -1876,7 +1876,7 @@ H5_daos_attribute_shift_crt_idx_keys_down(H5_daos_obj_t *target_obj,
     } /* end for */
 
     /* Write the akeys back */
-    if(0 != (ret = daos_obj_update(target_obj->obj_oh, DAOS_TX_NONE, &dkey, (unsigned) nattrs_shift,
+    if(0 != (ret = daos_obj_update(target_obj->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, (unsigned) nattrs_shift,
             iods, sgls, NULL /*event*/)))
         D_GOTO_ERROR(H5E_ATTR, H5E_WRITEERROR, FAIL, "can't write akey data: %s", H5_daos_err_to_string(ret))
 
@@ -1886,7 +1886,7 @@ H5_daos_attribute_shift_crt_idx_keys_down(H5_daos_obj_t *target_obj,
     UINT64ENCODE(p, tmp_uint);
     daos_iov_set(&tail_akey, (void *)&crt_order_attr_name_buf[0], H5_DAOS_ENCODED_CRT_ORDER_SIZE + 1);
 
-    if(0 != (ret = daos_obj_punch_akeys(target_obj->obj_oh, DAOS_TX_NONE, &dkey,
+    if(0 != (ret = daos_obj_punch_akeys(target_obj->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey,
             1, &tail_akey, NULL /*event*/)))
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTDELETE, FAIL, "can't trim tail akey from attribute creation order index")
 
@@ -1977,7 +1977,7 @@ H5_daos_attribute_exists(H5_daos_obj_t *attr_container_obj, const char *attr_nam
         iod[3].iod_size = DAOS_REC_ANY;
     } /* end if */
 
-    if(0 != (ret = daos_obj_fetch(attr_container_obj->obj_oh, DAOS_TX_NONE, &dkey,
+    if(0 != (ret = daos_obj_fetch(attr_container_obj->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey,
             nr, iod, NULL, NULL, NULL)))
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "akey fetch for attribute '%s' failed: %s", attr_name, H5_daos_err_to_string(ret))
 
@@ -2623,7 +2623,7 @@ H5_daos_attribute_get_name_by_crt_order(H5_daos_obj_t *target_obj, H5_iter_order
     } /* end if */
 
     /* Fetch the size of the attribute's name + attribute's name if attr_name_out is supplied */
-    if(0 != (ret = daos_obj_fetch(target_obj->obj_oh, DAOS_TX_NONE, &dkey, 1, &iod,
+    if(0 != (ret = daos_obj_fetch(target_obj->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod,
             attr_name_out ? &sgl : NULL, NULL /*maps*/, NULL /*event*/)))
         D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, (-1), "can't fetch%s attribute's name: %s", attr_name_out ? "" : " size of", H5_daos_err_to_string(ret))
 
@@ -2804,7 +2804,7 @@ H5_daos_attribute_get_crt_order_by_name(H5_daos_obj_t *target_obj, const char *a
     sgl.sg_iovs = &sg_iov;
 
     /* Read attribute creation order value */
-    if(0 != (ret = daos_obj_fetch(target_obj->obj_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
+    if(0 != (ret = daos_obj_fetch(target_obj->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
         D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, FAIL, "can't read attribute's creation order value: %s", H5_daos_err_to_string(ret))
 
     if(iod.iod_size == 0)

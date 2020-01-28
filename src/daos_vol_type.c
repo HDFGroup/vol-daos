@@ -605,7 +605,7 @@ H5_daos_datatype_commit(void *_item,
         sgl[1].sg_iovs = &sg_iov[1];
 
         /* Write internal metadata to datatype */
-        if(0 != (ret = daos_obj_update(dtype->obj.obj_oh, DAOS_TX_NONE, &dkey, 2, iod, sgl, NULL /*event*/)))
+        if(0 != (ret = daos_obj_update(dtype->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 2, iod, sgl, NULL /*event*/)))
             D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't write metadata to datatype: %s", H5_daos_err_to_string(ret))
 
         /* Create link to datatype */
@@ -817,7 +817,7 @@ H5_daos_datatype_open(void *_item,
         iod[1].iod_type = DAOS_IOD_SINGLE;
 
         /* Read internal metadata sizes from datatype */
-        if(0 != (ret = daos_obj_fetch(dtype->obj.obj_oh, DAOS_TX_NONE, &dkey, 2, iod, NULL,
+        if(0 != (ret = daos_obj_fetch(dtype->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 2, iod, NULL,
                       NULL /*maps*/, NULL /*event*/)))
             D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTDECODE, NULL, "can't read metadata sizes from datatype: %s", H5_daos_err_to_string(ret))
 
@@ -850,7 +850,7 @@ H5_daos_datatype_open(void *_item,
         sgl[1].sg_iovs = &sg_iov[1];
 
         /* Read internal metadata from datatype */
-        if(0 != (ret = daos_obj_fetch(dtype->obj.obj_oh, DAOS_TX_NONE, &dkey, 2, iod, sgl, NULL /*maps*/, NULL /*event*/)))
+        if(0 != (ret = daos_obj_fetch(dtype->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 2, iod, sgl, NULL /*maps*/, NULL /*event*/)))
             D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTDECODE, NULL, "can't read metadata from datatype: %s", H5_daos_err_to_string(ret))
 
         /* Broadcast datatype info if there are other processes that need it */

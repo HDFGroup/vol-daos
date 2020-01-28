@@ -1701,36 +1701,20 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
     } /* end for */
 
 done:
-    /* Create task to finalize H5 operation */
-    if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &dset->obj.item.file->sched, int_req, &finalize_task)))
-        D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
-    /* Register dependencies (if any) */
-    else if(finalize_ndeps > 0 && 0 != (ret = tse_task_register_deps(finalize_task, finalize_ndeps, finalize_deps)))
-        D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
-    /* Schedule finalize task */
-    else if(0 != (ret = tse_task_schedule(finalize_task, false)))
-        D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
-    else
-        /* finalize_task now owns a reference to req */
-        int_req->rc++;
-
-    /* Free memory */
-    if(chunk_info) {
-        if(close_spaces) {
-            for(i = 0; i < nchunks_sel; i++) {
-                if((chunk_info[i].mspace_id >= 0) && (H5Sclose(chunk_info[i].mspace_id) < 0))
-                    D_DONE_ERROR(H5E_DATASPACE, H5E_CANTCLOSEOBJ, FAIL, "can't close memory space");
-                if((chunk_info[i].fspace_id >= 0) && (H5Sclose(chunk_info[i].fspace_id) < 0))
-                    D_DONE_ERROR(H5E_DATASPACE, H5E_CANTCLOSEOBJ, FAIL, "can't close file space");
-            } /* end for */
-        } /* end if */
-
-        DV_free(chunk_info);
-    } /* end if */
-    if(finalize_deps != &finalize_dep)
-        DV_free(finalize_deps);
-
     if(int_req) {
+        /* Create task to finalize H5 operation */
+        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &dset->obj.item.file->sched, int_req, &finalize_task)))
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+        /* Register dependencies (if any) */
+        else if(finalize_ndeps > 0 && 0 != (ret = tse_task_register_deps(finalize_task, finalize_ndeps, finalize_deps)))
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+        /* Schedule finalize task */
+        else if(0 != (ret = tse_task_schedule(finalize_task, false)))
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+        else
+            /* finalize_task now owns a reference to req */
+            int_req->rc++;
+
         /* Block until operation completes */
         {
             bool is_empty;
@@ -1747,6 +1731,22 @@ done:
         /* Close internal request */
         H5_daos_req_free_int(int_req);
     } /* end if */
+
+    /* Free memory */
+    if(chunk_info) {
+        if(close_spaces) {
+            for(i = 0; i < nchunks_sel; i++) {
+                if((chunk_info[i].mspace_id >= 0) && (H5Sclose(chunk_info[i].mspace_id) < 0))
+                    D_DONE_ERROR(H5E_DATASPACE, H5E_CANTCLOSEOBJ, FAIL, "can't close memory space");
+                if((chunk_info[i].fspace_id >= 0) && (H5Sclose(chunk_info[i].fspace_id) < 0))
+                    D_DONE_ERROR(H5E_DATASPACE, H5E_CANTCLOSEOBJ, FAIL, "can't close file space");
+            } /* end for */
+        } /* end if */
+
+        DV_free(chunk_info);
+    } /* end if */
+    if(finalize_deps != &finalize_dep)
+        DV_free(finalize_deps);
 
     D_FUNC_LEAVE_API
 } /* end H5_daos_dataset_read() */
@@ -1913,36 +1913,20 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
     } /* end for */
 
 done:
-    /* Create task to finalize H5 operation */
-    if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &dset->obj.item.file->sched, int_req, &finalize_task)))
-        D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
-    /* Register dependencies (if any) */
-    else if(finalize_ndeps > 0 && 0 != (ret = tse_task_register_deps(finalize_task, finalize_ndeps, finalize_deps)))
-        D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
-    /* Schedule finalize task */
-    else if(0 != (ret = tse_task_schedule(finalize_task, false)))
-        D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
-    else
-        /* finalize_task now owns a reference to req */
-        int_req->rc++;
-
-    /* Free memory */
-    if(chunk_info) {
-        if(close_spaces) {
-            for(i = 0; i < nchunks_sel; i++) {
-                if((chunk_info[i].mspace_id >= 0) && (H5Sclose(chunk_info[i].mspace_id) < 0))
-                    D_DONE_ERROR(H5E_DATASPACE, H5E_CANTCLOSEOBJ, FAIL, "can't close memory space");
-                if((chunk_info[i].fspace_id >= 0) && (H5Sclose(chunk_info[i].fspace_id) < 0))
-                    D_DONE_ERROR(H5E_DATASPACE, H5E_CANTCLOSEOBJ, FAIL, "can't close file space");
-            } /* end for */
-        } /* end if */
-
-        DV_free(chunk_info);
-    } /* end if */
-    if(finalize_deps != &finalize_dep)
-        DV_free(finalize_deps);
-
     if(int_req) {
+        /* Create task to finalize H5 operation */
+        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &dset->obj.item.file->sched, int_req, &finalize_task)))
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+        /* Register dependencies (if any) */
+        else if(finalize_ndeps > 0 && 0 != (ret = tse_task_register_deps(finalize_task, finalize_ndeps, finalize_deps)))
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+        /* Schedule finalize task */
+        else if(0 != (ret = tse_task_schedule(finalize_task, false)))
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+        else
+            /* finalize_task now owns a reference to req */
+            int_req->rc++;
+
         /* Block until operation completes */
         {
             bool is_empty;
@@ -1959,6 +1943,22 @@ done:
         /* Close internal request */
         H5_daos_req_free_int(int_req);
     } /* end if */
+
+    /* Free memory */
+    if(chunk_info) {
+        if(close_spaces) {
+            for(i = 0; i < nchunks_sel; i++) {
+                if((chunk_info[i].mspace_id >= 0) && (H5Sclose(chunk_info[i].mspace_id) < 0))
+                    D_DONE_ERROR(H5E_DATASPACE, H5E_CANTCLOSEOBJ, FAIL, "can't close memory space");
+                if((chunk_info[i].fspace_id >= 0) && (H5Sclose(chunk_info[i].fspace_id) < 0))
+                    D_DONE_ERROR(H5E_DATASPACE, H5E_CANTCLOSEOBJ, FAIL, "can't close file space");
+            } /* end for */
+        } /* end if */
+
+        DV_free(chunk_info);
+    } /* end if */
+    if(finalize_deps != &finalize_dep)
+        DV_free(finalize_deps);
 
     D_FUNC_LEAVE_API
 } /* end H5_daos_dataset_write() */

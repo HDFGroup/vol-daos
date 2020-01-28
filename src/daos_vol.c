@@ -2336,7 +2336,7 @@ H5_daos_md_update_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     update_args = daos_task_get_args(task);
     update_args->oh = udata->obj->obj_oh;
     update_args->th = DAOS_TX_NONE;
-    //update_args->flags = 0;
+    update_args->flags = 0;
     update_args->dkey = &udata->dkey;
     update_args->nr = udata->nr;
     update_args->iods = udata->iod;

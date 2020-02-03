@@ -2317,7 +2317,7 @@ int
 H5_daos_md_update_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
     H5_daos_md_update_cb_ud_t *udata;
-    daos_obj_update_t *update_args;
+    daos_obj_rw_t *update_args;
 
     /* Get private data */
     udata = tse_task_get_priv(task);
@@ -2336,6 +2336,7 @@ H5_daos_md_update_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     update_args = daos_task_get_args(task);
     update_args->oh = udata->obj->obj_oh;
     update_args->th = DAOS_TX_NONE;
+    update_args->flags = 0;
     update_args->dkey = &udata->dkey;
     update_args->nr = udata->nr;
     update_args->iods = udata->iod;
@@ -2381,10 +2382,19 @@ H5_daos_md_update_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         udata->req->failed_task = udata->task_name;
     } /* end if */
 
+    /* Close object */
+    if(H5_daos_object_close(udata->obj, H5I_INVALID_HID, NULL) < 0)
+        D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, H5_DAOS_CLOSE_ERROR, "can't close object")
+
+    /* Handle errors in this function */
+    /* Do not place any code that can issue errors after this block */
+    if(ret_value < 0 && udata->req->status >= H5_DAOS_INCOMPLETE) {
+        udata->req->status = ret_value;
+        udata->req->failed_task = udata->task_name;
+    } /* end if */
+
     /* Free private data */
     H5_daos_req_free_int(udata->req);
-    if(H5_daos_object_close(udata->obj, -1, NULL) < 0)
-        D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, H5_DAOS_CLOSE_ERROR, "can't close object")
     if(udata->free_dkey)
         DV_free(udata->dkey.iov_buf);
     if(udata->free_akeys)
@@ -2393,12 +2403,6 @@ H5_daos_md_update_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     for(i = 0; i < udata->nr; i++)
         DV_free(udata->sg_iov[i].iov_buf);
     DV_free(udata);
-
-    /* Handle errors in this function */
-    if(ret_value < 0 && udata->req->status >= H5_DAOS_INCOMPLETE) {
-        udata->req->status = ret_value;
-        udata->req->failed_task = udata->task_name;
-    } /* end if */
 
     return ret_value;
 } /* end H5_daos_md_update_comp_cb() */

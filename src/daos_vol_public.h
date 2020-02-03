@@ -21,6 +21,7 @@
 #include <hdf5.h>
 #include <mpi.h>
 #include <uuid/uuid.h>
+#include <daos.h>
 
 /*****************/
 /* Public Macros */
@@ -49,6 +50,7 @@ extern "C" {
 H5VL_DAOS_PUBLIC herr_t H5daos_init(MPI_Comm pool_comm, uuid_t pool_uuid, const char *pool_grp, const char *pool_svcl);
 H5VL_DAOS_PUBLIC herr_t H5daos_term(void);
 H5VL_DAOS_PUBLIC herr_t H5Pset_fapl_daos(hid_t fapl_id, MPI_Comm comm, MPI_Info info);
+H5VL_DAOS_PUBLIC herr_t H5daos_get_poh(daos_handle_t *poh);
 H5VL_DAOS_PUBLIC herr_t H5daos_set_object_class(hid_t plist_id, char *object_class);
 H5VL_DAOS_PUBLIC ssize_t H5daos_get_object_class(hid_t plist_id, char *object_class, size_t size);
 H5VL_DAOS_PUBLIC herr_t H5daos_set_root_open_object_class(hid_t fapl_id, char *object_class);

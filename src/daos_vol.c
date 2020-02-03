@@ -2517,3 +2517,26 @@ H5PLget_plugin_info(void) {
     return &H5_daos_g;
 }
 
+
+/*-------------------------------------------------------------------------
+ * Function:    H5daos_get_poh
+ *
+ * Purpose:     Internal API function to return the pool object header 
+ *              for the recovery test.
+ *
+ * Return:      Success:    Non-negative.
+ *
+ *              Failure:    Negative.
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t H5daos_get_poh(daos_handle_t *poh) {
+    herr_t ret_value = SUCCEED;
+
+    if(!poh)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "poh pointer is NULL")
+    poh->cookie = H5_daos_poh_g.cookie;
+
+done:
+    D_FUNC_LEAVE
+}

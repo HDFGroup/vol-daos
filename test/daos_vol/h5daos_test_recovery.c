@@ -705,7 +705,7 @@ static int open_objects(hid_t file) {
             goto error;
         } 
 
-        FAULT_INJECTION(k, OP_CLOSE + OBJ_ATTR);
+        FAULT_INJECTION(k, OP_CLOSE + OBJ_GROUP);
 
         if(H5Gclose(group) < 0) {
             H5_FAILED(); AT();

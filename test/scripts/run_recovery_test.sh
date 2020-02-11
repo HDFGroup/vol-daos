@@ -4,7 +4,7 @@ AGENT_DIR=$TMP_DIR
 URI_PATH=$HOME
 HDF5_DAOS_VOL_BUILD_PATH=$HOME/daos-vol_new/build
 
-orterun -np 4 \
+mpirun -np 4 \
 --map-by node \
 --hostfile $HOME/scripts/clients3.txt \
 -x D_LOG_FILE=$TMP_DIR/daos_client.log             \

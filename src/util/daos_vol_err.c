@@ -39,8 +39,19 @@ H5_daos_err_to_string(int ret)
             return "object open incomplete (should not see this)";
         case H5_DAOS_PRE_ERROR:
             return "error in earlier task (should not see this)";
-        case H5_DAOS_CLOSE_ERROR:
+        case H5_DAOS_H5_CLOSE_ERROR:
             return "failed to close HDF5 object";
+        case H5_DAOS_H5_DECODE_ERROR:
+            return "failed to decode HDF5 object";
+        case H5_DAOS_REMOTE_ERROR:
+            return "operation failed on another process";
+        case H5_DAOS_MPI_ERROR:
+            return "MPI operation failed";
+        case H5_DAOS_ALLOC_ERROR:
+            return "memory allocation failed";
+        case H5_DAOS_CPL_CACHE_ERROR:
+            return "failed to fill creation property list cache";
+
         /*
          * GURT errors
          */

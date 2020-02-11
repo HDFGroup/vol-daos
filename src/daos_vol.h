@@ -118,10 +118,19 @@ typedef d_sg_list_t daos_sg_list_t;
 /* Number of object indices to allocate at a time */
 #define H5_DAOS_OIDX_NALLOC 1024
 
+/* Polling interval (in microseconds) when waiting for asynchronous tasks to
+ * finish */
+#define H5_DAOS_ASYNC_POLL_INTERVAL 1000
+
 /* Private error codes for asynchronous operations */
 #define H5_DAOS_INCOMPLETE -1   /* Operation has not yet completed (should only be in the item struct) */
 #define H5_DAOS_PRE_ERROR -2    /* A precursor to this task failed (should only be used as the task return value) */
-#define H5_DAOS_CLOSE_ERROR -3  /* Failed to close HDF5 object */
+#define H5_DAOS_H5_CLOSE_ERROR -3 /* Failed to close HDF5 object */
+#define H5_DAOS_H5_DECODE_ERROR -4 /* Failed to decode HDF5 object */
+#define H5_DAOS_REMOTE_ERROR -5 /* An operation failed on another process */
+#define H5_DAOS_MPI_ERROR -6    /* MPI operation failed */
+#define H5_DAOS_ALLOC_ERROR -7  /* Memory allocation failed */
+#define H5_DAOS_CPL_CACHE_ERROR -8 /* Failed to fill createion property list cache */
 
 /* Remove warnings when connector does not use callback arguments */
 #if defined(__cplusplus)
@@ -423,6 +432,16 @@ typedef struct H5_daos_req_t {
     const char *failed_task; /* Add more error info? DSINC */
 } H5_daos_req_t;
 
+/* Task user data for MPI broadcast of group info for group open */
+typedef struct H5_daos_mpi_ibcast_ud_t {
+    H5_daos_req_t *req;
+    H5_daos_obj_t *obj;
+    void *buffer;
+    int buffer_len;
+    int count;
+} H5_daos_mpi_ibcast_ud_t;
+
+/* Task user data for metadata updates */
 typedef struct H5_daos_md_update_cb_ud_t {
     H5_daos_req_t *req;
     H5_daos_obj_t *obj;
@@ -490,6 +509,13 @@ typedef union {
     char *  vls;
 } H5_daos_vl_union_t;
 
+/* An enum listing the different modes in which to make progress using
+ * H5_daos_progress */
+typedef enum {
+    H5_DAOS_PROGRESS_KICK,
+    H5_DAOS_PROGRESS_WAIT,
+} H5_daos_progress_mode_t;
+
 
 /*********************/
 /* Private Variables */
@@ -525,6 +551,16 @@ extern H5VL_DAOS_PRIVATE daos_handle_t H5_daos_poh_g;
 
 /* Global variables used to open the pool */
 extern H5VL_DAOS_PRIVATE MPI_Comm H5_daos_pool_comm_g;
+
+/* DAOS task and MPI request for current in-flight MPI operation.  Only allow
+ * one at a time for now since:
+ * - All MPI operations must be in the same order across all ranks, therefore
+ *   we cannot start MPI operations in an HDF5 operation until all MPI
+ *   operations in previous HDF5 operations are complete
+ * - All individual HDF5 operations can only process MPI operations one at a
+ *   time */
+extern tse_task_t *H5_daos_mpi_task;
+extern MPI_Request H5_daos_mpi_req;
 
 /* Constant Keys */
 extern H5VL_DAOS_PRIVATE const char H5_daos_int_md_key_g[];
@@ -588,8 +624,12 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_token_to_oid(H5O_token_t *obj_token, daos_obj_i
 H5VL_DAOS_PRIVATE H5I_type_t H5_daos_oid_to_type(daos_obj_id_t oid);
 H5VL_DAOS_PRIVATE void H5_daos_hash128(const char *name, void *hash);
 H5VL_DAOS_PRIVATE int H5_daos_h5op_finalize(tse_task_t *task);
+H5VL_DAOS_PRIVATE int H5_daos_h5op_finalize_helper(H5_daos_req_t *req);
 H5VL_DAOS_PRIVATE int H5_daos_md_update_prep_cb(tse_task_t *task, void *args);
 H5VL_DAOS_PRIVATE int H5_daos_md_update_comp_cb(tse_task_t *task, void *args);
+H5VL_DAOS_PRIVATE int H5_daos_mpi_ibcast_task(tse_task_t *task);
+H5VL_DAOS_PRIVATE herr_t H5_daos_progress(H5_daos_file_t *file,
+    H5_daos_progress_mode_t mode);
 H5VL_DAOS_PRIVATE herr_t H5_daos_comm_info_dup(MPI_Comm comm, MPI_Info info,
         MPI_Comm *comm_new, MPI_Info *info_new);
 H5VL_DAOS_PRIVATE herr_t H5_daos_comm_info_free(MPI_Comm *comm, MPI_Info *info);
@@ -656,14 +696,15 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_group_close(void *_grp, hid_t dxpl_id, void **r
 H5VL_DAOS_PRIVATE H5_daos_group_t *H5_daos_group_traverse(H5_daos_item_t *item, const char *path,
     hid_t lcpl_id, hid_t dxpl_id, void **req, const char **obj_name, void **gcpl_buf_out,
     uint64_t *gcpl_len_out);
+H5VL_DAOS_PRIVATE H5_daos_group_t *H5_daos_group_open_helper_async(
+    H5_daos_file_t *file, daos_obj_id_t oid, hid_t gapl_id, hid_t dxpl_id,
+    H5_daos_req_t *req, hbool_t collective);
 H5VL_DAOS_PRIVATE void *H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
     hid_t gapl_id, hid_t dxpl_id, H5_daos_req_t *req, H5_daos_group_t *parent_grp,
     const char *name, size_t name_len, uint64_t oidx, hbool_t collective);
 H5VL_DAOS_PRIVATE void *H5_daos_group_open_helper(H5_daos_file_t *file, daos_obj_id_t oid,
     hid_t gapl_id, hid_t dxpl_id, H5_daos_req_t *req, void **gcpl_buf_out,
     uint64_t *gcpl_len_out);
-H5VL_DAOS_PRIVATE void *H5_daos_group_reconstitute(H5_daos_file_t *file, daos_obj_id_t oid,
-    uint8_t *gcpl_buf, hid_t gapl_id, hid_t dxpl_id, H5_daos_req_t *req);
 H5VL_DAOS_PRIVATE ssize_t H5_daos_group_get_num_links(H5_daos_group_t *target_grp);
 H5VL_DAOS_PRIVATE herr_t H5_daos_group_update_num_links_key(H5_daos_group_t *target_grp, uint64_t new_nlinks);
 H5VL_DAOS_PRIVATE herr_t H5_daos_group_get_max_crt_order(H5_daos_group_t *target_grp, uint64_t *max_corder);

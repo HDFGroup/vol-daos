@@ -18,7 +18,10 @@
 #include "util/daos_vol_err.h"  /* DAOS connector error handling           */
 #include "util/daos_vol_mem.h"  /* DAOS connector memory management        */
 
-/* Prototypes */
+/********************/
+/* Local Prototypes */
+/********************/
+
 static H5_daos_req_t *H5_daos_req_create(H5_daos_file_t *file);
 
 static herr_t H5_daos_cont_get_fapl_info(hid_t fapl_id, H5_daos_fapl_t *fa_out);
@@ -26,7 +29,6 @@ static herr_t H5_daos_cont_set_mpi_info(H5_daos_file_t *file, H5_daos_fapl_t *fa
 static herr_t H5_daos_cont_create(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *int_req);
 static herr_t H5_daos_cont_open(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *int_req);
 static herr_t H5_daos_cont_handle_bcast(H5_daos_file_t *file);
-static herr_t H5_daos_cont_gcpl_bcast(H5_daos_file_t *file, void **gcpl_buf, uint64_t *gcpl_len);
 
 static herr_t H5_daos_fill_fapl_cache(H5_daos_file_t *file, hid_t fapl_id);
 static herr_t H5_daos_file_close_helper(H5_daos_file_t *file,
@@ -46,6 +48,7 @@ typedef struct get_obj_ids_udata_t {
     size_t obj_count;
 } get_obj_ids_udata_t;
 
+
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_req_create
  *
@@ -77,6 +80,7 @@ done:
     D_FUNC_LEAVE
 } /* end H5_daos_req_create() */
 
+
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_cont_get_fapl_info
  *
@@ -132,6 +136,7 @@ done:
     D_FUNC_LEAVE
 } /* end H5_daos_cont_get_fapl_info() */
 
+
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_cont_set_mpi_info
  *
@@ -173,6 +178,7 @@ done:
     D_FUNC_LEAVE
 } /* end H5_daos_cont_set_mpi_info() */
 
+
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_cont_create
  *
@@ -219,6 +225,7 @@ done:
     D_FUNC_LEAVE
 } /* end H5_daos_cont_create() */
 
+
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_cont_open
  *
@@ -258,6 +265,7 @@ done:
     D_FUNC_LEAVE
 } /* end H5_daos_cont_open() */
 
+
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_cont_handle_bcast
  *
@@ -330,67 +338,6 @@ done:
 
     D_FUNC_LEAVE
 } /* end H5_daos_cont_handle_bcast() */
-
-/*-------------------------------------------------------------------------
- * Function:    H5_daos_cont_gcpl_bcast
- *
- * Purpose:     Broadcast the container GCPL + max OID.
- *
- * Return:      Non-negative on success/Negative on failure
- *
- *-------------------------------------------------------------------------
- */
-static herr_t
-H5_daos_cont_gcpl_bcast(H5_daos_file_t *file, void **gcpl_buf, uint64_t *gcpl_len)
-{
-    herr_t ret_value = SUCCEED; /* Return value */
-    char *buf = NULL;
-    size_t buf_size;
-
-    assert(file);
-    assert(gcpl_buf);
-    assert(gcpl_len);
-
-    /* Bcast size */
-    buf_size = sizeof(uint64_t) + *gcpl_len;
-    if(MPI_SUCCESS != MPI_Bcast(&buf_size, 1, MPI_UINT64_T, 0, file->comm))
-        D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't broadcast gcpl size")
-
-    /* Allocate buffer */
-    if(NULL == (buf = (char *)DV_malloc(buf_size)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate space for bcast buffer")
-
-    if(file->my_rank == 0) {
-        uint8_t *p = (uint8_t *)buf;
-
-        /* Encode GCPL length */
-        UINT64ENCODE(p, *gcpl_len)
-
-        /* Copy GCPL buffer */
-        memcpy(p, *gcpl_buf, *gcpl_len);
-    }
-
-    /* Bcast buffer */
-    if(MPI_SUCCESS != MPI_Bcast(buf, (int)buf_size, MPI_BYTE, 0, file->comm))
-        D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't broadcast gcpl info buf");
-
-    if(file->my_rank != 0) {
-        uint8_t *p = (uint8_t *)buf;
-
-        /* Decode GCPL length */
-        UINT64DECODE(p, *gcpl_len)
-
-        /* Copy GCPL buffer */
-        if(NULL == (*gcpl_buf = DV_malloc(*gcpl_len)))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate space for gcpl buffer")
-        memcpy(*gcpl_buf, p, *gcpl_len);
-    }
-
-done:
-    DV_free(buf);
-
-    D_FUNC_LEAVE
-} /* end H5_daos_cont_gcpl_bcast() */
 
 
 /*-------------------------------------------------------------------------
@@ -554,17 +501,13 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
 done:
     if(int_req) {
         /* Block until operation completes */
-        {
-            bool is_empty;
+        /* Wait for scheduler to be empty */
+        if(sched_init && H5_daos_progress(file, H5_DAOS_PROGRESS_WAIT) < 0)
+            D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't progress scheduler")
 
-            /* Wait for scheduler to be empty *//* Change to custom progress function DSINC */
-            if(sched_init && (ret = daos_progress(&file->sched, DAOS_EQ_WAIT, &is_empty)) < 0)
-                D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't progress scheduler: %s", H5_daos_err_to_string(ret))
-
-            /* Check for failure */
-            if(int_req->status < 0)
-                D_DONE_ERROR(H5E_SYM, H5E_CANTOPERATE, NULL, "file creation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status))
-        } /* end block */
+        /* Check for failure */
+        if(int_req->status < 0)
+            D_DONE_ERROR(H5E_FILE, H5E_CANTOPERATE, NULL, "file creation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status))
     
         /* Close internal request */
         H5_daos_req_free_int(int_req);
@@ -604,9 +547,10 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     H5_daos_snap_id_t snap_id;
 #endif
     void *gcpl_buf = NULL;
-    uint64_t gcpl_len = 0;
     daos_obj_id_t gmd_oid = {0, 0};
     daos_obj_id_t root_grp_oid = {0, 0};
+    hbool_t must_finalize = FALSE;
+    H5_daos_req_t *int_req = NULL;
     int ret;
     void *ret_value = NULL;
 
@@ -677,6 +621,11 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
             H5_DAOS_ROOT_OPEN_OCLASS_NAME, file) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTENCODE, NULL, "can't encode root group object ID")
 
+    /* Start H5 operation */
+    if(NULL == (int_req = H5_daos_req_create(file)))
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, NULL, "can't create DAOS request")
+    must_finalize = TRUE;
+
     /* Open container on rank 0 */
     if((file->my_rank == 0) && H5_daos_cont_open(file, flags, NULL) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't open DAOS container")
@@ -690,16 +639,9 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
         D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENFILE, NULL, "can't open global metadata object: %s", H5_daos_err_to_string(ret))
 
     /* Open root group */
-    if((file->my_rank == 0) && (NULL == (file->root_grp = (H5_daos_group_t *)H5_daos_group_open_helper(file, root_grp_oid, H5P_GROUP_ACCESS_DEFAULT, dxpl_id, NULL, (file->num_procs > 1) ? &gcpl_buf : NULL, &gcpl_len))))
+    must_finalize = FALSE;  /* Helper function will handle finalize */
+    if(NULL == (file->root_grp = H5_daos_group_open_helper_async(file, root_grp_oid, H5P_GROUP_ACCESS_DEFAULT, dxpl_id, int_req, TRUE)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENOBJ, NULL, "can't open root group")
-
-    /* Broadcast GCPL info to other procs if any */
-    if((file->num_procs > 1) && (H5_daos_cont_gcpl_bcast(file, &gcpl_buf, &gcpl_len) < 0))
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTSET, NULL, "can't broadcast DAOS container handle")
-
-    /* Reconstitute root group from revived GCPL */
-    if((file->my_rank != 0) && (NULL == (file->root_grp = (H5_daos_group_t *)H5_daos_group_reconstitute(file, root_grp_oid, gcpl_buf, H5P_GROUP_ACCESS_DEFAULT, dxpl_id, NULL))))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't reconstitute root group")
 
     /* FCPL was stored as root group's GCPL (as GCPL is the parent of FCPL).
      * Point to it. */
@@ -710,6 +652,25 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     ret_value = (void *)file;
 
 done:
+    /* Finalize task */
+    if(must_finalize)
+        if((ret = H5_daos_h5op_finalize_helper(int_req)) < 0)
+            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, NULL, "failed to finalize H5 operation")
+
+    if(int_req) {
+        /* Block until operation completes */
+        /* Wait for scheduler to be empty */
+        if(H5_daos_progress(file, H5_DAOS_PROGRESS_WAIT) < 0)
+            D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't progress scheduler")
+
+        /* Check for failure */
+        if(int_req->status < 0)
+            D_DONE_ERROR(H5E_FILE, H5E_CANTOPERATE, NULL, "file open failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status))
+
+        /* Close internal request */
+        H5_daos_req_free_int(int_req);
+    } /* end if */
+
     /* Cleanup on failure */
     if(NULL == ret_value) {
         /* Close file */

@@ -221,6 +221,10 @@ static const daos_size_t    H5_daos_pool_default_scm_size_g      = (1ULL << 31);
 static const daos_size_t    H5_daos_pool_default_nvme_size_g     = (1ULL << 33); /*   8GB */
 static const unsigned int   H5_daos_pool_default_svc_nreplicas_g = 1;            /* Number of replicas */
 
+/* DAOS task and MPI request for current in-flight MPI operation */
+tse_task_t *H5_daos_mpi_task = NULL;
+MPI_Request H5_daos_mpi_req;
+
 /* Constant Keys */
 const char H5_daos_int_md_key_g[]          = "/Internal Metadata";
 const char H5_daos_root_grp_oid_key_g[]    = "Root Group OID";
@@ -2168,12 +2172,53 @@ int
 H5_daos_h5op_finalize(tse_task_t *task)
 {
     H5_daos_req_t *req;
-    hbool_t close_tx = FALSE;
     int ret;
     int ret_value = 0;
 
     /* Get private data */
     req = tse_task_get_priv(task);
+
+    /* Perform operation */
+    if((ret = H5_daos_h5op_finalize_helper(req)) < 0 && req->status >= H5_DAOS_INCOMPLETE)
+        D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, ret, "failed to finalize H5 operation")
+
+    /* Report failures in this routine */
+    if(ret_value < 0 && req->status == H5_DAOS_INCOMPLETE) {
+        req->status = ret_value;
+        req->failed_task = "h5 op finalize";
+    } /* end if */
+
+    /* Complete task in engine */
+    tse_task_complete(task, ret_value);
+
+    /* Release our reference to req */
+    H5_daos_req_free_int(req);
+
+    D_FUNC_LEAVE
+} /* end H5_daos_h5op_finalize() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_h5op_finalize_helper
+ *
+ * Purpose:     Like H5_daos_h5op_finalize but operates directly on a
+ *              request, and can be called directly instead of through the
+ *              task engine.  Does not release req.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ * Programmer:  Neil Fortner
+ *              February, 2020
+ *
+ *-------------------------------------------------------------------------
+ */
+int
+H5_daos_h5op_finalize_helper(H5_daos_req_t *req)
+{
+    hbool_t close_tx = FALSE;
+    int ret;
+    int ret_value = 0;
 
     assert(!req->file->closed);
 
@@ -2202,14 +2247,8 @@ H5_daos_h5op_finalize(tse_task_t *task)
             if(0 != (ret = tse_task_register_comp_cb(abort_task, H5_daos_tx_comp_cb, NULL, 0))) {
                 close_tx = TRUE;
                 req->th_open = FALSE;
+                tse_task_complete(abort_task, ret_value);
                 D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, ret, "can't register callback to close transaction: %s", H5_daos_err_to_string(ret))
-            } /* end if */
-
-            /* Register dependency for this task */
-            if(0 != (ret = tse_task_register_deps(task, 1, &abort_task))) {
-                close_tx = TRUE;
-                req->th_open = FALSE;
-                D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, ret, "can't register dependency on task to abort transaction: %s", H5_daos_err_to_string(ret))
             } /* end if */
 
             /* Set private data for abort */
@@ -2218,6 +2257,7 @@ H5_daos_h5op_finalize(tse_task_t *task)
             /* Schedule abort task */
             if(0 != (ret = tse_task_schedule(abort_task, false))) {
                 close_tx = TRUE;
+                req->th_open = FALSE;
                 tse_task_complete(abort_task, ret_value);
                 D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, ret, "can't schedule task to abort transaction: %s", H5_daos_err_to_string(ret))
             } /* end if */
@@ -2245,14 +2285,8 @@ H5_daos_h5op_finalize(tse_task_t *task)
             if(0 != (ret = tse_task_register_comp_cb(commit_task, H5_daos_tx_comp_cb, NULL, 0))) {
                 close_tx = TRUE;
                 req->th_open = FALSE;
+                tse_task_complete(commit_task, ret_value);
                 D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, ret, "can't register callback to close transaction: %s", H5_daos_err_to_string(ret))
-            } /* end if */
-
-            /* Register dependency for this task */
-            if(0 != (ret = tse_task_register_deps(task, 1, &commit_task))) {
-                close_tx = TRUE;
-                req->th_open = FALSE;
-                D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, ret, "can't register dependency on task to commit transaction: %s", H5_daos_err_to_string(ret))
             } /* end if */
 
             /* Set private data for commit */
@@ -2261,6 +2295,7 @@ H5_daos_h5op_finalize(tse_task_t *task)
             /* Schedule commit task */
             if(0 != (ret = tse_task_schedule(commit_task, false))) {
                 close_tx = TRUE;
+                req->th_open = FALSE;
                 tse_task_complete(commit_task, ret_value);
                 D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, ret, "can't schedule task to commit transaction: %s", H5_daos_err_to_string(ret))
             } /* end if */
@@ -2275,28 +2310,17 @@ done:
         req->th_open = FALSE;
     } /* end if */
 
-    /* Report failures in this routine */
-    if(ret_value < 0 && req->status == H5_DAOS_INCOMPLETE) {
-        req->status = ret_value;
-        req->failed_task = "h5 op finalize";
-    } /* end if */
-
     if(req->th_open)
         /* Progress schedule */
         tse_sched_progress(&req->file->sched);
     else {
-        tse_task_complete(task, ret_value);
-
         /* Mark request as completed */
-        if(req->status == H5_DAOS_INCOMPLETE)
+        if(ret_value >= 0 && req->status == H5_DAOS_INCOMPLETE)
             req->status = 0;
     } /* end else */
 
-    /* Release our reference to req */
-    H5_daos_req_free_int(req);
-
     D_FUNC_LEAVE
-} /* end H5_daos_h5op_finalize() */
+} /* end H5_daos_h5op_finalize_helper() */
 
 
 /*-------------------------------------------------------------------------
@@ -2384,7 +2408,7 @@ H5_daos_md_update_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     /* Free private data */
     H5_daos_req_free_int(udata->req);
     if(H5_daos_object_close(udata->obj, -1, NULL) < 0)
-        D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, H5_DAOS_CLOSE_ERROR, "can't close object")
+        D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, H5_DAOS_H5_CLOSE_ERROR, "can't close object")
     if(udata->free_dkey)
         DV_free(udata->dkey.iov_buf);
     if(udata->free_akeys)
@@ -2402,6 +2426,128 @@ H5_daos_md_update_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     return ret_value;
 } /* end H5_daos_md_update_comp_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_mpi_ibcast_task
+ *
+ * Purpose:     Wraps a call to MPI_Ibcast in a DAOS/TSE task.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ * Programmer:  Neil Fortner
+ *              January, 2020
+ *
+ *-------------------------------------------------------------------------
+ */
+int
+H5_daos_mpi_ibcast_task(tse_task_t *task)
+{
+    H5_daos_mpi_ibcast_ud_t *udata;
+    int ret_value = 0;
+
+    assert(!H5_daos_mpi_task);
+
+    /* Get private data */
+    udata = tse_task_get_priv(task);
+
+    assert(!udata->req->file->closed);
+
+    /* Make call to MPI_Ibcast */
+    if(MPI_SUCCESS != MPI_Ibcast(udata->buffer, udata->count, MPI_BYTE, 0, udata->obj->item.file->comm, &H5_daos_mpi_req))
+        D_GOTO_ERROR(H5E_VOL, H5E_MPI, H5_DAOS_MPI_ERROR, "MPI_Ibcast failed")
+
+    /* Register this task as the current in-flight MPI task */
+    H5_daos_mpi_task = task;
+
+    /* This task will be completed by the progress function once that function
+     * detects that the MPI request is finished */
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_mpi_ibcast_task() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_progress
+ *
+ * Purpose:     Make progress on asynchronous tasks.  Can be run
+ *
+ * Return:      Success:    Non-negative.  The new communicator and info
+ *                          object handles are returned via the comm_new
+ *                          and info_new pointers.
+ *
+ *              Failure:    Negative.
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_progress(H5_daos_file_t *file, H5_daos_progress_mode_t mode)
+{
+    int      completed;
+    bool     is_empty = FALSE;
+    int      ret;
+    herr_t   ret_value = SUCCEED;
+
+    assert(file);
+
+    /* Different loops for kick and wait - do it this way to minimize the amount
+     * of cycles in the wait loop, so we can set the polling interval as tight
+     * as possible without using too much CPU time */
+    if(mode == H5_DAOS_PROGRESS_KICK) {
+        /* Progress MPI if there is a task in flight */
+        if(H5_daos_mpi_task) {
+            /* Check if task is complete */
+            if(MPI_SUCCESS != (ret = MPI_Test(&H5_daos_mpi_req, &completed, MPI_STATUS_IGNORE)))
+                D_DONE_ERROR(H5E_VOL, H5E_MPI, FAIL, "MPI_Test failed: %d", ret)
+
+            /* Complete matching DAOS task if so */
+            if(ret_value < 0) {
+                tse_task_complete(H5_daos_mpi_task, H5_DAOS_MPI_ERROR);
+                H5_daos_mpi_task = NULL;
+            } /* end if */
+            else if(completed) {
+                tse_task_complete(H5_daos_mpi_task, 0);
+                H5_daos_mpi_task = NULL;
+            } /* end if */
+        } /* end if */
+
+        /* Progress DAOS */
+        if(0 != (ret = daos_progress(&file->sched, DAOS_EQ_NOWAIT, &is_empty)))
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't progress scheduler: %s", H5_daos_err_to_string(ret))
+    } /* end if */
+    else {
+        assert(mode == H5_DAOS_PROGRESS_WAIT);
+
+        /* Loop until the scheduler is finished */
+        do {
+            /* Progress MPI if there is a task in flight */
+            if(H5_daos_mpi_task) {
+                /* Check if task is complete */
+                if(MPI_SUCCESS != (ret = MPI_Test(&H5_daos_mpi_req, &completed, MPI_STATUS_IGNORE)))
+                    D_DONE_ERROR(H5E_VOL, H5E_MPI, FAIL, "MPI_Test failed: %d", ret)
+
+                /* Complete matching DAOS task if so */
+                if(ret_value < 0) {
+                    tse_task_complete(H5_daos_mpi_task, H5_DAOS_MPI_ERROR);
+                    H5_daos_mpi_task = NULL;
+                } /* end if */
+                else if(completed) {
+                    tse_task_complete(H5_daos_mpi_task, 0);
+                    H5_daos_mpi_task = NULL;
+                } /* end if */
+            } /* end if */
+
+            /* Progress DAOS */
+            if(0 != (ret = daos_progress(&file->sched, H5_DAOS_ASYNC_POLL_INTERVAL, &is_empty)))
+                D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't progress scheduler: %s", H5_daos_err_to_string(ret))
+        } while(!is_empty);
+    } /* end else */
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_progress() */
 
 
 /*-------------------------------------------------------------------------

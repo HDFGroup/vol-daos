@@ -9,7 +9,7 @@
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 /*
- * Purpose: Tests H5M (Map API) interface
+ * Purpose: Tests the recovery mechanism of DAOS
  */
 
 #include <stdio.h>

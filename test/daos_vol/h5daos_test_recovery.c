@@ -82,6 +82,7 @@ typedef struct {
  * Global variables
  */
 uuid_t pool_uuid;
+d_rank_list_t *svcl;
 int    mpi_rank;
 int    mpi_size;
 int    *wdata, *rdata;
@@ -92,8 +93,6 @@ hid_t  attr_space;
 handler_t hand;
 command_line_info_t cl_info;
 int server_count = 0;
-
-#define RANK_LIST "1:2:3:4:5:6:7:8:9:10:11:12:13:14:15:16" /* Rank list for excluding a server */
 
 #define FAULT_INJECTION(I,J) \
     if (hand.nFaults && I == cl_info.fault_groups[server_count] && J == cl_info.fault_ops[server_count]) { 		\
@@ -111,14 +110,10 @@ static int figure_out_op(const char *);
  */
 static void inject_fault(int which_server)
 {
-    d_rank_list_t            *svcl;
     struct d_tgt_list        targets;
     int			     tgt = -1;
 
     if(MAINPROCESS) {
-        /* Generate a rank list from a string with a seprator argument */
-        svcl = daos_rank_list_parse(RANK_LIST, ":");
-
         /* Kill the server */
         if(daos_mgmt_svc_rip("daos_server", which_server, TRUE, NULL) < 0) {
             printf("daos_mgmt_svc_rip failed");
@@ -1139,6 +1134,12 @@ main( int argc, char** argv )
 
     if (0 != uuid_parse(pool_string, pool_uuid)) {
         printf("Could not parse pool UUID\n\n");
+        goto error;
+    }
+
+    /* Generate a rank list from a string with a seprator argument */
+    if((svcl = daos_rank_list_parse(pool_svcl_string, ":")) == NULL) {
+        printf("Could not parse pool service list\n\n");
         goto error;
     }
 

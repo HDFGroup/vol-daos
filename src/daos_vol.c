@@ -304,7 +304,7 @@ H5daos_init(MPI_Comm pool_comm, uuid_t pool_uuid, const char *pool_grp, const ch
     if(H5I_VOL != idType) {
         htri_t is_registered;
 
-        if((is_registered = H5VLis_connector_registered(H5_daos_g.name)) < 0)
+        if((is_registered = H5VLis_connector_registered_by_value(H5_daos_g.value)) < 0)
             D_GOTO_ERROR(H5E_ATOM, H5E_CANTINIT, FAIL, "can't determine if DAOS VOL connector is registered")
 
         if(!is_registered) {

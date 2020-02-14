@@ -2491,6 +2491,7 @@ H5_daos_progress(H5_daos_file_t *file, H5_daos_progress_mode_t mode)
 {
     int      completed;
     bool     is_empty = FALSE;
+    tse_task_t *tmp_task;
     int      ret;
     herr_t   ret_value = SUCCEED;
 
@@ -2508,12 +2509,14 @@ H5_daos_progress(H5_daos_file_t *file, H5_daos_progress_mode_t mode)
 
             /* Complete matching DAOS task if so */
             if(ret_value < 0) {
-                tse_task_complete(H5_daos_mpi_task, H5_DAOS_MPI_ERROR);
+                tmp_task = H5_daos_mpi_task;
                 H5_daos_mpi_task = NULL;
+                tse_task_complete(tmp_task, H5_DAOS_MPI_ERROR);
             } /* end if */
             else if(completed) {
-                tse_task_complete(H5_daos_mpi_task, 0);
+                tmp_task = H5_daos_mpi_task;
                 H5_daos_mpi_task = NULL;
+                tse_task_complete(tmp_task, 0);
             } /* end if */
         } /* end if */
 
@@ -2534,17 +2537,20 @@ H5_daos_progress(H5_daos_file_t *file, H5_daos_progress_mode_t mode)
 
                 /* Complete matching DAOS task if so */
                 if(ret_value < 0) {
-                    tse_task_complete(H5_daos_mpi_task, H5_DAOS_MPI_ERROR);
+                    tmp_task = H5_daos_mpi_task;
                     H5_daos_mpi_task = NULL;
+                    tse_task_complete(tmp_task, H5_DAOS_MPI_ERROR);
                 } /* end if */
                 else if(completed) {
-                    tse_task_complete(H5_daos_mpi_task, 0);
+                    tmp_task = H5_daos_mpi_task;
                     H5_daos_mpi_task = NULL;
+                    tse_task_complete(tmp_task, 0);
                 } /* end if */
             } /* end if */
 
             /* Progress DAOS */
-            if(0 != (ret = daos_progress(&file->sched, H5_DAOS_ASYNC_POLL_INTERVAL, &is_empty)))
+            if((0 != (ret = daos_progress(&file->sched, H5_DAOS_ASYNC_POLL_INTERVAL, &is_empty)))
+                    && (ret != -DER_TIMEDOUT))
                 D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't progress scheduler: %s", H5_daos_err_to_string(ret))
         } while(!is_empty);
     } /* end else */

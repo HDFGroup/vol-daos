@@ -399,7 +399,6 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     file->item.open_req = NULL;
     file->glob_md_oh = DAOS_HDL_INVAL;
     file->root_grp = NULL;
-    file->fcpl_id = FAIL;
     file->fapl_id = FAIL;
     file->vol_id = FAIL;
     file->item.rc = 1;
@@ -410,8 +409,6 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     if(NULL == (file->file_name = strdup(name)))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't copy file name")
     file->flags = flags;
-    if((file->fcpl_id = H5Pcopy(fcpl_id)) < 0)
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTCOPY, NULL, "failed to copy fcpl")
     if((file->fapl_id = H5Pcopy(fapl_id)) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTCOPY, NULL, "failed to copy fapl")
 
@@ -576,7 +573,6 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     file->item.open_req = NULL;
     file->glob_md_oh = DAOS_HDL_INVAL;
     file->root_grp = NULL;
-    file->fcpl_id = FAIL;
     file->fapl_id = FAIL;
     file->vol_id = FAIL;
     file->item.rc = 1;
@@ -642,12 +638,6 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     must_finalize = FALSE;  /* Helper function will handle finalize */
     if(NULL == (file->root_grp = H5_daos_group_open_helper_async(file, root_grp_oid, H5P_GROUP_ACCESS_DEFAULT, dxpl_id, int_req, TRUE)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENOBJ, NULL, "can't open root group")
-
-    /* FCPL was stored as root group's GCPL (as GCPL is the parent of FCPL).
-     * Point to it. */
-    file->fcpl_id = file->root_grp->gcpl_id;
-    if(H5Iinc_ref(file->fcpl_id) < 0)
-        D_GOTO_ERROR(H5E_ATOM, H5E_CANTINC, NULL, "can't increment FCPL reference count")
 
     ret_value = (void *)file;
 
@@ -751,7 +741,8 @@ H5_daos_file_get(void *_item, H5VL_file_get_t get_type, hid_t H5VL_DAOS_UNUSED d
         {
             hid_t *ret_id = va_arg(arguments, hid_t *);
 
-            if((*ret_id = H5Pcopy(file->fcpl_id)) < 0)
+            /* The file's FCPL is stored as the group's GCPL */
+            if((*ret_id = H5Pcopy(file->root_grp->gcpl_id)) < 0)
                 D_GOTO_ERROR(H5E_PLIST, H5E_CANTCOPY, FAIL, "can't get file's FCPL")
 
             /* Set root group's object class on fcpl */
@@ -1074,8 +1065,6 @@ H5_daos_file_close_helper(H5_daos_file_t *file, hid_t dxpl_id, void **req)
             D_DONE_ERROR(H5E_INTERNAL, H5E_CANTFREE, FAIL, "failed to free copy of MPI communicator and info")
     if(file->fapl_id != FAIL && H5Idec_ref(file->fapl_id) < 0)
         D_DONE_ERROR(H5E_SYM, H5E_CANTDEC, FAIL, "failed to close fapl")
-    if(file->fcpl_id != FAIL && H5Idec_ref(file->fcpl_id) < 0)
-        D_DONE_ERROR(H5E_SYM, H5E_CANTDEC, FAIL, "failed to close fcpl")
     if(!daos_handle_is_inval(file->glob_md_oh))
         if(0 != (ret = daos_obj_close(file->glob_md_oh, NULL /*event*/)))
             D_DONE_ERROR(H5E_FILE, H5E_CANTCLOSEFILE, FAIL, "can't close global metadata object: %s", H5_daos_err_to_string(ret))

@@ -74,7 +74,7 @@ typedef d_sg_list_t daos_sg_list_t;
 #define H5_DAOS_FOI_BUF_SIZE 1024
 #define H5_DAOS_LINK_NAME_BUF_SIZE 2048
 #define H5_DAOS_LINK_VAL_BUF_SIZE 256
-#define H5_DAOS_GINFO_BUF_SIZE 256
+#define H5_DAOS_GINFO_BUF_SIZE 1024
 #define H5_DAOS_DINFO_BUF_SIZE 1024
 #define H5_DAOS_TINFO_BUF_SIZE 1024
 #define H5_DAOS_SEQ_LIST_LEN 128
@@ -314,7 +314,6 @@ typedef struct H5_daos_file_t {
     hbool_t closed;
     daos_handle_t glob_md_oh;
     struct H5_daos_group_t *root_grp;
-    hid_t fcpl_id;
     hid_t fapl_id;
     H5_daos_fapl_cache_t fapl_cache;
     MPI_Comm comm;

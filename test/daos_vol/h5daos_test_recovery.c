@@ -82,17 +82,17 @@ typedef struct {
  * Global variables
  */
 uuid_t pool_uuid;
-d_rank_list_t *svcl;
 int    mpi_rank;
-int    mpi_size;
-int    *wdata, *rdata;
-int    *map_keys, *map_vals, *map_vals_out;
-int    *attr_write, *attr_read;
-hid_t  file_dspace, file_dspace_select, mem_space;
-hid_t  attr_space;
-handler_t hand;
-command_line_info_t cl_info;
-int server_count = 0;
+static int    mpi_size;
+static d_rank_list_t *svcl;
+static int    *wdata, *rdata;
+static int    *map_keys, *map_vals, *map_vals_out;
+static int    *attr_write, *attr_read;
+static hid_t  file_dspace, file_dspace_select, mem_space;
+static hid_t  attr_space;
+static handler_t hand;
+static command_line_info_t cl_info;
+static int server_count = 0;
 
 #define FAULT_INJECTION(I,J) \
     if (hand.nFaults && I == cl_info.fault_groups[server_count] && J == cl_info.fault_ops[server_count]) { 		\
@@ -755,8 +755,7 @@ static void
 parse_command_line(int argc, char *argv[])
 {
     int opt;
-    extern char *optarg;
-    static struct option long_options[] =
+    struct option long_options[] =
     {
         {"dimOfAttr=", required_argument, NULL, 'a'},
         {"dimsDset=", required_argument, NULL, 'd'},

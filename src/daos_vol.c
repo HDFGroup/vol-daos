@@ -2525,7 +2525,7 @@ H5PLget_plugin_info(void) {
 /*-------------------------------------------------------------------------
  * Function:    H5daos_get_poh
  *
- * Purpose:     Internal API function to return the pool object header 
+ * Purpose:     Internal API function to return the pool object handle 
  *              for the recovery test.
  *
  * Return:      Success:    Non-negative.

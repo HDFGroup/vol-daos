@@ -1,4 +1,9 @@
 #!/bin/bash
+##
+## This is an example of how to run the recovery test (h5daos_test_recovery.c) under test/daos_vol.  The binary is located at build/bin/h5daos_test_recovery. 
+## Please update the HDF5_DAOS_VOL_BUILD_PATH variable for your installation of DAOS-VOL.  You may need to update other variables.
+## To run the script, please pass in the DAOS Pool UUID and the DAOS service list as the command-line input.
+##
 TMP_DIR=/tmp/$USER
 AGENT_DIR=$TMP_DIR
 URI_PATH=$HOME

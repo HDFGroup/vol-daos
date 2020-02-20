@@ -2383,7 +2383,10 @@ H5_daos_md_rw_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     update_args->dkey = &udata->dkey;
     update_args->nr = udata->nr;
     update_args->iods = udata->iod;
-    update_args->sgls = udata->sgl;
+    if(udata->sgl_present)
+        update_args->sgls = udata->sgl;
+    else
+        update_args->sgls = NULL;
 
     return 0;
 } /* end H5_daos_md_rw_prep_cb() */

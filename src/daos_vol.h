@@ -439,6 +439,7 @@ typedef struct H5_daos_md_rw_cb_ud_t {
     daos_iod_t iod[4];
     daos_sg_list_t sgl[4];
     daos_iov_t sg_iov[4];
+    hbool_t sgl_present;
     hbool_t free_dkey;
     hbool_t free_akeys;
     const char *task_name;

@@ -346,6 +346,7 @@ H5_daos_link_write(H5_daos_group_t *grp, const char *name,
 
     /* Set up general sgl */
     update_cb_ud->sgl[0].sg_iovs = &update_cb_ud->sg_iov[0];
+    update_cb_ud->sgl_present = TRUE;
 
     /* Set task name */
     update_cb_ud->task_name = "link write";

@@ -787,11 +787,10 @@ H5_daos_ginfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     /* Get private data */
     udata = tse_task_get_priv(task);
     assert(!udata->md_rw_cb_ud.req->file->closed);
-    assert(udata->md_rw_cb_ud.obj->item.file->my_rank > 0);
     assert(udata->md_rw_cb_ud.obj->item.type == H5I_GROUP);
 
     /* Check for buffer not large enough */
-    if(task->dt_result == -DER_TRUNC) {
+    if(task->dt_result == -DER_REC2BIG) {
         if(udata->bcast_udata) {
             /* Verify iod size makes sense */
             if(udata->md_rw_cb_ud.sg_iov[0].iov_buf_len != (H5_DAOS_GINFO_BUF_SIZE - 3 * H5_DAOS_ENCODED_UINT64_T_SIZE))
@@ -957,6 +956,7 @@ H5_daos_group_open_helper_async(H5_daos_file_t *file, daos_obj_id_t oid,
     H5_daos_gcpl_fetch_ud_t *fetch_udata = NULL;
     tse_task_t *finalize_task = NULL;
     tse_task_t *finalize_dep = NULL;
+    tse_task_t *fetch_metatask = NULL;
     hbool_t fetch_task_scheduled = FALSE;
     int ret;
     H5_daos_group_t *ret_value = NULL;
@@ -1045,8 +1045,9 @@ H5_daos_group_open_helper_async(H5_daos_file_t *file, daos_obj_id_t oid,
          * completed when the read is finished by H5_daos_ginfo_read_comp_cb.
          * We can't use fetch_task since it may not be completed by the first
          * fetch. */
-        if(0 != (ret = tse_task_create(NULL, &file->sched, NULL, &fetch_udata->fetch_metatask)))
+        if(0 != (ret = tse_task_create(NULL, &file->sched, NULL, &fetch_metatask)))
             D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't create meta task for group metadata read: %s", H5_daos_err_to_string(ret))
+        fetch_udata->fetch_metatask = fetch_metatask;
 
         /* Create task for group metadata read */
         if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &file->sched, 0, NULL, &fetch_task)))
@@ -1115,7 +1116,7 @@ done:
             if(0 != (ret = tse_task_create(H5_daos_mpi_ibcast_task, &file->sched, bcast_udata, &bcast_task)))
                 D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't create task to broadcast group info: %s", H5_daos_err_to_string(ret))
             /* Register dependency on fetch task if present */
-            else if(fetch_task_scheduled && 0 != (ret = tse_task_register_deps(bcast_task, 1, &fetch_udata->fetch_metatask)))
+            else if(fetch_task_scheduled && 0 != (ret = tse_task_register_deps(bcast_task, 1, &fetch_metatask)))
                 D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't create dependencies for group info broadcast task: %s", H5_daos_err_to_string(ret))
             /* Set callback functions for group info bcast */
             else if(0 != (ret = tse_task_register_cbs(bcast_task, NULL, NULL, 0, file->my_rank == 0 ? H5_daos_group_open_bcast_comp_cb : H5_daos_group_open_recv_comp_cb, NULL, 0)))

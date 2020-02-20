@@ -2540,7 +2540,8 @@ H5_daos_progress(H5_daos_file_t *file, H5_daos_progress_mode_t mode)
         } /* end if */
 
         /* Progress DAOS */
-        if(0 != (ret = daos_progress(&file->sched, DAOS_EQ_NOWAIT, &is_empty)))
+        if((0 != (ret = daos_progress(&file->sched, DAOS_EQ_NOWAIT, &is_empty)))
+                && (ret != -DER_TIMEDOUT))
             D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't progress scheduler: %s", H5_daos_err_to_string(ret))
     } /* end if */
     else {

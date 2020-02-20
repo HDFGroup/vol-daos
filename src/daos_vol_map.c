@@ -63,7 +63,7 @@ H5_daos_map_create(void *_item,
     void *vtype_buf = NULL;
     void *mcpl_buf = NULL;
     hbool_t collective;
-    H5_daos_md_update_cb_ud_t *update_cb_ud = NULL;
+    H5_daos_md_rw_cb_ud_t *update_cb_ud = NULL;
     hbool_t update_task_scheduled = FALSE;
     tse_task_t *finalize_task;
     int finalize_ndeps = 0;
@@ -171,7 +171,7 @@ H5_daos_map_create(void *_item,
 
         /* Create map */
         /* Allocate argument struct */
-        if(NULL == (update_cb_ud = (H5_daos_md_update_cb_ud_t *)DV_calloc(sizeof(H5_daos_md_update_cb_ud_t))))
+        if(NULL == (update_cb_ud = (H5_daos_md_rw_cb_ud_t *)DV_calloc(sizeof(H5_daos_md_rw_cb_ud_t))))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for update callback arguments")
 
         /* Open map */
@@ -260,7 +260,7 @@ H5_daos_map_create(void *_item,
             D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create task to write map medadata: %s", H5_daos_err_to_string(ret))
 
         /* Set callback functions for group metadata write */
-        if(0 != (ret = tse_task_register_cbs(update_task, H5_daos_md_update_prep_cb, NULL, 0, H5_daos_md_update_comp_cb, NULL, 0)))
+        if(0 != (ret = tse_task_register_cbs(update_task, H5_daos_md_rw_prep_cb, NULL, 0, H5_daos_md_update_comp_cb, NULL, 0)))
             D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't register callbacks for task to write map medadata: %s", H5_daos_err_to_string(ret))
 
         /* Set private data for group metadata write */

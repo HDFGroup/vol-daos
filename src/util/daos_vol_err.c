@@ -51,6 +51,10 @@ H5_daos_err_to_string(int ret)
             return "memory allocation failed";
         case H5_DAOS_CPL_CACHE_ERROR:
             return "failed to fill creation property list cache";
+        case H5_DAOS_BAD_VALUE:
+            return "invalid value received";
+        case H5_DAOS_PROGRESS_ERROR:
+            return "failed to progress scheduler";
 
         /*
          * GURT errors

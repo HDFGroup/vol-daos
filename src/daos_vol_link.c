@@ -244,7 +244,7 @@ H5_daos_link_write(H5_daos_group_t *grp, const char *name,
     size_t name_len, H5_daos_link_val_t *val, H5_daos_req_t *req,
     tse_task_t **taskp)
 {
-    H5_daos_md_update_cb_ud_t *update_cb_ud = NULL;
+    H5_daos_md_rw_cb_ud_t *update_cb_ud = NULL;
     hbool_t update_task_scheduled = FALSE;
     char *name_buf = NULL;
     uint8_t *iov_buf = NULL;
@@ -264,7 +264,7 @@ H5_daos_link_write(H5_daos_group_t *grp, const char *name,
         D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, FAIL, "no write intent on file")
 
     /* Allocate argument struct */
-    if(NULL == (update_cb_ud = (H5_daos_md_update_cb_ud_t *)DV_calloc(sizeof(H5_daos_md_update_cb_ud_t))))
+    if(NULL == (update_cb_ud = (H5_daos_md_rw_cb_ud_t *)DV_calloc(sizeof(H5_daos_md_rw_cb_ud_t))))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for update callback arguments")
 
     /* Copy name */
@@ -473,7 +473,7 @@ H5_daos_link_write(H5_daos_group_t *grp, const char *name,
         D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't create task to write link: %s", H5_daos_err_to_string(ret))
 
     /* Set callback functions for link write */
-    if(0 != (ret = tse_task_register_cbs(*taskp, H5_daos_md_update_prep_cb, NULL, 0, H5_daos_md_update_comp_cb, NULL, 0)))
+    if(0 != (ret = tse_task_register_cbs(*taskp, H5_daos_md_rw_prep_cb, NULL, 0, H5_daos_md_update_comp_cb, NULL, 0)))
         D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't register callbacks for task to write link: %s", H5_daos_err_to_string(ret))
 
     /* Set private data for link write */

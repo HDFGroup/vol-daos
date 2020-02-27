@@ -227,12 +227,12 @@ void *
 H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
     hid_t gapl_id, hid_t dxpl_id, H5_daos_req_t *req,
     H5_daos_group_t *parent_grp, const char *name, size_t name_len,
-    uint64_t oidx, hbool_t collective)
+    uint64_t oidx, hbool_t collective, tse_task_t **first_task,
+    tse_task_t **dep_task)
 {
     H5_daos_group_t *grp = NULL;
     void *gcpl_buf = NULL;
     H5_daos_md_rw_cb_ud_t *update_cb_ud = NULL;
-    hbool_t update_task_scheduled = FALSE;
     tse_task_t *finalize_task;
     int finalize_ndeps = 0;
     tse_task_t *finalize_deps[2];
@@ -241,6 +241,8 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
 
     assert(file);
     assert(file->flags & H5F_ACC_RDWR);
+    assert(first_task);
+    assert(dep_task);
 
     /* Allocate the group object that is returned to the user */
     if(NULL == (grp = H5FL_CALLOC(H5_daos_group_t)))
@@ -316,6 +318,10 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
         if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_UPDATE, &file->sched, 0, NULL, &update_task)))
             D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't create task to write group medadata: %s", H5_daos_err_to_string(ret))
 
+        /* Register dependency for task if present */
+        if(*dep_task && 0 != (ret = tse_task_register_deps(update_task, 1, dep_task)))
+            D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't create dependencies for group metadata write: %s", H5_daos_err_to_string(ret))
+
         /* Set callback functions for group metadata write */
         if(0 != (ret = tse_task_register_cbs(update_task, H5_daos_md_rw_prep_cb, NULL, 0, H5_daos_md_update_comp_cb, NULL, 0)))
             D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't register callbacks for task to write group medadata: %s", H5_daos_err_to_string(ret))
@@ -323,13 +329,18 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
         /* Set private data for group metadata write */
         (void)tse_task_set_priv(update_task, update_cb_ud);
 
-        /* Schedule group metadata write task and give it a reference to req and
-         * the group */
-        if(0 != (ret = tse_task_schedule(update_task, false)))
-            D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't schedule task to write group metadata: %s", H5_daos_err_to_string(ret))
-        update_task_scheduled = TRUE;
+        /* Schedule group metadata write task (or save it to be scheduled later)
+         * and give it a reference to req and the group */
+        //if(*first_task) {
+            if(0 != (ret = tse_task_schedule(update_task, false)))
+                D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't schedule task to write group metadata: %s", H5_daos_err_to_string(ret))
+        //} /* end if */
+        //else
+        //    *first_task = update_task;
         req->rc++;
         grp->obj.item.rc++;
+        update_cb_ud = NULL;
+        gcpl_buf = NULL;
 
         /* Add dependency for finalize task */
         finalize_deps[finalize_ndeps] = update_task;
@@ -393,10 +404,6 @@ done:
         /* finalize_task now owns a reference to req */
         req->rc++;
 
-    /* Kick off any tasks scheduled */
-    if(H5_daos_progress(file, H5_DAOS_PROGRESS_KICK) < 0)
-        D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't progress scheduler")
-
     /* Cleanup on failure */
     /* Destroy DAOS object if created before failure DSINC */
     if(NULL == ret_value) {
@@ -405,15 +412,13 @@ done:
             D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, NULL, "can't close group")
 
         /* Free memory */
-        if(!update_task_scheduled) {
-            if(update_cb_ud && update_cb_ud->obj && H5_daos_object_close(update_cb_ud->obj, dxpl_id, NULL) < 0)
-                D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, NULL, "can't close object")
-            gcpl_buf = DV_free(gcpl_buf);
-            update_cb_ud = DV_free(update_cb_ud);
-        } /* end if */
+        gcpl_buf = DV_free(gcpl_buf);
+        update_cb_ud = DV_free(update_cb_ud);
+        
     } /* end if */
-    else
-        assert(!gcpl_buf || update_task_scheduled);
+
+    assert(!update_cb_ud);
+    assert(!gcpl_buf);
 
     D_FUNC_LEAVE
 } /* end H5_daos_group_create_helper() */
@@ -445,6 +450,8 @@ H5_daos_group_create(void *_item,
     uint64_t oidx;
     hbool_t collective;
     H5_daos_req_t *int_req = NULL;
+    tse_task_t *first_task = NULL;
+    tse_task_t *dep_task = NULL;
     int ret;
     void *ret_value = NULL;
 
@@ -498,7 +505,7 @@ H5_daos_group_create(void *_item,
 
     /* Create group and link to group */
     if(NULL == (grp = (H5_daos_group_t *)H5_daos_group_create_helper(item->file, gcpl_id, gapl_id, dxpl_id,
-            int_req, target_grp, target_name, target_name ? strlen(target_name) : 0, oidx, collective)))
+            int_req, target_grp, target_name, target_name ? strlen(target_name) : 0, oidx, collective, &first_task, &dep_task)))
         D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't create group")
 
     /* Set return value */
@@ -588,13 +595,9 @@ H5_daos_group_open_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
             if(0 != (ret = tse_task_register_cbs(bcast_task, NULL, NULL, 0, H5_daos_group_open_bcast_comp_cb, NULL, 0)))
                 D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, ret, "can't register callbacks for second group info broadcast: %s", H5_daos_err_to_string(ret))
 
-            /* Schedule second bcast */
+            /* Schedule second bcast and transfer ownership of udata */
             if(0 != (ret = tse_task_schedule(bcast_task, false)))
                 D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, ret, "can't schedule task for second group info broadcast: %s", H5_daos_err_to_string(ret))
-
-            /* Kick off any tasks scheduled and transfer ownership of udata */
-            if(H5_daos_progress(udata->obj->item.file, H5_DAOS_PROGRESS_KICK) < 0)
-                D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, H5_DAOS_PROGRESS_ERROR, "can't progress scheduler")
             udata = NULL;
         } /* end if */
 
@@ -704,13 +707,9 @@ H5_daos_group_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
             if(0 != (ret = tse_task_register_cbs(bcast_task, NULL, NULL, 0, H5_daos_group_open_recv_comp_cb, NULL, 0)))
                 D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, ret, "can't register callbacks for second group info broadcast: %s", H5_daos_err_to_string(ret))
 
-            /* Schedule second bcast */
+            /* Schedule second bcast and transfer ownership of udata */
             if(0 != (ret = tse_task_schedule(bcast_task, false)))
                 D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, ret, "can't schedule task for second group info broadcast: %s", H5_daos_err_to_string(ret))
-
-            /* Kick off any tasks scheduled and transfer ownership of udata */
-            if(H5_daos_progress(udata->obj->item.file, H5_DAOS_PROGRESS_KICK) < 0)
-                D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, H5_DAOS_PROGRESS_ERROR, "can't progress scheduler")
             udata = NULL;
         } /* end if */
         else {
@@ -947,19 +946,15 @@ done:
             /* No broadcast, free buffer */
             DV_free(udata->md_rw_cb_ud.sg_iov[0].iov_buf);
 
-        /* Complete fetch metatask */
-        tse_task_complete(udata->fetch_metatask, ret_value);
-
-        /* Kick off any tasks scheduled */
-        if(H5_daos_progress(udata->md_rw_cb_ud.obj->item.file, H5_DAOS_PROGRESS_KICK) < 0)
-            D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, H5_DAOS_PROGRESS_ERROR, "can't progress scheduler")
-
         /* Handle errors in this function */
         /* Do not place any code that can issue errors after this block */
         if(ret_value < 0 && udata->md_rw_cb_ud.req->status >= H5_DAOS_INCOMPLETE) {
             udata->md_rw_cb_ud.req->status = ret_value;
             udata->md_rw_cb_ud.req->failed_task = udata->md_rw_cb_ud.task_name;
         } /* end if */
+
+        /* Complete fetch metatask */
+        tse_task_complete(udata->fetch_metatask, ret_value);
 
         /* Release our reference to req */
         H5_daos_req_free_int(udata->md_rw_cb_ud.req);
@@ -990,20 +985,19 @@ done:
  */
 H5_daos_group_t *
 H5_daos_group_open_helper_async(H5_daos_file_t *file, daos_obj_id_t oid,
-    hid_t gapl_id, hid_t dxpl_id, H5_daos_req_t *req, hbool_t collective)
+    hid_t gapl_id, hid_t dxpl_id, H5_daos_req_t *req, hbool_t collective,
+    tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_group_t *grp = NULL;
     uint8_t *ginfo_buf = NULL;
     H5_daos_mpi_ibcast_ud_t *bcast_udata = NULL;
     H5_daos_gcpl_fetch_ud_t *fetch_udata = NULL;
-    tse_task_t *finalize_task = NULL;
-    tse_task_t *finalize_dep = NULL;
-    tse_task_t *fetch_metatask = NULL;
-    hbool_t fetch_task_scheduled = FALSE;
     int ret;
     H5_daos_group_t *ret_value = NULL;
 
     assert(file);
+    assert(first_task);
+    assert(dep_task);
 
     /* Allocate the group object that is returned to the user */
     if(NULL == (grp = H5FL_CALLOC(H5_daos_group_t)))
@@ -1088,13 +1082,16 @@ H5_daos_group_open_helper_async(H5_daos_file_t *file, daos_obj_id_t oid,
          * completed when the read is finished by H5_daos_ginfo_read_comp_cb.
          * We can't use fetch_task since it may not be completed by the first
          * fetch. */
-        if(0 != (ret = tse_task_create(NULL, &file->sched, NULL, &fetch_metatask)))
-            D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't create meta task for group metadata read: %s", H5_daos_err_to_string(ret))
-        fetch_udata->fetch_metatask = fetch_metatask;
+        if(0 != (ret = tse_task_create(NULL, &file->sched, NULL, &fetch_udata->fetch_metatask)))
+            D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't create meta task for group metadata read: %s", H5_daos_err_to_string(ret))
 
         /* Create task for group metadata read */
         if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &file->sched, 0, NULL, &fetch_task)))
             D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't create task to read group medadata: %s", H5_daos_err_to_string(ret))
+
+        /* Register dependency for task if present */
+        if(*dep_task && 0 != (ret = tse_task_register_deps(fetch_task, 1, dep_task)))
+            D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't create dependencies for group metadata read: %s", H5_daos_err_to_string(ret))
 
         /* Set callback functions for group metadata read */
         if(0 != (ret = tse_task_register_cbs(fetch_task, H5_daos_md_rw_prep_cb, NULL, 0, H5_daos_ginfo_read_comp_cb, NULL, 0)))
@@ -1107,12 +1104,15 @@ H5_daos_group_open_helper_async(H5_daos_file_t *file, daos_obj_id_t oid,
         if(0 != (ret = tse_task_schedule(fetch_udata->fetch_metatask, false)))
             D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't schedule meta task for group metadata read: %s", H5_daos_err_to_string(ret))
 
-        /* Schedule group metadata write task and give it a reference to req and
-         * the group */
-        if(0 != (ret = tse_task_schedule(fetch_task, false)))
-            D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't schedule task to read group metadata: %s", H5_daos_err_to_string(ret))
-        fetch_task_scheduled = TRUE;
-        finalize_dep = fetch_task;
+        /* Schedule group metadata write task (or save it to be scheduled later)
+         * and give it a reference to req and the group */
+        if(*first_task) {
+            if(0 != (ret = tse_task_schedule(fetch_task, false)))
+                D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't schedule task to read group metadata: %s", H5_daos_err_to_string(ret))
+        } /* end if */
+        else
+            *first_task = fetch_task;
+        *dep_task = fetch_udata->fetch_metatask;
         req->rc++;
         grp->obj.item.rc++;
         fetch_udata = NULL;
@@ -1158,20 +1158,31 @@ done:
             /* Create task for group info bcast */
             if(0 != (ret = tse_task_create(H5_daos_mpi_ibcast_task, &file->sched, bcast_udata, &bcast_task)))
                 D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't create task to broadcast group info: %s", H5_daos_err_to_string(ret))
-            /* Register dependency on fetch task if present */
-            else if(fetch_task_scheduled && 0 != (ret = tse_task_register_deps(bcast_task, 1, &fetch_metatask)))
+            /* Register task dependency if present */
+            else if(*dep_task && 0 != (ret = tse_task_register_deps(bcast_task, 1, dep_task)))
                 D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't create dependencies for group info broadcast task: %s", H5_daos_err_to_string(ret))
             /* Set callback functions for group info bcast */
             else if(0 != (ret = tse_task_register_cbs(bcast_task, NULL, NULL, 0, file->my_rank == 0 ? H5_daos_group_open_bcast_comp_cb : H5_daos_group_open_recv_comp_cb, NULL, 0)))
                 D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't register callbacks for group info broadcast: %s", H5_daos_err_to_string(ret))
-            /* Schedule second bcast and transfer ownership of bcast_udata */
-            else if(0 != (ret = tse_task_schedule(bcast_task, false)))
-                D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't schedule task for second group info broadcast: %s", H5_daos_err_to_string(ret))
+            /* Schedule bcast and transfer ownership of bcast_udata */
             else {
-                req->rc++;
-                grp->obj.item.rc++;
-                bcast_udata = NULL;
-                finalize_dep = bcast_task;
+                if(*first_task) {
+                    if(0 != (ret = tse_task_schedule(bcast_task, false)))
+                        D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't schedule task for group info broadcast: %s", H5_daos_err_to_string(ret))
+                    else {
+                        req->rc++;
+                        grp->obj.item.rc++;
+                        bcast_udata = NULL;
+                        *dep_task = bcast_task;
+                    } /* end else */
+                } /* end if */
+                else {
+                    *first_task = bcast_task;
+                    req->rc++;
+                    grp->obj.item.rc++;
+                    bcast_udata = NULL;
+                    *dep_task = bcast_task;
+                } /* end else */
             } /* end else */
 
             /* Cleanup on failure */
@@ -1182,23 +1193,6 @@ done:
             } /* end if */
         } /* end if */
     } /* end if */
-
-    /* Create task to finalize H5 operation */
-    if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &file->sched, req, &finalize_task)))
-        D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
-    /* Register dependency (if any) */
-    else if(finalize_dep && 0 != (ret = tse_task_register_deps(finalize_task, 1, &finalize_dep)))
-        D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
-    /* Schedule finalize task */
-    else if(0 != (ret = tse_task_schedule(finalize_task, false)))
-        D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
-    else
-        /* finalize_task now owns a reference to req */
-        req->rc++;
-
-    /* Kick off any tasks scheduled */
-    if(H5_daos_progress(file, H5_DAOS_PROGRESS_KICK) < 0)
-        D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't progress scheduler")
 
     /* Cleanup on failure */
     if(NULL == ret_value) {
@@ -1369,8 +1363,9 @@ H5_daos_group_open(void *_item, const H5VL_loc_params_t *loc_params,
     daos_obj_id_t oid = {0, 0};
     hbool_t collective;
     hbool_t must_bcast = FALSE;
-    hbool_t must_finalize = FALSE;
     H5_daos_req_t *int_req = NULL;
+    tse_task_t *first_task = NULL;
+    tse_task_t *dep_task = NULL;
     int ret;
     void *ret_value = NULL;
 
@@ -1389,16 +1384,8 @@ H5_daos_group_open(void *_item, const H5VL_loc_params_t *loc_params,
             D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, NULL, "can't get collective metadata reads property")
 
     /* Start H5 operation */
-    if(NULL == (int_req = (H5_daos_req_t *)DV_malloc(sizeof(H5_daos_req_t))))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for request")
-    int_req->th = DAOS_TX_NONE;
-    int_req->th_open = FALSE;
-    int_req->file = item->file;
-    int_req->file->item.rc++;
-    int_req->rc = 1;
-    int_req->status = H5_DAOS_INCOMPLETE;
-    int_req->failed_task = NULL;
-    must_finalize = TRUE;
+    if(NULL == (int_req = H5_daos_req_create(item->file)))
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTALLOC, NULL, "can't create DAOS request")
 
     /* Check if we're actually opening the group or just receiving the group
      * info from the leader */
@@ -1444,17 +1431,14 @@ H5_daos_group_open(void *_item, const H5VL_loc_params_t *loc_params,
                     D_GOTO_ERROR(H5E_SYM, H5E_TRAVERSE, NULL, "can't follow link to group")
                 if(!link_resolved)
                     D_GOTO_ERROR(H5E_SYM, H5E_TRAVERSE, NULL, "link to group did not resolve")
-
-                /* No longer need to bcast (in this function) */
-                must_bcast = FALSE;
             } /* end else */
         } /* end else */
     } /* end if */
 
     /* Open group if not already open */
     if(!grp) {
-        must_finalize = FALSE;  /* Helper function will handle finalize */
-        if(NULL == (grp = H5_daos_group_open_helper_async(item->file, oid, gapl_id, dxpl_id, int_req, collective)))
+        must_bcast = FALSE;     /* Helper function will handle bcast */
+        if(NULL == (grp = H5_daos_group_open_helper_async(item->file, oid, gapl_id, dxpl_id, int_req, collective, &first_task, &dep_task)))
             D_GOTO_ERROR(H5E_SYM, H5E_CANTOPENOBJ, NULL, "can't open group")
     } /* end if */
 
@@ -1465,6 +1449,8 @@ done:
     /* Broadcast group info if needed */
     if(must_bcast) {
         H5_daos_mpi_ibcast_ud_t *bcast_udata = NULL;
+
+        assert(int_req);
 
         /* Allocate udata struct for broadcast */
         if(NULL == (bcast_udata = (H5_daos_mpi_ibcast_ud_t *)DV_malloc(sizeof(H5_daos_mpi_ibcast_ud_t))))
@@ -1519,7 +1505,7 @@ done:
                 } /* end else */
             } /* end else */
 
-            /* Do actual broadcast if we still can */
+            /* Do actual broadcast if we still should */
             if(must_bcast) {
                 tse_task_t *bcast_task;
 
@@ -1530,13 +1516,24 @@ done:
                 else if(0 != (ret = tse_task_register_cbs(bcast_task, NULL, NULL, 0, item->file->my_rank == 0 ? H5_daos_group_open_bcast_comp_cb : H5_daos_group_open_recv_comp_cb, NULL, 0)))
                     D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't register callbacks for second group info broadcast: %s", H5_daos_err_to_string(ret))
                 /* Schedule second bcast and transfer ownership of bcast_udata */
-                else if(0 != (ret = tse_task_schedule(bcast_task, false)))
-                    D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't schedule task for second group info broadcast: %s", H5_daos_err_to_string(ret))
                 else {
-                    int_req->rc++;
-                    grp->obj.item.rc++;
-                    bcast_udata = NULL;
-                    must_finalize = FALSE;  /* bcast callback will handle finalize */
+                    if(first_task) {
+                        if(0 != (ret = tse_task_schedule(bcast_task, false)))
+                            D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't schedule task for second group info broadcast: %s", H5_daos_err_to_string(ret))
+                        else {
+                            int_req->rc++;
+                            grp->obj.item.rc++;
+                            bcast_udata = NULL;
+                            dep_task = bcast_task;
+                        } /* end else */
+                    } /* end if */
+                    else {
+                        first_task = bcast_task;
+                        int_req->rc++;
+                        grp->obj.item.rc++;
+                        bcast_udata = NULL;
+                        dep_task = bcast_task;
+                    } /* end else */
                 } /* end else */
             } /* end if */
 
@@ -1548,12 +1545,26 @@ done:
         } /* end else */
     } /* end if */
 
-    /* Finalize task */
-    if(must_finalize)
-        if((ret = H5_daos_h5op_finalize_helper(int_req)) < 0)
-            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, NULL, "failed to finalize H5 operation")
-
     if(int_req) {
+        tse_task_t *finalize_task;
+
+        /* Create task to finalize H5 operation */
+        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &item->file->sched, int_req, &finalize_task)))
+            D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+        /* Register dependency (if any) */
+        else if(dep_task && 0 != (ret = tse_task_register_deps(finalize_task, 1, &dep_task)))
+            D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+        /* Schedule finalize task */
+        else if(0 != (ret = tse_task_schedule(finalize_task, false)))
+            D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+        else
+            /* finalize_task now owns a reference to req */
+            int_req->rc++;
+
+        /* Schedule first task */
+        if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
+            D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret))
+
         /* Block until operation completes */
         /* Wait for scheduler to be empty */
         if(H5_daos_progress(item->file, H5_DAOS_PROGRESS_WAIT) < 0)

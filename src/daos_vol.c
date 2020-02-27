@@ -2327,18 +2327,85 @@ done:
         req->th_open = FALSE;
     } /* end if */
 
-    if(req->th_open) {
-        /* Progress schedule */
-        if(H5_daos_progress(req->file, H5_DAOS_PROGRESS_KICK) < 0)
-            D_DONE_ERROR(H5E_IO, H5E_CANTINIT, H5_DAOS_PROGRESS_ERROR, "can't progress scheduler")
-    } /* end if */
-    else
-        /* Mark request as completed */
-        if(ret_value >= 0 && req->status == H5_DAOS_INCOMPLETE)
-            req->status = 0;
+    /* Mark request as completed if we're done and there were no errors */
+    if(!req->th_open && ret_value >= 0 && req->status == H5_DAOS_INCOMPLETE)
+        req->status = 0;
 
     D_FUNC_LEAVE
 } /* end H5_daos_h5op_finalize_helper() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_generic_prep_cb
+ *
+ * Purpose:     Prepare callback for generic DAOS operations.  Currently
+ *              only checks for errors from previous tasks.
+ *
+ * Return:      0 (Never fails)
+ *
+ * Programmer:  Neil Fortner
+ *              February, 2020
+ *
+ *-------------------------------------------------------------------------
+ */
+int
+H5_daos_generic_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_generic_cb_ud_t *udata;
+
+    /* Get private data */
+    udata = tse_task_get_priv(task);
+
+    assert(udata);
+    assert(udata->req);
+    assert(udata->req->file);
+
+    /* Handle errors */
+    if(udata->req->status < H5_DAOS_INCOMPLETE)
+        tse_task_complete(task, H5_DAOS_PRE_ERROR);
+
+    return 0;
+} /* end H5_daos_generic_prep_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_generic_comp_cb
+ *
+ * Purpose:     Complete callback for generic DAOS operations.  Currently
+ *              checks for a failed task then frees private data.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ * Programmer:  Neil Fortner
+ *              February, 2020
+ *
+ *-------------------------------------------------------------------------
+ */
+int
+H5_daos_generic_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_md_rw_cb_ud_t *udata;
+    int ret_value = 0;
+
+    /* Get private data */
+    udata = tse_task_get_priv(task);
+
+    /* Handle errors in update task.  Only record error in udata->req_status if
+     * it does not already contain an error (it could contain an error if
+     * another task this task is not dependent on also failed). */
+    if(task->dt_result < H5_DAOS_PRE_ERROR
+            && udata->req->status >= H5_DAOS_INCOMPLETE) {
+        udata->req->status = task->dt_result;
+        udata->req->failed_task = udata->task_name;
+    } /* end if */
+
+    /* Free private data */
+    H5_daos_req_free_int(udata->req);
+    DV_free(udata);
+
+    return ret_value;
+} /* end H5_daos_generic_comp_cb() */
 
 
 /*-------------------------------------------------------------------------

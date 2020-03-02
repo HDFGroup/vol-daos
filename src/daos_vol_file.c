@@ -213,9 +213,10 @@ H5_daos_cont_open(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *req,
     tse_task_t **first_task, tse_task_t **dep_task)
 {
     tse_task_t *open_task  = NULL;
+#ifdef H5_DAOS_CONT_OPEN_PRIV_DATA_WORKS
     H5_daos_generic_cb_ud_t *open_udata = NULL;
+#endif
     daos_cont_open_t *open_args;
-    tse_task_t *fetch_task = NULL;
     herr_t ret_value = SUCCEED;
     int ret;
 
@@ -226,26 +227,27 @@ H5_daos_cont_open(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *req,
     assert(dep_task);
 
     /* Create task for container open */
-    if(0 != (ret = daos_task_create(DAOS_OPC_CONT_OPEN, &file->sched, 0, NULL, &fetch_task)))
+    if(0 != (ret = daos_task_create(DAOS_OPC_CONT_OPEN, &file->sched, 0, NULL, &open_task)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create task to open container: %s", H5_daos_err_to_string(ret))
 
+#ifdef H5_DAOS_CONT_OPEN_PRIV_DATA_WORKS
     /* Set callback functions for container open */
-    if(0 != (ret = tse_task_register_cbs(fetch_task, H5_daos_generic_prep_cb, NULL, 0, H5_daos_generic_comp_cb, NULL, 0)))
+    if(0 != (ret = tse_task_register_cbs(open_task, H5_daos_generic_prep_cb, NULL, 0, H5_daos_generic_comp_cb, NULL, 0)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't register callbacks for task to open container: %s", H5_daos_err_to_string(ret))
 
-    /* Set private data for group metadata write */
+    /* Set private data for container open */
     if(NULL == (open_udata = (H5_daos_generic_cb_ud_t *)DV_malloc(sizeof(H5_daos_generic_cb_ud_t))))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate user data struct for container open task")
     open_udata->req = req;
     open_udata->task_name = "container open within H5Fopen";
     (void)tse_task_set_priv(open_task, open_udata);
+#endif
 
     /* Set arguments for container open */
     if(NULL == (open_args = daos_task_get_args(open_task)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't get arguments for container open task")
     open_args->poh = H5_daos_poh_g;
-    assert(sizeof(open_args->uuid) == sizeof(file->uuid));
-    memcpy((uuid_t *)&(open_args->uuid), &file->uuid, sizeof(open_args->uuid));
+    uuid_copy(open_args->uuid, file->uuid);
     open_args->flags = flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO;
     open_args->coh = &file->coh;
     open_args->info = NULL;
@@ -253,8 +255,10 @@ H5_daos_cont_open(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *req,
     /* Save container open task to be scheduled later and give it a reference to
      * req */
     *first_task = open_task;
+#ifdef H5_DAOS_CONT_OPEN_PRIV_DATA_WORKS
     req->rc++;
     open_udata = NULL;
+#endif
     *dep_task = open_task;
 
     /* If a snapshot was requested, use it as the epoch, otherwise query it
@@ -273,10 +277,12 @@ H5_daos_cont_open(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *req,
 
 done:
     /* Cleanup */
+#ifdef H5_DAOS_CONT_OPEN_PRIV_DATA_WORKS
     if(open_udata) {
         assert(ret_value < 0);
         DV_free(open_udata);
     } /* end if */
+#endif
 
     D_FUNC_LEAVE
 } /* end H5_daos_cont_open() */
@@ -492,8 +498,8 @@ done:
 
         /* Create meta task for global handle bcast.  This empty task will be
          * completed when the bcast is finished by H5_daos_gh_bcast_comp_cb.  We
-         * can't use bcast_task since it may not be completed by the first
-         * fetch. */
+         * can't use bcast_task since it may not be completed after the first
+         * bcast. */
         if(0 != (ret = tse_task_create(NULL, &file->sched, NULL, &bcast_udata->bcast_metatask)))
             D_DONE_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create meta task for global handle broadcast: %s", H5_daos_err_to_string(ret))
         /* Create task for global handle bcast */
@@ -515,8 +521,8 @@ done:
                 D_DONE_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't schedule task for global handle broadcast: %s", H5_daos_err_to_string(ret))
             else {
                 req->rc++;
-                bcast_udata = NULL;
                 *dep_task = bcast_udata->bcast_metatask;
+                bcast_udata = NULL;
             } /* end else */
         } /* end else */
     } /* end if */
@@ -739,6 +745,9 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
 #endif
     daos_obj_id_t gmd_oid = {0, 0};
     daos_obj_id_t root_grp_oid = {0, 0};
+    tse_task_t *gmd_open_task = NULL;
+    H5_daos_generic_cb_ud_t *gmd_open_udata = NULL;
+    daos_obj_open_t *gmd_open_args;
     H5_daos_req_t *int_req = NULL;
     tse_task_t *first_task = NULL;
     tse_task_t *dep_task = NULL;
@@ -821,11 +830,43 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
 
     /* Broadcast container handle to other procs if any */
     if((file->num_procs > 1) && (H5_daos_cont_handle_bcast(file, int_req, &dep_task) < 0))
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTSET, NULL, "can't broadcast DAOS container handle")
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTSET, NULL, "can't broadcast DAOS container handle")
 
-    /* Open global metadata object */
-    if(0 != (ret = daos_obj_open(file->coh, gmd_oid, flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &file->glob_md_oh, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENFILE, NULL, "can't open global metadata object: %s", H5_daos_err_to_string(ret))
+    /* Create task for global metadata object open */
+    if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_OPEN, &file->sched, 0, NULL, &gmd_open_task)))
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create task to open global metadata object: %s", H5_daos_err_to_string(ret))
+
+    /* Register dependency for task */
+    assert(dep_task);
+    if(0 != (ret = tse_task_register_deps(gmd_open_task, 1, &dep_task)))
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create dependencies for global metadata object open: %s", H5_daos_err_to_string(ret))
+
+    /* Set callback functions for global metadata object open */
+    if(0 != (ret = tse_task_register_cbs(gmd_open_task, H5_daos_obj_open_prep_cb, NULL, 0, H5_daos_generic_comp_cb, NULL, 0)))
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't register callbacks for task to open global metadata object: %s", H5_daos_err_to_string(ret))
+
+    /* Set private data for global metadata object open */
+    if(NULL == (gmd_open_udata = (H5_daos_generic_cb_ud_t *)DV_malloc(sizeof(H5_daos_generic_cb_ud_t))))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate user data struct for global metadata object open task")
+    gmd_open_udata->req = int_req;
+    gmd_open_udata->task_name = "global metadata object open";
+    (void)tse_task_set_priv(gmd_open_task, gmd_open_udata);
+
+    /* Set arguments for global metadata object open */
+    if(NULL == (gmd_open_args = daos_task_get_args(gmd_open_task)))
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't get arguments for global metadata object open task")
+    gmd_open_args->oid = gmd_oid;
+    gmd_open_args->mode = flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO;
+    gmd_open_args->oh = &file->glob_md_oh;
+
+    /* Schedule global metadata object open task and give it a reference to req
+     */
+    assert(first_task);
+    if(0 != (ret = tse_task_schedule(gmd_open_task, false)))
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't schedule task to open global metadata object: %s", H5_daos_err_to_string(ret))
+    int_req->rc++;
+    gmd_open_udata = NULL;
+    dep_task = gmd_open_task;
 
     /* Open root group */
     if(NULL == (file->root_grp = H5_daos_group_open_helper_async(file, root_grp_oid, H5P_GROUP_ACCESS_DEFAULT, dxpl_id, int_req, TRUE, &first_task, &dep_task)))
@@ -872,7 +913,12 @@ done:
         /* Close file */
         if(file && H5_daos_file_close_helper(file, dxpl_id, req) < 0)
             D_DONE_ERROR(H5E_FILE, H5E_CANTCLOSEFILE, NULL, "can't close file")
+
+        /* Free memory */
+        gmd_open_udata = DV_free(gmd_open_udata);
     } /* end if */
+
+    assert(!gmd_open_udata);
 
     D_FUNC_LEAVE_API
 } /* end H5_daos_file_open() */
@@ -1359,7 +1405,7 @@ done:
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_file_flush
  *
- * Purpose:     Flushes a DAOS file.  Currently a no-op, may create a
+ * Purpose:     Flushes a DAOS file.  Currently a no-op, may create aprintf("after_metatask complete\n");
  *              snapshot in the future.
  *
  * Return:      Success:        0

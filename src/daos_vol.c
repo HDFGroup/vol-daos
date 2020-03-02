@@ -2409,6 +2409,50 @@ H5_daos_generic_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
 
 /*-------------------------------------------------------------------------
+ * Function:    H5_daos_obj_open_prep_cb
+ *
+ * Purpose:     Prepare callback for daos_obj_open.  Currently only sets
+ *              the coh and checks for errors from previous tasks.  This
+ *              is only necessary for operations that might otherwise be
+ *              run before file->coh is set up, since daos_obj_open is a
+ *              non-blocking operation.  The other fields in the argument
+ *              struct must have already been filled in.  Since this does
+ *              not hold the object open it must only be used when there
+ *              is a task that depends on it that does so.
+ *
+ * Return:      0 (Never fails)
+ *
+ * Programmer:  Neil Fortner
+ *              February, 2020
+ *
+ *-------------------------------------------------------------------------
+ */
+int
+H5_daos_obj_open_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_generic_cb_ud_t *udata;
+    daos_obj_open_t *open_args;
+
+    /* Get private data */
+    udata = tse_task_get_priv(task);
+
+    assert(udata);
+    assert(udata->req);
+    assert(udata->req->file);
+
+    /* Handle errors */
+    if(udata->req->status < H5_DAOS_INCOMPLETE)
+        tse_task_complete(task, H5_DAOS_PRE_ERROR);
+
+    /* Set container open handle in args */
+    open_args = daos_task_get_args(task);
+    open_args->coh = udata->req->file->coh;
+
+    return 0;
+} /* end H5_daos_obj_open_prep_cb() */
+
+
+/*-------------------------------------------------------------------------
  * Function:    H5_daos_md_rw_prep_cb
  *
  * Purpose:     Prepare callback for asynchronous daos_obj_update or
@@ -2548,7 +2592,7 @@ H5_daos_mpi_ibcast_task(tse_task_t *task)
     assert(!udata->req->file->closed);
 
     /* Make call to MPI_Ibcast */
-    if(MPI_SUCCESS != MPI_Ibcast(udata->buffer, udata->count, MPI_BYTE, 0, udata->obj->item.file->comm, &H5_daos_mpi_req_g))
+    if(MPI_SUCCESS != MPI_Ibcast(udata->buffer, udata->count, MPI_BYTE, 0, udata->req->file->comm, &H5_daos_mpi_req_g))
         D_GOTO_ERROR(H5E_VOL, H5E_MPI, H5_DAOS_MPI_ERROR, "MPI_Ibcast failed")
 
     /* Register this task as the current in-flight MPI task */

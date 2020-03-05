@@ -47,6 +47,8 @@ H5_daos_err_to_string(int ret)
             return "operation failed on another process (H5_DAOS_REMOTE_ERROR)";
         case H5_DAOS_MPI_ERROR:
             return "MPI operation failed (H5_DAOS_MPI_ERROR)";
+        case H5_DAOS_DAOS_GET_ERROR:
+            return "failed to get data from DAOS or no data present (H5_DAOS_DAOS_GET_ERROR)";
         case H5_DAOS_ALLOC_ERROR:
             return "memory allocation failed (H5_DAOS_ALLOC_ERROR)";
         case H5_DAOS_CPL_CACHE_ERROR:

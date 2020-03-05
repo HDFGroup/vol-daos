@@ -2134,7 +2134,8 @@ H5_daos_tx_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     int ret_value = 0;
 
     /* Get private data */
-    req = tse_task_get_priv(task);
+    if(NULL == (req = daos_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get private data for transaction commit/abort task")
 
     /* Handle errors in commit/abort task.  Only record error in
      * udata->req_status if it does not already contain an error (it could
@@ -2193,7 +2194,8 @@ H5_daos_h5op_finalize(tse_task_t *task)
     int ret_value = 0;
 
     /* Get private data */
-    req = tse_task_get_priv(task);
+    if(NULL == (req = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get private data for operation finalize task")
 
     /* Perform operation */
     if((ret = H5_daos_h5op_finalize_helper(req)) < 0 && req->status >= H5_DAOS_INCOMPLETE)
@@ -2211,6 +2213,7 @@ H5_daos_h5op_finalize(tse_task_t *task)
     /* Release our reference to req */
     H5_daos_req_free_int(req);
 
+done:
     D_FUNC_LEAVE
 } /* end H5_daos_h5op_finalize() */
 
@@ -2237,6 +2240,8 @@ H5_daos_h5op_finalize_helper(H5_daos_req_t *req)
     int ret;
     int ret_value = 0;
 
+    assert(req);
+    assert(req->file);
     assert(!req->file->closed);
 
     /* Check for error */
@@ -2257,7 +2262,11 @@ H5_daos_h5op_finalize_helper(H5_daos_req_t *req)
             } /* end if */
 
             /* Set arguments */
-            abort_args = daos_task_get_args(abort_task);
+            if(NULL == (abort_args = daos_task_get_args(abort_task))) {
+                close_tx = TRUE;
+                req->th_open = FALSE;
+                D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get arguments for transaction abort task")
+            } /* end if */
             abort_args->th = req->th;
 
             /* Register callback to close transaction */
@@ -2295,7 +2304,11 @@ H5_daos_h5op_finalize_helper(H5_daos_req_t *req)
             } /* end if */
 
             /* Set arguments */
-            commit_args = daos_task_get_args(commit_task);
+            if(NULL == (commit_args = daos_task_get_args(commit_task))) {
+                close_tx = TRUE;
+                req->th_open = FALSE;
+                D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get arguments for transaction commit task")
+            } /* end if */
             commit_args->th = req->th;
 
             /* Register callback to close transaction */
@@ -2341,7 +2354,8 @@ done:
  * Purpose:     Prepare callback for generic DAOS operations.  Currently
  *              only checks for errors from previous tasks.
  *
- * Return:      0 (Never fails)
+ * Return:      Success:        0
+ *              Failure:        Error code
  *
  * Programmer:  Neil Fortner
  *              February, 2020
@@ -2352,11 +2366,12 @@ int
 H5_daos_generic_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
     H5_daos_generic_cb_ud_t *udata;
+    int ret_value = 0;
 
     /* Get private data */
-    udata = tse_task_get_priv(task);
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get private data for generic task")
 
-    assert(udata);
     assert(udata->req);
     assert(udata->req->file);
 
@@ -2364,7 +2379,8 @@ H5_daos_generic_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     if(udata->req->status < H5_DAOS_INCOMPLETE)
         tse_task_complete(task, H5_DAOS_PRE_ERROR);
 
-    return 0;
+done:
+    D_FUNC_LEAVE
 } /* end H5_daos_generic_prep_cb() */
 
 
@@ -2389,15 +2405,15 @@ H5_daos_generic_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     int ret_value = 0;
 
     /* Get private data */
-    udata = tse_task_get_priv(task);
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get private data for generic task")
 
-    assert(udata);
     assert(udata->req);
     assert(udata->req->file);
 
-    /* Handle errors in update task.  Only record error in udata->req_status if
-     * it does not already contain an error (it could contain an error if
-     * another task this task is not dependent on also failed). */
+    /* Handle errors in task.  Only record error in udata->req_status if it does
+     * not already contain an error (it could contain an error if another task
+     * this task is not dependent on also failed). */
     if(task->dt_result < H5_DAOS_PRE_ERROR
             && udata->req->status >= H5_DAOS_INCOMPLETE) {
         udata->req->status = task->dt_result;
@@ -2408,7 +2424,8 @@ H5_daos_generic_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     H5_daos_req_free_int(udata->req);
     DV_free(udata);
 
-    return ret_value;
+done:
+    D_FUNC_LEAVE
 } /* end H5_daos_generic_comp_cb() */
 
 
@@ -2424,7 +2441,8 @@ H5_daos_generic_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
  *              not hold the object open it must only be used when there
  *              is a task that depends on it that does so.
  *
- * Return:      0 (Never fails)
+ * Return:      Success:        0
+ *              Failure:        Error code
  *
  * Programmer:  Neil Fortner
  *              February, 2020
@@ -2436,11 +2454,12 @@ H5_daos_obj_open_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
     H5_daos_generic_cb_ud_t *udata;
     daos_obj_open_t *open_args;
+    int ret_value = 0;
 
     /* Get private data */
-    udata = tse_task_get_priv(task);
+    if(NULL == (udata = daos_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get private data for object open task")
 
-    assert(udata);
     assert(udata->req);
     assert(udata->req->file);
 
@@ -2449,10 +2468,14 @@ H5_daos_obj_open_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         tse_task_complete(task, H5_DAOS_PRE_ERROR);
 
     /* Set container open handle in args */
-    open_args = daos_task_get_args(task);
+    if(NULL == (open_args = daos_task_get_args(task))) {
+        tse_task_complete(task, H5_DAOS_DAOS_GET_ERROR);
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get arguments for object open task")
+    } /* end if */
     open_args->coh = udata->req->file->coh;
 
-    return 0;
+done:
+    D_FUNC_LEAVE
 } /* end H5_daos_obj_open_prep_cb() */
 
 
@@ -2464,7 +2487,8 @@ H5_daos_obj_open_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
  *              errors from previous tasks then sets arguments for the
  *              DAOS operation.
  *
- * Return:      0 (Never fails)
+ * Return:      Success:        0
+ *              Failure:        Error code
  *
  * Programmer:  Neil Fortner
  *              January, 2019
@@ -2476,11 +2500,12 @@ H5_daos_md_rw_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
     H5_daos_md_rw_cb_ud_t *udata;
     daos_obj_rw_t *update_args;
+    int ret_value = 0;
 
     /* Get private data */
-    udata = tse_task_get_priv(task);
+    if(NULL == (udata = daos_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get private data for metadata I/O task")
 
-    assert(udata);
     assert(udata->obj);
     assert(udata->req);
     assert(udata->req->file);
@@ -2491,7 +2516,10 @@ H5_daos_md_rw_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         tse_task_complete(task, H5_DAOS_PRE_ERROR);
 
     /* Set update task arguments */
-    update_args = daos_task_get_args(task);
+    if(NULL == (update_args = daos_task_get_args(task))) {
+        tse_task_complete(task, H5_DAOS_DAOS_GET_ERROR);
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get arguments for metadata I/O task")
+    } /* end if */
     update_args->oh = udata->obj->obj_oh;
     update_args->th = DAOS_TX_NONE;
     update_args->flags = 0;
@@ -2503,7 +2531,8 @@ H5_daos_md_rw_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     else
         update_args->sgls = NULL;
 
-    return 0;
+done:
+    D_FUNC_LEAVE
 } /* end H5_daos_md_rw_prep_cb() */
 
 
@@ -2530,7 +2559,8 @@ H5_daos_md_update_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     int ret_value = 0;
 
     /* Get private data */
-    udata = tse_task_get_priv(task);
+    if(NULL == (udata = daos_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get private data for metadata I/O task")
 
     assert(!udata->req->file->closed);
 
@@ -2565,7 +2595,8 @@ H5_daos_md_update_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         DV_free(udata->sg_iov[i].iov_buf);
     DV_free(udata);
 
-    return ret_value;
+done:
+    D_FUNC_LEAVE
 } /* end H5_daos_md_update_comp_cb() */
 
 
@@ -2591,8 +2622,11 @@ H5_daos_mpi_ibcast_task(tse_task_t *task)
     assert(!H5_daos_mpi_task_g);
 
     /* Get private data */
-    udata = tse_task_get_priv(task);
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get private data for MPI broadcast task")
 
+    assert(udata->req);
+    assert(udata->req->file);
     assert(!udata->req->file->closed);
     assert(udata->buffer);
 
@@ -2693,7 +2727,6 @@ H5_daos_obj_open(H5_daos_file_t *file, H5_daos_req_t *req, daos_obj_id_t *oid,
     /* Schedule object open task (or save it to be scheduled later) and give it
      * a reference to req */
     if(*first_task) {
-
         if(0 != (ret = tse_task_schedule(open_task, false)))
             D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't schedule task to open object: %s", H5_daos_err_to_string(ret))
     } /* end if */

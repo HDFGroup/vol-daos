@@ -581,7 +581,12 @@ H5_daos_group_open_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     int ret_value = 0;
 
     /* Get private data */
-    udata = tse_task_get_priv(task);
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get private data for group info broadcast task")
+
+    assert(udata->req);
+    assert(udata->obj);
+    assert(udata->obj->item.file);
     assert(!udata->obj->item.file->closed);
     assert(udata->obj->item.file->my_rank == 0);
     assert(udata->obj->item.type == H5I_GROUP);
@@ -646,7 +651,7 @@ done:
         DV_free(udata);
     } /* end if */
     else
-        assert(ret_value >= 0);
+        assert(ret_value >= 0 || ret_value == H5_DAOS_DAOS_GET_ERROR);
 
     return ret_value;
 } /* end H5_daos_group_open_bcast_comp_cb() */
@@ -674,7 +679,12 @@ H5_daos_group_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     int ret_value = 0;
 
     /* Get private data */
-    udata = tse_task_get_priv(task);
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get private data for group info receive task")
+
+    assert(udata->req);
+    assert(udata->obj);
+    assert(udata->obj->item.file);
     assert(!udata->req->file->closed);
     assert(udata->obj->item.file->my_rank > 0);
     assert(udata->obj->item.type == H5I_GROUP);
@@ -780,7 +790,7 @@ done:
         DV_free(udata);
     } /* end if */
     else
-        assert(ret_value >= 0);
+        assert(ret_value >= 0 || ret_value == H5_DAOS_DAOS_GET_ERROR);
 
     return ret_value;
 } /* end H5_daos_group_open_recv_comp_cb() */
@@ -809,7 +819,13 @@ H5_daos_ginfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     int ret_value = 0;
 
     /* Get private data */
-    udata = tse_task_get_priv(task);
+    if(NULL == (udata = daos_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get private data for group info read task")
+
+    assert(udata->md_rw_cb_ud.req);
+    assert(udata->md_rw_cb_ud.req->file);
+    assert(udata->md_rw_cb_ud.obj);
+    assert(udata->fetch_metatask);
     assert(!udata->md_rw_cb_ud.req->file->closed);
     assert(udata->md_rw_cb_ud.obj->item.type == H5I_GROUP);
 
@@ -1238,7 +1254,7 @@ done:
         grp_open_udata = DV_free(grp_open_udata);
     } /* end if */
 
-    /* Make sure we cleanup up */
+    /* Make sure we cleaned up */
     assert(!fetch_udata);
     assert(!bcast_udata);
     assert(!ginfo_buf);

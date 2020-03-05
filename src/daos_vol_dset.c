@@ -1085,7 +1085,8 @@ H5_daos_scatter_cb(const void **src_buf, size_t *src_buf_bytes_used,
  *              errors from previous tasks then sets arguments for daos
  *              task.
  *
- * Return:      0 (Never fails)
+ * Return:      Success:        0
+ *              Failure:        Error code
  *
  *-------------------------------------------------------------------------
  */
@@ -1094,9 +1095,11 @@ H5_daos_chunk_io_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
     H5_daos_chunk_io_ud_t *udata;
     daos_obj_rw_t *update_args;
+    int ret_value = 0;
 
     /* Get private data */
-    udata = tse_task_get_priv(task);
+    if(NULL == (udata = daos_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get private data for chunk I/O task")
 
     assert(udata);
     assert(udata->dset);
@@ -1109,7 +1112,10 @@ H5_daos_chunk_io_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         tse_task_complete(task, H5_DAOS_PRE_ERROR);
 
     /* Set I/O task arguments */
-    update_args = daos_task_get_args(task);
+    if(NULL == (update_args = daos_task_get_args(task))) {
+        tse_task_complete(task, H5_DAOS_DAOS_GET_ERROR);
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get arguments for chunk I/O task")
+    } /* end if */
     update_args->oh = udata->dset->obj.obj_oh;
     update_args->th = DAOS_TX_NONE;
     update_args->flags = 0;
@@ -1119,7 +1125,8 @@ H5_daos_chunk_io_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     update_args->sgls = &udata->sgl;
     update_args->maps = NULL;
 
-    return 0;
+done:
+    D_FUNC_LEAVE
 } /* end H5_daos_chunk_io_prep_cb() */
 
 
@@ -1142,8 +1149,12 @@ H5_daos_chunk_io_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     int ret_value = 0;
 
     /* Get private data */
-    udata = tse_task_get_priv(task);
+    if(NULL == (udata = daos_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get private data for chunk I/O task")
 
+    assert(udata);
+    assert(udata->req);
+    assert(udata->req->file);
     assert(!udata->req->file->closed);
 
     /* Handle errors in update task.  Only record error in udata->req_status if
@@ -1175,7 +1186,8 @@ H5_daos_chunk_io_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         DV_free(udata->sg_iovs);
     DV_free(udata);
 
-    return ret_value;
+done:
+    D_FUNC_LEAVE
 } /* end H5_daos_chunk_io_comp_cb() */
 
 

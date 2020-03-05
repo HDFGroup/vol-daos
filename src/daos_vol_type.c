@@ -511,19 +511,12 @@ H5_daos_datatype_commit(void *_item,
     collective = TRUE;
 
     /* Start H5 operation */
-    if(NULL == (int_req = (H5_daos_req_t *)DV_malloc(sizeof(H5_daos_req_t))))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for request")
-    int_req->th = DAOS_TX_NONE;
-    int_req->th_open = FALSE;
-    int_req->file = item->file;
-    int_req->file->item.rc++;
-    int_req->rc = 1;
-    int_req->status = H5_DAOS_INCOMPLETE;
-    int_req->failed_task = NULL;
+    if(NULL == (int_req = H5_daos_req_create(item->file)))
+        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTALLOC, NULL, "can't create DAOS request")
 
-    /* Allocate the dataset object that is returned to the user */
+    /* Allocate the datatype object that is returned to the user */
     if(NULL == (dtype = H5FL_CALLOC(H5_daos_dtype_t)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate DAOS dataset struct")
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate DAOS datatype struct")
     dtype->obj.item.type = H5I_DATATYPE;
     dtype->obj.item.open_req = int_req;
     int_req->rc++;
@@ -617,7 +610,7 @@ H5_daos_datatype_commit(void *_item,
 
             link_val.type = H5L_TYPE_HARD;
             link_val.target.hard = dtype->obj.oid;
-            if(H5_daos_link_write(target_grp, target_name, strlen(target_name), &link_val, int_req, &link_write_task) < 0)
+            if(H5_daos_link_write(target_grp, target_name, strlen(target_name), &link_val, int_req, &link_write_task, NULL) < 0)
                 D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't create link to group")
             finalize_deps[finalize_ndeps] = link_write_task;
             finalize_ndeps++;

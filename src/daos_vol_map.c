@@ -114,15 +114,8 @@ H5_daos_map_create(void *_item,
     collective = TRUE;
 
     /* Start H5 operation */
-    if(NULL == (int_req = (H5_daos_req_t *)DV_malloc(sizeof(H5_daos_req_t))))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for request")
-    int_req->th = DAOS_TX_NONE;
-    int_req->th_open = FALSE;
-    int_req->file = item->file;
-    int_req->file->item.rc++;
-    int_req->rc = 1;
-    int_req->status = H5_DAOS_INCOMPLETE;
-    int_req->failed_task = NULL;
+    if(NULL == (int_req = H5_daos_req_create(item->file)))
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTALLOC, NULL, "can't create DAOS request")
 
     /* Allocate the map object that is returned to the user */
     if(NULL == (map = H5FL_CALLOC(H5_daos_map_t)))
@@ -260,12 +253,12 @@ H5_daos_map_create(void *_item,
         if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_UPDATE, &item->file->sched, 0, NULL, &update_task)))
             D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create task to write map medadata: %s", H5_daos_err_to_string(ret))
 
-        /* Set callback functions for group metadata write */
+        /* Set callback functions for map metadata write */
         if(0 != (ret = tse_task_register_cbs(update_task, H5_daos_md_rw_prep_cb, NULL, 0, H5_daos_md_update_comp_cb, NULL, 0)))
             D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't register callbacks for task to write map medadata: %s", H5_daos_err_to_string(ret))
 
-        /* Set private data for group metadata write */
-        (void)tse_task_set_priv(update_task, update_cb_ud);
+        /* Set private data for map metadata write */
+        (void)daos_task_set_priv(update_task, update_cb_ud);
 
         /* Schedule map metadata write task and give it a reference to req */
         if(0 != (ret = tse_task_schedule(update_task, false)))
@@ -283,7 +276,7 @@ H5_daos_map_create(void *_item,
 
             link_val.type = H5L_TYPE_HARD;
             link_val.target.hard = map->obj.oid;
-            if(H5_daos_link_write(target_grp, target_name, strlen(target_name), &link_val, int_req, &link_write_task) < 0)
+            if(H5_daos_link_write(target_grp, target_name, strlen(target_name), &link_val, int_req, &link_write_task, NULL) < 0)
                 D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create link to map")
             finalize_deps[finalize_ndeps] = link_write_task;
             finalize_ndeps++;

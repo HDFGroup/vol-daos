@@ -636,6 +636,10 @@ H5VL_DAOS_PRIVATE int H5_daos_obj_open_prep_cb(tse_task_t *task, void *args);
 H5VL_DAOS_PRIVATE int H5_daos_md_rw_prep_cb(tse_task_t *task, void *args);
 H5VL_DAOS_PRIVATE int H5_daos_md_update_comp_cb(tse_task_t *task, void *args);
 H5VL_DAOS_PRIVATE int H5_daos_mpi_ibcast_task(tse_task_t *task);
+H5VL_DAOS_PRIVATE int H5_daos_metatask_autocomplete(tse_task_t *task);
+H5VL_DAOS_PRIVATE herr_t H5_daos_obj_open(H5_daos_file_t *file,
+    H5_daos_req_t *req, daos_obj_id_t *oid, unsigned mode, daos_handle_t *oh,
+    const char *task_name, tse_task_t **first_task, tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE herr_t H5_daos_progress(H5_daos_file_t *file,
     H5_daos_progress_mode_t mode);
 H5VL_DAOS_PRIVATE herr_t H5_daos_comm_info_dup(MPI_Comm comm, MPI_Info info,
@@ -675,7 +679,7 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_link_specific(void *_item, const H5VL_loc_param
 /* Other link routines */
 H5VL_DAOS_PRIVATE herr_t H5_daos_link_write(H5_daos_group_t *grp, const char *name,
     size_t name_len, H5_daos_link_val_t *val, H5_daos_req_t *req,
-    tse_task_t **taskp);
+    tse_task_t **taskp, tse_task_t *dep_task);
 H5VL_DAOS_PRIVATE htri_t H5_daos_link_exists(H5_daos_item_t *item, const char *link_path, hid_t dxpl_id, void **req);
 H5VL_DAOS_PRIVATE htri_t H5_daos_link_follow(H5_daos_group_t *grp, const char *name,
     size_t name_len, hid_t dxpl_id, void **req, daos_obj_id_t *oid);

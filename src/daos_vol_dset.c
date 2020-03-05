@@ -246,15 +246,8 @@ H5_daos_dataset_create(void *_item,
     collective = TRUE;
 
     /* Start H5 operation */
-    if(NULL == (int_req = (H5_daos_req_t *)DV_malloc(sizeof(H5_daos_req_t))))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for request")
-    int_req->th = DAOS_TX_NONE;
-    int_req->th_open = FALSE;
-    int_req->file = item->file;
-    int_req->file->item.rc++;
-    int_req->rc = 1;
-    int_req->status = H5_DAOS_INCOMPLETE;
-    int_req->failed_task = NULL;
+    if(NULL == (int_req = H5_daos_req_create(item->file)))
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, NULL, "can't create DAOS request")
 
     /* Allocate the dataset object that is returned to the user */
     if(NULL == (dset = H5FL_CALLOC(H5_daos_dset_t)))
@@ -452,7 +445,7 @@ H5_daos_dataset_create(void *_item,
 
             link_val.type = H5L_TYPE_HARD;
             link_val.target.hard = dset->obj.oid;
-            if(H5_daos_link_write(target_grp, target_name, strlen(target_name), &link_val, int_req, &link_write_task) < 0)
+            if(H5_daos_link_write(target_grp, target_name, strlen(target_name), &link_val, int_req, &link_write_task, NULL) < 0)
                 D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't create link to dataset")
             finalize_deps[finalize_ndeps] = link_write_task;
             finalize_ndeps++;
@@ -1309,14 +1302,14 @@ H5_daos_dataset_io_types_equal(H5_daos_dset_t *dset, daos_key_t *dkey, hssize_t 
         if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_UPDATE, &dset->obj.item.file->sched, 0, NULL, taskp)))
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create task to write data: %s", H5_daos_err_to_string(ret))
 
-    /* Set callback functions for group metadata write */
+    /* Set callback functions for raw data write */
     if(0 != (ret = tse_task_register_cbs(*taskp, H5_daos_chunk_io_prep_cb, NULL, 0, H5_daos_chunk_io_comp_cb, NULL, 0)))
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't register callbacks for data I/O task: %s", H5_daos_err_to_string(ret))
 
-    /* Set private data for group metadata write */
+    /* Set private data for raw data write */
     (void)tse_task_set_priv(*taskp, chunk_io_ud);
 
-    /* Schedule group metadata write task and give it a reference to req */
+    /* Schedule raw data write task and give it a reference to req */
     if(0 != (ret = tse_task_schedule(*taskp, false)))
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't schedule data I/O task: %s", H5_daos_err_to_string(ret))
     chunk_io_ud->req->rc++;
@@ -1679,15 +1672,8 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
         single_chunk_read_func = H5_daos_dataset_io_types_equal;
 
     /* Start H5 operation */
-    if(NULL == (int_req = (H5_daos_req_t *)DV_malloc(sizeof(H5_daos_req_t))))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for request")
-    int_req->th = DAOS_TX_NONE;
-    int_req->th_open = FALSE;
-    int_req->file = dset->obj.item.file;
-    int_req->file->item.rc++;
-    int_req->rc = 1;
-    int_req->status = H5_DAOS_INCOMPLETE;
-    int_req->failed_task = NULL;
+    if(NULL == (int_req = H5_daos_req_create(dset->obj.item.file)))
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't create DAOS request")
 
     /* Set up chunk I/O task array */
     if(nchunks_sel > 1)
@@ -1887,15 +1873,8 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
         single_chunk_write_func = H5_daos_dataset_io_types_equal;
 
     /* Start H5 operation */
-    if(NULL == (int_req = (H5_daos_req_t *)DV_malloc(sizeof(H5_daos_req_t))))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for request")
-    int_req->th = DAOS_TX_NONE;
-    int_req->th_open = FALSE;
-    int_req->file = dset->obj.item.file;
-    int_req->file->item.rc++;
-    int_req->rc = 1;
-    int_req->status = H5_DAOS_INCOMPLETE;
-    int_req->failed_task = NULL;
+    if(NULL == (int_req = H5_daos_req_create(dset->obj.item.file)))
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, FAIL, "can't create DAOS request")
 
     /* Set up chunk I/O task array */
     if(nchunks_sel > 1)

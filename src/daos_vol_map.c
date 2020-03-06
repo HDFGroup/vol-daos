@@ -18,7 +18,10 @@
 #include "util/daos_vol_err.h"  /* DAOS connector error handling           */
 #include "util/daos_vol_mem.h"  /* DAOS connector memory management        */
 
-/* Prototypes */
+/********************/
+/* Local Prototypes */
+/********************/
+
 static herr_t H5_daos_map_key_conv(hid_t src_type_id, hid_t dst_type_id,
     const void *key, const void **key_buf, size_t *key_size,
     void **key_buf_alloc, hid_t dxpl_id);
@@ -60,7 +63,7 @@ H5_daos_map_create(void *_item,
     void *vtype_buf = NULL;
     void *mcpl_buf = NULL;
     hbool_t collective;
-    H5_daos_md_update_cb_ud_t *update_cb_ud = NULL;
+    H5_daos_md_rw_cb_ud_t *update_cb_ud = NULL;
     hbool_t update_task_scheduled = FALSE;
     tse_task_t *finalize_task;
     int finalize_ndeps = 0;
@@ -111,15 +114,8 @@ H5_daos_map_create(void *_item,
     collective = TRUE;
 
     /* Start H5 operation */
-    if(NULL == (int_req = (H5_daos_req_t *)DV_malloc(sizeof(H5_daos_req_t))))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for request")
-    int_req->th = DAOS_TX_NONE;
-    int_req->th_open = FALSE;
-    int_req->file = item->file;
-    int_req->file->item.rc++;
-    int_req->rc = 1;
-    int_req->status = H5_DAOS_INCOMPLETE;
-    int_req->failed_task = NULL;
+    if(NULL == (int_req = H5_daos_req_create(item->file)))
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTALLOC, NULL, "can't create DAOS request")
 
     /* Allocate the map object that is returned to the user */
     if(NULL == (map = H5FL_CALLOC(H5_daos_map_t)))
@@ -168,7 +164,7 @@ H5_daos_map_create(void *_item,
 
         /* Create map */
         /* Allocate argument struct */
-        if(NULL == (update_cb_ud = (H5_daos_md_update_cb_ud_t *)DV_calloc(sizeof(H5_daos_md_update_cb_ud_t))))
+        if(NULL == (update_cb_ud = (H5_daos_md_rw_cb_ud_t *)DV_calloc(sizeof(H5_daos_md_rw_cb_ud_t))))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for update callback arguments")
 
         /* Open map */
@@ -248,6 +244,7 @@ H5_daos_map_create(void *_item,
         update_cb_ud->sgl[2].sg_nr = 1;
         update_cb_ud->sgl[2].sg_nr_out = 0;
         update_cb_ud->sgl[2].sg_iovs = &update_cb_ud->sg_iov[2];
+        update_cb_ud->sgl_present = TRUE;
 
         /* Set task name */
         update_cb_ud->task_name = "map metadata write";
@@ -256,12 +253,12 @@ H5_daos_map_create(void *_item,
         if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_UPDATE, &item->file->sched, 0, NULL, &update_task)))
             D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create task to write map medadata: %s", H5_daos_err_to_string(ret))
 
-        /* Set callback functions for group metadata write */
-        if(0 != (ret = tse_task_register_cbs(update_task, H5_daos_md_update_prep_cb, NULL, 0, H5_daos_md_update_comp_cb, NULL, 0)))
+        /* Set callback functions for map metadata write */
+        if(0 != (ret = tse_task_register_cbs(update_task, H5_daos_md_rw_prep_cb, NULL, 0, H5_daos_md_update_comp_cb, NULL, 0)))
             D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't register callbacks for task to write map medadata: %s", H5_daos_err_to_string(ret))
 
-        /* Set private data for group metadata write */
-        (void)tse_task_set_priv(update_task, update_cb_ud);
+        /* Set private data for map metadata write */
+        (void)daos_task_set_priv(update_task, update_cb_ud);
 
         /* Schedule map metadata write task and give it a reference to req */
         if(0 != (ret = tse_task_schedule(update_task, false)))
@@ -279,7 +276,7 @@ H5_daos_map_create(void *_item,
 
             link_val.type = H5L_TYPE_HARD;
             link_val.target.hard = map->obj.oid;
-            if(H5_daos_link_write(target_grp, target_name, strlen(target_name), &link_val, int_req, &link_write_task) < 0)
+            if(H5_daos_link_write(target_grp, target_name, strlen(target_name), &link_val, int_req, &link_write_task, NULL) < 0)
                 D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create link to map")
             finalize_deps[finalize_ndeps] = link_write_task;
             finalize_ndeps++;
@@ -338,17 +335,13 @@ done:
             int_req->rc++;
 
         /* Block until operation completes */
-        {
-            bool is_empty;
+        /* Wait for scheduler to be empty */
+        if(H5_daos_progress(item->file, H5_DAOS_PROGRESS_WAIT) < 0)
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't progress scheduler")
 
-            /* Wait for scheduler to be empty *//* Change to custom progress function DSINC */
-            if(0 != (ret = daos_progress(&item->file->sched, DAOS_EQ_WAIT, &is_empty)))
-                D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't progress scheduler: %s", H5_daos_err_to_string(ret))
-
-            /* Check for failure */
-            if(int_req->status < 0)
-                D_DONE_ERROR(H5E_MAP, H5E_CANTOPERATE, NULL, "map creation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status))
-        } /* end block */
+        /* Check for failure */
+        if(int_req->status < 0)
+            D_DONE_ERROR(H5E_MAP, H5E_CANTOPERATE, NULL, "map creation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status))
 
         /* Close internal request */
         H5_daos_req_free_int(int_req);

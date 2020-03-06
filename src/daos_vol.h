@@ -74,7 +74,7 @@ typedef d_sg_list_t daos_sg_list_t;
 #define H5_DAOS_FOI_BUF_SIZE 1024
 #define H5_DAOS_LINK_NAME_BUF_SIZE 2048
 #define H5_DAOS_LINK_VAL_BUF_SIZE 256
-#define H5_DAOS_GINFO_BUF_SIZE 256
+#define H5_DAOS_GINFO_BUF_SIZE 1024
 #define H5_DAOS_DINFO_BUF_SIZE 1024
 #define H5_DAOS_TINFO_BUF_SIZE 1024
 #define H5_DAOS_SEQ_LIST_LEN 128
@@ -118,10 +118,9 @@ typedef d_sg_list_t daos_sg_list_t;
 /* Number of object indices to allocate at a time */
 #define H5_DAOS_OIDX_NALLOC 1024
 
-/* Private error codes for asynchronous operations */
-#define H5_DAOS_INCOMPLETE -1   /* Operation has not yet completed (should only be in the item struct) */
-#define H5_DAOS_PRE_ERROR -2    /* A precursor to this task failed (should only be used as the task return value) */
-#define H5_DAOS_CLOSE_ERROR -3  /* Failed to close HDF5 object */
+/* Polling interval (in microseconds) when waiting for asynchronous tasks to
+ * finish */
+#define H5_DAOS_ASYNC_POLL_INTERVAL 1000
 
 /* Remove warnings when connector does not use callback arguments */
 #if defined(__cplusplus)
@@ -305,7 +304,6 @@ typedef struct H5_daos_file_t {
     hbool_t closed;
     daos_handle_t glob_md_oh;
     struct H5_daos_group_t *root_grp;
-    hid_t fcpl_id;
     hid_t fapl_id;
     H5_daos_fapl_cache_t fapl_cache;
     MPI_Comm comm;
@@ -423,7 +421,25 @@ typedef struct H5_daos_req_t {
     const char *failed_task; /* Add more error info? DSINC */
 } H5_daos_req_t;
 
-typedef struct H5_daos_md_update_cb_ud_t {
+/* Task user data for MPI broadcast of group info for group open */
+typedef struct H5_daos_mpi_ibcast_ud_t {
+    H5_daos_req_t *req;
+    H5_daos_obj_t *obj;
+    tse_task_t *bcast_metatask;
+    void *buffer;
+    int buffer_len;
+    int count;
+} H5_daos_mpi_ibcast_ud_t;
+
+/* Task user data for generic operations that need no special handling (only for
+ * error tracking) */
+typedef struct H5_daos_generic_cb_ud_t {
+    H5_daos_req_t *req;
+    const char *task_name;
+} H5_daos_generic_cb_ud_t;
+
+/* Task user data for generic metadata I/O */
+typedef struct H5_daos_md_rw_cb_ud_t {
     H5_daos_req_t *req;
     H5_daos_obj_t *obj;
     daos_key_t dkey;
@@ -431,23 +447,18 @@ typedef struct H5_daos_md_update_cb_ud_t {
     daos_iod_t iod[4];
     daos_sg_list_t sgl[4];
     daos_iov_t sg_iov[4];
+    hbool_t sgl_present;
     hbool_t free_dkey;
     hbool_t free_akeys;
     const char *task_name;
-} H5_daos_md_update_cb_ud_t;
+} H5_daos_md_rw_cb_ud_t;
 
-typedef struct H5_daos_chunk_io_ud_t {
-    H5_daos_req_t *req;
-    H5_daos_dset_t *dset;
-    daos_key_t dkey;
-    uint8_t akey_buf;
-    daos_iod_t iod;
-    daos_sg_list_t sgl;
-    daos_recx_t recx;
-    daos_recx_t *recxs;
-    daos_iov_t sg_iov;
-    daos_iov_t *sg_iovs;
-} H5_daos_chunk_io_ud_t;
+/* Task user data for GCPL fetch */
+typedef struct H5_daos_gcpl_fetch_ud_t {
+    H5_daos_md_rw_cb_ud_t md_rw_cb_ud; /* Must be first */
+    H5_daos_mpi_ibcast_ud_t *bcast_udata;
+    tse_task_t *fetch_metatask;
+} H5_daos_gcpl_fetch_ud_t;
 
 /*
  * Enum values for determining the type of iteration
@@ -503,6 +514,13 @@ typedef union {
     char *  vls;
 } H5_daos_vl_union_t;
 
+/* An enum listing the different modes in which to make progress using
+ * H5_daos_progress */
+typedef enum {
+    H5_DAOS_PROGRESS_KICK,
+    H5_DAOS_PROGRESS_WAIT,
+} H5_daos_progress_mode_t;
+
 
 /*********************/
 /* Private Variables */
@@ -538,6 +556,16 @@ extern H5VL_DAOS_PRIVATE daos_handle_t H5_daos_poh_g;
 
 /* Global variables used to open the pool */
 extern H5VL_DAOS_PRIVATE MPI_Comm H5_daos_pool_comm_g;
+
+/* DAOS task and MPI request for current in-flight MPI operation.  Only allow
+ * one at a time for now since:
+ * - All MPI operations must be in the same order across all ranks, therefore
+ *   we cannot start MPI operations in an HDF5 operation until all MPI
+ *   operations in previous HDF5 operations are complete
+ * - All individual HDF5 operations can only process MPI operations one at a
+ *   time */
+extern tse_task_t *H5_daos_mpi_task_g;
+extern MPI_Request H5_daos_mpi_req_g;
 
 /* Constant Keys */
 extern H5VL_DAOS_PRIVATE const char H5_daos_int_md_key_g[];
@@ -601,8 +629,19 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_token_to_oid(H5O_token_t *obj_token, daos_obj_i
 H5VL_DAOS_PRIVATE H5I_type_t H5_daos_oid_to_type(daos_obj_id_t oid);
 H5VL_DAOS_PRIVATE void H5_daos_hash128(const char *name, void *hash);
 H5VL_DAOS_PRIVATE int H5_daos_h5op_finalize(tse_task_t *task);
-H5VL_DAOS_PRIVATE int H5_daos_md_update_prep_cb(tse_task_t *task, void *args);
+H5VL_DAOS_PRIVATE int H5_daos_h5op_finalize_helper(H5_daos_req_t *req);
+H5VL_DAOS_PRIVATE int H5_daos_generic_prep_cb(tse_task_t *task, void *args);
+H5VL_DAOS_PRIVATE int H5_daos_generic_comp_cb(tse_task_t *task, void *args);
+H5VL_DAOS_PRIVATE int H5_daos_obj_open_prep_cb(tse_task_t *task, void *args);
+H5VL_DAOS_PRIVATE int H5_daos_md_rw_prep_cb(tse_task_t *task, void *args);
 H5VL_DAOS_PRIVATE int H5_daos_md_update_comp_cb(tse_task_t *task, void *args);
+H5VL_DAOS_PRIVATE int H5_daos_mpi_ibcast_task(tse_task_t *task);
+H5VL_DAOS_PRIVATE int H5_daos_metatask_autocomplete(tse_task_t *task);
+H5VL_DAOS_PRIVATE herr_t H5_daos_obj_open(H5_daos_file_t *file,
+    H5_daos_req_t *req, daos_obj_id_t *oid, unsigned mode, daos_handle_t *oh,
+    const char *task_name, tse_task_t **first_task, tse_task_t **dep_task);
+H5VL_DAOS_PRIVATE herr_t H5_daos_progress(H5_daos_file_t *file,
+    H5_daos_progress_mode_t mode);
 H5VL_DAOS_PRIVATE herr_t H5_daos_comm_info_dup(MPI_Comm comm, MPI_Info info,
         MPI_Comm *comm_new, MPI_Info *info_new);
 H5VL_DAOS_PRIVATE herr_t H5_daos_comm_info_free(MPI_Comm *comm, MPI_Info *info);
@@ -640,7 +679,7 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_link_specific(void *_item, const H5VL_loc_param
 /* Other link routines */
 H5VL_DAOS_PRIVATE herr_t H5_daos_link_write(H5_daos_group_t *grp, const char *name,
     size_t name_len, H5_daos_link_val_t *val, H5_daos_req_t *req,
-    tse_task_t **taskp);
+    tse_task_t **taskp, tse_task_t *dep_task);
 H5VL_DAOS_PRIVATE htri_t H5_daos_link_exists(H5_daos_item_t *item, const char *link_path, hid_t dxpl_id, void **req);
 H5VL_DAOS_PRIVATE htri_t H5_daos_link_follow(H5_daos_group_t *grp, const char *name,
     size_t name_len, hid_t dxpl_id, void **req, daos_obj_id_t *oid);
@@ -669,14 +708,17 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_group_close(void *_grp, hid_t dxpl_id, void **r
 H5VL_DAOS_PRIVATE H5_daos_group_t *H5_daos_group_traverse(H5_daos_item_t *item, const char *path,
     hid_t lcpl_id, hid_t dxpl_id, void **req, const char **obj_name, void **gcpl_buf_out,
     uint64_t *gcpl_len_out);
+H5VL_DAOS_PRIVATE H5_daos_group_t *H5_daos_group_open_helper_async(
+    H5_daos_file_t *file, daos_obj_id_t oid, hid_t gapl_id, hid_t dxpl_id,
+    H5_daos_req_t *req, hbool_t collective, tse_task_t **first_task,
+    tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE void *H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
     hid_t gapl_id, hid_t dxpl_id, H5_daos_req_t *req, H5_daos_group_t *parent_grp,
-    const char *name, size_t name_len, uint64_t oidx, hbool_t collective);
+    const char *name, size_t name_len, uint64_t oidx, hbool_t collective,
+    tse_task_t **first_task, tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE void *H5_daos_group_open_helper(H5_daos_file_t *file, daos_obj_id_t oid,
     hid_t gapl_id, hid_t dxpl_id, H5_daos_req_t *req, void **gcpl_buf_out,
     uint64_t *gcpl_len_out);
-H5VL_DAOS_PRIVATE void *H5_daos_group_reconstitute(H5_daos_file_t *file, daos_obj_id_t oid,
-    uint8_t *gcpl_buf, hid_t gapl_id, hid_t dxpl_id, H5_daos_req_t *req);
 H5VL_DAOS_PRIVATE ssize_t H5_daos_group_get_num_links(H5_daos_group_t *target_grp);
 H5VL_DAOS_PRIVATE herr_t H5_daos_group_update_num_links_key(H5_daos_group_t *target_grp, uint64_t new_nlinks);
 H5VL_DAOS_PRIVATE herr_t H5_daos_group_get_max_crt_order(H5_daos_group_t *target_grp, uint64_t *max_corder);
@@ -761,7 +803,8 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_attribute_iterate(H5_daos_obj_t *attr_container
 H5VL_DAOS_PRIVATE herr_t H5_daos_attribute_iterate_count_attrs_cb(hid_t loc_id, const char *attr_name,
     const H5A_info_t *attr_info, void *op_data);
 
-/* Request callback */
+/* Request callbacks */
+H5VL_DAOS_PRIVATE H5_daos_req_t *H5_daos_req_create(H5_daos_file_t *file);
 H5VL_DAOS_PRIVATE herr_t H5_daos_req_free(void *req);
 
 /* Other request routines */

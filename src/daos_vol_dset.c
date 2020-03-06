@@ -18,12 +18,18 @@
 #include "util/daos_vol_err.h"  /* DAOS connector error handling           */
 #include "util/daos_vol_mem.h"  /* DAOS connector memory management        */
 
-/* Macros */
+/****************/
+/* Local Macros */
+/****************/
+
 /* Definitions for chunking code */
 #define H5_DAOS_DEFAULT_NUM_SEL_CHUNKS   64
 #define H5O_LAYOUT_NDIMS                 (H5S_MAX_RANK+1)
 
-/* Typedefs */
+/************************************/
+/* Local Type and Struct Definition */
+/************************************/
+
 /* Udata type for H5Dscatter callback */
 typedef struct H5_daos_scatter_cb_ud_t {
     void *buf;
@@ -69,7 +75,24 @@ typedef herr_t (*H5_daos_chunk_io_func)(H5_daos_dset_t *dset, daos_key_t *dkey,
     hid_t dxpl_id, dset_io_type io_type, void *buf, H5_daos_req_t *req,
     tse_task_t **taskp);
 
-/* Prototypes */
+/* Task user data for raw data I/O */
+typedef struct H5_daos_chunk_io_ud_t {
+    H5_daos_req_t *req;
+    H5_daos_dset_t *dset;
+    daos_key_t dkey;
+    uint8_t akey_buf;
+    daos_iod_t iod;
+    daos_sg_list_t sgl;
+    daos_recx_t recx;
+    daos_recx_t *recxs;
+    daos_iov_t sg_iov;
+    daos_iov_t *sg_iovs;
+} H5_daos_chunk_io_ud_t;
+
+/********************/
+/* Local Prototypes */
+/********************/
+
 static herr_t H5_daos_dset_fill_dcpl_cache(H5_daos_dset_t *dset);
 static herr_t H5_daos_sel_to_recx_iov(hid_t space_id, size_t type_size,
     void *buf, daos_recx_t **recxs, daos_iov_t **sg_iovs, size_t *list_nused);
@@ -223,15 +246,8 @@ H5_daos_dataset_create(void *_item,
     collective = TRUE;
 
     /* Start H5 operation */
-    if(NULL == (int_req = (H5_daos_req_t *)DV_malloc(sizeof(H5_daos_req_t))))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for request")
-    int_req->th = DAOS_TX_NONE;
-    int_req->th_open = FALSE;
-    int_req->file = item->file;
-    int_req->file->item.rc++;
-    int_req->rc = 1;
-    int_req->status = H5_DAOS_INCOMPLETE;
-    int_req->failed_task = NULL;
+    if(NULL == (int_req = H5_daos_req_create(item->file)))
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, NULL, "can't create DAOS request")
 
     /* Allocate the dataset object that is returned to the user */
     if(NULL == (dset = H5FL_CALLOC(H5_daos_dset_t)))
@@ -429,7 +445,7 @@ H5_daos_dataset_create(void *_item,
 
             link_val.type = H5L_TYPE_HARD;
             link_val.target.hard = dset->obj.oid;
-            if(H5_daos_link_write(target_grp, target_name, strlen(target_name), &link_val, int_req, &link_write_task) < 0)
+            if(H5_daos_link_write(target_grp, target_name, strlen(target_name), &link_val, int_req, &link_write_task, NULL) < 0)
                 D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't create link to dataset")
             finalize_deps[finalize_ndeps] = link_write_task;
             finalize_ndeps++;
@@ -496,17 +512,13 @@ done:
             int_req->rc++;
 
         /* Block until operation completes */
-        {
-            bool is_empty;
+        /* Wait for scheduler to be empty */
+        if(H5_daos_progress(item->file, H5_DAOS_PROGRESS_WAIT) < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't progress scheduler")
 
-            /* Wait for scheduler to be empty *//* Change to custom progress function DSINC */
-            if(0 != (ret = daos_progress(&item->file->sched, DAOS_EQ_WAIT, &is_empty)))
-                D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't progress scheduler: %s", H5_daos_err_to_string(ret))
-
-            /* Check for failure */
-            if(int_req->status < 0)
-                D_DONE_ERROR(H5E_DATASET, H5E_CANTOPERATE, NULL, "dataset creation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status))
-        } /* end block */
+        /* Check for failure */
+        if(int_req->status < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTOPERATE, NULL, "dataset creation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status))
 
         /* Close internal request */
         H5_daos_req_free_int(int_req);
@@ -1073,7 +1085,8 @@ H5_daos_scatter_cb(const void **src_buf, size_t *src_buf_bytes_used,
  *              errors from previous tasks then sets arguments for daos
  *              task.
  *
- * Return:      0 (Never fails)
+ * Return:      Success:        0
+ *              Failure:        Error code
  *
  *-------------------------------------------------------------------------
  */
@@ -1082,9 +1095,11 @@ H5_daos_chunk_io_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
     H5_daos_chunk_io_ud_t *udata;
     daos_obj_rw_t *update_args;
+    int ret_value = 0;
 
     /* Get private data */
-    udata = tse_task_get_priv(task);
+    if(NULL == (udata = daos_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get private data for chunk I/O task")
 
     assert(udata);
     assert(udata->dset);
@@ -1097,7 +1112,10 @@ H5_daos_chunk_io_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         tse_task_complete(task, H5_DAOS_PRE_ERROR);
 
     /* Set I/O task arguments */
-    update_args = daos_task_get_args(task);
+    if(NULL == (update_args = daos_task_get_args(task))) {
+        tse_task_complete(task, H5_DAOS_DAOS_GET_ERROR);
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get arguments for chunk I/O task")
+    } /* end if */
     update_args->oh = udata->dset->obj.obj_oh;
     update_args->th = DAOS_TX_NONE;
     update_args->flags = 0;
@@ -1107,7 +1125,8 @@ H5_daos_chunk_io_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     update_args->sgls = &udata->sgl;
     update_args->maps = NULL;
 
-    return 0;
+done:
+    D_FUNC_LEAVE
 } /* end H5_daos_chunk_io_prep_cb() */
 
 
@@ -1130,8 +1149,12 @@ H5_daos_chunk_io_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     int ret_value = 0;
 
     /* Get private data */
-    udata = tse_task_get_priv(task);
+    if(NULL == (udata = daos_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get private data for chunk I/O task")
 
+    assert(udata);
+    assert(udata->req);
+    assert(udata->req->file);
     assert(!udata->req->file->closed);
 
     /* Handle errors in update task.  Only record error in udata->req_status if
@@ -1145,7 +1168,7 @@ H5_daos_chunk_io_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     /* Close dataset */
     if(H5_daos_dataset_close(udata->dset, H5I_INVALID_HID, NULL) < 0)
-        D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, H5_DAOS_CLOSE_ERROR, "can't close object")
+        D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, H5_DAOS_H5_CLOSE_ERROR, "can't close object")
 
     /* Handle errors in this function */
     /* Do not place any code that can issue errors after this block */
@@ -1163,7 +1186,8 @@ H5_daos_chunk_io_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         DV_free(udata->sg_iovs);
     DV_free(udata);
 
-    return ret_value;
+done:
+    D_FUNC_LEAVE
 } /* end H5_daos_chunk_io_comp_cb() */
 
 
@@ -1290,14 +1314,14 @@ H5_daos_dataset_io_types_equal(H5_daos_dset_t *dset, daos_key_t *dkey, hssize_t 
         if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_UPDATE, &dset->obj.item.file->sched, 0, NULL, taskp)))
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create task to write data: %s", H5_daos_err_to_string(ret))
 
-    /* Set callback functions for group metadata write */
+    /* Set callback functions for raw data write */
     if(0 != (ret = tse_task_register_cbs(*taskp, H5_daos_chunk_io_prep_cb, NULL, 0, H5_daos_chunk_io_comp_cb, NULL, 0)))
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't register callbacks for data I/O task: %s", H5_daos_err_to_string(ret))
 
-    /* Set private data for group metadata write */
+    /* Set private data for raw data write */
     (void)tse_task_set_priv(*taskp, chunk_io_ud);
 
-    /* Schedule group metadata write task and give it a reference to req */
+    /* Schedule raw data write task and give it a reference to req */
     if(0 != (ret = tse_task_schedule(*taskp, false)))
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't schedule data I/O task: %s", H5_daos_err_to_string(ret))
     chunk_io_ud->req->rc++;
@@ -1660,15 +1684,8 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
         single_chunk_read_func = H5_daos_dataset_io_types_equal;
 
     /* Start H5 operation */
-    if(NULL == (int_req = (H5_daos_req_t *)DV_malloc(sizeof(H5_daos_req_t))))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for request")
-    int_req->th = DAOS_TX_NONE;
-    int_req->th_open = FALSE;
-    int_req->file = dset->obj.item.file;
-    int_req->file->item.rc++;
-    int_req->rc = 1;
-    int_req->status = H5_DAOS_INCOMPLETE;
-    int_req->failed_task = NULL;
+    if(NULL == (int_req = H5_daos_req_create(dset->obj.item.file)))
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't create DAOS request")
 
     /* Set up chunk I/O task array */
     if(nchunks_sel > 1)
@@ -1716,17 +1733,13 @@ done:
             int_req->rc++;
 
         /* Block until operation completes */
-        {
-            bool is_empty;
+        /* Wait for scheduler to be empty */
+        if(H5_daos_progress(dset->obj.item.file, H5_DAOS_PROGRESS_WAIT) < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't progress scheduler")
 
-            /* Wait for scheduler to be empty *//* Change to custom progress function DSINC */
-            if(0 != (ret = daos_progress(&dset->obj.item.file->sched, DAOS_EQ_WAIT, &is_empty)))
-                D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't progress scheduler: %s", H5_daos_err_to_string(ret))
-
-            /* Check for failure */
-            if(int_req->status < 0)
-                D_DONE_ERROR(H5E_DATASET, H5E_CANTOPERATE, FAIL, "dataset read failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status))
-        } /* end block */
+        /* Check for failure */
+        if(int_req->status < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTOPERATE, FAIL, "dataset read failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status))
 
         /* Close internal request */
         H5_daos_req_free_int(int_req);
@@ -1872,15 +1885,8 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
         single_chunk_write_func = H5_daos_dataset_io_types_equal;
 
     /* Start H5 operation */
-    if(NULL == (int_req = (H5_daos_req_t *)DV_malloc(sizeof(H5_daos_req_t))))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for request")
-    int_req->th = DAOS_TX_NONE;
-    int_req->th_open = FALSE;
-    int_req->file = dset->obj.item.file;
-    int_req->file->item.rc++;
-    int_req->rc = 1;
-    int_req->status = H5_DAOS_INCOMPLETE;
-    int_req->failed_task = NULL;
+    if(NULL == (int_req = H5_daos_req_create(dset->obj.item.file)))
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, FAIL, "can't create DAOS request")
 
     /* Set up chunk I/O task array */
     if(nchunks_sel > 1)
@@ -1928,17 +1934,13 @@ done:
             int_req->rc++;
 
         /* Block until operation completes */
-        {
-            bool is_empty;
+        /* Wait for scheduler to be empty */
+        if(H5_daos_progress(dset->obj.item.file, H5_DAOS_PROGRESS_WAIT) < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't progress scheduler")
 
-            /* Wait for scheduler to be empty *//* Change to custom progress function DSINC */
-            if(0 != (ret = daos_progress(&dset->obj.item.file->sched, DAOS_EQ_WAIT, &is_empty)))
-                D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't progress scheduler: %s", H5_daos_err_to_string(ret))
-
-            /* Check for failure */
-            if(int_req->status < 0)
-                D_DONE_ERROR(H5E_DATASET, H5E_CANTOPERATE, FAIL, "dataset write failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status))
-        } /* end block */
+        /* Check for failure */
+        if(int_req->status < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTOPERATE, FAIL, "dataset write failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status))
 
         /* Close internal request */
         H5_daos_req_free_int(int_req);

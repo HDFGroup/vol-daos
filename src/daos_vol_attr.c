@@ -18,6 +18,37 @@
 #include "util/daos_vol_err.h"  /* DAOS connector error handling           */
 #include "util/daos_vol_mem.h"  /* DAOS connector memory management        */
 
+/************************************/
+/* Local Type and Struct Definition */
+/************************************/
+
+/*
+ * An attribute iteration callback function data structure. It
+ * is passed during attribute iteration when retrieving an
+ * attribute's name by a given creation order index value.
+ */
+typedef struct H5_daos_attr_find_name_by_idx_ud_t {
+    char *attr_name_out;
+    size_t attr_name_out_size;
+    uint64_t target_attr_idx;
+    uint64_t cur_attr_idx;
+} H5_daos_attr_find_name_by_idx_ud_t;
+
+/*
+ * An attribute iteration callback function data structure. It
+ * is passed during attribute iteration when retrieving an
+ * attribute's creation order index value by the given attribute's
+ * name.
+ */
+typedef struct H5_daos_attr_crt_idx_iter_ud_t {
+    const char *target_attr_name;
+    uint64_t *attr_idx_out;
+} H5_daos_attr_crt_idx_iter_ud_t;
+
+/********************/
+/* Local Prototypes */
+/********************/
+
 static herr_t H5_daos_attribute_open_by_idx_helper(H5_daos_obj_t *target_obj, const H5VL_loc_params_t *loc_params,
     H5_daos_attr_t *attr_out, hid_t dxpl_id, void **req);
 static ssize_t H5_daos_attribute_get_name(H5_daos_obj_t *target_obj, const H5VL_loc_params_t *loc_params,
@@ -49,29 +80,6 @@ static herr_t H5_daos_attribute_get_name_by_name_order_cb(hid_t loc_id, const ch
 static herr_t H5_daos_attribute_get_akey_strings(const char *attr_name, char **datatype_key_out,
     char **dataspace_key_out, char **acpl_key_out, char **acorder_key_out, char **raw_data_key_out,
     size_t *akey_len_out);
-
-/*
- * An attribute iteration callback function data structure. It
- * is passed during attribute iteration when retrieving an
- * attribute's name by a given creation order index value.
- */
-typedef struct H5_daos_attr_find_name_by_idx_ud_t {
-    char *attr_name_out;
-    size_t attr_name_out_size;
-    uint64_t target_attr_idx;
-    uint64_t cur_attr_idx;
-} H5_daos_attr_find_name_by_idx_ud_t;
-
-/*
- * An attribute iteration callback function data structure. It
- * is passed during attribute iteration when retrieving an
- * attribute's creation order index value by the given attribute's
- * name.
- */
-typedef struct H5_daos_attr_crt_idx_iter_ud_t {
-    const char *target_attr_name;
-    uint64_t *attr_idx_out;
-} H5_daos_attr_crt_idx_iter_ud_t;
 
 
 /*-------------------------------------------------------------------------

@@ -20,6 +20,37 @@
 
 
 /*-------------------------------------------------------------------------
+ * Function:    H5_daos_req_create
+ *
+ * Purpose:     Create a request.
+ *
+ * Return:      Valid pointer on success/NULL on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+H5_daos_req_t *
+H5_daos_req_create(H5_daos_file_t *file)
+{
+    H5_daos_req_t *ret_value = NULL;
+
+    assert(file);
+
+    if(NULL == (ret_value = (H5_daos_req_t *)DV_malloc(sizeof(H5_daos_req_t))))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for request")
+    ret_value->th = DAOS_TX_NONE;
+    ret_value->th_open = FALSE;
+    ret_value->file = file;
+    ret_value->file->item.rc++;
+    ret_value->rc = 1;
+    ret_value->status = H5_DAOS_INCOMPLETE;
+    ret_value->failed_task = NULL;
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_req_create() */
+
+
+/*-------------------------------------------------------------------------
  * Function:    H5_daos_req_free
  *
  * Purpose:     Decrement the reference count on the request and free it

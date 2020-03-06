@@ -22,6 +22,23 @@
 #include "util/daos_vol_err.h"  /* DAOS connector error handling           */
 #include "util/daos_vol_mem.h"  /* DAOS connector memory management        */
 
+/************************************/
+/* Local Type and Struct Definition */
+/************************************/
+
+/* Data passed to link iteration callback when performing a group copy */
+typedef struct group_copy_op_data {
+    H5_daos_group_t *new_group;
+    unsigned object_copy_opts;
+    hid_t lcpl_id;
+    hid_t dxpl_id;
+    void **req;
+} group_copy_op_data;
+
+/********************/
+/* Local Prototypes */
+/********************/
+
 static herr_t H5_daos_object_open_by_token(H5_daos_obj_t *loc_obj, const H5VL_loc_params_t *loc_params,
     daos_obj_id_t *opened_obj_id, hid_t dxpl_id, void **req);
 static herr_t H5_daos_object_open_by_name(H5_daos_obj_t *loc_obj, const H5VL_loc_params_t *loc_params,
@@ -43,15 +60,6 @@ static herr_t H5_daos_dataset_copy(H5_daos_dset_t *src_obj, H5_daos_group_t *dst
     unsigned obj_copy_options, hid_t lcpl_id, hid_t dxpl_id, void **req);
 static herr_t H5_daos_object_copy_attributes(H5_daos_obj_t *src_obj, H5_daos_obj_t *dst_obj,
     hid_t dxpl_id, void **req);
-
-/* Data passed to link iteration callback when performing a group copy */
-typedef struct group_copy_op_data {
-    H5_daos_group_t *new_group;
-    unsigned object_copy_opts;
-    hid_t lcpl_id;
-    hid_t dxpl_id;
-    void **req;
-} group_copy_op_data;
 
 
 /*-------------------------------------------------------------------------

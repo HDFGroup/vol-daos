@@ -1779,7 +1779,6 @@ H5_daos_dataset_get(void *_dset, H5VL_dataset_get_t get_type,
                 break;
             } /* end block */
         case H5VL_DATASET_GET_STORAGE_SIZE:
-        case H5VL_DATASET_GET_OFFSET:
         default:
             D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "can't get this type of information from dataset")
     } /* end switch */

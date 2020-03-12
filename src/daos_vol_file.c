@@ -390,7 +390,7 @@ tx_open_udata = DV_free(tx_open_udata);
  * Function:    H5_daos_cont_destroy_comp_cb
  *
  * Purpose:     Complete callback for container destroy.  Identical to
- *              H5_daos_generic_comp_cb except allows -DER_NOEXIST.
+ *              H5_daos_generic_comp_cb except allows -DER_NONEXIST.
  *
  * Return:      Success:        0
  *              Failure:        Error code

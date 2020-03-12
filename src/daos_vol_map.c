@@ -258,7 +258,7 @@ H5_daos_map_create(void *_item,
             D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't register callbacks for task to write map medadata: %s", H5_daos_err_to_string(ret))
 
         /* Set private data for map metadata write */
-        (void)daos_task_set_priv(update_task, update_cb_ud);
+        (void)tse_task_set_priv(update_task, update_cb_ud);
 
         /* Schedule map metadata write task and give it a reference to req */
         if(0 != (ret = tse_task_schedule(update_task, false)))

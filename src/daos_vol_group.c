@@ -327,7 +327,7 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
             D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't register callbacks for task to write group medadata: %s", H5_daos_err_to_string(ret))
 
         /* Set private data for group metadata write */
-        (void)daos_task_set_priv(update_task, update_cb_ud);
+        (void)tse_task_set_priv(update_task, update_cb_ud);
 
         /* Schedule group metadata write task and give it a reference to req and
          * the group */
@@ -819,7 +819,7 @@ H5_daos_ginfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     int ret_value = 0;
 
     /* Get private data */
-    if(NULL == (udata = daos_task_get_priv(task)))
+    if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get private data for group info read task")
 
     assert(udata->md_rw_cb_ud.req);
@@ -866,7 +866,7 @@ H5_daos_ginfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
             D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, ret, "can't register callbacks for task to read group medadata: %s", H5_daos_err_to_string(ret))
 
         /* Set private data for group metadata read */
-        (void)daos_task_set_priv(fetch_task, udata);
+        (void)tse_task_set_priv(fetch_task, udata);
 
         /* Schedule group metadata read task and give it a reference to req and
          * the group */
@@ -959,7 +959,7 @@ H5_daos_ginfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
                     D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, ret, "can't register callbacks for task to read group medadata: %s", H5_daos_err_to_string(ret))
 
                 /* Set private data for group metadata read */
-                (void)daos_task_set_priv(fetch_task, udata);
+                (void)tse_task_set_priv(fetch_task, udata);
 
                 /* Schedule group metadata write task and give it a reference to req and
                  * the group */
@@ -1140,7 +1140,7 @@ H5_daos_group_open_helper_async(H5_daos_file_t *file, daos_obj_id_t oid,
             D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't register callbacks for task to read group medadata: %s", H5_daos_err_to_string(ret))
 
         /* Set private data for group metadata write */
-        (void)daos_task_set_priv(fetch_task, fetch_udata);
+        (void)tse_task_set_priv(fetch_task, fetch_udata);
 
         /* Schedule meta task */
         if(0 != (ret = tse_task_schedule(fetch_udata->fetch_metatask, false)))

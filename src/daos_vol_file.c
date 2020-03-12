@@ -42,9 +42,10 @@ static herr_t H5_daos_cont_get_fapl_info(hid_t fapl_id, H5_daos_fapl_t *fa_out);
 static herr_t H5_daos_cont_set_mpi_info(H5_daos_file_t *file, H5_daos_fapl_t *fa);
 static int H5_daos_tx_open_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_tx_open_prep_cb(tse_task_t *task, void *args);
-static herr_t H5_daos_cont_create(H5_daos_file_t *file, unsigned flags,
-    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 static herr_t H5_daos_cont_open(H5_daos_file_t *file, unsigned flags,
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
+static int H5_daos_cont_destroy_comp_cb(tse_task_t *task, void *args);
+static herr_t H5_daos_cont_create(H5_daos_file_t *file, unsigned flags,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 static int H5_daos_gh_bcast_comp_cb(tse_task_t *task, void *args);
 static herr_t H5_daos_cont_handle_bcast(H5_daos_file_t *file,
@@ -386,6 +387,52 @@ tx_open_udata = DV_free(tx_open_udata);
 
 
 /*-------------------------------------------------------------------------
+ * Function:    H5_daos_cont_destroy_comp_cb
+ *
+ * Purpose:     Complete callback for container destroy.  Identical to
+ *              H5_daos_generic_comp_cb except allows -DER_NOEXIST.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ * Programmer:  Neil Fortner
+ *              March, 2020
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_cont_destroy_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_generic_cb_ud_t *udata;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get private data for generic task")
+
+    assert(udata->req);
+    assert(udata->req->file);
+
+    /* Handle errors in task.  Only record error in udata->req_status if it does
+     * not already contain an error (it could contain an error if another task
+     * this task is not dependent on also failed). */
+    if(task->dt_result < H5_DAOS_PRE_ERROR
+            && task->dt_result != -DER_NONEXIST
+            && udata->req->status >= H5_DAOS_INCOMPLETE) {
+        udata->req->status = task->dt_result;
+        udata->req->failed_task = udata->task_name;
+    } /* end if */
+
+    /* Free private data */
+    H5_daos_req_free_int(udata->req);
+    DV_free(udata);
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_cont_destroy_comp_cb() */
+
+
+/*-------------------------------------------------------------------------
  * Function:    H5_daos_cont_create
  *
  * Purpose:     Create a DAOS container.
@@ -434,7 +481,7 @@ H5_daos_cont_create(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *req,
             D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create dependencies for task to destroy container: %s", H5_daos_err_to_string(ret))
 
         /* Set callback functions for container destroy */
-        if(0 != (ret = tse_task_register_cbs(destroy_task, H5_daos_generic_prep_cb, NULL, 0, H5_daos_generic_comp_cb, NULL, 0)))
+        if(0 != (ret = tse_task_register_cbs(destroy_task, H5_daos_generic_prep_cb, NULL, 0, H5_daos_cont_destroy_comp_cb, NULL, 0)))
             D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't register callbacks for task to destroy container: %s", H5_daos_err_to_string(ret))
 
         /* Set private data for container destroy */

@@ -198,9 +198,11 @@ H5_daos_cont_create(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *int_req
 
     /* Delete the container if H5F_ACC_TRUNC is set.  This shouldn't cause a
      * problem even if the container doesn't exist. */
-    if(flags & H5F_ACC_TRUNC)
-        if(0 != (ret = daos_cont_destroy(H5_daos_poh_g, file->uuid, 1, NULL /*event*/)))
+    if(flags & H5F_ACC_TRUNC) {
+        ret = daos_cont_destroy(H5_daos_poh_g, file->uuid, 1, NULL /*event*/);
+        if(ret != 0 && ret != -DER_NONEXIST)
             D_GOTO_ERROR(H5E_FILE, H5E_CANTDELETEFILE, FAIL, "can't destroy container: %s", H5_daos_err_to_string(ret))
+    } /* end if */
 
     /* Create the container for the file */
     if(0 != (ret = daos_cont_create(H5_daos_poh_g, file->uuid, NULL /* cont_prop */, NULL /*event*/)))

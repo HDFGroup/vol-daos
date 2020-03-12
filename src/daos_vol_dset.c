@@ -1098,7 +1098,7 @@ H5_daos_chunk_io_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     int ret_value = 0;
 
     /* Get private data */
-    if(NULL == (udata = daos_task_get_priv(task)))
+    if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get private data for chunk I/O task")
 
     assert(udata);
@@ -1149,7 +1149,7 @@ H5_daos_chunk_io_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     int ret_value = 0;
 
     /* Get private data */
-    if(NULL == (udata = daos_task_get_priv(task)))
+    if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get private data for chunk I/O task")
 
     assert(udata);

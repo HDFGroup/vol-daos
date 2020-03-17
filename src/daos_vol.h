@@ -35,7 +35,6 @@
 #include "util/daos_vol_hash_table.h"
 
 /* For DAOS compatibility */
-#ifdef H5VL_DAOS_NEW_API
 typedef d_iov_t daos_iov_t;
 typedef d_sg_list_t daos_sg_list_t;
 # define daos_rank_list_free d_rank_list_free
@@ -44,10 +43,6 @@ typedef d_sg_list_t daos_sg_list_t;
 # define DAOS_OF_DKEY_HASHED 0
 # define H5_daos_obj_generate_id(oid, ofeats, cid) \
     daos_obj_generate_id(oid, ofeats, cid, 0)
-#else
-# define H5_daos_obj_generate_id(oid, ofeats, cid) \
-    daos_obj_generate_id(oid, ofeats, cid)
-#endif
 
 /******************/
 /* Private Macros */

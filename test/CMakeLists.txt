@@ -1,15 +1,4 @@
 #------------------------------------------------------------------------------
-# Orterun config
-#------------------------------------------------------------------------------
-find_program(ORTERUN_EXECUTABLE
-  NAMES orterun
-  PATH_SUFFIXES bin sbin
-  HINTS ${MPI_HINT_DIRS}
-  DOC "Executable for running MPI programs."
-)
-mark_as_advanced(ORTERUN_EXECUTABLE)
-
-#------------------------------------------------------------------------------
 # DAOS server config
 #------------------------------------------------------------------------------
 # Exec
@@ -21,39 +10,25 @@ find_program(DAOS_SERVER_EXECUTABLE
 )
 mark_as_advanced(DAOS_SERVER_EXECUTABLE)
 
-option(HDF5_VOL_DAOS_USE_NEW_SERVER "Use DAOS experimental (master)." OFF)
-
 # Default paths
 set(DAOS_LOG_DIR ${CMAKE_CURRENT_BINARY_DIR})
 set(DAOS_SERVER_SOCKET_DIR ${CMAKE_CURRENT_BINARY_DIR})
 
 # Preflags
-set(DAOS_SERVER_PREFLAGS
-  "--enable-recovery"
-)
-if(HDF5_VOL_DAOS_USE_NEW_SERVER)
-  set(DAOS_SERVER_PREFLAGS
-    ${DAOS_SERVER_PREFLAGS}
-    "-x DAOS_DISABLE_REQ_FWD=1"
-  )
-endif()
+#set(DAOS_SERVER_PREFLAGS
+#  "--enable-recovery"
+#)
 
 # Postflags
-set(DAOS_SERVER_URI_DIR
-  ${CMAKE_CURRENT_BINARY_DIR}
-)
 set(DAOS_SERVER_CONFIG_FILEPATH
   ${CMAKE_CURRENT_BINARY_DIR}/scripts/daos_server.yml
 )
+
 set(DAOS_SERVER_POSTFLAGS
-  "-a ${DAOS_SERVER_URI_DIR}"
+  "start"
+  "--recreate-superblocks"
   "-o ${DAOS_SERVER_CONFIG_FILEPATH}"
 )
-if(HDF5_VOL_DAOS_USE_NEW_SERVER)
-  set(DAOS_SERVER_POSTFLAGS "start" "--recreate-superblocks" ${DAOS_SERVER_POSTFLAGS})
-else()
-  set(DAOS_SERVER_POSTFLAGS "-i" ${DAOS_SERVER_POSTFLAGS})
-endif()
 
 # Transport
 set(DAOS_SERVER_TRANSPORT "ofi+sockets" CACHE STRING
@@ -74,17 +49,10 @@ set(DAOS_SERVER_SCM_SIZE "8" CACHE STRING
 mark_as_advanced(DAOS_SERVER_SCM_SIZE)
 
 # Init config
-if(HDF5_VOL_DAOS_USE_NEW_SERVER)
-  configure_file(
-     ${CMAKE_CURRENT_SOURCE_DIR}/scripts/daos_server_master.yml.in
-     ${CMAKE_CURRENT_BINARY_DIR}/scripts/daos_server.yml
-  )
-else()
-  configure_file(
-     ${CMAKE_CURRENT_SOURCE_DIR}/scripts/daos_server.yml.in
-     ${CMAKE_CURRENT_BINARY_DIR}/scripts/daos_server.yml
-  )
-endif()
+configure_file(
+   ${CMAKE_CURRENT_SOURCE_DIR}/scripts/daos_server.yml.in
+   ${CMAKE_CURRENT_BINARY_DIR}/scripts/daos_server.yml
+)
 
 #------------------------------------------------------------------------------
 # DAOS agent config
@@ -117,27 +85,23 @@ set(HDF5_VOL_TEST_PLUGIN_PATH ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
 set(HDF5_VOL_TEST_PLUGIN_NAME "daos")
 
 # Preflags
-set(DAOS_CLIENT_PREFLAGS
-  "-x D_LOG_FILE=${CMAKE_CURRENT_BINARY_DIR}/daos_client.log"
-  "-x D_LOG_MASK=ERR"
-  "-x CRT_PHY_ADDR_STR=${DAOS_SERVER_TRANSPORT}"
-  "-x OFI_INTERFACE=${DAOS_SERVER_IFACE}"
-  "-x DAOS_SINGLETON_CLI=1"
-  "-x CRT_ATTACH_INFO_PATH=${DAOS_SERVER_URI_DIR}"
-  "-x DAOS_AGENT_DRPC_DIR=${DAOS_AGENT_DIR}"
-  "-x HDF5_PLUGIN_PATH=${HDF5_VOL_TEST_PLUGIN_PATH}"
-  "-x HDF5_VOL_CONNECTOR=${HDF5_VOL_TEST_PLUGIN_NAME}"
+set(DAOS_CLIENT_ENV_VARS
+  "D_LOG_FILE=${CMAKE_CURRENT_BINARY_DIR}/daos_client.log"
+  "D_LOG_MASK=ERR"
+  "CRT_PHY_ADDR_STR=${DAOS_SERVER_TRANSPORT}"
+  "OFI_INTERFACE=${DAOS_SERVER_IFACE}"
+  "DAOS_AGENT_DRPC_DIR=${DAOS_AGENT_DIR}"
+  "HDF5_PLUGIN_PATH=${HDF5_VOL_TEST_PLUGIN_PATH}"
+  "HDF5_VOL_CONNECTOR=${HDF5_VOL_TEST_PLUGIN_NAME}"
 )
 
 #------------------------------------------------------------------------------
 # Test config
 #------------------------------------------------------------------------------
 
-# For compatibility reasons, we also define MPIEXEC
-set(MPIEXEC_EXECUTABLE "${ORTERUN_EXECUTABLE}" CACHE FILEPATH "Executable for running MPI programs." FORCE)
+# Define MPIEXEC flags
 set(MPIEXEC_SERVER_PREFLAGS "${DAOS_SERVER_PREFLAGS}")
 set(MPIEXEC_SERVER_POSTFLAGS "${DAOS_SERVER_POSTFLAGS}")
-set(MPIEXEC_PREFLAGS "${DAOS_CLIENT_PREFLAGS}")
 
 # Client helper
 set(HDF5_VOL_TEST_CLIENT_HELPER ${CMAKE_CURRENT_BINARY_DIR}/scripts/daos_agent.sh)
@@ -147,7 +111,7 @@ set(H5VL_TEST_CLIENT_HELPER_EXIT_COMMAND "killall daos_agent")
 set(HDF5_VOL_TEST_SERVER ${DAOS_SERVER_EXECUTABLE})
 set(H5VL_TEST_SERVER_EXIT_COMMAND "killall -9 daos_io_server")
 # Do not forget to include env command
-# set(H5VL_TEST_ENV_VARS "env ${DAOS_CLIENT_ENV_VARS}")
+set(H5VL_TEST_ENV_VARS "env ${DAOS_CLIENT_ENV_VARS}")
 
 # Test will start running after following line is printed
 set(H5VL_TEST_SERVER_START_MSG "DAOS I/O server")

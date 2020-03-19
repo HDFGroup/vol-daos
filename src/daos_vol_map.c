@@ -244,7 +244,6 @@ H5_daos_map_create(void *_item,
         update_cb_ud->sgl[2].sg_nr = 1;
         update_cb_ud->sgl[2].sg_nr_out = 0;
         update_cb_ud->sgl[2].sg_iovs = &update_cb_ud->sg_iov[2];
-        update_cb_ud->sgl_present = TRUE;
 
         /* Set task name */
         update_cb_ud->task_name = "map metadata write";

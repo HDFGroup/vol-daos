@@ -747,7 +747,7 @@ H5_daos_group_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
             /* Finish building group object */
             /* Open group */
             if(0 != (ret = daos_obj_open(udata->obj->item.file->coh, udata->obj->oid, udata->obj->item.file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &udata->obj->obj_oh, NULL /*event*/)))
-                D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENOBJ, ret, "can't open group: %s", H5_daos_err_to_string(ret))
+                D_GOTO_ERROR(H5E_SYM, H5E_CANTOPENOBJ, ret, "can't open group: %s", H5_daos_err_to_string(ret))
 
             /* Decode GCPL */
             if((((H5_daos_group_t *)udata->obj)->gcpl_id = H5Pdecode(p)) < 0)
@@ -1032,7 +1032,6 @@ H5_daos_group_open_helper_async(H5_daos_file_t *file, daos_obj_id_t oid,
     uint8_t *ginfo_buf = NULL;
     H5_daos_mpi_ibcast_ud_t *bcast_udata = NULL;
     H5_daos_gcpl_fetch_ud_t *fetch_udata = NULL;
-    H5_daos_generic_cb_ud_t *grp_open_udata = NULL;
     int ret;
     H5_daos_group_t *ret_value = NULL;
 
@@ -1148,7 +1147,7 @@ H5_daos_group_open_helper_async(H5_daos_file_t *file, daos_obj_id_t oid,
 
         /* Schedule group metadata write task (or save it to be scheduled later)
          * and give it a reference to req and the group */
-        assert(first_task);
+        assert(*first_task);
         if(0 != (ret = tse_task_schedule(fetch_task, false)))
             D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't schedule task to read group metadata: %s", H5_daos_err_to_string(ret))
         *dep_task = fetch_udata->fetch_metatask;
@@ -1199,7 +1198,7 @@ done:
              * We can't use bcast_task since it may not be completed after the
              * first bcast. */
             if(0 != (ret = tse_task_create(NULL, &file->sched, NULL, &bcast_udata->bcast_metatask)))
-                D_DONE_ERROR(H5E_VOL, H5E_CANTINIT, NULL, "can't create meta task for group info broadcast: %s", H5_daos_err_to_string(ret))
+                D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't create meta task for group info broadcast: %s", H5_daos_err_to_string(ret))
             /* Create task for group info bcast */
             if(0 != (ret = tse_task_create(H5_daos_mpi_ibcast_task, &file->sched, bcast_udata, &bcast_task)))
                 D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't create task to broadcast group info: %s", H5_daos_err_to_string(ret))
@@ -1232,13 +1231,13 @@ done:
                     bcast_udata = NULL;
                 } /* end else */
             } /* end else */
+        } /* end if */
 
-            /* Cleanup on failure */
-            if(bcast_udata) {
-                assert(NULL == ret_value);
-                DV_free(bcast_udata->buffer);
-                bcast_udata = DV_free(bcast_udata);
-            } /* end if */
+        /* Cleanup on failure */
+        if(bcast_udata) {
+            assert(NULL == ret_value);
+            DV_free(bcast_udata->buffer);
+            bcast_udata = DV_free(bcast_udata);
         } /* end if */
     } /* end if */
 
@@ -1251,14 +1250,12 @@ done:
         /* Free memory */
         fetch_udata = DV_free(fetch_udata);
         ginfo_buf = DV_free(ginfo_buf);
-        grp_open_udata = DV_free(grp_open_udata);
     } /* end if */
 
     /* Make sure we cleaned up */
     assert(!fetch_udata);
     assert(!bcast_udata);
     assert(!ginfo_buf);
-    assert(!grp_open_udata);
 
     D_FUNC_LEAVE
 } /* end H5_daos_group_open_helper_async() */

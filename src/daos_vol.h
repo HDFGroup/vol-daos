@@ -453,12 +453,12 @@ typedef struct H5_daos_md_rw_cb_ud_t {
     const char *task_name;
 } H5_daos_md_rw_cb_ud_t;
 
-/* Task user data for GCPL fetch */
-typedef struct H5_daos_gcpl_fetch_ud_t {
+/* Task user data for object metadata fetch */
+typedef struct H5_daos_omd_fetch_ud_t {
     H5_daos_md_rw_cb_ud_t md_rw_cb_ud; /* Must be first */
     H5_daos_mpi_ibcast_ud_t *bcast_udata;
     tse_task_t *fetch_metatask;
-} H5_daos_gcpl_fetch_ud_t;
+} H5_daos_omd_fetch_ud_t;
 
 /*
  * Enum values for determining the type of iteration

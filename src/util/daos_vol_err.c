@@ -43,6 +43,14 @@ H5_daos_err_to_string(int ret)
             return "failed to close HDF5 object (H5_DAOS_H5_CLOSE_ERROR)";
         case H5_DAOS_H5_DECODE_ERROR:
             return "failed to decode HDF5 object (H5_DAOS_H5_DECODE_ERROR)";
+        case H5_DAOS_H5_TCONV_ERROR:
+            return "HDF5 type conversion failed (H5_DAOS_H5_TCONV_ERROR)";
+        case H5_DAOS_H5_COPY_ERROR:
+            return "HDF5 copy operation failed (H5_DAOS_H5_COPY_ERROR)";
+        case H5_DAOS_H5PSET_ERROR:
+            return "failed to set info on HDF5 property list (H5_DAOS_H5PSET_ERROR)";
+        case H5_DAOS_H5PGET_ERROR:
+            return "failed to get info from HDF5 property list (H5_DAOS_H5PGET_ERROR)";
         case H5_DAOS_REMOTE_ERROR:
             return "operation failed on another process (H5_DAOS_REMOTE_ERROR)";
         case H5_DAOS_MPI_ERROR:

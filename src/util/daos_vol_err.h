@@ -46,13 +46,17 @@ extern hid_t dv_err_class_g;
 #define H5_DAOS_PRE_ERROR -2    /* A precursor to this task failed (should only be used as the task return value) */
 #define H5_DAOS_H5_CLOSE_ERROR -3 /* Failed to close HDF5 object */
 #define H5_DAOS_H5_DECODE_ERROR -4 /* Failed to decode HDF5 object */
-#define H5_DAOS_REMOTE_ERROR -5 /* An operation failed on another process */
-#define H5_DAOS_MPI_ERROR -6    /* MPI operation failed */
-#define H5_DAOS_DAOS_GET_ERROR -7 /* Can't get data from DAOS */
-#define H5_DAOS_ALLOC_ERROR -8  /* Memory allocation failed */
-#define H5_DAOS_CPL_CACHE_ERROR -9 /* Failed to fill creation property list cache */
-#define H5_DAOS_BAD_VALUE -10    /* Invalid value received */
-#define H5_DAOS_PROGRESS_ERROR -11 /* Failed to progress scheduler */
+#define H5_DAOS_H5_TCONV_ERROR -5 /* HDF5 type conversion failed */
+#define H5_DAOS_H5_COPY_ERROR -6 /* HDF5 copy operation failed */
+#define H5_DAOS_H5PSET_ERROR -7 /* Failed to set info on HDF5 property list */
+#define H5_DAOS_H5PGET_ERROR -8 /* Failed to get info from HDF5 property list */
+#define H5_DAOS_REMOTE_ERROR -9 /* An operation failed on another process */
+#define H5_DAOS_MPI_ERROR -10    /* MPI operation failed */
+#define H5_DAOS_DAOS_GET_ERROR -11 /* Can't get data from DAOS */
+#define H5_DAOS_ALLOC_ERROR -12  /* Memory allocation failed */
+#define H5_DAOS_CPL_CACHE_ERROR -13 /* Failed to fill creation property list cache */
+#define H5_DAOS_BAD_VALUE -14    /* Invalid value received */
+#define H5_DAOS_PROGRESS_ERROR -15 /* Failed to progress scheduler */
 
 /* Use FUNC to safely handle variations of C99 __func__ keyword handling */
 #ifdef H5_HAVE_C99_FUNC

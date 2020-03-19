@@ -754,6 +754,377 @@ done:
 
 
 /*-------------------------------------------------------------------------
+ * Function:    H5_daos_dset_open_end
+ *
+ * Purpose:     Decode serialized dataset info from a buffer and fill
+ *              caches.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ * Programmer:  Neil Fortner
+ *              March, 2020
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_dset_open_end(H5_daos_dset_t *dset, uint8_t *p, uint64_t type_len,
+    uint64_t space_len, uint64_t dcpl_len, uint64_t fill_val_len)
+{
+    void *tconv_buf = NULL;
+    void *bkg_buf = NULL;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get private data for group info receive task")
+
+    assert(dset);
+    assert(p);
+    assert(type_len > 0);
+
+    /* Decode datatype */
+    if((dset->type_id = H5Tdecode(p)) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_CANTDECODE, H5_DAOS_H5_DECODE_ERROR, "can't deserialize datatype")
+    p += type_len;
+
+    /* Decode dataspace and select all */
+    if((dset->space_id = H5Sdecode(p)) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_CANTDECODE, H5_DAOS_H5_DECODE_ERROR, "can't deserialize dataspace")
+    if(H5Sselect_all(dset->space_id) < 0)
+        D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTDELETE, H5_DAOS_H5_DECODE_ERROR, "can't change selection")
+    p += space_len;
+
+    /* Finish setting up dataset struct */
+    if((dset->file_type_id = H5VLget_file_type(item->file, H5_DAOS_g, dset->type_id)) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, H5_DAOS_H5_TCONV_ERROR, "failed to get file datatype")
+    if((dset->dapl_id = H5Pcopy(dapl_id)) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, H5_DAOS_H5_COPY_ERROR, "failed to copy dapl");
+
+    /* Fill DCPL cache */
+    if(H5_daos_dset_fill_dcpl_cache(dset) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, H5_DAOS_CPL_CACHE_ERROR, "failed to fill DCPL cache")
+
+    /* Check for fill value */
+    if(fill_val_len > 0) {
+        htri_t is_vl_ref;
+
+        /* Copy fill value to dataset struct */
+        p += dcpl_len;
+        if(NULL == (dset->fill_val = DV_malloc(fill_val_len)))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for fill value")
+        (void)memcpy(dset->fill_val, p, fill_val_len);
+
+        /* Set fill value in DCPL if it contains a VL or reference.  This is
+         * necessary because the code in H5Pencode/decode for fill values does
+         * not deep copy or flatten VL sequeneces, so the pointers stored in the
+         * property list are invalid once decoded in a different context.  Note
+         * this will cause every process to read the same VL sequence(s).  We
+         * could remove this code once this feature is properly supported,
+         * though once the library supports flattening VL we should consider
+         * fundamentally changing how VL types work in this connector.  -NAF */
+        if((is_vl_ref = H5_daos_detect_vl_vlstr_ref(dset->type_id)) < 0)
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, H5_DAOS_H5_TCONV_ERROR, "can't check for vl or reference type")
+        if(is_vl_ref) {
+            size_t fill_val_size;
+            size_t fill_val_mem_size;
+            hbool_t fill_bkg;
+
+            /* Initialize type conversion */
+            if(H5_daos_tconv_init(dset->file_type_id, &fill_val_size,
+                    dset->type_id, &fill_val_mem_size, 1, FALSE, FALSE,
+                    &tconv_buf, &bkg_buf, NULL, &fill_bkg) < 0)
+                D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, H5_DAOS_H5_TCONV_ERROR, "can't initialize type conversion")
+
+            /* Sanity check */
+            if(fill_val_size != fill_val_len)
+                D_GOTO_ERROR(H5E_DATASET, H5E_BADVALUE, H5_DAOS_BAD_VALUE, "size of stored fill value does not match size of datatype")
+
+            /* Copy file type fill value to tconv_buf */
+            (void)memcpy(tconv_buf, dset->fill_val, fill_val_size);
+
+            /* Perform type conversion */
+            if(H5Tconvert(dset->file_type_id, dset->type_id, 1, tconv_buf, bkg_buf, dxpl_id) < 0)
+                D_GOTO_ERROR(H5E_DATASET, H5E_CANTCONVERT, H5_DAOS_H5_TCONV_ERROR, "can't perform type conversion")
+
+            /* Set fill value on DCPL */
+            if(H5Pset_fill_value(dset->dcpl_id, dset->type_id, tconv_buf) < 0)
+                D_GOTO_ERROR(H5E_DATASET, H5E_CANTSET, H5_DAOS_H5PSET_ERROR, "can't set fill value")
+
+            /* Patch dcpl_cache because the fill value was cleared in dataset
+             * create due to a workaround for a different problem caused by the
+             * same bug */
+            dset->dcpl_cache.fill_status = H5D_FILL_VALUE_USER_DEFINED;
+            dset->dcpl_cache.fill_method = H5_DAOS_COPY_FILL;
+        } /* end if */
+    } /* end if */
+    else
+        /* Check for missing fill value */
+        if(dset->dcpl_cache.fill_status == H5D_FILL_VALUE_USER_DEFINED)
+            D_GOTO_ERROR(H5E_DATASET, H5E_BADVALUE, H5_DAOS_BAD_VALUE, "fill value defined on property list but not found in metadata")
+
+    /* Fill OCPL cache */
+    if(H5_daos_fill_ocpl_cache(&dset->obj, dset->dcpl_id) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, H5_DAOS_CPL_CACHE_ERROR, "failed to fill OCPL cache")
+
+done:
+    /* Free tconv_buf (early since it needs dcpl) */
+    if(tconv_buf) {
+        hid_t scalar_space_id;
+
+        if((scalar_space_id = H5Screate(H5S_SCALAR)) < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't create scalar dataspace")
+        else {
+            if(H5Treclaim(dset->type_id, scalar_space_id, dxpl_id, tconv_buf) < 0)
+                D_DONE_ERROR(H5E_DATASET, H5E_CANTGC, NULL, "can't reclaim memory from fill value conversion buffer")
+            if(H5Sclose(scalar_space_id) < 0)
+                D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, NULL, "can't close scalar dataspace")
+        } /* end else */
+        tconv_buf = DV_free(tconv_buf);
+    } /* end if */
+
+    /* Free bkg_buf */
+    bkg_buf = DV_free(bkg_buf);
+
+    return ret_value;
+} /* end H5_daos_dset_open_end() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_dset_open_bcast_comp_cb
+ *
+ * Purpose:     Complete callback for asynchronous MPI_ibcast for dataset
+ *              opens (rank 0).
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ * Programmer:  Neil Fortner
+ *              March, 2020
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_dset_open_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_mpi_ibcast_ud_t *udata;
+    int ret;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get private data for group info broadcast task")
+
+    assert(udata->req);
+    assert(udata->obj);
+    assert(udata->obj->item.file);
+    assert(!udata->obj->item.file->closed);
+    assert(udata->obj->item.file->my_rank == 0);
+    assert(udata->obj->item.type == H5I_DATASET);
+
+    /* Handle errors in bcast task.  Only record error in udata->req_status if
+     * it does not already contain an error (it could contain an error if
+     * another task this task is not dependent on also failed). */
+    if(task->dt_result < H5_DAOS_PRE_ERROR
+            && udata->req->status >= H5_DAOS_INCOMPLETE) {
+        udata->req->status = task->dt_result;
+        udata->req->failed_task = "MPI_Ibcast dataset info";
+    } /* end if */
+    else
+        /* Reissue bcast if necesary */
+        if(udata->buffer_len != udata->count) {
+            tse_task_t *bcast_task;
+
+            assert(udata->count == H5_DAOS_DINFO_BUF_SIZE);
+            assert(udata->buffer_len > H5_DAOS_DINFO_BUF_SIZE);
+
+            /* Use full buffer this time */
+            udata->count = udata->buffer_len;
+
+            /* Create task for second bcast */
+            if(0 !=  (ret = tse_task_create(H5_daos_mpi_ibcast_task, &udata->obj->item.file->sched, udata, &bcast_task)))
+                D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, ret, "can't create task for second dataset info broadcast")
+
+            /* Set callback functions for second bcast */
+            if(0 != (ret = tse_task_register_cbs(bcast_task, NULL, NULL, 0, H5_daos_dset_open_bcast_comp_cb, NULL, 0)))
+                D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, ret, "can't register callbacks for second group info broadcast: %s", H5_daos_err_to_string(ret))
+
+            /* Schedule second bcast and transfer ownership of udata */
+            if(0 != (ret = tse_task_schedule(bcast_task, false)))
+                D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, ret, "can't schedule task for second group info broadcast: %s", H5_daos_err_to_string(ret))
+            udata = NULL;
+        } /* end if */
+
+done:
+    /* Free private data if we haven't released ownership */
+    if(udata) {
+        /* Close dataset */
+        if(H5_daos_dataset_close((H5_daos_dset_t *)udata->obj, H5I_INVALID_HID, NULL) < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, H5_DAOS_H5_CLOSE_ERROR, "can't close dataset")
+
+        /* Handle errors in this function */
+        /* Do not place any code that can issue errors after this block */
+        if(ret_value < 0 && udata->req->status >= H5_DAOS_INCOMPLETE) {
+            udata->req->status = ret_value;
+            udata->req->failed_task = "MPI_Ibcast dataset info completion callback";
+        } /* end if */
+
+        /* Complete bcast metatask */
+        tse_task_complete(udata->bcast_metatask, ret_value);
+
+        /* Release our reference to req */
+        H5_daos_req_free_int(udata->req);
+
+        /* Free buffer */
+        DV_free(udata->buffer);
+
+        /* Free private data */
+        DV_free(udata);
+    } /* end if */
+    else
+        assert(ret_value >= 0 || ret_value == H5_DAOS_DAOS_GET_ERROR);
+
+    return ret_value;
+} /* end H5_daos_dset_open_bcast_comp_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_dset_open_recv_comp_cb
+ *
+ * Purpose:     Complete callback for asynchronous MPI_ibcast for dataset
+ *              opens (rank 1+).
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ * Programmer:  Neil Fortner
+ *              March, 2020
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_dset_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_mpi_ibcast_ud_t *udata;
+    int ret;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get private data for group info receive task")
+
+    assert(udata->req);
+    assert(udata->obj);
+    assert(udata->obj->item.file);
+    assert(!udata->req->file->closed);
+    assert(udata->obj->item.file->my_rank > 0);
+    assert(udata->obj->item.type == H5I_DATASET);
+
+    /* Handle errors in bcast task.  Only record error in udata->req_status if
+     * it does not already contain an error (it could contain an error if
+     * another task this task is not dependent on also failed). */
+    if(task->dt_result < H5_DAOS_PRE_ERROR
+            && udata->req->status >= H5_DAOS_INCOMPLETE) {
+        udata->req->status = task->dt_result;
+        udata->req->failed_task = "MPI_Ibcast dataset info";
+    } /* end if */
+    else {
+        uint64_t type_len = 0;
+        uint64_t space_len = 0;
+        uint64_t dcpl_len = 0;
+        uint64_t fill_val_len = 0;
+        size_t dinfo_len;
+        uint8_t *p = udata->buffer;
+
+        /* Decode oid */
+        UINT64DECODE(p, udata->obj->oid.lo)
+        UINT64DECODE(p, udata->obj->oid.hi)
+
+        /* Decode serialized info lengths */
+        UINT64DECODE(p, type_len)
+        UINT64DECODE(p, space_len)
+        UINT64DECODE(p, dcpl_len)
+        UINT64DECODE(p, fill_val_len)
+
+        /* Check for type_len set to 0 - indicates failure */
+        if(type_len == 0)
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, H5_DAOS_REMOTE_ERROR, "lead process failed to open dataset")
+
+        /* Calculate data length */
+        dinfo_len = (size_t)type_len + (size_t)space_len + (size_t)dcpl_len + (size_t)fill_val_len + 3 * sizeof(uint64_t);
+
+        /* Reissue bcast if necesary */
+        if(dinfo_len > (size_t)udata->count) {
+            tse_task_t *bcast_task;
+
+            assert(udata->buffer_len == H5_DAOS_DINFO_BUF_SIZE);
+            assert(udata->count == H5_DAOS_DINFO_BUF_SIZE);
+
+            /* Realloc buffer */
+            DV_free(udata->buffer);
+            if(NULL == (udata->buffer = DV_malloc(dinfo_len)))
+                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, H5_DAOS_ALLOC_ERROR, "failed to allocate memory for dataset info buffer")
+            udata->buffer_len = dinfo_len;
+            udata->count = dinfo_len;
+
+            /* Create task for second bcast */
+            if(0 !=  (ret = tse_task_create(H5_daos_mpi_ibcast_task, &udata->obj->item.file->sched, udata, &bcast_task)))
+                D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, ret, "can't create task for second dataset info broadcast")
+
+            /* Set callback functions for second bcast */
+            if(0 != (ret = tse_task_register_cbs(bcast_task, NULL, NULL, 0, H5_daos_dset_open_recv_comp_cb, NULL, 0)))
+                D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, ret, "can't register callbacks for second dataset info broadcast: %s", H5_daos_err_to_string(ret))
+
+            /* Schedule second bcast and transfer ownership of udata */
+            if(0 != (ret = tse_task_schedule(bcast_task, false)))
+                D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, ret, "can't schedule task for second dataset info broadcast: %s", H5_daos_err_to_string(ret))
+            udata = NULL;
+        } /* end if */
+        else {
+            /* Open dataset */
+            if(0 != (ret = daos_obj_open(udata->obj->item.file->coh, udata->obj->oid, udata->obj->item.file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &udata->obj->obj_oh, NULL /*event*/)))
+                D_GOTO_ERROR(H5E_DATASET, H5E_CANTOPENOBJ, ret, "can't open dataset: %s", H5_daos_err_to_string(ret))
+
+            /* Finish building dataset object */
+            if(0 != (ret = H5_daos_dset_open_end((H5_daos_dset_t *)udata->obj, p, type_len, space_len, dcpl_len, fill_val_len)))
+                DGOTO_ERROR(H5E_DATASET, H5E_CANTINIT, ret, "can't finish opening dataset")
+        } /* end else */
+    } /* end else */
+
+done:
+    /* Free private data if we haven't released ownership */
+    if(udata) {
+        /* Close dataset */
+        if(H5_daos_dataset_close((H5_daos_dset_t *)udata->obj, H5I_INVALID_HID, NULL) < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, H5_DAOS_H5_CLOSE_ERROR, "can't close dataset")
+
+        /* Handle errors in this function */
+        /* Do not place any code that can issue errors after this block */
+        if(ret_value < 0 && udata->req->status >= H5_DAOS_INCOMPLETE) {
+            udata->req->status = ret_value;
+            udata->req->failed_task = "MPI_Ibcast dataset info completion callback";
+        } /* end if */
+
+        /* Complete bcast metatask */
+        tse_task_complete(udata->bcast_metatask, ret_value);
+
+        /* Release our reference to req */
+        H5_daos_req_free_int(udata->req);
+
+        /* Free buffer */
+        DV_free(udata->buffer);
+
+        /* Free private data */
+        DV_free(udata);
+    } /* end if */
+    else
+        assert(ret_value >= 0 || ret_value == H5_DAOS_DAOS_GET_ERROR);
+
+    return ret_value;
+} /* end H5_daos_dset_open_recv_comp_cb() */
+
+
+/*-------------------------------------------------------------------------
  * Function:    H5_daos_dataset_open
  *
  * Purpose:     Sends a request to DAOS to open a dataset
@@ -774,22 +1145,11 @@ H5_daos_dataset_open(void *_item,
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_dset_t *dset = NULL;
     H5_daos_group_t *target_grp = NULL;
-    const char *target_name = NULL;
     daos_key_t dkey;
-    daos_iod_t iod[4];
-    daos_sg_list_t sgl[4];
-    daos_iov_t sg_iov[4];
-    uint64_t type_len = 0;
-    uint64_t space_len = 0;
-    uint64_t dcpl_len = 0;
-    uint64_t fill_val_len = 0;
-    uint64_t tot_len;
-    uint8_t dinfo_buf_static[H5_DAOS_DINFO_BUF_SIZE];
-    uint8_t *dinfo_buf_dyn = NULL;
-    uint8_t *dinfo_buf = dinfo_buf_static;
-    void *tconv_buf = NULL;
-    void *bkg_buf = NULL;
-    uint8_t *p;
+    uint8_t *dinfo_buf = NULL;
+    size_t dinfo_buf_size = 0;
+    H5_daos_mpi_ibcast_ud_t *bcast_udata = NULL;
+    H5_daos_gcpl_fetch_ud_t *fetch_udata = NULL;
     hbool_t collective;
     tse_task_t *first_task = NULL;
     tse_task_t *dep_task = NULL;
@@ -828,7 +1188,8 @@ H5_daos_dataset_open(void *_item,
     dset->dcpl_id = FAIL;
     dset->dapl_id = FAIL;
 
-    /* Set up broadcast user data */
+    /* Set up broadcast user data (if appropriate) and calculate initial dataset
+     * info buffer size */
     if(collective && (file->num_procs > 1)) {
         if(NULL == (bcast_udata = (H5_daos_mpi_ibcast_ud_t *)DV_malloc(sizeof(H5_daos_mpi_ibcast_ud_t))))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "failed to allocate buffer for MPI broadcast user data")
@@ -837,12 +1198,21 @@ H5_daos_dataset_open(void *_item,
         bcast_udata->buffer = NULL;
         bcast_udata->buffer_len = 0;
         bcast_udata->count = 0;
+
+        dinfo_buf_size = H5_DAOS_TYPE_BUF_SIZE + H5_DAOS_SPACE_BUF_SIZE
+                + H5_DAOS_DCPL_BUF_SIZE + H5_DAOS_FILL_VAL_BUF_SIZE
+                + 6 * H5_DAOS_ENCODED_UINT64_T_SIZE : 0;
     } /* end if */
+    else
+        dinfo_buf_size = H5_DAOS_TYPE_BUF_SIZE + H5_DAOS_SPACE_BUF_SIZE
+                + H5_DAOS_DCPL_BUF_SIZE + H5_DAOS_FILL_VAL_BUF_SIZE;
 
     /* Check if we're actually opening the group or just receiving the dataset
      * info from the leader */
     if(!collective || (item->file->my_rank == 0)) {
+        const char *target_name = NULL;
         tse_task_t *fetch_task = NULL;
+        uint8_t *p;
 
         /* Check for open by object token */
         if(H5VL_OBJECT_BY_TOKEN == loc_params->type) {
@@ -882,46 +1252,262 @@ H5_daos_dataset_open(void *_item,
         /* Set up operation to read datatype, dataspace, and DCPL sizes from
          * dataset */
         /* Set up ud struct */
-        fetch_udata->md_rw_cb_ud.req = req;
-        fetch_udata->md_rw_cb_ud.obj = &grp->obj;
+        fetch_udata->md_rw_cb_ud.req = int_req;
+        fetch_udata->md_rw_cb_ud.obj = &dset->obj;
         fetch_udata->bcast_udata = bcast_udata;
 
         /* Set up dkey.  Point to global name buffer, do not free. */
-        daos_iov_set(&fetch_udata->dkey, (void *)H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
+        daos_iov_set(&fetch_udata->md_rw_cb_ud.dkey, (void *)H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
         fetch_udata->md_rw_cb_ud.free_dkey = FALSE;
 
         /* Set up iod.  Point akey to global name buffer, do not free. */
-        daos_iov_set(&fetch_udata->iod[0].iod_name, (void *)H5_daos_type_key_g, H5_daos_type_key_size_g);
-        fetch_udata->iod[0].iod_nr = 1u;
-        fetch_udata->iod[0].iod_size = DAOS_REC_ANY;
-        fetch_udata->iod[0].iod_type = DAOS_IOD_SINGLE;
+        daos_iov_set(&fetch_udata->md_rw_cb_ud.iod[0].iod_name, (void *)H5_daos_type_key_g, H5_daos_type_key_size_g);
+        fetch_udata->md_rw_cb_ud.iod[0].iod_nr = 1u;
+        fetch_udata->md_rw_cb_ud.iod[0].iod_size = DAOS_REC_ANY;
+        fetch_udata->md_rw_cb_ud.iod[0].iod_type = DAOS_IOD_SINGLE;
 
-        daos_iov_set(&fetch_udata->iod[1].iod_name, (void *)H5_daos_space_key_g, H5_daos_space_key_size_g);
-        fetch_udata->iod[1].iod_nr = 1u;
-        fetch_udata->iod[1].iod_size = DAOS_REC_ANY;
-        fetch_udata->iod[1].iod_type = DAOS_IOD_SINGLE;
+        daos_iov_set(&fetch_udata->md_rw_cb_ud.iod[1].iod_name, (void *)H5_daos_space_key_g, H5_daos_space_key_size_g);
+        fetch_udata->md_rw_cb_ud.iod[1].iod_nr = 1u;
+        fetch_udata->md_rw_cb_ud.iod[1].iod_size = DAOS_REC_ANY;
+        fetch_udata->md_rw_cb_ud.iod[1].iod_type = DAOS_IOD_SINGLE;
 
-        daos_iov_set(&fetch_udata->iod[2].iod_name, (void *)H5_daos_cpl_key_g, H5_daos_cpl_key_size_g);
-        fetch_udata->iod[2].iod_nr = 1u;
-        fetch_udata->iod[2].iod_size = DAOS_REC_ANY;
-        fetch_udata->iod[2].iod_type = DAOS_IOD_SINGLE;
+        daos_iov_set(&fetch_udata->md_rw_cb_ud.iod[2].iod_name, (void *)H5_daos_cpl_key_g, H5_daos_cpl_key_size_g);
+        fetch_udata->md_rw_cb_ud.iod[2].iod_nr = 1u;
+        fetch_udata->md_rw_cb_ud.iod[2].iod_size = DAOS_REC_ANY;
+        fetch_udata->md_rw_cb_ud.iod[2].iod_type = DAOS_IOD_SINGLE;
 
-        daos_iov_set(&fetch_udata->iod[3].iod_name, (void *)H5_daos_fillval_key_g, H5_daos_fillval_key_size_g);
-        fetch_udata->iod[3].iod_nr = 1u;
-        fetch_udata->iod[3].iod_size = DAOS_REC_ANY;
-        fetch_udata->iod[3].iod_type = DAOS_IOD_SINGLE;
+        daos_iov_set(&fetch_udata->md_rw_cb_ud.iod[3].iod_name, (void *)H5_daos_fillval_key_g, H5_daos_fillval_key_size_g);
+        fetch_udata->md_rw_cb_ud.iod[3].iod_nr = 1u;
+        fetch_udata->md_rw_cb_ud.iod[3].iod_size = DAOS_REC_ANY;
+        fetch_udata->md_rw_cb_ud.iod[3].iod_type = DAOS_IOD_SINGLE;
 
         fetch_udata->md_rw_cb_ud.free_akeys = FALSE;
 
         /* Allocate initial dataset info buffer */
-        dinfo_buf_size = 6 * H5_DAOS_ENCODED_UINT64_T_SIZE + H5_DAOS_TYPE_BUF_SIZE + H5_DAOS_SPACE_BUF_SIZE + H5_DAOS_DCPL_BUF_SIZE;
         if(NULL == (dinfo_buf = DV_malloc(dinfo_buf_size)))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized gcpl")
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized dataset info")
 
-        if(0 == (fill_val_size = H5Tget_size(dset->file_type_id)))
-                D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, NULL, "can't get file type size")
-            if(NULL == (dset->fill_val = DV_malloc(fill_val_size)))
-                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for fill value")
+        /* Set up buffer */
+        if(bcast_udata) {
+            p = dinfo_buf + (6 * sizeof(uint64_t));
+            bcast_udata->buffer = dinfo_buf;
+            dinfo_buf = NULL;
+            bcast_udata->buffer_len = dinfo_buf_size;
+            bcast_udata->count = dinfo_buf_size;
+        } /* end if */
+        else
+            p = dinfo_buf;
+
+        /* Set up sgl */
+        p = dinfo_buf + (6 * sizeof(uint64_t));
+        daos_iov_set(&fetch_udata->md_rw_cb_ud.sg_iov[0], p, (daos_size_t)H5_DAOS_TYPE_BUF_SIZE);
+        fetch_udata->md_rw_cb_ud.sgl[0].sg_nr = 1;
+        fetch_udata->md_rw_cb_ud.sgl[0].sg_nr_out = 0;
+        fetch_udata->md_rw_cb_ud.sgl[0].sg_iovs = &fetch_udata->md_rw_cb_ud.sg_iov[0];
+        p += H5_DAOS_TYPE_BUF_SIZE;
+        daos_iov_set(&fetch_udata->md_rw_cb_ud.sg_iov[1], p, (daos_size_t)H5_DAOS_SPACE_BUF_SIZE);
+        fetch_udata->md_rw_cb_ud.sgl[1].sg_nr = 1;
+        fetch_udata->md_rw_cb_ud.sgl[1].sg_nr_out = 0;
+        fetch_udata->md_rw_cb_ud.sgl[1].sg_iovs = &fetch_udata->md_rw_cb_ud.sg_iov[1];
+        p += H5_DAOS_SPACE_BUF_SIZE;
+        daos_iov_set(&fetch_udata->md_rw_cb_ud.sg_iov[2], p, (daos_size_t)H5_DAOS_DCPL_BUF_SIZE);
+        fetch_udata->md_rw_cb_ud.sgl[2].sg_nr = 1;
+        fetch_udata->md_rw_cb_ud.sgl[2].sg_nr_out = 0;
+        fetch_udata->md_rw_cb_ud.sgl[2].sg_iovs = &fetch_udata->md_rw_cb_ud.sg_iov[2];
+        p += H5_DAOS_DCPL_BUF_SIZE;
+        daos_iov_set(&fetch_udata->md_rw_cb_ud.sg_iov[3], p, (daos_size_t)H5_DAOS_FILL_VAL_BUF_SIZE);
+        fetch_udata->md_rw_cb_ud.sgl[3].sg_nr = 1;
+        fetch_udata->md_rw_cb_ud.sgl[3].sg_nr_out = 0;
+        fetch_udata->md_rw_cb_ud.sgl[3].sg_iovs = &fetch_udata->md_rw_cb_ud.sg_iov[3];
+
+        /* Set nr */
+        fetch_udata->md_rw_cb_ud.nr = 4u;
+
+        /* Set task name */
+        fetch_udata->md_rw_cb_ud.task_name = "dataset metadata read";
+
+        /* Create meta task for dataset metadata read.  This empty task will be
+         * completed when the read is finished by H5_daos_dinfo_read_comp_cb.
+         * We can't use fetch_task since it may not be completed by the first
+         * fetch. */
+        if(0 != (ret = tse_task_create(NULL, &file->sched, NULL, &fetch_udata->fetch_metatask)))
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't create meta task for dataset metadata read: %s", H5_daos_err_to_string(ret))
+
+        /* Create task for dataset metadata read */
+        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &file->sched, 0, NULL, &fetch_task)))
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't create task to read dataset medadata: %s", H5_daos_err_to_string(ret))
+
+        /* Register dependency for task */
+        assert(dep_task);
+        if(0 != (ret = tse_task_register_deps(fetch_task, 1, &dep_task)))
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't create dependencies for dataset metadata read: %s", H5_daos_err_to_string(ret))
+
+        /* Set callback functions for dataset metadata read */
+        if(0 != (ret = tse_task_register_cbs(fetch_task, H5_daos_md_rw_prep_cb, NULL, 0, H5_daos_dinfo_read_comp_cb, NULL, 0)))
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't register callbacks for task to read dataset medadata: %s", H5_daos_err_to_string(ret))
+
+        /* Set private data for dataset metadata write */
+        (void)daos_task_set_priv(fetch_task, fetch_udata);
+
+        /* Schedule meta task */
+        if(0 != (ret = tse_task_schedule(fetch_udata->fetch_metatask, false)))
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't schedule meta task for dataset metadata read: %s", H5_daos_err_to_string(ret))
+
+        /* Schedule dataset metadata write task (or save it to be scheduled
+         * later) and give it a reference to req and the dataset */
+        assert(first_task);
+        if(0 != (ret = tse_task_schedule(fetch_task, false)))
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't schedule task to read dataset metadata: %s", H5_daos_err_to_string(ret))
+        dep_task = fetch_udata->fetch_metatask;
+        int_req->rc++;
+        dset->obj.item.rc++;
+        fetch_udata = NULL;
+        dinfo_buf = NULL;
+    } /* end if */
+    else {
+        assert(bcast_udata);
+
+        /* Allocate buffer for dataset info */
+        dinfo_buf_size = H5_DAOS_TYPE_BUF_SIZE + H5_DAOS_SPACE_BUF_SIZE
+                + H5_DAOS_DCPL_BUF_SIZE + H5_DAOS_FILL_VAL_BUF_SIZE
+                + 6 * H5_DAOS_ENCODED_UINT64_T_SIZE;
+        if(NULL == (bcast_udata->buffer = DV_malloc(dinfo_buf_size)))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized dataset info")
+        bcast_udata->buffer_len = dinfo_buf_size;
+        bcast_udata->count = dinfo_buf_size;
+    } /* end else */
+
+    ret_value = dset;
+
+done:
+    /* Broadcast dataset info */
+    if(bcast_udata) {
+        assert(!dinfo_buf);
+        assert(dinfo_buf_size == H5_DAOS_TYPE_BUF_SIZE + H5_DAOS_SPACE_BUF_SIZE
+                + H5_DAOS_DCPL_BUF_SIZE + H5_DAOS_FILL_VAL_BUF_SIZE
+                + 6 * H5_DAOS_ENCODED_UINT64_T_SIZE);
+
+        /* Handle failure */
+        if(NULL == ret_value) {
+            /* Allocate buffer for dataset info if necessary, either way set
+             * buffer to 0 to indicate failure */
+            if(bcast_udata->buffer) {
+                assert(bcast_udata->buffer_len == dinfo_buf_size);
+                assert(bcast_udata->count == dinfo_buf_size);
+                (void)memset(bcast_udata->buffer, 0, dinfo_buf_size);
+            } /* end if */
+            else {
+                if(NULL == (bcast_udata->buffer = DV_calloc(dinfo_buf_size)))
+                    D_DONE_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized dataset info")
+                bcast_udata->buffer_len = dinfo_buf_size;
+                bcast_udata->count = dinfo_buf_size;
+            } /* end else */
+        } /* end if */
+
+        if(bcast_udata->buffer) {
+            tse_task_t *bcast_task;
+
+            /* Create meta task for dataset info bcast.  This empty task will be
+             * completed when the bcast is finished by the completion callback.
+             * We can't use bcast_task since it may not be completed after the
+             * first bcast. */
+            if(0 != (ret = tse_task_create(NULL, &file->sched, NULL, &bcast_udata->bcast_metatask)))
+                D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't create meta task for dataset info broadcast: %s", H5_daos_err_to_string(ret))
+            /* Create task for dataset info bcast */
+            if(0 != (ret = tse_task_create(H5_daos_mpi_ibcast_task, &file->sched, bcast_udata, &bcast_task)))
+                D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't create task to broadcast dataset info: %s", H5_daos_err_to_string(ret))
+            /* Register task dependency if present */
+            else if(dep_task && 0 != (ret = tse_task_register_deps(bcast_task, 1, &dep_task)))
+                D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't create dependencies for dataset info broadcast task: %s", H5_daos_err_to_string(ret))
+            /* Set callback functions for dataset info bcast */
+            else if(0 != (ret = tse_task_register_cbs(bcast_task, NULL, NULL, 0, file->my_rank == 0 ? H5_daos_dset_open_bcast_comp_cb : H5_daos_dset_open_recv_comp_cb, NULL, 0)))
+                D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't register callbacks for group info broadcast: %s", H5_daos_err_to_string(ret))
+            /* Schedule meta task */
+            else if(0 != (ret = tse_task_schedule(bcast_udata->bcast_metatask, false)))
+                D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't schedule meta task for dataset info broadcast: %s", H5_daos_err_to_string(ret))
+            /* Schedule bcast and transfer ownership of bcast_udata */
+            else {
+                if(*first_task) {
+                    if(0 != (ret = tse_task_schedule(bcast_task, false)))
+                        D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't schedule task for dataset info broadcast: %s", H5_daos_err_to_string(ret))
+                    else {
+                        int_req->rc++;
+                        dset->obj.item.rc++;
+                        *dep_task = bcast_udata->bcast_metatask;
+                        bcast_udata = NULL;
+                    } /* end else */
+                } /* end if */
+                else {
+                    *first_task = bcast_task;
+                    int_req->rc++;
+                    dset->obj.item.rc++;
+                    *dep_task = bcast_udata->bcast_metatask;
+                    bcast_udata = NULL;
+                } /* end else */
+            } /* end else */
+        } /* end if */
+
+        /* Cleanup on failure */
+        if(bcast_udata) {
+            assert(NULL == ret_value);
+            DV_free(bcast_udata->buffer);
+            bcast_udata = DV_free(bcast_udata);
+        } /* end if */
+    } /* end if */
+
+    if(int_req) {
+        /* Create task to finalize H5 operation */
+        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &item->file->sched, int_req, &finalize_task)))
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+        /* Register dependency (if any) */
+        else if(dep_task && 0 != (ret = tse_task_register_deps(finalize_task, 1, &dep_task)))
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+        /* Schedule finalize task */
+        else if(0 != (ret = tse_task_schedule(finalize_task, false)))
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+        else
+            /* finalize_task now owns a reference to req */
+            int_req->rc++;
+
+        /* Schedule first task */
+        if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret))
+
+        /* Block until operation completes */
+        /* Wait for scheduler to be empty */
+        if(H5_daos_progress(item->file, H5_DAOS_PROGRESS_WAIT) < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't progress scheduler")
+
+        /* Check for failure */
+        if(int_req->status < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTOPERATE, NULL, "dataset creation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status))
+
+        /* Close internal request */
+        H5_daos_req_free_int(int_req);
+    } /* end if */
+
+    /* Close target group */
+    if(target_grp && H5_daos_group_close(target_grp, dxpl_id, req) < 0)
+        D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, NULL, "can't close group")
+
+    /* Cleanup on failure */
+    if(NULL == ret_value) {
+        /* Close group */
+        if(dset && H5_daos_dataset_close(dset, dxpl_id, NULL) < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, NULL, "can't close dataset")
+
+        /* Free memory */
+        fetch_udata = DV_free(fetch_udata);
+        dinfo_buf = DV_free(dinfo_buf);
+    } /* end if */
+
+    /* Make sure we cleaned up */
+    assert(!fetch_udata);
+    assert(!bcast_udata);
+    assert(!dinfo_buf);
+
+    D_FUNC_LEAVE_API
+} /* end H5_daos_dataset_open() */
 
         /* Read internal metadata sizes from dataset */
         if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 4, iod, NULL,
@@ -946,26 +1532,6 @@ H5_daos_dataset_open(void *_item,
                 D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate dataset info buffer")
             dinfo_buf = dinfo_buf_dyn;
         } /* end if */
-
-        /* Set up sgl */
-        p = dinfo_buf + (6 * sizeof(uint64_t));
-        daos_iov_set(&sg_iov[0], p, (daos_size_t)type_len);
-        sgl[0].sg_nr = 1;
-        sgl[0].sg_nr_out = 0;
-        sgl[0].sg_iovs = &sg_iov[0];
-        p += type_len;
-        daos_iov_set(&sg_iov[1], p, (daos_size_t)space_len);
-        sgl[1].sg_nr = 1;
-        sgl[1].sg_nr_out = 0;
-        sgl[1].sg_iovs = &sg_iov[1];
-        p += space_len;
-        daos_iov_set(&sg_iov[2], p, (daos_size_t)dcpl_len);
-        sgl[2].sg_nr = 1;
-        sgl[2].sg_nr_out = 0;
-        sgl[2].sg_iovs = &sg_iov[2];
-
-        /* Set nr */
-        fetch_udata->md_rw_cb_ud.nr = 1u;
 
         /* Check for fill value */
         if(fill_val_len > 0) {
@@ -1169,10 +1735,6 @@ done:
         if(dset && H5_daos_dataset_close(dset, dxpl_id, req) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, NULL, "can't close dataset")
     } /* end if */
-
-    /* Close target group */
-    if(target_grp && H5_daos_group_close(target_grp, dxpl_id, req) < 0)
-        D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, NULL, "can't close group")
 
     /* Free memory */
     dinfo_buf_dyn = (uint8_t *)DV_free(dinfo_buf_dyn);

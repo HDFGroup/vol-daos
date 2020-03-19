@@ -1,23 +1,27 @@
-# Example configuration file using sockets
+# Server configuration file
 
-name: daos_server           # map to -g daos_server
-port: 10001                 # mgmt port
-provider: @DAOS_SERVER_TRANSPORT@  # map to CRT_PHY_ADDR_STR
+name: daos_server
+access_points: ['localhost']
+# port: 10001
+provider: @DAOS_SERVER_TRANSPORT@
 socket_dir: @DAOS_SERVER_SOCKET_DIR@
 nr_hugepages: 4096
 control_log_mask: DEBUG
 control_log_file: @DAOS_LOG_DIR@/daos_control.log
-format_override: true       # don't require manual storage format over client API
+transport_config:
+   allow_insecure: true
 
 # single server instance per config file for now
 servers:
 -
-  cpus: [0-7]                 # map to -c 8, just count number of #cpus in the range for now
-  fabric_iface: @DAOS_SERVER_IFACE@  # map to OFI_INTERFACE
-  fabric_iface_port: 31416    # map to OFI_PORT
-  log_mask: ERR               # map to D_LOG_MASK=ERR
-  log_file: @DAOS_LOG_DIR@/daos_server.log # map to D_LOG_FILE
-  env_vars:                   # influence DAOS IO Server behaviour by setting env variables
+  targets: 4
+  first_core: 0
+  nr_xs_helpers: 0
+  fabric_iface: @DAOS_SERVER_IFACE@
+  fabric_iface_port: 31416
+  log_mask: ERR
+  log_file: @DAOS_LOG_DIR@/daos_server.log
+  env_vars:
   - ABT_ENV_MAX_NUM_XSTREAMS=100
   - ABT_MAX_NUM_XSTREAMS=100
   - DAOS_MD_CAP=1024
@@ -25,12 +29,6 @@ servers:
   - CRT_TIMEOUT=30
   - FI_SOCKETS_MAX_CONN_RETRY=1
   - FI_SOCKETS_CONN_TIMEOUT=2000
-  # uncomment to enable scalable endpoint
-  # - CRT_CREDIT_EP_CTX=0
-  # - CRT_CTX_SHARE_ADDR=1
-  # - CRT_CTX_NUM=8
-  # nvme options
-  # - IO_STAT_PERIOD=10
 
   # Storage definitions
 

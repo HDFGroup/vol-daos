@@ -60,7 +60,6 @@
 #endif
 
 /* Build Options */
-#cmakedefine H5VL_DAOS_NEW_API
 
 /* Debug output */
 #cmakedefine DV_PLUGIN_DEBUG

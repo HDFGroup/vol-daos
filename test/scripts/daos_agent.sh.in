@@ -1,6 +1,4 @@
 #!/bin/bash
 # This is a generated file, make sure you edit the .in file
-@MPIEXEC_EXECUTABLE@ \
-@MPIEXEC_NUMPROC_FLAG@ 1 \
--x DAOS_AGENT_DRPC_DIR=@DAOS_AGENT_DIR@ \
+env DAOS_AGENT_DRPC_DIR=@DAOS_AGENT_DIR@ \
 @DAOS_AGENT_EXECUTABLE@ -i -s @DAOS_AGENT_SOCKET_DIR@ -l @DAOS_LOG_DIR@/daos_agent.log

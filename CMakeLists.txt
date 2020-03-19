@@ -77,7 +77,7 @@ message(STATUS "Configuring ${HDF5_VOL_DAOS_PACKAGE} v${HDF5_VOL_DAOS_VERSION_FU
 #------------------------------------------------------------------------------
 # Setup CMake Environment
 #------------------------------------------------------------------------------
-if(APPLE OR WIN32)
+if(WIN32)
   message("The HDF5 DAOS VOL connector is not supported on this platform." FATAL_ERROR)
 endif()
 

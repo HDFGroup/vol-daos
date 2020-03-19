@@ -896,10 +896,6 @@ H5_daos_ginfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
             if(udata->bcast_udata) {
                 uint8_t *p;
 
-                /* Verify iod_size makes sense */
-                if(udata->md_rw_cb_ud.iod[0].iod_size > (H5_DAOS_GINFO_BUF_SIZE - 3 * H5_DAOS_ENCODED_UINT64_T_SIZE))
-                    D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, H5_DAOS_BAD_VALUE, "invalid iod_size returned from DAOS (buffer should not have been large enough)")
-
                 /* Encode oid */
                 p = udata->bcast_udata->buffer;
                 UINT64ENCODE(p, udata->md_rw_cb_ud.obj->oid.lo)
@@ -909,10 +905,6 @@ H5_daos_ginfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
                 UINT64ENCODE(p, udata->md_rw_cb_ud.iod[0].iod_size)
                 assert(p == udata->md_rw_cb_ud.sg_iov[0].iov_buf);
             } /* end if */
-            else
-                /* Verify iod_size makes sense */
-                if(udata->md_rw_cb_ud.iod[0].iod_size > H5_DAOS_GINFO_BUF_SIZE)
-                    D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, H5_DAOS_BAD_VALUE, "invalid iod_size returned from DAOS (buffer should not have been large enough)")
 
             /* Finish building group object */
             /* Decode GCPL */

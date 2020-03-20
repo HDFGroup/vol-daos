@@ -2134,7 +2134,7 @@ H5_daos_tx_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     int ret_value = 0;
 
     /* Get private data */
-    if(NULL == (req = daos_task_get_priv(task)))
+    if(NULL == (req = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get private data for transaction commit/abort task")
 
     /* Handle errors in commit/abort task.  Only record error in
@@ -2278,7 +2278,7 @@ H5_daos_h5op_finalize_helper(H5_daos_req_t *req)
             } /* end if */
 
             /* Set private data for abort */
-            (void)daos_task_set_priv(abort_task, req);
+            (void)tse_task_set_priv(abort_task, req);
 
             /* Schedule abort task */
             if(0 != (ret = tse_task_schedule(abort_task, false))) {
@@ -2320,7 +2320,7 @@ H5_daos_h5op_finalize_helper(H5_daos_req_t *req)
             } /* end if */
 
             /* Set private data for commit */
-            (void)daos_task_set_priv(commit_task, req);
+            (void)tse_task_set_priv(commit_task, req);
 
             /* Schedule commit task */
             if(0 != (ret = tse_task_schedule(commit_task, false))) {
@@ -2457,7 +2457,7 @@ H5_daos_obj_open_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     int ret_value = 0;
 
     /* Get private data */
-    if(NULL == (udata = daos_task_get_priv(task)))
+    if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get private data for object open task")
 
     assert(udata->req);
@@ -2503,7 +2503,7 @@ H5_daos_md_rw_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     int ret_value = 0;
 
     /* Get private data */
-    if(NULL == (udata = daos_task_get_priv(task)))
+    if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get private data for metadata I/O task")
 
     assert(udata->obj);
@@ -2526,10 +2526,7 @@ H5_daos_md_rw_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     update_args->dkey = &udata->dkey;
     update_args->nr = udata->nr;
     update_args->iods = udata->iod;
-    if(udata->sgl_present)
-        update_args->sgls = udata->sgl;
-    else
-        update_args->sgls = NULL;
+    update_args->sgls = udata->sgl;
 
 done:
     D_FUNC_LEAVE
@@ -2559,7 +2556,7 @@ H5_daos_md_update_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     int ret_value = 0;
 
     /* Get private data */
-    if(NULL == (udata = daos_task_get_priv(task)))
+    if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get private data for metadata I/O task")
 
     assert(!udata->req->file->closed);
@@ -2715,7 +2712,7 @@ H5_daos_obj_open(H5_daos_file_t *file, H5_daos_req_t *req, daos_obj_id_t *oid,
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate user data struct for object open task")
     open_udata->req = req;
     open_udata->task_name = task_name;
-    (void)daos_task_set_priv(open_task, open_udata);
+    (void)tse_task_set_priv(open_task, open_udata);
 
     /* Set arguments for object open */
     if(NULL == (open_args = daos_task_get_args(open_task)))

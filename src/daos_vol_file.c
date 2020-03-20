@@ -42,9 +42,10 @@ static herr_t H5_daos_cont_get_fapl_info(hid_t fapl_id, H5_daos_fapl_t *fa_out);
 static herr_t H5_daos_cont_set_mpi_info(H5_daos_file_t *file, H5_daos_fapl_t *fa);
 static int H5_daos_tx_open_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_tx_open_prep_cb(tse_task_t *task, void *args);
-static herr_t H5_daos_cont_create(H5_daos_file_t *file, unsigned flags,
-    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 static herr_t H5_daos_cont_open(H5_daos_file_t *file, unsigned flags,
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
+static int H5_daos_cont_destroy_comp_cb(tse_task_t *task, void *args);
+static herr_t H5_daos_cont_create(H5_daos_file_t *file, unsigned flags,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 static int H5_daos_gh_bcast_comp_cb(tse_task_t *task, void *args);
 static herr_t H5_daos_cont_handle_bcast(H5_daos_file_t *file,
@@ -179,7 +180,7 @@ H5_daos_tx_open_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     int ret_value = 0;
 
     /* Get private data */
-    if(NULL == (udata = daos_task_get_priv(task)))
+    if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get private data for transaction open task")
 
     assert(udata->req);
@@ -298,7 +299,7 @@ H5_daos_cont_open(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *req,
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate user data struct for container open task")
     open_udata->req = req;
     open_udata->task_name = "container open";
-    (void)daos_task_set_priv(open_task, open_udata);
+    (void)tse_task_set_priv(open_task, open_udata);
 #endif
 
     /* Set arguments for container open */
@@ -338,7 +339,7 @@ H5_daos_cont_open(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *req,
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate user data struct for transaction open task")
     tx_open_udata->req = req;
     tx_open_udata->task_name = "transaction open";
-    (void)daos_task_set_priv(tx_open_task, tx_open_udata);
+    (void)tse_task_set_priv(tx_open_task, tx_open_udata);
 
     /* Set callback functions for transaction open */
     if(0 != (ret = tse_task_register_cbs(tx_open_task, H5_daos_tx_open_prep_cb, NULL, 0, H5_daos_tx_open_comp_cb, NULL, 0)))
@@ -383,6 +384,52 @@ tx_open_udata = DV_free(tx_open_udata);
 
     D_FUNC_LEAVE
 } /* end H5_daos_cont_open() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_cont_destroy_comp_cb
+ *
+ * Purpose:     Complete callback for container destroy.  Identical to
+ *              H5_daos_generic_comp_cb except allows -DER_NONEXIST.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ * Programmer:  Neil Fortner
+ *              March, 2020
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_cont_destroy_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_generic_cb_ud_t *udata;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get private data for generic task")
+
+    assert(udata->req);
+    assert(udata->req->file);
+
+    /* Handle errors in task.  Only record error in udata->req_status if it does
+     * not already contain an error (it could contain an error if another task
+     * this task is not dependent on also failed). */
+    if(task->dt_result < H5_DAOS_PRE_ERROR
+            && task->dt_result != -DER_NONEXIST
+            && udata->req->status >= H5_DAOS_INCOMPLETE) {
+        udata->req->status = task->dt_result;
+        udata->req->failed_task = udata->task_name;
+    } /* end if */
+
+    /* Free private data */
+    H5_daos_req_free_int(udata->req);
+    DV_free(udata);
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_cont_destroy_comp_cb() */
 
 
 /*-------------------------------------------------------------------------
@@ -434,7 +481,7 @@ H5_daos_cont_create(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *req,
             D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create dependencies for task to destroy container: %s", H5_daos_err_to_string(ret))
 
         /* Set callback functions for container destroy */
-        if(0 != (ret = tse_task_register_cbs(destroy_task, H5_daos_generic_prep_cb, NULL, 0, H5_daos_generic_comp_cb, NULL, 0)))
+        if(0 != (ret = tse_task_register_cbs(destroy_task, H5_daos_generic_prep_cb, NULL, 0, H5_daos_cont_destroy_comp_cb, NULL, 0)))
             D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't register callbacks for task to destroy container: %s", H5_daos_err_to_string(ret))
 
         /* Set private data for container destroy */
@@ -442,7 +489,7 @@ H5_daos_cont_create(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *req,
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate user data struct for container destroy task")
         destroy_udata->req = req;
         destroy_udata->task_name = "container destroy within H5Fcreate";
-        (void)daos_task_set_priv(destroy_task, destroy_udata);
+        (void)tse_task_set_priv(destroy_task, destroy_udata);
 
         /* Set arguments for container destroy */
         if(NULL == (destroy_args = daos_task_get_args(destroy_task)))
@@ -481,7 +528,7 @@ H5_daos_cont_create(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *req,
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate user data struct for container create task")
     create_udata->req = req;
     create_udata->task_name = "container create within H5Fcreate";
-    (void)daos_task_set_priv(create_task, create_udata);
+    (void)tse_task_set_priv(create_task, create_udata);
 
     /* Set arguments for container create */
     if(NULL == (create_args = daos_task_get_args(create_task)))
@@ -782,7 +829,7 @@ H5_daos_cont_handle_bcast(H5_daos_file_t *file, H5_daos_req_t *req,
             D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create dependencies for task to get global container handle: %s", H5_daos_err_to_string(ret))
 
         /* Set private data for task to get global container handle */
-        (void)daos_task_set_priv(get_gch_task, bcast_udata);
+        (void)tse_task_set_priv(get_gch_task, bcast_udata);
 
         /* Schedule task to get global container handle (or save it to be
          * scheduled later) and give it a reference to req.  Do not transfer

@@ -346,7 +346,6 @@ H5_daos_link_write(H5_daos_group_t *grp, const char *name,
 
     /* Set up general sgl */
     update_cb_ud->sgl[0].sg_iovs = &update_cb_ud->sg_iov[0];
-    update_cb_ud->sgl_present = TRUE;
 
     /* Set task name */
     update_cb_ud->task_name = "link write";
@@ -482,7 +481,7 @@ H5_daos_link_write(H5_daos_group_t *grp, const char *name,
         D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't register callbacks for task to write link: %s", H5_daos_err_to_string(ret))
 
     /* Set private data for link write */
-    (void)daos_task_set_priv(*taskp, update_cb_ud);
+    (void)tse_task_set_priv(*taskp, update_cb_ud);
 
     /* Schedule link task and give it a reference to req */
     if(0 != (ret = tse_task_schedule(*taskp, false)))

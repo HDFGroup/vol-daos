@@ -2158,14 +2158,16 @@ H5_daos_tx_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
 done:
     /* Handle errors in this function */
-    /* Do not place any code that can issue errors after this block */
+    /* Do not place any code that can issue errors after this block, except for
+     * H5_daos_req_free_int, which updates req->status if it sees an error */
     if(ret_value < 0 && req->status >= H5_DAOS_INCOMPLETE) {
         req->status = ret_value;
         req->failed_task = "transaction commit/abort completion callback";
     } /* end if */
 
     /* Release our reference to req */
-    H5_daos_req_free_int(req);
+    if(H5_daos_req_free_int(req) < 0)
+        D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, H5_DAOS_FREE_ERROR, "can't free request")
 
     D_FUNC_LEAVE
 } /* end H5_daos_tx_comp_cb() */
@@ -2202,16 +2204,19 @@ H5_daos_h5op_finalize(tse_task_t *task)
         D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, ret, "failed to finalize H5 operation")
 
     /* Report failures in this routine */
+    /* Do not place any code that can issue errors after this block, except for
+     * H5_daos_req_free_int, which updates req->status if it sees an error */
     if(ret_value < 0 && req->status == H5_DAOS_INCOMPLETE) {
         req->status = ret_value;
         req->failed_task = "h5 op finalize";
     } /* end if */
 
+    /* Release our reference to req */
+    if(H5_daos_req_free_int(req) < 0)
+        D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, H5_DAOS_FREE_ERROR, "can't free request")
+
     /* Complete task in engine */
     tse_task_complete(task, ret_value);
-
-    /* Release our reference to req */
-    H5_daos_req_free_int(req);
 
 done:
     D_FUNC_LEAVE
@@ -2414,14 +2419,19 @@ H5_daos_generic_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     /* Handle errors in task.  Only record error in udata->req_status if it does
      * not already contain an error (it could contain an error if another task
      * this task is not dependent on also failed). */
+    /* Do not place any code that can issue errors after this block, except for
+     * H5_daos_req_free_int, which updates req->status if it sees an error */
     if(task->dt_result < H5_DAOS_PRE_ERROR
             && udata->req->status >= H5_DAOS_INCOMPLETE) {
         udata->req->status = task->dt_result;
         udata->req->failed_task = udata->task_name;
     } /* end if */
 
+    /* Release our reference to req */
+    if(H5_daos_req_free_int(udata->req) < 0)
+        D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, H5_DAOS_FREE_ERROR, "can't free request")
+
     /* Free private data */
-    H5_daos_req_free_int(udata->req);
     DV_free(udata);
 
 done:
@@ -2575,14 +2585,18 @@ H5_daos_md_update_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, H5_DAOS_H5_CLOSE_ERROR, "can't close object")
 
     /* Handle errors in this function */
-    /* Do not place any code that can issue errors after this block */
+    /* Do not place any code that can issue errors after this block, except for
+     * H5_daos_req_free_int, which updates req->status if it sees an error */
     if(ret_value < 0 && udata->req->status >= H5_DAOS_INCOMPLETE) {
         udata->req->status = ret_value;
         udata->req->failed_task = udata->task_name;
     } /* end if */
 
+    /* Release our reference to req */
+    if(H5_daos_req_free_int(udata->req) < 0)
+        D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, H5_DAOS_FREE_ERROR, "can't free request")
+
     /* Free private data */
-    H5_daos_req_free_int(udata->req);
     if(udata->free_dkey)
         DV_free(udata->dkey.iov_buf);
     if(udata->free_akeys)

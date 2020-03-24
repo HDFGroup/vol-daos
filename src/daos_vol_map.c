@@ -114,7 +114,7 @@ H5_daos_map_create(void *_item,
     collective = TRUE;
 
     /* Start H5 operation */
-    if(NULL == (int_req = H5_daos_req_create(item->file)))
+    if(NULL == (int_req = H5_daos_req_create(item->file, H5I_INVALID_HID)))
         D_GOTO_ERROR(H5E_MAP, H5E_CANTALLOC, NULL, "can't create DAOS request")
 
     /* Allocate the map object that is returned to the user */
@@ -333,6 +333,10 @@ done:
             /* finalize_task now owns a reference to req */
             int_req->rc++;
 
+        /* If there was an error during setup, pass it to the request */
+        if(NULL == ret_value)
+            int_req->status = H5_DAOS_SETUP_ERROR;
+
         /* Block until operation completes */
         /* Wait for scheduler to be empty */
         if(H5_daos_progress(item->file, H5_DAOS_PROGRESS_WAIT) < 0)
@@ -343,7 +347,8 @@ done:
             D_DONE_ERROR(H5E_MAP, H5E_CANTOPERATE, NULL, "map creation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status))
 
         /* Close internal request */
-        H5_daos_req_free_int(int_req);
+        if(H5_daos_req_free_int(int_req) < 0)
+            D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't free request")
     } /* end if */
 
     /* Cleanup on failure */
@@ -399,7 +404,7 @@ H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
     uint64_t vtype_len = 0;
     uint64_t mcpl_len = 0;
     uint64_t tot_len;
-    uint8_t minfo_buf_static[H5_DAOS_DINFO_BUF_SIZE];
+    uint8_t minfo_buf_static[H5_DAOS_GINFO_BUF_SIZE];
     uint8_t *minfo_buf_dyn = NULL;
     uint8_t *minfo_buf = minfo_buf_static;
     uint8_t *p;
@@ -1900,7 +1905,8 @@ H5_daos_map_close(void *_map, hid_t H5VL_DAOS_UNUSED dxpl_id,
     if(--map->obj.item.rc == 0) {
         /* Free map data structures */
         if(map->obj.item.open_req)
-            H5_daos_req_free_int(map->obj.item.open_req);
+            if(H5_daos_req_free_int(map->obj.item.open_req) < 0)
+                D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't free request")
         if(!daos_handle_is_inval(map->obj.obj_oh))
             if(0 != (ret = daos_obj_close(map->obj.obj_oh, NULL /*event*/)))
                 D_DONE_ERROR(H5E_MAP, H5E_CANTCLOSEOBJ, FAIL, "can't close map DAOS object: %s", H5_daos_err_to_string(ret))

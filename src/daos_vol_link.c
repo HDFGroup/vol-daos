@@ -472,10 +472,6 @@ H5_daos_link_write(H5_daos_group_t *grp, const char *name,
     if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_UPDATE, &grp->obj.item.file->sched, 0, NULL, taskp)))
         D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't create task to write link: %s", H5_daos_err_to_string(ret))
 
-    /* Set dependency for link write if present */
-    if(dep_task && 0 != (ret = tse_task_register_deps(*taskp, 1, &dep_task)))
-        D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't create dependencies for link write task: %s", H5_daos_err_to_string(ret))
-
     /* Set callback functions for link write */
     if(0 != (ret = tse_task_register_cbs(*taskp, H5_daos_md_rw_prep_cb, NULL, 0, H5_daos_md_update_comp_cb, NULL, 0)))
         D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't register callbacks for task to write link: %s", H5_daos_err_to_string(ret))
@@ -483,9 +479,21 @@ H5_daos_link_write(H5_daos_group_t *grp, const char *name,
     /* Set private data for link write */
     (void)tse_task_set_priv(*taskp, update_cb_ud);
 
-    /* Schedule link task and give it a reference to req */
-    if(0 != (ret = tse_task_schedule(*taskp, false)))
-        D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't schedule task to write link: %s", H5_daos_err_to_string(ret))
+    /* Schedule link task if it has a dependency, and give it a reference to
+     * req.  If it does not have a dependecy the calling funciton will schedule
+     * it.  This is done so the calling function can delay scheduling the first
+     * task in a chain until every task is scheduled. */
+    if(dep_task) {
+        /* Set dependency for link write task */
+        if(dep_task && 0 != (ret = tse_task_register_deps(*taskp, 1, &dep_task)))
+            D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't create dependencies for link write task: %s", H5_daos_err_to_string(ret))
+
+        /* Schedule task */
+        if(0 != (ret = tse_task_schedule(*taskp, false)))
+            D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't schedule task to write link: %s", H5_daos_err_to_string(ret))
+    } /* end if */
+
+    /* Task is scheduled or will be scheduled, give it a reference to req */
     update_task_scheduled = TRUE;
     update_cb_ud->req->rc++;
 
@@ -499,6 +507,7 @@ done:
         iov_buf = DV_free(iov_buf);
         max_corder_old_buf = DV_free(max_corder_old_buf);
         update_cb_ud = DV_free(update_cb_ud);
+        *taskp = NULL;
     } /* end if */
 
     D_FUNC_LEAVE
@@ -609,7 +618,7 @@ H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
     assert(item);
 
     /* Start H5 operation */
-    if(NULL == (int_req = H5_daos_req_create(item->file)))
+    if(NULL == (int_req = H5_daos_req_create(item->file, H5I_INVALID_HID)))
         D_GOTO_ERROR(H5E_SYM, H5E_CANTALLOC, FAIL, "can't create DAOS request")
 
     /* Find target group */
@@ -648,6 +657,14 @@ done:
             /* finalize_task now owns a reference to req */
             int_req->rc++;
 
+        /* If there was an error during setup, pass it to the request */
+        if(ret_value < 0)
+            int_req->status = H5_DAOS_SETUP_ERROR;
+
+        /* Schedule link write task */
+        if(0 != (ret = tse_task_schedule(link_write_task, false)))
+            D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't schedule link write task: %s", H5_daos_err_to_string(ret))
+
         /* Block until operation completes */
         /* Wait for scheduler to be empty */
         if(H5_daos_progress(item->file, H5_DAOS_PROGRESS_WAIT) < 0)
@@ -658,7 +675,8 @@ done:
             D_DONE_ERROR(H5E_LINK, H5E_CANTOPERATE, FAIL, "link creation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status))
 
         /* Close internal request */
-        H5_daos_req_free_int(int_req);
+        if(H5_daos_req_free_int(int_req) < 0)
+            D_DONE_ERROR(H5E_LINK, H5E_CLOSEERROR, FAIL, "can't free request")
     } /* end if */
 
     D_FUNC_LEAVE_API
@@ -727,7 +745,7 @@ H5_daos_link_copy(void *src_obj, const H5VL_loc_params_t *loc_params1,
         D_GOTO_ERROR(H5E_LINK, H5E_READERROR, FAIL, "source link didn't exist")
 
     /* Start H5 operation */
-    if(NULL == (int_req = H5_daos_req_create(target_grp->obj.item.file)))
+    if(NULL == (int_req = H5_daos_req_create(target_grp->obj.item.file, H5I_INVALID_HID)))
         D_GOTO_ERROR(H5E_LINK, H5E_CANTALLOC, FAIL, "can't create DAOS request")
 
     task_sched = src_obj ? &((H5_daos_item_t *)src_obj)->file->sched : &((H5_daos_item_t *)dst_obj)->file->sched;
@@ -762,6 +780,14 @@ done:
             /* finalize_task now owns a reference to req */
             int_req->rc++;
 
+        /* If there was an error during setup, pass it to the request */
+        if(ret_value < 0)
+            int_req->status = H5_DAOS_SETUP_ERROR;
+
+        /* Schedule link write task */
+        if(0 != (ret = tse_task_schedule(link_write_task, false)))
+            D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't schedule link write task: %s", H5_daos_err_to_string(ret))
+
         /* Block until operation completes */
         /* Wait for scheduler to be empty */
         if(H5_daos_progress(((H5_daos_item_t *)src_obj)->file, H5_DAOS_PROGRESS_WAIT) < 0)
@@ -772,7 +798,8 @@ done:
             D_DONE_ERROR(H5E_LINK, H5E_CANTOPERATE, FAIL, "link write failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status))
 
         /* Close internal request */
-        H5_daos_req_free_int(int_req);
+        if(H5_daos_req_free_int(int_req) < 0)
+            D_DONE_ERROR(H5E_LINK, H5E_CLOSEERROR, FAIL, "can't free request")
     } /* end if */
 
     D_FUNC_LEAVE_API
@@ -841,7 +868,7 @@ H5_daos_link_move(void *src_obj, const H5VL_loc_params_t *loc_params1,
         D_GOTO_ERROR(H5E_LINK, H5E_READERROR, FAIL, "source link didn't exist")
 
     /* Start H5 operation */
-    if(NULL == (int_req = H5_daos_req_create(target_grp->obj.item.file)))
+    if(NULL == (int_req = H5_daos_req_create(target_grp->obj.item.file, H5I_INVALID_HID)))
         D_GOTO_ERROR(H5E_LINK, H5E_CANTALLOC, FAIL, "can't create DAOS request")
 
     /* Set convenience pointer to file to use for scheduling */
@@ -853,15 +880,8 @@ H5_daos_link_move(void *src_obj, const H5VL_loc_params_t *loc_params1,
     finalize_ndeps++;
 
     /* Remove the original link */
-    /* TODO: Once full async is implemented, the link write task should depend on the link deletion task or vice versa */
-    if(H5_daos_link_delete((src_obj ? (H5_daos_item_t *)src_obj : (H5_daos_item_t *)dst_obj), loc_params1, dxpl_id, req) < 0) {
-        /*
-         * If deleting the original link failed, don't schedule the link
-         * write task for the new link.
-         */
-        H5_daos_req_free_int(int_req); int_req = NULL;
+    if(H5_daos_link_delete((src_obj ? (H5_daos_item_t *)src_obj : (H5_daos_item_t *)dst_obj), loc_params1, dxpl_id, req) < 0)
         D_GOTO_ERROR(H5E_LINK, H5E_CANTREMOVE, FAIL, "can't delete original link")
-    } /* end if */
 
 done:
     /* Free link value if necessary */
@@ -888,6 +908,14 @@ done:
             /* finalize_task now owns a reference to req */
             int_req->rc++;
 
+        /* If there was an error during setup, pass it to the request */
+        if(ret_value < 0)
+            int_req->status = H5_DAOS_SETUP_ERROR;
+
+        /* Schedule link write task */
+        if(0 != (ret = tse_task_schedule(link_write_task, false)))
+            D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't schedule link write task: %s", H5_daos_err_to_string(ret))
+
         /* Block until operation completes */
         /* Wait for scheduler to be empty */
         if(H5_daos_progress(sched_file, H5_DAOS_PROGRESS_WAIT) < 0)
@@ -898,7 +926,8 @@ done:
             D_DONE_ERROR(H5E_LINK, H5E_CANTOPERATE, FAIL, "link write failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status))
 
         /* Close internal request */
-        H5_daos_req_free_int(int_req);
+        if(H5_daos_req_free_int(int_req) < 0)
+            D_DONE_ERROR(H5E_LINK, H5E_CLOSEERROR, FAIL, "can't free request")
     } /* end if */
 
     D_FUNC_LEAVE_API

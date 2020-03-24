@@ -43,6 +43,8 @@ H5_daos_err_to_string(int ret)
             return "failed to close HDF5 object (H5_DAOS_H5_CLOSE_ERROR)";
         case H5_DAOS_H5_DECODE_ERROR:
             return "failed to decode HDF5 object (H5_DAOS_H5_DECODE_ERROR)";
+        case H5_DAOS_H5_CREATE_ERROR:
+            return "failed to create HDF5 object (H5_DAOS_H5_CREATE_ERROR)";
         case H5_DAOS_H5_TCONV_ERROR:
             return "HDF5 type conversion failed (H5_DAOS_H5_TCONV_ERROR)";
         case H5_DAOS_H5_COPY_ERROR:
@@ -59,12 +61,16 @@ H5_daos_err_to_string(int ret)
             return "failed to get data from DAOS or no data present (H5_DAOS_DAOS_GET_ERROR)";
         case H5_DAOS_ALLOC_ERROR:
             return "memory allocation failed (H5_DAOS_ALLOC_ERROR)";
+        case H5_DAOS_FREE_ERROR:
+            return "failed to free memory (H5_DAOS_FREE_ERROR)";
         case H5_DAOS_CPL_CACHE_ERROR:
             return "failed to fill creation property list cache (H5_DAOS_CPL_CACHE_ERROR)";
         case H5_DAOS_BAD_VALUE:
             return "invalid value received (H5_DAOS_BAD_VALUE)";
         case H5_DAOS_PROGRESS_ERROR:
             return "failed to progress scheduler (H5_DAOS_PROGRESS_ERROR)";
+        case H5_DAOS_SETUP_ERROR:
+            return "error during operation setup (H5_DAOS_SETUP_ERROR)";
 
         /*
          * GURT errors

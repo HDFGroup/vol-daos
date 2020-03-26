@@ -1919,8 +1919,20 @@ H5_daos_link_iterate_by_crt_order(H5_daos_group_t *target_grp, H5_daos_iter_data
             || H5_ITER_DEC == iter_data->iter_order);
 
     /* Check that creation order is tracked for target group */
-    if(!target_grp->gcpl_cache.track_corder)
-        D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, FAIL, "creation order is not tracked for group")
+    if(!target_grp->gcpl_cache.track_corder) {
+        if(iter_data->is_recursive) {
+            /*
+             * For calls to H5Lvisit ONLY, the index type setting is a "best effort"
+             * setting, meaning that we fall back to name order if link creation order
+             * is not tracked for the target group.
+             */
+            iter_data->index_type = H5_INDEX_NAME;
+            if(H5_daos_link_iterate_by_name_order(target_grp, iter_data) < 0)
+                D_GOTO_ERROR(H5E_SYM, H5E_BADITER, FAIL, "can't fall back to iteration by name order")
+        } /* end if */
+        else
+            D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, FAIL, "creation order is not tracked for group")
+    } /* end if */
 
     /* Retrieve the number of links in the group */
     if((grp_nlinks = H5_daos_group_get_num_links(target_grp)) < 0)

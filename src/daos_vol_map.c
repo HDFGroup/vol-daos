@@ -64,11 +64,12 @@ H5_daos_map_create(void *_item,
     void *mcpl_buf = NULL;
     hbool_t collective;
     H5_daos_md_rw_cb_ud_t *update_cb_ud = NULL;
-    hbool_t update_task_scheduled = FALSE;
     tse_task_t *finalize_task;
     int finalize_ndeps = 0;
     tse_task_t *finalize_deps[2];
     H5_daos_req_t *int_req = NULL;
+    tse_task_t *first_task = NULL;
+    tse_task_t *open_task = NULL;
     int ret;
     void *ret_value = NULL;
 
@@ -137,6 +138,10 @@ H5_daos_map_create(void *_item,
     if(H5_daos_oid_generate(&map->obj.oid, H5I_MAP, mcpl_id == H5P_MAP_CREATE_DEFAULT ? H5P_DEFAULT : mcpl_id, item->file, collective) < 0)
         D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't generate object id")
 
+    /* Open map object */
+    if(H5_daos_obj_open(item->file, int_req, &map->obj.oid, DAOS_OO_RW, &map->obj.obj_oh, "map object open", &first_task, &open_task) < 0)
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, NULL, "can't open map object")
+
     /* Create map and write metadata if this process should */
     if(!collective || (item->file->my_rank == 0)) {
         const char *target_name = NULL;
@@ -166,11 +171,6 @@ H5_daos_map_create(void *_item,
         /* Allocate argument struct */
         if(NULL == (update_cb_ud = (H5_daos_md_rw_cb_ud_t *)DV_calloc(sizeof(H5_daos_md_rw_cb_ud_t))))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for update callback arguments")
-
-        /* Open map */
-        if(0 != (ret = daos_obj_open(item->file->coh, map->obj.oid, DAOS_OO_RW, &map->obj.obj_oh, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, NULL, "can't open map: %s", H5_daos_err_to_string(ret))
-        map->obj.item.rc++;
 
         /* Encode datatypes */
         if(H5Tencode(ktype_id, NULL, &ktype_size) < 0)
@@ -252,6 +252,10 @@ H5_daos_map_create(void *_item,
         if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_UPDATE, &item->file->sched, 0, NULL, &update_task)))
             D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create task to write map medadata: %s", H5_daos_err_to_string(ret))
 
+        /* Register dependency for task */
+        if(0 != (ret = tse_task_register_deps(update_task, 1, &open_task)))
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't create dependencies for dataset metadata write: %s", H5_daos_err_to_string(ret))
+
         /* Set callback functions for map metadata write */
         if(0 != (ret = tse_task_register_cbs(update_task, H5_daos_md_rw_prep_cb, NULL, 0, H5_daos_md_update_comp_cb, NULL, 0)))
             D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't register callbacks for task to write map medadata: %s", H5_daos_err_to_string(ret))
@@ -259,11 +263,16 @@ H5_daos_map_create(void *_item,
         /* Set private data for map metadata write */
         (void)tse_task_set_priv(update_task, update_cb_ud);
 
-        /* Schedule map metadata write task and give it a reference to req */
+        /* Schedule map metadata write task and give it a reference to req and
+         * the map */
         if(0 != (ret = tse_task_schedule(update_task, false)))
             D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't schedule task to write map metadata: %s", H5_daos_err_to_string(ret))
-        update_task_scheduled = TRUE;
-        update_cb_ud->req->rc++;
+        int_req->rc++;
+        map->obj.item.rc++;
+        update_cb_ud = NULL;
+        ktype_buf = NULL;
+        vtype_buf = NULL;
+        mcpl_buf = NULL;
 
         /* Add dependency for finalize task */
         finalize_deps[finalize_ndeps] = update_task;
@@ -282,9 +291,11 @@ H5_daos_map_create(void *_item,
         } /* end if */
     } /* end if */
     else {
-        /* Open map */
-        if(0 != (ret = daos_obj_open(item->file->coh, map->obj.oid, DAOS_OO_RW, &map->obj.obj_oh, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, NULL, "can't open map: %s", H5_daos_err_to_string(ret))
+        /* Only open_task created, register it as the finalize dependency */
+        assert(finalize_ndeps == 0);
+        assert(open_task);
+        finalize_deps[0] = open_task;
+        finalize_ndeps = 1;
 
         /* Check for failure of process 0 DSINC */
     } /* end else */
@@ -337,6 +348,10 @@ done:
         if(NULL == ret_value)
             int_req->status = H5_DAOS_SETUP_ERROR;
 
+        /* Schedule first task */
+        if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret))
+
         /* Block until operation completes */
         /* Wait for scheduler to be empty */
         if(H5_daos_progress(item->file, H5_DAOS_PROGRESS_WAIT) < 0)
@@ -359,17 +374,18 @@ done:
             D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't close map");
 
         /* Free memory */
-        if(!update_task_scheduled) {
-            if(update_cb_ud && update_cb_ud->obj && H5_daos_object_close(update_cb_ud->obj, dxpl_id, NULL) < 0)
-                D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, NULL, "can't close object")
-            ktype_buf = DV_free(ktype_buf);
-            vtype_buf = DV_free(vtype_buf);
-            mcpl_buf = DV_free(mcpl_buf);
-            update_cb_ud = DV_free(update_cb_ud);
-        } /* end if */
+        if(update_cb_ud && update_cb_ud->obj && H5_daos_object_close(update_cb_ud->obj, dxpl_id, NULL) < 0)
+            D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, NULL, "can't close object")
+        ktype_buf = DV_free(ktype_buf);
+        vtype_buf = DV_free(vtype_buf);
+        mcpl_buf = DV_free(mcpl_buf);
+        update_cb_ud = DV_free(update_cb_ud);
     } /* end if */
-    else
-        assert((!ktype_buf && !vtype_buf && !mcpl_buf) || update_task_scheduled);
+
+    assert(!update_cb_ud);
+    assert(!ktype_buf);
+    assert(!vtype_buf);
+    assert(!mcpl_buf);
 
     D_FUNC_LEAVE
 } /* end H5_daos_map_create() */

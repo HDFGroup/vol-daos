@@ -260,6 +260,10 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
     if(H5_daos_oid_encode(&grp->obj.oid, oidx, H5I_GROUP, gcpl_id == H5P_GROUP_CREATE_DEFAULT ? H5P_DEFAULT : gcpl_id, H5_DAOS_OBJ_CLASS_NAME, file) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTENCODE, NULL, "can't encode object ID")
 
+    /* Open group object */
+    if(H5_daos_obj_open(file, req, &grp->obj.oid, DAOS_OO_RW, &grp->obj.obj_oh, "group object open", first_task, dep_task) < 0)
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTOPENOBJ, NULL, "can't open group object")
+
     /* Create group and write metadata if this process should */
     if(!collective || (file->my_rank == 0)) {
         size_t gcpl_size = 0;
@@ -270,10 +274,6 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
         /* Allocate argument struct */
         if(NULL == (update_cb_ud = (H5_daos_md_rw_cb_ud_t *)DV_calloc(sizeof(H5_daos_md_rw_cb_ud_t))))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for update callback arguments")
-
-        /* Open group object */
-        if(H5_daos_obj_open(file, req, &grp->obj.oid, DAOS_OO_RW, &grp->obj.obj_oh, "group object open", first_task, dep_task) < 0)
-            D_GOTO_ERROR(H5E_SYM, H5E_CANTOPENOBJ, NULL, "can't open group object")
 
         /* Encode GCPL */
         if(H5Pencode2(gcpl_id, NULL, &gcpl_size, file->fapl_id) < 0)
@@ -317,8 +317,9 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
         if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_UPDATE, &file->sched, 0, NULL, &update_task)))
             D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't create task to write group medadata: %s", H5_daos_err_to_string(ret))
 
-        /* Register dependency for task if present */
-        if(*dep_task && 0 != (ret = tse_task_register_deps(update_task, 1, dep_task)))
+        /* Register dependency for task */
+        assert(*dep_task);
+        if(0 != (ret = tse_task_register_deps(update_task, 1, dep_task)))
             D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't create dependencies for group metadata write: %s", H5_daos_err_to_string(ret))
 
         /* Set callback functions for group metadata write */
@@ -363,11 +364,9 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
          * probably never an issue with file reopen since all commits are from
          * process 0, same as the group create above. */
 
-        /* Open group object */
-        if(H5_daos_obj_open(file, req, &grp->obj.oid, DAOS_OO_RW, &grp->obj.obj_oh, "group object open", first_task, dep_task) < 0)
-            D_GOTO_ERROR(H5E_SYM, H5E_CANTOPENOBJ, NULL, "can't open group object")
-
         /* Add dependency for group metatask */
+        assert(gmt_ndeps == 0);
+        assert(*dep_task);
         gmt_deps[gmt_ndeps] = *dep_task;
         gmt_ndeps++;
         /* Check for failure of process 0 DSINC */
@@ -418,6 +417,8 @@ done:
             D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, NULL, "can't close group")
 
         /* Free memory */
+        if(update_cb_ud && update_cb_ud->obj && H5_daos_object_close(update_cb_ud->obj, dxpl_id, NULL) < 0)
+            D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, NULL, "can't close object")
         gcpl_buf = DV_free(gcpl_buf);
         update_cb_ud = DV_free(update_cb_ud);
     } /* end if */

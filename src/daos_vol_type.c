@@ -492,6 +492,7 @@ H5_daos_datatype_commit(void *_item,
     int finalize_ndeps = 0;
     tse_task_t *finalize_deps[2];
     H5_daos_req_t *int_req = NULL;
+    tse_task_t *first_task = NULL;
     int ret;
     void *ret_value = NULL;
 
@@ -612,6 +613,7 @@ H5_daos_datatype_commit(void *_item,
             link_val.target.hard = dtype->obj.oid;
             if(H5_daos_link_write(target_grp, target_name, strlen(target_name), &link_val, int_req, &link_write_task, NULL) < 0)
                 D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't create link to group")
+            first_task = link_write_task;
             finalize_deps[finalize_ndeps] = link_write_task;
             finalize_ndeps++;
         } /* end if */
@@ -666,6 +668,10 @@ done:
         /* If there was an error during setup, pass it to the request */
         if(NULL == ret_value)
             int_req->status = H5_DAOS_SETUP_ERROR;
+
+        /* Schedule first task */
+        if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret))
 
         /* Block until operation completes */
         /* Wait for scheduler to be empty */

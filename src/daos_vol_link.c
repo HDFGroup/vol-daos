@@ -685,7 +685,7 @@ H5_daos_link_copy(void *src_obj, const H5VL_loc_params_t *loc_params1,
     H5_daos_group_t *target_grp = NULL;
     const char *src_link_name = NULL;
     const char *new_link_name = NULL;
-    tse_sched_t *task_sched = NULL;
+    H5_daos_file_t *sched_file;
     tse_task_t *link_write_task;
     tse_task_t *finalize_task;
     int finalize_ndeps = 0;
@@ -731,7 +731,8 @@ H5_daos_link_copy(void *src_obj, const H5VL_loc_params_t *loc_params1,
     if(NULL == (int_req = H5_daos_req_create(target_grp->obj.item.file)))
         D_GOTO_ERROR(H5E_LINK, H5E_CANTALLOC, FAIL, "can't create DAOS request")
 
-    task_sched = src_obj ? &((H5_daos_item_t *)src_obj)->file->sched : &((H5_daos_item_t *)dst_obj)->file->sched;
+    /* Set convenience pointer to file to use for scheduling */
+    sched_file = src_obj ? ((H5_daos_item_t *)src_obj)->file : ((H5_daos_item_t *)dst_obj)->file;
 
     if(H5_daos_link_write(target_grp, new_link_name, strlen(new_link_name), &link_val, int_req, &link_write_task, NULL) < 0)
         D_GOTO_ERROR(H5E_LINK, H5E_CANTCOPY, FAIL, "failed to copy link")
@@ -751,7 +752,7 @@ done:
 
     if(int_req) {
         /* Create task to finalize H5 operation */
-        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, task_sched, int_req, &finalize_task)))
+        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &sched_file->sched, int_req, &finalize_task)))
             D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
         /* Register dependencies (if any) */
         else if(finalize_ndeps > 0 && 0 != (ret = tse_task_register_deps(finalize_task, finalize_ndeps, finalize_deps)))
@@ -765,7 +766,7 @@ done:
 
         /* Block until operation completes */
         /* Wait for scheduler to be empty */
-        if(H5_daos_progress(((H5_daos_item_t *)src_obj)->file, H5_DAOS_PROGRESS_WAIT) < 0)
+        if(H5_daos_progress(sched_file, H5_DAOS_PROGRESS_WAIT) < 0)
             D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't progress scheduler")
 
         /* Check for failure */
@@ -1919,8 +1920,20 @@ H5_daos_link_iterate_by_crt_order(H5_daos_group_t *target_grp, H5_daos_iter_data
             || H5_ITER_DEC == iter_data->iter_order);
 
     /* Check that creation order is tracked for target group */
-    if(!target_grp->gcpl_cache.track_corder)
-        D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, FAIL, "creation order is not tracked for group")
+    if(!target_grp->gcpl_cache.track_corder) {
+        if(iter_data->is_recursive) {
+            /*
+             * For calls to H5Lvisit ONLY, the index type setting is a "best effort"
+             * setting, meaning that we fall back to name order if link creation order
+             * is not tracked for the target group.
+             */
+            iter_data->index_type = H5_INDEX_NAME;
+            if(H5_daos_link_iterate_by_name_order(target_grp, iter_data) < 0)
+                D_GOTO_ERROR(H5E_SYM, H5E_BADITER, FAIL, "can't fall back to iteration by name order")
+        } /* end if */
+        else
+            D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, FAIL, "creation order is not tracked for group")
+    } /* end if */
 
     /* Retrieve the number of links in the group */
     if((grp_nlinks = H5_daos_group_get_num_links(target_grp)) < 0)

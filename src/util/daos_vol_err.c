@@ -71,6 +71,8 @@ H5_daos_err_to_string(int ret)
             return "failed to progress scheduler (H5_DAOS_PROGRESS_ERROR)";
         case H5_DAOS_SETUP_ERROR:
             return "error during operation setup (H5_DAOS_SETUP_ERROR)";
+        case H5_DAOS_FILE_EXISTS:
+            return "file already exists (H5_DAOS_FILE_EXISTS)";
 
         /*
          * GURT errors

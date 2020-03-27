@@ -188,8 +188,11 @@ H5_daos_tx_open_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     assert(udata->req->file);
 
     /* Handle errors */
-    if(udata->req->status < H5_DAOS_INCOMPLETE)
+    if(udata->req->status < H5_DAOS_INCOMPLETE) {
         tse_task_complete(task, H5_DAOS_PRE_ERROR);
+        udata = NULL;
+        D_GOTO_DONE(H5_DAOS_PRE_ERROR);
+    } /* end if */
 
     /* Set arguments for transaction open */
     if(NULL == (tx_open_args = daos_task_get_args(task))) {

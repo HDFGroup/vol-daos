@@ -1906,8 +1906,11 @@ H5_daos_chunk_io_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     assert(!udata->req->file->closed);
 
     /* Handle errors */
-    if(udata->req->status < H5_DAOS_INCOMPLETE)
+    if(udata->req->status < H5_DAOS_INCOMPLETE) {
         tse_task_complete(task, H5_DAOS_PRE_ERROR);
+        udata = NULL;
+        D_GOTO_DONE(H5_DAOS_PRE_ERROR);
+    } /* end if */
 
     /* Set I/O task arguments */
     if(NULL == (update_args = daos_task_get_args(task))) {

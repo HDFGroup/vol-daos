@@ -2381,8 +2381,11 @@ H5_daos_generic_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     assert(udata->req->file);
 
     /* Handle errors */
-    if(udata->req->status < H5_DAOS_INCOMPLETE)
+    if(udata->req->status < H5_DAOS_INCOMPLETE) {
         tse_task_complete(task, H5_DAOS_PRE_ERROR);
+        udata = NULL;
+        D_GOTO_DONE(H5_DAOS_PRE_ERROR);
+    } /* end if */
 
 done:
     D_FUNC_LEAVE
@@ -2474,8 +2477,11 @@ H5_daos_obj_open_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     assert(udata->req->file);
 
     /* Handle errors */
-    if(udata->req->status < H5_DAOS_INCOMPLETE)
+    if(udata->req->status < H5_DAOS_INCOMPLETE) {
         tse_task_complete(task, H5_DAOS_PRE_ERROR);
+        udata = NULL;
+        D_GOTO_DONE(H5_DAOS_PRE_ERROR);
+    } /* end if */
 
     /* Set container open handle in args */
     if(NULL == (open_args = daos_task_get_args(task))) {
@@ -2522,8 +2528,11 @@ H5_daos_md_rw_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     assert(!udata->req->file->closed);
 
     /* Handle errors */
-    if(udata->req->status < H5_DAOS_INCOMPLETE)
+    if(udata->req->status < H5_DAOS_INCOMPLETE) {
         tse_task_complete(task, H5_DAOS_PRE_ERROR);
+        udata = NULL;
+        D_GOTO_DONE(H5_DAOS_PRE_ERROR);
+    } /* end if */
 
     /* Set update task arguments */
     if(NULL == (update_args = daos_task_get_args(task))) {

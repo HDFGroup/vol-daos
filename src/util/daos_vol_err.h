@@ -60,6 +60,7 @@ extern hid_t dv_err_class_g;
 #define H5_DAOS_BAD_VALUE -16   /* Invalid value received */
 #define H5_DAOS_PROGRESS_ERROR -17 /* Failed to progress scheduler */
 #define H5_DAOS_SETUP_ERROR -18 /* Error during operation setup */
+#define H5_DAOS_FILE_EXISTS -19 /* File already exists */
 
 /* Use FUNC to safely handle variations of C99 __func__ keyword handling */
 #ifdef H5_HAVE_C99_FUNC

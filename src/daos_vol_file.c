@@ -40,10 +40,11 @@ typedef struct get_obj_ids_udata_t {
 
 static herr_t H5_daos_cont_get_fapl_info(hid_t fapl_id, H5_daos_fapl_t *fa_out);
 static herr_t H5_daos_cont_set_mpi_info(H5_daos_file_t *file, H5_daos_fapl_t *fa);
-static int H5_daos_tx_open_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_tx_open_prep_cb(tse_task_t *task, void *args);
+static int H5_daos_tx_open_comp_cb(tse_task_t *task, void *args);
 static herr_t H5_daos_cont_open(H5_daos_file_t *file, unsigned flags,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
+static int H5_daos_excl_open_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_cont_destroy_comp_cb(tse_task_t *task, void *args);
 static herr_t H5_daos_cont_create(H5_daos_file_t *file, unsigned flags,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
@@ -271,9 +272,7 @@ H5_daos_cont_open(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *req,
 {
     tse_task_t *open_task;
     tse_task_t *tx_open_task;
-#ifdef H5_DAOS_CONT_OPEN_PRIV_DATA_WORKS
     H5_daos_generic_cb_ud_t *open_udata = NULL;
-#endif
     H5_daos_generic_cb_ud_t *tx_open_udata = NULL;
     daos_cont_open_t *open_args;
     herr_t ret_value = SUCCEED;
@@ -292,7 +291,6 @@ H5_daos_cont_open(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *req,
     if(*dep_task && 0 != (ret = tse_task_register_deps(open_task, 1, dep_task)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create dependencies for task to open container: %s", H5_daos_err_to_string(ret))
 
-#ifdef H5_DAOS_CONT_OPEN_PRIV_DATA_WORKS
     /* Set callback functions for container open */
     if(0 != (ret = tse_task_register_cbs(open_task, H5_daos_generic_prep_cb, NULL, 0, H5_daos_generic_comp_cb, NULL, 0)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't register callbacks for task to open container: %s", H5_daos_err_to_string(ret))
@@ -303,7 +301,6 @@ H5_daos_cont_open(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *req,
     open_udata->req = req;
     open_udata->task_name = "container open";
     (void)tse_task_set_priv(open_task, open_udata);
-#endif
 
     /* Set arguments for container open */
     if(NULL == (open_args = daos_task_get_args(open_task)))
@@ -322,10 +319,8 @@ H5_daos_cont_open(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *req,
     } /* end if */
     else
         *first_task = open_task;
-#ifdef H5_DAOS_CONT_OPEN_PRIV_DATA_WORKS
     req->rc++;
     open_udata = NULL;
-#endif
     *dep_task = open_task;
 
     /* Create task for transaction open */
@@ -373,20 +368,79 @@ H5_daos_cont_open(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *req,
 done:
     /* Cleanup on failure */
     if(ret_value < 0) {
-#ifdef H5_DAOS_CONT_OPEN_PRIV_DATA_WORKS
         open_udata = DV_free(open_udata);
-#endif
         tx_open_udata = DV_free(tx_open_udata);
     } /* end if */
-tx_open_udata = DV_free(tx_open_udata);
+
     /* Make sure we cleaned up */
-#ifdef H5_DAOS_CONT_OPEN_PRIV_DATA_WORKS
     assert(!open_udata);
-#endif
     assert(!tx_open_udata);
 
     D_FUNC_LEAVE
 } /* end H5_daos_cont_open() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_excl_open_comp_cb
+ *
+ * Purpose:     Complete callback for container open attempt for
+ *              H5F_ACC_EXCL.  Identical to H5_daos_generic_comp_cb except
+ *              expects -DER_NONEXIST.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ * Programmer:  Neil Fortner
+ *              March, 2020
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_excl_open_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_generic_cb_ud_t *udata;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get private data for generic task")
+
+    assert(udata->req);
+    assert(udata->req->file);
+
+    /* Handle errors in task.  Only record error in udata->req_status if it does
+     * not already contain an error (it could contain an error if another task
+     * this task is not dependent on also failed). */
+    if(task->dt_result < H5_DAOS_PRE_ERROR
+            && task->dt_result != -DER_NONEXIST
+            && udata->req->status >= H5_DAOS_INCOMPLETE) {
+        udata->req->status = task->dt_result;
+        udata->req->failed_task = udata->task_name;
+    } /* end if */
+
+    /* If the open succeeded, return failure (we're verifying that the file
+     * doesn't exist) */
+    if(task->dt_result == 0)
+        D_DONE_ERROR(H5E_FILE, H5E_FILEEXISTS, H5_DAOS_FILE_EXISTS, "exclusive open failed: file already exists")
+
+    /* Handle errors in this function */
+    /* Do not place any code that can issue errors after this block, except for
+     * H5_daos_req_free_int, which updates req->status if it sees an error */
+    if(ret_value < 0 && udata->req->status >= H5_DAOS_INCOMPLETE) {
+        udata->req->status = ret_value;
+        udata->req->failed_task = udata->task_name;
+    } /* end if */
+
+    /* Release our reference to req */
+    if(H5_daos_req_free_int(udata->req) < 0)
+        D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, H5_DAOS_FREE_ERROR, "can't free request")
+
+    /* Free private data */
+    DV_free(udata);
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_excl_open_comp_cb() */
 
 
 /*-------------------------------------------------------------------------
@@ -452,6 +506,7 @@ H5_daos_cont_create(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *req,
     tse_task_t **first_task, tse_task_t **dep_task)
 {
     tse_task_t *create_task;
+    H5_daos_generic_cb_ud_t *excl_open_udata = NULL;
     H5_daos_generic_cb_ud_t *destroy_udata = NULL;
     H5_daos_generic_cb_ud_t *create_udata = NULL;
     daos_cont_create_t *create_args;
@@ -466,11 +521,50 @@ H5_daos_cont_create(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *req,
 
     /* If the H5F_ACC_EXCL flag was specified, ensure that the container does
      * not exist. */
-    /* DSINC we cannot make this asynchronous until we can set private data on
-     * container open, since we need to be able to react to an error code. */
-    if(flags & H5F_ACC_EXCL)
-        if(0 == daos_cont_open(H5_daos_poh_g, file->uuid, DAOS_COO_RW, &file->coh, NULL /*&file->co_info*/, NULL /*event*/))
-            D_GOTO_ERROR(H5E_FILE, H5E_FILEEXISTS, FAIL, "container already existed and H5F_ACC_EXCL flag was used!")
+    if(flags & H5F_ACC_EXCL) {
+        tse_task_t *excl_open_task;
+        daos_cont_open_t *excl_open_args;
+
+        /* Create task for container open attempt (open should fail) */
+        if(0 != (ret = daos_task_create(DAOS_OPC_CONT_OPEN, &file->sched, 0, NULL, &excl_open_task)))
+            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create task to try to open container: %s", H5_daos_err_to_string(ret))
+
+        /* Register dependency for task */
+        if(*dep_task && 0 != (ret = tse_task_register_deps(excl_open_task, 1, dep_task)))
+            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create dependencies for task to try toopen container: %s", H5_daos_err_to_string(ret))
+
+        /* Set callback functions for container open */
+        if(0 != (ret = tse_task_register_cbs(excl_open_task, H5_daos_generic_prep_cb, NULL, 0, H5_daos_excl_open_comp_cb, NULL, 0)))
+            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't register callbacks for task to try to open container: %s", H5_daos_err_to_string(ret))
+
+        /* Set private data for container open */
+        if(NULL == (excl_open_udata = (H5_daos_generic_cb_ud_t *)DV_malloc(sizeof(H5_daos_generic_cb_ud_t))))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate user data struct for container open attempt task")
+        excl_open_udata->req = req;
+        excl_open_udata->task_name = "excl container open attempt";
+        (void)tse_task_set_priv(excl_open_task, excl_open_udata);
+
+        /* Set arguments for container open */
+        if(NULL == (excl_open_args = daos_task_get_args(excl_open_task)))
+            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't get arguments for container open attempt task")
+        excl_open_args->poh = H5_daos_poh_g;
+        uuid_copy(excl_open_args->uuid, file->uuid);
+        excl_open_args->flags = DAOS_COO_RO;
+        excl_open_args->coh = &file->coh;
+        excl_open_args->info = NULL;
+
+        /* Schedule container open task (or save it to be scheduled later) and give
+         * it a reference to req */
+        if(*first_task) {
+            if(0 != (ret = tse_task_schedule(excl_open_task, false)))
+                D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't schedule task to open container: %s", H5_daos_err_to_string(ret))
+        } /* end if */
+        else
+            *first_task = excl_open_task;
+        req->rc++;
+        excl_open_udata = NULL;
+        *dep_task = excl_open_task;
+    } /* end if */
 
     /* Delete the container if H5F_ACC_TRUNC is set.  This shouldn't cause a
      * problem even if the container doesn't exist. */
@@ -562,11 +656,13 @@ H5_daos_cont_create(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *req,
 done:
     /* Cleanup on failure */
     if(ret_value < 0) {
+        excl_open_udata = DV_free(excl_open_udata);
         destroy_udata = DV_free(destroy_udata);
         create_udata = DV_free(create_udata);
     } /* end if */
 
     /* Make sure we cleaned up */
+    assert(!excl_open_udata);
     assert(!destroy_udata);
     assert(!create_udata);
 

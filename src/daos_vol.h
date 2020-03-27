@@ -64,13 +64,16 @@ typedef d_sg_list_t daos_sg_list_t;
 /* Constant keys */
 #define H5_DAOS_CHUNK_KEY 0u
 
-/* Stack allocation sizes */
+/* Initial allocation sizes */
 #define H5_DAOS_GH_BUF_SIZE 1024
 #define H5_DAOS_FOI_BUF_SIZE 1024
 #define H5_DAOS_LINK_NAME_BUF_SIZE 2048
 #define H5_DAOS_LINK_VAL_BUF_SIZE 256
 #define H5_DAOS_GINFO_BUF_SIZE 1024
-#define H5_DAOS_DINFO_BUF_SIZE 1024
+#define H5_DAOS_TYPE_BUF_SIZE 1024
+#define H5_DAOS_SPACE_BUF_SIZE 512
+#define H5_DAOS_DCPL_BUF_SIZE 1024
+#define H5_DAOS_FILL_VAL_BUF_SIZE 1024
 #define H5_DAOS_TINFO_BUF_SIZE 1024
 #define H5_DAOS_SEQ_LIST_LEN 128
 #define H5_DAOS_ITER_LEN 128
@@ -411,6 +414,7 @@ typedef struct H5_daos_req_t {
     daos_handle_t th;
     hbool_t th_open;
     H5_daos_file_t *file;
+    hid_t dxpl_id;
     int rc;
     int status;
     const char *failed_task; /* Add more error info? DSINC */
@@ -447,12 +451,12 @@ typedef struct H5_daos_md_rw_cb_ud_t {
     const char *task_name;
 } H5_daos_md_rw_cb_ud_t;
 
-/* Task user data for GCPL fetch */
-typedef struct H5_daos_gcpl_fetch_ud_t {
+/* Task user data for object metadata fetch */
+typedef struct H5_daos_omd_fetch_ud_t {
     H5_daos_md_rw_cb_ud_t md_rw_cb_ud; /* Must be first */
     H5_daos_mpi_ibcast_ud_t *bcast_udata;
     tse_task_t *fetch_metatask;
-} H5_daos_gcpl_fetch_ud_t;
+} H5_daos_omd_fetch_ud_t;
 
 /*
  * Enum values for determining the type of iteration
@@ -798,11 +802,12 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_attribute_iterate_count_attrs_cb(hid_t loc_id, 
     const H5A_info_t *attr_info, void *op_data);
 
 /* Request callbacks */
-H5VL_DAOS_PRIVATE H5_daos_req_t *H5_daos_req_create(H5_daos_file_t *file);
 H5VL_DAOS_PRIVATE herr_t H5_daos_req_free(void *req);
 
 /* Other request routines */
-H5VL_DAOS_PRIVATE void H5_daos_req_free_int(void *_req);
+H5VL_DAOS_PRIVATE H5_daos_req_t *H5_daos_req_create(H5_daos_file_t *file,
+    hid_t dxpl_id);
+H5VL_DAOS_PRIVATE herr_t H5_daos_req_free_int(H5_daos_req_t *req);
 
 /* Map callbacks */
 H5VL_DAOS_PRIVATE void *H5_daos_map_create(void *_item,

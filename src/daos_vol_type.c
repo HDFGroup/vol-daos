@@ -492,6 +492,7 @@ H5_daos_datatype_commit(void *_item,
     int finalize_ndeps = 0;
     tse_task_t *finalize_deps[2];
     H5_daos_req_t *int_req = NULL;
+    tse_task_t *first_task = NULL;
     int ret;
     void *ret_value = NULL;
 
@@ -511,7 +512,7 @@ H5_daos_datatype_commit(void *_item,
     collective = TRUE;
 
     /* Start H5 operation */
-    if(NULL == (int_req = H5_daos_req_create(item->file)))
+    if(NULL == (int_req = H5_daos_req_create(item->file, H5I_INVALID_HID)))
         D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTALLOC, NULL, "can't create DAOS request")
 
     /* Allocate the datatype object that is returned to the user */
@@ -612,6 +613,7 @@ H5_daos_datatype_commit(void *_item,
             link_val.target.hard = dtype->obj.oid;
             if(H5_daos_link_write(target_grp, target_name, strlen(target_name), &link_val, int_req, &link_write_task, NULL) < 0)
                 D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't create link to group")
+            first_task = link_write_task;
             finalize_deps[finalize_ndeps] = link_write_task;
             finalize_ndeps++;
         } /* end if */
@@ -663,6 +665,14 @@ done:
             /* finalize_task now owns a reference to req */
             int_req->rc++;
 
+        /* If there was an error during setup, pass it to the request */
+        if(NULL == ret_value)
+            int_req->status = H5_DAOS_SETUP_ERROR;
+
+        /* Schedule first task */
+        if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret))
+
         /* Block until operation completes */
         /* Wait for scheduler to be empty */
         if(H5_daos_progress(item->file, H5_DAOS_PROGRESS_WAIT) < 0)
@@ -673,7 +683,8 @@ done:
             D_DONE_ERROR(H5E_DATATYPE, H5E_CANTOPERATE, NULL, "datatype creation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status))
 
         /* Close internal request */
-        H5_daos_req_free_int(int_req);
+        if(H5_daos_req_free_int(int_req) < 0)
+            D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, NULL, "can't free request")
     } /* end if */
 
     /* Cleanup on failure */
@@ -1093,7 +1104,8 @@ H5_daos_datatype_close(void *_dtype, hid_t H5VL_DAOS_UNUSED dxpl_id,
     if(--dtype->obj.item.rc == 0) {
         /* Free datatype data structures */
         if(dtype->obj.item.open_req)
-            H5_daos_req_free_int(dtype->obj.item.open_req);
+            if(H5_daos_req_free_int(dtype->obj.item.open_req) < 0)
+                D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, FAIL, "can't free request")
         if(!daos_handle_is_inval(dtype->obj.obj_oh))
             if(0 != (ret = daos_obj_close(dtype->obj.obj_oh, NULL /*event*/)))
                 D_DONE_ERROR(H5E_DATATYPE, H5E_CANTCLOSEOBJ, FAIL, "can't close datatype DAOS object: %s", H5_daos_err_to_string(ret))

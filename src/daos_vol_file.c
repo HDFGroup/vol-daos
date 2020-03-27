@@ -244,8 +244,11 @@ H5_daos_tx_open_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     /* Transaction is open */
     udata->req->th_open = TRUE;
 
+    /* Release our reference to req */
+    if(H5_daos_req_free_int(udata->req) < 0)
+        D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, H5_DAOS_FREE_ERROR, "can't free request")
+
     /* Free private data */
-    H5_daos_req_free_int(udata->req);
     DV_free(udata);
 
 done:
@@ -423,8 +426,11 @@ H5_daos_cont_destroy_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         udata->req->failed_task = udata->task_name;
     } /* end if */
 
+    /* Release our reference to req */
+    if(H5_daos_req_free_int(udata->req) < 0)
+        D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, H5_DAOS_FREE_ERROR, "can't free request")
+
     /* Free private data */
-    H5_daos_req_free_int(udata->req);
     DV_free(udata);
 
 done:
@@ -687,17 +693,20 @@ done:
     /* Free private data if we haven't released ownership */
     if(udata) {
         /* Handle errors in this function */
-        /* Do not place any code that can issue errors after this block */
+        /* Do not place any code that can issue errors after this block, except
+         * for H5_daos_req_free_int, which updates req->status if it sees an
+         * error */
         if(ret_value < 0 && udata->req->status >= H5_DAOS_INCOMPLETE) {
             udata->req->status = ret_value;
             udata->req->failed_task = "MPI_Ibcast global container handle completion callback";
         } /* end if */
 
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(udata->req) < 0)
+            D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, H5_DAOS_FREE_ERROR, "can't free request")
+
         /* Complete bcast metatask */
         tse_task_complete(udata->bcast_metatask, ret_value);
-
-        /* Release our reference to req */
-        H5_daos_req_free_int(udata->req);
 
         /* Free buffer */
         DV_free(udata->buffer);
@@ -768,14 +777,16 @@ H5_daos_get_gch_task(tse_task_t *task)
 
 done:
     /* Handle errors in this function */
-    /* Do not place any code that can issue errors after this block */
+    /* Do not place any code that can issue errors after this block, except for
+     * H5_daos_req_free_int, which updates req->status if it sees an error */
     if(ret_value < 0 && udata->req->status >= H5_DAOS_INCOMPLETE) {
         udata->req->status = ret_value;
         udata->req->failed_task = "get global container handle";
     } /* end if */
 
     /* Release our reference to req */
-    H5_daos_req_free_int(udata->req);
+    if(H5_daos_req_free_int(udata->req) < 0)
+        D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, H5_DAOS_FREE_ERROR, "can't free request")
 
     /* Complete this task */
     tse_task_complete(task, ret_value);
@@ -926,7 +937,7 @@ done:
  */
 void *
 H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
-    hid_t fapl_id, hid_t dxpl_id, void **req)
+    hid_t fapl_id, hid_t dxpl_id, void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_file_t *file = NULL;
     H5_daos_fapl_t fapl_info;
@@ -1012,7 +1023,7 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
         D_GOTO_ERROR(H5E_FILE, H5E_CANTENCODE, NULL, "can't encode global metadata object ID")
 
     /* Start H5 operation */
-    if(NULL == (int_req = H5_daos_req_create(file)))
+    if(NULL == (int_req = H5_daos_req_create(file, H5I_INVALID_HID)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, NULL, "can't create DAOS request")
 
     /* Create container on rank 0 */
@@ -1085,6 +1096,10 @@ done:
             /* finalize_task now owns a reference to req */
             int_req->rc++;
 
+        /* If there was an error during setup, pass it to the request */
+        if(NULL == ret_value)
+            int_req->status = H5_DAOS_SETUP_ERROR;
+
         /* Schedule first task */
         if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
             D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret))
@@ -1099,13 +1114,14 @@ done:
             D_DONE_ERROR(H5E_FILE, H5E_CANTOPERATE, NULL, "file creation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status))
     
         /* Close internal request */
-        H5_daos_req_free_int(int_req);
+        if(H5_daos_req_free_int(int_req) < 0)
+            D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, NULL, "can't free request")
     } /* end if */
 
     /* Cleanup on failure */
     if(NULL == ret_value) {
         /* Close file */
-        if(file && H5_daos_file_close_helper(file, dxpl_id, req) < 0)
+        if(file && H5_daos_file_close_helper(file, dxpl_id, NULL) < 0)
             D_DONE_ERROR(H5E_FILE, H5E_CANTCLOSEFILE, NULL, "can't close file")
     } /* end if */
 
@@ -1128,7 +1144,7 @@ done:
  */
 void *
 H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
-    hid_t dxpl_id, void **req)
+    hid_t dxpl_id, void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_file_t *file = NULL;
     H5_daos_fapl_t fapl_info;
@@ -1210,7 +1226,7 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
         D_GOTO_ERROR(H5E_FILE, H5E_CANTENCODE, NULL, "can't encode root group object ID")
 
     /* Start H5 operation */
-    if(NULL == (int_req = H5_daos_req_create(file)))
+    if(NULL == (int_req = H5_daos_req_create(file, H5I_INVALID_HID)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, NULL, "can't create DAOS request")
 
     /* Open container on rank 0 */
@@ -1248,6 +1264,10 @@ done:
             /* finalize_task now owns a reference to req */
             int_req->rc++;
 
+        /* If there was an error during setup, pass it to the request */
+        if(NULL == ret_value)
+            int_req->status = H5_DAOS_SETUP_ERROR;
+
         /* Schedule first task */
         if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
             D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret))
@@ -1262,13 +1282,14 @@ done:
             D_DONE_ERROR(H5E_FILE, H5E_CANTOPERATE, NULL, "file open failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status))
 
         /* Close internal request */
-        H5_daos_req_free_int(int_req);
+        if(H5_daos_req_free_int(int_req) < 0)
+            D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, NULL, "can't free request")
     } /* end if */
 
     /* Cleanup on failure */
     if(NULL == ret_value) {
         /* Close file */
-        if(file && H5_daos_file_close_helper(file, dxpl_id, req) < 0)
+        if(file && H5_daos_file_close_helper(file, dxpl_id, NULL) < 0)
             D_DONE_ERROR(H5E_FILE, H5E_CANTCLOSEFILE, NULL, "can't close file")
     } /* end if */
 
@@ -1657,7 +1678,8 @@ H5_daos_file_close_helper(H5_daos_file_t *file, hid_t dxpl_id, void **req)
 
     /* Free file data structures */
     if(file->item.open_req)
-        H5_daos_req_free_int(file->item.open_req);
+        if(H5_daos_req_free_int(file->item.open_req) < 0)
+            D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, FAIL, "can't free request")
     file->item.open_req = NULL;
     if(file->file_name)
         file->file_name = DV_free(file->file_name);

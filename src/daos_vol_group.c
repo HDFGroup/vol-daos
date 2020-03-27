@@ -260,6 +260,10 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
     if(H5_daos_oid_encode(&grp->obj.oid, oidx, H5I_GROUP, gcpl_id == H5P_GROUP_CREATE_DEFAULT ? H5P_DEFAULT : gcpl_id, H5_DAOS_OBJ_CLASS_NAME, file) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTENCODE, NULL, "can't encode object ID")
 
+    /* Open group object */
+    if(H5_daos_obj_open(file, req, &grp->obj.oid, DAOS_OO_RW, &grp->obj.obj_oh, "group object open", first_task, dep_task) < 0)
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTOPENOBJ, NULL, "can't open group object")
+
     /* Create group and write metadata if this process should */
     if(!collective || (file->my_rank == 0)) {
         size_t gcpl_size = 0;
@@ -270,10 +274,6 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
         /* Allocate argument struct */
         if(NULL == (update_cb_ud = (H5_daos_md_rw_cb_ud_t *)DV_calloc(sizeof(H5_daos_md_rw_cb_ud_t))))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for update callback arguments")
-
-        /* Open group object */
-        if(H5_daos_obj_open(file, req, &grp->obj.oid, DAOS_OO_RW, &grp->obj.obj_oh, "group object open", first_task, dep_task) < 0)
-            D_GOTO_ERROR(H5E_SYM, H5E_CANTOPENOBJ, NULL, "can't open group object")
 
         /* Encode GCPL */
         if(H5Pencode2(gcpl_id, NULL, &gcpl_size, file->fapl_id) < 0)
@@ -317,8 +317,9 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
         if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_UPDATE, &file->sched, 0, NULL, &update_task)))
             D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't create task to write group medadata: %s", H5_daos_err_to_string(ret))
 
-        /* Register dependency for task if present */
-        if(*dep_task && 0 != (ret = tse_task_register_deps(update_task, 1, dep_task)))
+        /* Register dependency for task */
+        assert(*dep_task);
+        if(0 != (ret = tse_task_register_deps(update_task, 1, dep_task)))
             D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't create dependencies for group metadata write: %s", H5_daos_err_to_string(ret))
 
         /* Set callback functions for group metadata write */
@@ -363,11 +364,9 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
          * probably never an issue with file reopen since all commits are from
          * process 0, same as the group create above. */
 
-        /* Open group object */
-        if(H5_daos_obj_open(file, req, &grp->obj.oid, DAOS_OO_RW, &grp->obj.obj_oh, "group object open", first_task, dep_task) < 0)
-            D_GOTO_ERROR(H5E_SYM, H5E_CANTOPENOBJ, NULL, "can't open group object")
-
         /* Add dependency for group metatask */
+        assert(gmt_ndeps == 0);
+        assert(*dep_task);
         gmt_deps[gmt_ndeps] = *dep_task;
         gmt_ndeps++;
         /* Check for failure of process 0 DSINC */
@@ -418,6 +417,8 @@ done:
             D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, NULL, "can't close group")
 
         /* Free memory */
+        if(update_cb_ud && update_cb_ud->obj && H5_daos_object_close(update_cb_ud->obj, dxpl_id, NULL) < 0)
+            D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, NULL, "can't close object")
         gcpl_buf = DV_free(gcpl_buf);
         update_cb_ud = DV_free(update_cb_ud);
     } /* end if */
@@ -476,7 +477,7 @@ H5_daos_group_create(void *_item,
     collective = TRUE;
 
     /* Start H5 operation */
-    if(NULL == (int_req = H5_daos_req_create(item->file)))
+    if(NULL == (int_req = H5_daos_req_create(item->file, H5I_INVALID_HID)))
         D_GOTO_ERROR(H5E_SYM, H5E_CANTALLOC, NULL, "can't create DAOS request")
 
     if(!collective || (item->file->my_rank == 0)) {
@@ -530,6 +531,10 @@ done:
             /* finalize_task now owns a reference to req */
             int_req->rc++;
 
+        /* If there was an error during setup, pass it to the request */
+        if(NULL == ret_value)
+            int_req->status = H5_DAOS_SETUP_ERROR;
+
         /* Schedule first task */
         if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
             D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret))
@@ -544,7 +549,8 @@ done:
             D_DONE_ERROR(H5E_SYM, H5E_CANTOPERATE, NULL, "group creation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status))
 
         /* Close internal request */
-        H5_daos_req_free_int(int_req);
+        if(H5_daos_req_free_int(int_req) < 0)
+            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, NULL, "can't free request")
     } /* end if */
 
     /* Cleanup on failure */
@@ -631,17 +637,20 @@ done:
             D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, H5_DAOS_H5_CLOSE_ERROR, "can't close group")
 
         /* Handle errors in this function */
-        /* Do not place any code that can issue errors after this block */
+        /* Do not place any code that can issue errors after this block, except
+         * for H5_daos_req_free_int, which updates req->status if it sees an
+         * error */
         if(ret_value < 0 && udata->req->status >= H5_DAOS_INCOMPLETE) {
             udata->req->status = ret_value;
             udata->req->failed_task = "MPI_Ibcast group info completion callback";
         } /* end if */
 
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(udata->req) < 0)
+            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, H5_DAOS_FREE_ERROR, "can't free request")
+
         /* Complete bcast metatask */
         tse_task_complete(udata->bcast_metatask, ret_value);
-
-        /* Release our reference to req */
-        H5_daos_req_free_int(udata->req);
 
         /* Free buffer */
         DV_free(udata->buffer);
@@ -746,7 +755,7 @@ H5_daos_group_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
             /* Finish building group object */
             /* Open group */
             if(0 != (ret = daos_obj_open(udata->obj->item.file->coh, udata->obj->oid, udata->obj->item.file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &udata->obj->obj_oh, NULL /*event*/)))
-                D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENOBJ, ret, "can't open group: %s", H5_daos_err_to_string(ret))
+                D_GOTO_ERROR(H5E_SYM, H5E_CANTOPENOBJ, ret, "can't open group: %s", H5_daos_err_to_string(ret))
 
             /* Decode GCPL */
             if((((H5_daos_group_t *)udata->obj)->gcpl_id = H5Pdecode(p)) < 0)
@@ -770,17 +779,20 @@ done:
             D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, H5_DAOS_H5_CLOSE_ERROR, "can't close group")
 
         /* Handle errors in this function */
-        /* Do not place any code that can issue errors after this block */
+        /* Do not place any code that can issue errors after this block, except
+         * for H5_daos_req_free_int, which updates req->status if it sees an
+         * error */
         if(ret_value < 0 && udata->req->status >= H5_DAOS_INCOMPLETE) {
             udata->req->status = ret_value;
             udata->req->failed_task = "MPI_Ibcast group info completion callback";
         } /* end if */
 
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(udata->req) < 0)
+            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, H5_DAOS_FREE_ERROR, "can't free request")
+
         /* Complete bcast metatask */
         tse_task_complete(udata->bcast_metatask, ret_value);
-
-        /* Release our reference to req */
-        H5_daos_req_free_int(udata->req);
 
         /* Free buffer */
         DV_free(udata->buffer);
@@ -812,7 +824,7 @@ done:
 static int
 H5_daos_ginfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
-    H5_daos_gcpl_fetch_ud_t *udata;
+    H5_daos_omd_fetch_ud_t *udata;
     int ret;
     int ret_value = 0;
 
@@ -938,17 +950,20 @@ done:
             DV_free(udata->md_rw_cb_ud.sg_iov[0].iov_buf);
 
         /* Handle errors in this function */
-        /* Do not place any code that can issue errors after this block */
+        /* Do not place any code that can issue errors after this block, except
+         * for H5_daos_req_free_int, which updates req->status if it sees an
+         * error */
         if(ret_value < 0 && udata->md_rw_cb_ud.req->status >= H5_DAOS_INCOMPLETE) {
             udata->md_rw_cb_ud.req->status = ret_value;
             udata->md_rw_cb_ud.req->failed_task = udata->md_rw_cb_ud.task_name;
         } /* end if */
 
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(udata->md_rw_cb_ud.req) < 0)
+            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, H5_DAOS_FREE_ERROR, "can't free request")
+
         /* Complete fetch metatask */
         tse_task_complete(udata->fetch_metatask, ret_value);
-
-        /* Release our reference to req */
-        H5_daos_req_free_int(udata->md_rw_cb_ud.req);
 
         assert(!udata->md_rw_cb_ud.free_dkey);
         assert(!udata->md_rw_cb_ud.free_akeys);
@@ -982,8 +997,7 @@ H5_daos_group_open_helper_async(H5_daos_file_t *file, daos_obj_id_t oid,
     H5_daos_group_t *grp = NULL;
     uint8_t *ginfo_buf = NULL;
     H5_daos_mpi_ibcast_ud_t *bcast_udata = NULL;
-    H5_daos_gcpl_fetch_ud_t *fetch_udata = NULL;
-    H5_daos_generic_cb_ud_t *grp_open_udata = NULL;
+    H5_daos_omd_fetch_ud_t *fetch_udata = NULL;
     int ret;
     H5_daos_group_t *ret_value = NULL;
 
@@ -1021,11 +1035,11 @@ H5_daos_group_open_helper_async(H5_daos_file_t *file, daos_obj_id_t oid,
         tse_task_t *fetch_task = NULL;
 
         /* Open group object */
-        if(H5_daos_obj_open(file,req, &oid, file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &grp->obj.obj_oh, "group object open", first_task, dep_task) < 0)
+        if(H5_daos_obj_open(file, req, &oid, file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &grp->obj.obj_oh, "group object open", first_task, dep_task) < 0)
             D_GOTO_ERROR(H5E_SYM, H5E_CANTOPENOBJ, NULL, "can't open group object")
 
         /* Allocate argument struct for fetch task */
-        if(NULL == (fetch_udata = (H5_daos_gcpl_fetch_ud_t *)DV_calloc(sizeof(H5_daos_gcpl_fetch_ud_t))))
+        if(NULL == (fetch_udata = (H5_daos_omd_fetch_ud_t *)DV_calloc(sizeof(H5_daos_omd_fetch_ud_t))))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for fetch callback arguments")
 
         /* Set up operation to read GCPL size from group */
@@ -1098,7 +1112,7 @@ H5_daos_group_open_helper_async(H5_daos_file_t *file, daos_obj_id_t oid,
 
         /* Schedule group metadata write task (or save it to be scheduled later)
          * and give it a reference to req and the group */
-        assert(first_task);
+        assert(*first_task);
         if(0 != (ret = tse_task_schedule(fetch_task, false)))
             D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't schedule task to read group metadata: %s", H5_daos_err_to_string(ret))
         *dep_task = fetch_udata->fetch_metatask;
@@ -1149,7 +1163,7 @@ done:
              * We can't use bcast_task since it may not be completed after the
              * first bcast. */
             if(0 != (ret = tse_task_create(NULL, &file->sched, NULL, &bcast_udata->bcast_metatask)))
-                D_DONE_ERROR(H5E_VOL, H5E_CANTINIT, NULL, "can't create meta task for group info broadcast: %s", H5_daos_err_to_string(ret))
+                D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't create meta task for group info broadcast: %s", H5_daos_err_to_string(ret))
             /* Create task for group info bcast */
             if(0 != (ret = tse_task_create(H5_daos_mpi_ibcast_task, &file->sched, bcast_udata, &bcast_task)))
                 D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't create task to broadcast group info: %s", H5_daos_err_to_string(ret))
@@ -1182,13 +1196,13 @@ done:
                     bcast_udata = NULL;
                 } /* end else */
             } /* end else */
+        } /* end if */
 
-            /* Cleanup on failure */
-            if(bcast_udata) {
-                assert(NULL == ret_value);
-                DV_free(bcast_udata->buffer);
-                bcast_udata = DV_free(bcast_udata);
-            } /* end if */
+        /* Cleanup on failure */
+        if(bcast_udata) {
+            assert(NULL == ret_value);
+            DV_free(bcast_udata->buffer);
+            bcast_udata = DV_free(bcast_udata);
         } /* end if */
     } /* end if */
 
@@ -1201,14 +1215,12 @@ done:
         /* Free memory */
         fetch_udata = DV_free(fetch_udata);
         ginfo_buf = DV_free(ginfo_buf);
-        grp_open_udata = DV_free(grp_open_udata);
     } /* end if */
 
     /* Make sure we cleaned up */
     assert(!fetch_udata);
     assert(!bcast_udata);
     assert(!ginfo_buf);
-    assert(!grp_open_udata);
 
     D_FUNC_LEAVE
 } /* end H5_daos_group_open_helper_async() */
@@ -1384,7 +1396,7 @@ H5_daos_group_open(void *_item, const H5VL_loc_params_t *loc_params,
             D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, NULL, "can't get collective metadata reads property")
 
     /* Start H5 operation */
-    if(NULL == (int_req = H5_daos_req_create(item->file)))
+    if(NULL == (int_req = H5_daos_req_create(item->file, H5I_INVALID_HID)))
         D_GOTO_ERROR(H5E_SYM, H5E_CANTALLOC, NULL, "can't create DAOS request")
 
     /* Check if we're actually opening the group or just receiving the group
@@ -1573,6 +1585,10 @@ done:
             /* finalize_task now owns a reference to req */
             int_req->rc++;
 
+        /* If there was an error during setup, pass it to the request */
+        if(NULL == ret_value)
+            int_req->status = H5_DAOS_SETUP_ERROR;
+
         /* Schedule first task */
         if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
             D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret))
@@ -1587,7 +1603,8 @@ done:
             D_DONE_ERROR(H5E_SYM, H5E_CANTOPERATE, NULL, "group open failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status))
 
         /* Close internal request */
-        H5_daos_req_free_int(int_req);
+        if(H5_daos_req_free_int(int_req) < 0)
+            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, NULL, "can't free request")
     } /* end if */
 
     /* Cleanup on failure */
@@ -1741,7 +1758,8 @@ H5_daos_group_close(void *_grp, hid_t H5VL_DAOS_UNUSED dxpl_id,
     if(--grp->obj.item.rc == 0) {
         /* Free group data structures */
         if(grp->obj.item.open_req)
-            H5_daos_req_free_int(grp->obj.item.open_req);
+            if(H5_daos_req_free_int(grp->obj.item.open_req) < 0)
+                D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't free request")
         if(!daos_handle_is_inval(grp->obj.obj_oh))
             if(0 != (ret = daos_obj_close(grp->obj.obj_oh, NULL /*event*/)))
                 D_DONE_ERROR(H5E_SYM, H5E_CANTCLOSEOBJ, FAIL, "can't close group DAOS object: %s", H5_daos_err_to_string(ret))

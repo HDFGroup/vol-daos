@@ -2526,10 +2526,7 @@ H5_daos_md_rw_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     update_args->dkey = &udata->dkey;
     update_args->nr = udata->nr;
     update_args->iods = udata->iod;
-    if(udata->sgl_present)
-        update_args->sgls = udata->sgl;
-    else
-        update_args->sgls = NULL;
+    update_args->sgls = udata->sgl;
 
 done:
     D_FUNC_LEAVE

@@ -309,7 +309,6 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
         update_cb_ud->sgl[0].sg_nr = 1;
         update_cb_ud->sgl[0].sg_nr_out = 0;
         update_cb_ud->sgl[0].sg_iovs = &update_cb_ud->sg_iov[0];
-        update_cb_ud->sgl_present = TRUE;
 
         /* Set task name */
         update_cb_ud->task_name = "group metadata write";
@@ -814,7 +813,6 @@ static int
 H5_daos_ginfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
     H5_daos_gcpl_fetch_ud_t *udata;
-    tse_task_t *fetch_task;
     int ret;
     int ret_value = 0;
 
@@ -831,31 +829,42 @@ H5_daos_ginfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     /* Check for buffer not large enough */
     if(task->dt_result == -DER_REC2BIG) {
-        /* Buffer not big enough, free it and reissue fetch with no buffer to
-         * determine size */
+        tse_task_t *fetch_task;
+
         if(udata->bcast_udata) {
             /* Verify iod size makes sense */
             if(udata->md_rw_cb_ud.sg_iov[0].iov_buf_len != (H5_DAOS_GINFO_BUF_SIZE - 3 * H5_DAOS_ENCODED_UINT64_T_SIZE))
                 D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, H5_DAOS_BAD_VALUE, "buffer length does not match expected value")
-
-            /* Free buffer */
+            if(udata->md_rw_cb_ud.iod[0].iod_size <= (H5_DAOS_GINFO_BUF_SIZE - 3 * H5_DAOS_ENCODED_UINT64_T_SIZE))
+                D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, H5_DAOS_BAD_VALUE, "invalid iod_size returned from DAOS (buffer should have been large enough)")
+            
+            /* Reallocate group info buffer */
             udata->bcast_udata->buffer = DV_free(udata->bcast_udata->buffer);
-            udata->bcast_udata->buffer_len = 0;
+            if(NULL == (udata->bcast_udata->buffer = DV_malloc(udata->md_rw_cb_ud.iod[0].iod_size + 3 * H5_DAOS_ENCODED_UINT64_T_SIZE)))
+                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, H5_DAOS_ALLOC_ERROR, "can't allocate buffer for serialized group info")
+            udata->bcast_udata->buffer_len = udata->md_rw_cb_ud.iod[0].iod_size + 3 * H5_DAOS_ENCODED_UINT64_T_SIZE;
+
+            /* Set up sgl */
+            daos_iov_set(&udata->md_rw_cb_ud.sg_iov[0], (uint8_t *)udata->bcast_udata->buffer + 3 * H5_DAOS_ENCODED_UINT64_T_SIZE, udata->md_rw_cb_ud.iod[0].iod_size);
+            udata->md_rw_cb_ud.sgl[0].sg_nr_out = 0;
         } /* end if */
         else {
             /* Verify iod size makes sense */
             if(udata->md_rw_cb_ud.sg_iov[0].iov_buf_len != H5_DAOS_GINFO_BUF_SIZE)
                 D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, H5_DAOS_BAD_VALUE, "buffer length does not match expected value")
-
-            /* Free buffer */
+            if(udata->md_rw_cb_ud.iod[0].iod_size <= H5_DAOS_GINFO_BUF_SIZE)
+                D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, H5_DAOS_BAD_VALUE, "invalid iod_size returned from DAOS (buffer should have been large enough)")
+            
+            /* Reallocate group info buffer */
             udata->md_rw_cb_ud.sg_iov[0].iov_buf = DV_free(udata->md_rw_cb_ud.sg_iov[0].iov_buf);
+            if(NULL == (udata->md_rw_cb_ud.sg_iov[0].iov_buf = DV_malloc(udata->md_rw_cb_ud.iod[0].iod_size)))
+                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, H5_DAOS_ALLOC_ERROR, "can't allocate buffer for serialized group info")
+
+            /* Set up sgl */
+            udata->md_rw_cb_ud.sg_iov[0].iov_buf_len = udata->md_rw_cb_ud.iod[0].iod_size;
+            udata->md_rw_cb_ud.sg_iov[0].iov_len = udata->md_rw_cb_ud.iod[0].iod_size;
+            udata->md_rw_cb_ud.sgl[0].sg_nr_out = 0;
         } /* end else */
-
-        /* Reset iod size */
-        udata->md_rw_cb_ud.iod[0].iod_size = DAOS_REC_ANY;
-
-        /* Do not pass sgl to next fetch */
-        udata->md_rw_cb_ud.sgl_present = FALSE;
 
         /* Create task for reissued group metadata read */
         if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &udata->md_rw_cb_ud.obj->item.file->sched, 0, NULL, &fetch_task)))
@@ -884,89 +893,31 @@ H5_daos_ginfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
             udata->md_rw_cb_ud.req->failed_task = udata->md_rw_cb_ud.task_name;
         } /* end if */
         else {
-            /* Check if this was a fetch without an sgl to determine the record
-             * size */
-            if(udata->md_rw_cb_ud.sgl_present) {
-                /* This was the final fetch, construct group */
-                /* Prepare broadcast buffer if necessary */
-                if(udata->bcast_udata) {
-                    uint8_t *p;
+            if(udata->bcast_udata) {
+                uint8_t *p;
 
-                    /* Encode oid */
-                    p = udata->bcast_udata->buffer;
-                    UINT64ENCODE(p, udata->md_rw_cb_ud.obj->oid.lo)
-                    UINT64ENCODE(p, udata->md_rw_cb_ud.obj->oid.hi)
+                /* Encode oid */
+                p = udata->bcast_udata->buffer;
+                UINT64ENCODE(p, udata->md_rw_cb_ud.obj->oid.lo)
+                UINT64ENCODE(p, udata->md_rw_cb_ud.obj->oid.hi)
 
-                    /* Encode GCPL length */
-                    UINT64ENCODE(p, udata->md_rw_cb_ud.iod[0].iod_size)
-                    assert(p == udata->md_rw_cb_ud.sg_iov[0].iov_buf);
-                } /* end if */
-
-                /* Finish building group object */
-                /* Decode GCPL */
-                if((((H5_daos_group_t *)udata->md_rw_cb_ud.obj)->gcpl_id = H5Pdecode(udata->md_rw_cb_ud.sg_iov[0].iov_buf)) < 0)
-                    D_GOTO_ERROR(H5E_SYM, H5E_CANTDECODE, H5_DAOS_H5_DECODE_ERROR, "can't deserialize GCPL")
-
-                /* Fill GCPL cache */
-                if(H5_daos_group_fill_gcpl_cache((H5_daos_group_t *)udata->md_rw_cb_ud.obj) < 0)
-                    D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, H5_DAOS_CPL_CACHE_ERROR, "failed to fill GCPL cache")
-
-                /* Fill OCPL cache */
-                if(H5_daos_fill_ocpl_cache(udata->md_rw_cb_ud.obj, ((H5_daos_group_t *)udata->md_rw_cb_ud.obj)->gcpl_id) < 0)
-                    D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, H5_DAOS_CPL_CACHE_ERROR, "failed to fill OCPL cache")
+                /* Encode GCPL length */
+                UINT64ENCODE(p, udata->md_rw_cb_ud.iod[0].iod_size)
+                assert(p == udata->md_rw_cb_ud.sg_iov[0].iov_buf);
             } /* end if */
-            else {
-                /* This was not the final fetch, allocate buffer large enough
-                 * and reissue fetch */
-                if(udata->bcast_udata) {
-                    /* Verify iod size makes sense */
-                    if(udata->md_rw_cb_ud.iod[0].iod_size <= (H5_DAOS_GINFO_BUF_SIZE - 3 * H5_DAOS_ENCODED_UINT64_T_SIZE))
-                        D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, H5_DAOS_BAD_VALUE, "invalid iod_size returned from DAOS (buffer should have been large enough)")
 
-                    /* Reallocate group info buffer */
-                    if(NULL == (udata->bcast_udata->buffer = DV_malloc(udata->md_rw_cb_ud.iod[0].iod_size + 3 * H5_DAOS_ENCODED_UINT64_T_SIZE)))
-                        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, H5_DAOS_ALLOC_ERROR, "can't allocate buffer for serialized group info")
-                    udata->bcast_udata->buffer_len = udata->md_rw_cb_ud.iod[0].iod_size + 3 * H5_DAOS_ENCODED_UINT64_T_SIZE;
+            /* Finish building group object */
+            /* Decode GCPL */
+            if((((H5_daos_group_t *)udata->md_rw_cb_ud.obj)->gcpl_id = H5Pdecode(udata->md_rw_cb_ud.sg_iov[0].iov_buf)) < 0)
+                D_GOTO_ERROR(H5E_SYM, H5E_CANTDECODE, H5_DAOS_H5_DECODE_ERROR, "can't deserialize GCPL")
 
-                    /* Set up sgl */
-                    daos_iov_set(&udata->md_rw_cb_ud.sg_iov[0], (uint8_t *)udata->bcast_udata->buffer + 3 * H5_DAOS_ENCODED_UINT64_T_SIZE, udata->md_rw_cb_ud.iod[0].iod_size);
-                    udata->md_rw_cb_ud.sgl[0].sg_nr_out = 0;
-                } /* end if */
-                else {
-                    /* Verify iod size makes sense */
-                    if(udata->md_rw_cb_ud.iod[0].iod_size <= H5_DAOS_GINFO_BUF_SIZE)
-                        D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, H5_DAOS_BAD_VALUE, "invalid iod_size returned from DAOS (buffer should have been large enough)")
+            /* Fill GCPL cache */
+            if(H5_daos_group_fill_gcpl_cache((H5_daos_group_t *)udata->md_rw_cb_ud.obj) < 0)
+                D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, H5_DAOS_CPL_CACHE_ERROR, "failed to fill GCPL cache")
 
-                    /* Reallocate group info buffer */
-                    if(NULL == (udata->md_rw_cb_ud.sg_iov[0].iov_buf = DV_malloc(udata->md_rw_cb_ud.iod[0].iod_size)))
-                        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, H5_DAOS_ALLOC_ERROR, "can't allocate buffer for serialized group info")
-
-                    /* Set up sgl */
-                    udata->md_rw_cb_ud.sg_iov[0].iov_buf_len = udata->md_rw_cb_ud.iod[0].iod_size;
-                    udata->md_rw_cb_ud.sg_iov[0].iov_len = udata->md_rw_cb_ud.iod[0].iod_size;
-                    udata->md_rw_cb_ud.sgl[0].sg_nr_out = 0;
-                } /* end else */
-
-                /* Use sgl in new fetch */
-                udata->md_rw_cb_ud.sgl_present = TRUE;
-
-                /* Create task for reissued group metadata read */
-                if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &udata->md_rw_cb_ud.obj->item.file->sched, 0, NULL, &fetch_task)))
-                    D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, ret, "can't create task to read group medadata: %s", H5_daos_err_to_string(ret))
-
-                /* Set callback functions for group metadata read */
-                if(0 != (ret = tse_task_register_cbs(fetch_task, H5_daos_md_rw_prep_cb, NULL, 0, H5_daos_ginfo_read_comp_cb, NULL, 0)))
-                    D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, ret, "can't register callbacks for task to read group medadata: %s", H5_daos_err_to_string(ret))
-
-                /* Set private data for group metadata read */
-                (void)tse_task_set_priv(fetch_task, udata);
-
-                /* Schedule group metadata write task and give it a reference to req and
-                 * the group */
-                if(0 != (ret = tse_task_schedule(fetch_task, false)))
-                    D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, ret, "can't schedule task to read group metadata: %s", H5_daos_err_to_string(ret))
-                udata = NULL;
-            } /* end else */
+            /* Fill OCPL cache */
+            if(H5_daos_fill_ocpl_cache(udata->md_rw_cb_ud.obj, ((H5_daos_group_t *)udata->md_rw_cb_ud.obj)->gcpl_id) < 0)
+                D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, H5_DAOS_CPL_CACHE_ERROR, "failed to fill OCPL cache")
         } /* end else */
     } /* end else */
 
@@ -1114,7 +1065,6 @@ H5_daos_group_open_helper_async(H5_daos_file_t *file, daos_obj_id_t oid,
         fetch_udata->md_rw_cb_ud.sgl[0].sg_nr = 1;
         fetch_udata->md_rw_cb_ud.sgl[0].sg_nr_out = 0;
         fetch_udata->md_rw_cb_ud.sgl[0].sg_iovs = &fetch_udata->md_rw_cb_ud.sg_iov[0];
-        fetch_udata->md_rw_cb_ud.sgl_present = TRUE;
 
         /* Set task name */
         fetch_udata->md_rw_cb_ud.task_name = "group metadata read";

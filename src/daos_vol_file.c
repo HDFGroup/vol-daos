@@ -412,7 +412,7 @@ H5_daos_excl_open_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
      * not already contain an error (it could contain an error if another task
      * this task is not dependent on also failed). */
     if(task->dt_result < H5_DAOS_PRE_ERROR
-            && task->dt_result != DER_NONEXIST
+            && task->dt_result != -DER_NONEXIST
             && udata->req->status >= H5_DAOS_INCOMPLETE) {
         udata->req->status = task->dt_result;
         udata->req->failed_task = udata->task_name;

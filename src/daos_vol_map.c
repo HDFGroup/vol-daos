@@ -284,7 +284,7 @@ H5_daos_map_create(void *_item,
 
             link_val.type = H5L_TYPE_HARD;
             link_val.target.hard = map->obj.oid;
-            if(H5_daos_link_write(target_grp, target_name, strlen(target_name), &link_val, int_req, &link_write_task, NULL) < 0)
+            if(H5_daos_link_write(target_grp, target_name, strlen(target_name), &link_val, int_req, &link_write_task, open_task) < 0)
                 D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create link to map")
             finalize_deps[finalize_ndeps] = link_write_task;
             finalize_ndeps++;

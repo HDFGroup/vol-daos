@@ -118,7 +118,8 @@ static herr_t H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t 
     hid_t dxpl_id, dset_io_type io_type, void *buf, H5_daos_req_t *req,
     tse_task_t **first_task, tse_task_t **dep_task);
 static herr_t H5_daos_dataset_set_extent(H5_daos_dset_t *dset,
-    const hsize_t *size, hid_t dxpl_id, void **req);
+    const hsize_t *size, hid_t dxpl_id, H5_daos_req_t *int_req,
+    tse_task_t **first_task, tse_task_t **dep_task, void **api_req);
 static hid_t H5_daos_point_and_block(hid_t point_space, hsize_t rank,
     hsize_t *dims, hsize_t *start, hsize_t *block);
 static herr_t H5_daos_get_selected_chunk_info(H5_daos_dcpl_cache_t *dcpl_cache,
@@ -307,7 +308,7 @@ H5_daos_bcast_fill_val(H5_daos_dset_t *dset, H5_daos_req_t *req,
     bcast_udata->buffer_len = fill_val_size;
     bcast_udata->count = fill_val_size;
 
-    /*/* Create task for fill value bcast */
+    /* Create task for fill value bcast */
     if(0 != (ret = tse_task_create(H5_daos_mpi_ibcast_task, &dset->obj.item.file->sched, bcast_udata, &bcast_task)))
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create task to broadcast fill value: %s", H5_daos_err_to_string(ret))
 
@@ -721,7 +722,7 @@ done:
 
         /* Block until operation completes */
         /* Wait for scheduler to be empty */
-        if(H5_daos_progress(item->file, H5_DAOS_PROGRESS_WAIT) < 0)
+        if(H5_daos_progress(&item->file->sched, H5_DAOS_PROGRESS_WAIT) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't progress scheduler")
 
         /* Check for failure */
@@ -1705,7 +1706,7 @@ done:
 
         /* Block until operation completes */
         /* Wait for scheduler to be empty */
-        if(H5_daos_progress(item->file, H5_DAOS_PROGRESS_WAIT) < 0)
+        if(H5_daos_progress(&item->file->sched, H5_DAOS_PROGRESS_WAIT) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't progress scheduler")
 
         /* Check for failure */
@@ -2582,7 +2583,7 @@ done:
 
         /* Block until operation completes */
         /* Wait for scheduler to be empty */
-        if(H5_daos_progress(dset->obj.item.file, H5_DAOS_PROGRESS_WAIT) < 0)
+        if(H5_daos_progress(&dset->obj.item.file->sched, H5_DAOS_PROGRESS_WAIT) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't progress scheduler")
 
         /* Check for failure */
@@ -2808,7 +2809,7 @@ done:
 
         /* Block until operation completes */
         /* Wait for scheduler to be empty */
-        if(H5_daos_progress(dset->obj.item.file, H5_DAOS_PROGRESS_WAIT) < 0)
+        if(H5_daos_progress(&dset->obj.item.file->sched, H5_DAOS_PROGRESS_WAIT) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't progress scheduler")
 
         /* Check for failure */
@@ -2945,12 +2946,20 @@ H5_daos_dataset_specific(void *_item, H5VL_dataset_specific_t specific_type,
     hid_t dxpl_id, void **req, va_list arguments)
 {
     H5_daos_dset_t *dset = (H5_daos_dset_t *)_item;
-    herr_t          ret_value = SUCCEED;
+    H5_daos_req_t *int_req = NULL;
+    tse_task_t *first_task = NULL;
+    tse_task_t *dep_task = NULL;
+    int ret;
+    herr_t ret_value = SUCCEED;
 
     if(!_item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL")
     if(H5I_DATASET != dset->obj.item.type)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a dataset")
+
+    /* Start H5 operation */
+    if(NULL == (int_req = H5_daos_req_create(dset->obj.item.file, H5I_INVALID_HID)))
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't create DAOS request")
 
     switch (specific_type) {
         case H5VL_DATASET_SET_EXTENT:
@@ -2960,11 +2969,11 @@ H5_daos_dataset_specific(void *_item, H5VL_dataset_specific_t specific_type,
                 if(!size)
                     D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "size parameter is NULL")
 
-                if (H5D_CHUNKED != dset->dcpl_cache.layout)
+                if(H5D_CHUNKED != dset->dcpl_cache.layout)
                     D_GOTO_ERROR(H5E_DATASET, H5E_BADVALUE, FAIL, "dataset storage layout is not chunked")
 
                 /* Call main routine */
-                if(H5_daos_dataset_set_extent(dset, size, dxpl_id, req) < 0)
+                if(H5_daos_dataset_set_extent(dset, size, dxpl_id, int_req, &first_task, &dep_task, req) < 0)
                     D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "failed to set dataset extent")
 
                 break;
@@ -2992,6 +3001,44 @@ H5_daos_dataset_specific(void *_item, H5VL_dataset_specific_t specific_type,
     }  /* end switch */
 
 done:
+    if(int_req) {
+        tse_task_t *finalize_task;
+
+        /* Create task to finalize H5 operation */
+        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &dset->obj.item.file->sched, int_req, &finalize_task)))
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+        /* Register dependency (if any) */
+        else if(dep_task && 0 != (ret = tse_task_register_deps(finalize_task, 1, &dep_task)))
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+        /* Schedule finalize task */
+        else if(0 != (ret = tse_task_schedule(finalize_task, false)))
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+        else
+            /* finalize_task now owns a reference to req */
+            int_req->rc++;
+
+        /* If there was an error during setup, pass it to the request */
+        if(ret_value < 0)
+            int_req->status = H5_DAOS_SETUP_ERROR;
+
+        /* Schedule first task */
+        if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret))
+
+        /* Block until operation completes */
+        /* Wait for scheduler to be empty */
+        if(H5_daos_progress(&dset->obj.item.file->sched, H5_DAOS_PROGRESS_WAIT) < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't progress scheduler")
+
+        /* Check for failure */
+        if(int_req->status < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTOPERATE, FAIL, "dataset specific operation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status))
+
+        /* Close internal request */
+        if(H5_daos_req_free_int(int_req) < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, FAIL, "can't free request")
+    } /* end if */
+
     D_FUNC_LEAVE_API
 } /* end H5_daos_dataset_specific() */
 
@@ -3173,8 +3220,11 @@ done:
  */
 static herr_t
 H5_daos_dataset_set_extent(H5_daos_dset_t *dset, const hsize_t *size,
-    hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req)
+    hid_t H5VL_DAOS_UNUSED dxpl_id, H5_daos_req_t *int_req,
+    tse_task_t **first_task, tse_task_t **dep_task, void H5VL_DAOS_UNUSED **api_req)
 {
+    H5_daos_md_rw_cb_ud_t *update_cb_ud = NULL;
+    tse_task_t *update_task = NULL;
     hsize_t maxdims[H5S_MAX_RANK];
     int ndims;
     void *space_buf = NULL;
@@ -3185,6 +3235,9 @@ H5_daos_dataset_set_extent(H5_daos_dset_t *dset, const hsize_t *size,
 
     assert(dset);
     assert(size);
+    assert(int_req);
+    assert(first_task);
+    assert(dep_task);
 
     /* Check for write access */
     if(!(dset->obj.item.file->flags & H5F_ACC_RDWR))
@@ -3215,11 +3268,11 @@ H5_daos_dataset_set_extent(H5_daos_dset_t *dset, const hsize_t *size,
 
     /* Write new dataspace to dataset in file if this process should */
     if(!collective || (dset->obj.item.file->my_rank == 0)) {
-        daos_key_t dkey;
-        daos_iod_t iod;
-        daos_sg_list_t sgl;
-        daos_iov_t sg_iov;
         size_t space_size = 0;
+
+        /* Allocate argument struct for update task */
+        if(NULL == (update_cb_ud = (H5_daos_md_rw_cb_ud_t *)DV_calloc(sizeof(H5_daos_md_rw_cb_ud_t))))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for update callback arguments")
 
         /* Encode dataspace */
         if(H5Sencode2(dset->space_id, NULL, &space_size, dset->obj.item.file->fapl_id) < 0)
@@ -3230,30 +3283,78 @@ H5_daos_dataset_set_extent(H5_daos_dset_t *dset, const hsize_t *size,
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTENCODE, FAIL, "can't serialize dataspace")
 
         /* Set up operation to write dataspace to dataset */
+
+        /* Point to dataset */
+        update_cb_ud->obj = &dset->obj;
+
+        /* Save reference to int_req for task */
+        update_cb_ud->req = int_req;
+
         /* Set up dkey */
-        daos_iov_set(&dkey, (void *)H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
+        daos_iov_set(&update_cb_ud->dkey, (void *)H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
+        update_cb_ud->free_dkey = FALSE;
 
         /* Set up iod */
-        memset(&iod, 0, sizeof(iod));
-        daos_iov_set(&iod.iod_name, (void *)H5_daos_space_key_g, H5_daos_space_key_size_g);
-        iod.iod_nr = 1u;
-        iod.iod_size = (uint64_t)space_size;
-        iod.iod_type = DAOS_IOD_SINGLE;
+        daos_iov_set(&update_cb_ud->iod[0].iod_name, (void *)H5_daos_space_key_g, H5_daos_space_key_size_g);
+        update_cb_ud->iod[0].iod_nr = 1u;
+        update_cb_ud->iod[0].iod_size = (uint64_t)space_size;
+        update_cb_ud->iod[0].iod_type = DAOS_IOD_SINGLE;
+
+        update_cb_ud->free_akeys = FALSE;
 
         /* Set up sgl */
-        daos_iov_set(&sg_iov, space_buf, (daos_size_t)space_size);
-        sgl.sg_nr = 1;
-        sgl.sg_nr_out = 0;
-        sgl.sg_iovs = &sg_iov;
+        daos_iov_set(&update_cb_ud->sg_iov[0], space_buf, (daos_size_t)space_size);
+        update_cb_ud->sgl[0].sg_nr = 1;
+        update_cb_ud->sgl[0].sg_nr_out = 0;
+        update_cb_ud->sgl[0].sg_iovs = &update_cb_ud->sg_iov[0];
 
-        /* Write updated dataspace to dataset */
-        if(0 != (ret = daos_obj_update(dset->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod, &sgl, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't write metadata to dataset: %s", H5_daos_err_to_string(ret))
+        update_cb_ud->nr = 1u;
+
+        update_cb_ud->task_name = "dataset set extent";
+
+        /* Create task to write updated dataspace to dataset */
+        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_UPDATE, &dset->obj.item.file->sched, 0, NULL, &update_task)))
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create task to update object: %s", H5_daos_err_to_string(ret))
+
+        /* Register dependency for task */
+        if(*dep_task && 0 != (ret = tse_task_register_deps(update_task, 1, dep_task)))
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create dependencies for task to update object: %s", H5_daos_err_to_string(ret))
+
+        /* Set callback functions for object update */
+        if(0 != (ret = tse_task_register_cbs(update_task, H5_daos_md_rw_prep_cb, NULL, 0, H5_daos_md_update_comp_cb, NULL, 0)))
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't register callbacks for task to update object: %s", H5_daos_err_to_string(ret))
+
+        /* Set private data for object update */
+        (void)tse_task_set_priv(update_task, update_cb_ud);
+
+        /* Schedule object update task (or save it to be scheduled later) and give it
+         * a reference to int_req */
+        if(*first_task) {
+            if(0 != (ret = tse_task_schedule(update_task, false)))
+                D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't schedule task to update object: %s", H5_daos_err_to_string(ret))
+        }
+        else
+            *first_task = update_task;
+        int_req->rc++;
+        dset->obj.item.rc++;
+
+        /* Relinquish control of the object update udata and dataspace buffer to the
+         * task's completion callback */
+        update_cb_ud = NULL;
+        space_buf = NULL;
+
+        *dep_task = update_task;
     } /* end if */
 
 done:
-    /* Free memory */
-    space_buf = DV_free(space_buf);
+    /* Cleanup on failure */
+    if(ret_value < 0) {
+        space_buf = DV_free(space_buf);
+        update_cb_ud = DV_free(update_cb_ud);
+    }
+
+    assert(!space_buf);
+    assert(!update_cb_ud);
 
     D_FUNC_LEAVE
 } /* end H5_daos_dataset_set_extent() */

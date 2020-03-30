@@ -1205,7 +1205,7 @@ done:
 
         /* Block until operation completes */
         /* Wait for scheduler to be empty */
-        if(sched_init && H5_daos_progress(file, H5_DAOS_PROGRESS_WAIT) < 0)
+        if(sched_init && H5_daos_progress(&file->sched, H5_DAOS_PROGRESS_WAIT) < 0)
             D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't progress scheduler")
 
         /* Check for failure */
@@ -1373,7 +1373,7 @@ done:
 
         /* Block until operation completes */
         /* Wait for scheduler to be empty */
-        if(H5_daos_progress(file, H5_DAOS_PROGRESS_WAIT) < 0)
+        if(H5_daos_progress(&file->sched, H5_DAOS_PROGRESS_WAIT) < 0)
             D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't progress scheduler")
 
         /* Check for failure */

@@ -733,7 +733,11 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_obj_t *target_obj = NULL;
     H5_daos_group_t *target_grp = NULL;
+    H5_daos_req_t *int_req = NULL;
+    tse_task_t *first_task = NULL;
+    tse_task_t *dep_task = NULL;
     hid_t target_obj_id = H5I_INVALID_HID;
+    int ret;
     herr_t ret_value = SUCCEED;
 
     if(!_item)
@@ -762,6 +766,10 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
     else
         D_GOTO_ERROR(H5E_OHDR, H5E_UNSUPPORTED, FAIL, "unsupported object operation location parameters type")
 
+    /* Start H5 operation */
+    if(NULL == (int_req = H5_daos_req_create(target_obj->item.file, H5I_INVALID_HID)))
+        D_GOTO_ERROR(H5E_OHDR, H5E_CANTALLOC, FAIL, "can't create DAOS request")
+
     switch (specific_type) {
         /* H5Oincr_refcount/H5Odecr_refcount */
         case H5VL_OBJECT_CHANGE_REF_COUNT:
@@ -783,7 +791,7 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
         {
             daos_obj_id_t oid;
             const char *obj_name;
-            htri_t *ret = va_arg(arguments, htri_t *);
+            htri_t *oexists_ret = va_arg(arguments, htri_t *);
 
             /* Open group containing the link in question */
             if(NULL == (target_grp = (H5_daos_group_t *)H5_daos_group_traverse(item, loc_params->loc_data.loc_by_name.name,
@@ -791,7 +799,7 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
                 D_GOTO_ERROR(H5E_SYM, H5E_CANTOPENOBJ, FAIL, "can't open group")
 
             /* Check if the link resolves */
-            if((*ret = H5_daos_link_follow(target_grp, obj_name, strlen(obj_name), dxpl_id, req, &oid)) < 0)
+            if((*oexists_ret = H5_daos_link_follow(target_grp, obj_name, strlen(obj_name), dxpl_id, req, &oid)) < 0)
                 D_GOTO_ERROR(H5E_OHDR, H5E_TRAVERSE, FAIL, "can't follow link to object")
 
             break;
@@ -877,7 +885,7 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
                         D_GOTO_ERROR(H5E_SYM, H5E_READERROR, FAIL, "failed to refresh group")
                     break;
                 case H5I_DATASET:
-                    if(H5_daos_dataset_refresh((H5_daos_dset_t *)item, dxpl_id, req) < 0)
+                    if(H5_daos_dataset_refresh((H5_daos_dset_t *)item, dxpl_id, int_req, &first_task, &dep_task) < 0)
                         D_GOTO_ERROR(H5E_DATASET, H5E_READERROR, FAIL, "failed to refresh dataset")
                     break;
                 case H5I_DATATYPE:
@@ -896,6 +904,44 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
     } /* end switch */
 
 done:
+    if(int_req) {
+        tse_task_t *finalize_task;
+
+        /* Create task to finalize H5 operation */
+        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &target_obj->item.file->sched, int_req, &finalize_task)))
+            D_DONE_ERROR(H5E_OHDR, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+        /* Register dependency (if any) */
+        else if(dep_task && 0 != (ret = tse_task_register_deps(finalize_task, 1, &dep_task)))
+            D_DONE_ERROR(H5E_OHDR, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+        /* Schedule finalize task */
+        else if(0 != (ret = tse_task_schedule(finalize_task, false)))
+            D_DONE_ERROR(H5E_OHDR, H5E_CANTINIT, FAIL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+        else
+            /* finalize_task now owns a reference to req */
+            int_req->rc++;
+
+        /* If there was an error during setup, pass it to the request */
+        if(ret_value < 0)
+            int_req->status = H5_DAOS_SETUP_ERROR;
+
+        /* Schedule first task */
+        if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
+            D_DONE_ERROR(H5E_OHDR, H5E_CANTINIT, FAIL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret))
+
+        /* Block until operation completes */
+        /* Wait for scheduler to be empty */
+        if(H5_daos_progress(&target_obj->item.file->sched, H5_DAOS_PROGRESS_WAIT) < 0)
+            D_DONE_ERROR(H5E_OHDR, H5E_CANTINIT, FAIL, "can't progress scheduler")
+
+        /* Check for failure */
+        if(int_req->status < 0)
+            D_DONE_ERROR(H5E_OHDR, H5E_CANTOPERATE, FAIL, "dataset specific operation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status))
+
+        /* Close internal request */
+        if(H5_daos_req_free_int(int_req) < 0)
+            D_DONE_ERROR(H5E_OHDR, H5E_CLOSEERROR, FAIL, "can't free request")
+    } /* end if */
+
     if(target_grp) {
         if(H5_daos_group_close(target_grp, dxpl_id, req) < 0)
             D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group")

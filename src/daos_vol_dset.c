@@ -1389,13 +1389,13 @@ H5_daos_dataset_refresh_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
             /* Reallocate dataspace buffer if necessary */
             if(daos_info_len > H5_DAOS_SPACE_BUF_SIZE) {
                 udata->bcast_udata->buffer = DV_free(udata->bcast_udata->buffer);
-                if(NULL == (udata->bcast_udata->buffer = DV_malloc(daos_info_len + 3 * H5_DAOS_ENCODED_UINT64_T_SIZE)))
+                if(NULL == (udata->bcast_udata->buffer = DV_malloc(daos_info_len + H5_DAOS_ENCODED_UINT64_T_SIZE)))
                     D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, H5_DAOS_ALLOC_ERROR, "can't allocate buffer for serialized dataspace info")
-                udata->bcast_udata->buffer_len = daos_info_len + 3 * H5_DAOS_ENCODED_UINT64_T_SIZE;
+                udata->bcast_udata->buffer_len = daos_info_len + H5_DAOS_ENCODED_UINT64_T_SIZE;
             } /* end if */
 
             /* Set starting point for fetch sg_iovs */
-            p = (uint8_t *)udata->bcast_udata->buffer + 3 * H5_DAOS_ENCODED_UINT64_T_SIZE;
+            p = (uint8_t *)udata->bcast_udata->buffer + H5_DAOS_ENCODED_UINT64_T_SIZE;
         } /* end if */
         else {
             /* Reallocate dataset info buffer if necessary */
@@ -1445,12 +1445,8 @@ H5_daos_dataset_refresh_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
             hid_t decoded_space;
 
             if(udata->bcast_udata) {
-                /* Encode oid */
-                p = udata->bcast_udata->buffer;
-                UINT64ENCODE(p, udata->md_rw_cb_ud.obj->oid.lo)
-                UINT64ENCODE(p, udata->md_rw_cb_ud.obj->oid.hi)
-
                 /* Encode serialized dataspace length */
+                p = udata->bcast_udata->buffer;
                 UINT64ENCODE(p, udata->md_rw_cb_ud.iod[0].iod_size)
                 assert(p == udata->md_rw_cb_ud.sg_iov[0].iov_buf);
             } /* end if */
@@ -3364,7 +3360,7 @@ H5_daos_dataset_refresh(H5_daos_dset_t *dset, hid_t H5VL_DAOS_UNUSED dxpl_id,
     fetch_udata->md_rw_cb_ud.task_name = "dataset refresh (read dataspace)";
 
     /* Create meta task for dataspace read. This empty task will be
-     * completed when the read is finished by H5_daos_dinfo_read_comp_cb.
+     * completed when the read is finished by H5_daos_dataset_refresh_comp_cb.
      * We can't use fetch_task since it may not be completed by the first
      * fetch. */
     if(0 != (ret = tse_task_create(NULL, &dset->obj.item.file->sched, NULL, &fetch_udata->fetch_metatask)))

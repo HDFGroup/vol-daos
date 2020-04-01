@@ -197,6 +197,7 @@ static hbool_t H5_daos_initialized_g = FALSE;
 /* Identifiers for HDF5's error API */
 hid_t dv_err_stack_g = -1;
 hid_t dv_err_class_g = -1;
+hid_t dv_async_err_g = -1;
 
 #ifdef DV_TRACK_MEM_USAGE
 /*
@@ -384,6 +385,9 @@ done:
 
     /* Unregister from the HDF5 error API */
     if(dv_err_class_g >= 0) {
+        if(dv_async_err_g >= 0 && H5Eclose_msg(dv_async_err_g) < 0)
+            D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, FAIL, "can't unregister error message for asynchronous interface")
+
         if(H5Eunregister_class(dv_err_class_g) < 0)
             D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, FAIL, "can't unregister error class from HDF5 error API")
 
@@ -398,6 +402,7 @@ done:
 
         dv_err_stack_g = -1;
         dv_err_class_g = -1;
+        dv_async_err_g = -1;
     } /* end if */
 
     D_FUNC_LEAVE_API
@@ -1012,6 +1017,10 @@ H5_daos_init(hid_t H5VL_DAOS_UNUSED vipl_id)
     /* Register the connector with HDF5's error reporting API */
     if((dv_err_class_g = H5Eregister_class(DAOS_VOL_ERR_CLS_NAME, DAOS_VOL_ERR_LIB_NAME, DAOS_VOL_ERR_VER)) < 0)
         D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't register error class with HDF5 error API")
+
+    /* Register major error code for failures in asynchronous interface */
+    if((dv_async_err_g = H5Ecreate_msg(dv_err_class_g, H5E_MAJOR, "Asynchronous interface")) < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't register error message for asynchronous interface")
 
 #ifdef DV_HAVE_SNAP_OPEN_ID
     /* Register the DAOS SNAP_OPEN_ID property with HDF5 */
@@ -2781,7 +2790,7 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_progress(H5_daos_file_t *file, H5_daos_progress_mode_t mode)
+H5_daos_progress(tse_sched_t *sched, H5_daos_progress_mode_t mode)
 {
     int      completed;
     bool     is_empty = FALSE;
@@ -2789,7 +2798,7 @@ H5_daos_progress(H5_daos_file_t *file, H5_daos_progress_mode_t mode)
     int      ret;
     herr_t   ret_value = SUCCEED;
 
-    assert(file);
+    assert(sched);
 
     /* Different loops for kick and wait - do it this way to minimize the amount
      * of cycles in the wait loop, so we can set the polling interval as tight
@@ -2815,7 +2824,7 @@ H5_daos_progress(H5_daos_file_t *file, H5_daos_progress_mode_t mode)
         } /* end if */
 
         /* Progress DAOS */
-        if((0 != (ret = daos_progress(&file->sched, DAOS_EQ_NOWAIT, &is_empty)))
+        if((0 != (ret = daos_progress(sched, DAOS_EQ_NOWAIT, &is_empty)))
                 && (ret != -DER_TIMEDOUT))
             D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't progress scheduler: %s", H5_daos_err_to_string(ret))
     } /* end if */
@@ -2844,7 +2853,7 @@ H5_daos_progress(H5_daos_file_t *file, H5_daos_progress_mode_t mode)
             } /* end if */
 
             /* Progress DAOS */
-            if((0 != (ret = daos_progress(&file->sched, H5_DAOS_ASYNC_POLL_INTERVAL, &is_empty)))
+            if((0 != (ret = daos_progress(sched, H5_DAOS_ASYNC_POLL_INTERVAL, &is_empty)))
                     && (ret != -DER_TIMEDOUT))
                 D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't progress scheduler: %s", H5_daos_err_to_string(ret))
         } while(!is_empty);

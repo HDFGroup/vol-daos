@@ -51,7 +51,7 @@ H5_daos_req_create(H5_daos_file_t *file, hid_t dxpl_id)
         } /* end if */
     ret_value->file->item.rc++;
     ret_value->rc = 1;
-    ret_value->status = H5_DAOS_INCOMPLETE;
+    ret_value->status = -H5_DAOS_INCOMPLETE;
     ret_value->failed_task = NULL;
 
 done:
@@ -116,8 +116,8 @@ H5_daos_req_free_int(H5_daos_req_t *req)
                  * This should be ok here since this plist isn't visible to the
                  * user and this failure shouldn't be caused by user errors,
                  * only errors in HDF5 and this connector. */
-                if(req->status >= H5_DAOS_INCOMPLETE) {
-                    req->status = H5_DAOS_H5_CLOSE_ERROR;
+                if(req->status >= -H5_DAOS_INCOMPLETE) {
+                    req->status = -H5_DAOS_H5_CLOSE_ERROR;
                     req->failed_task = "request free";
                 } /* end if */
                 D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, FAIL, "can't close data transfer property list")

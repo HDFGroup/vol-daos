@@ -45,25 +45,27 @@ extern hid_t dv_async_err_g;
 #endif
 
 /* Private error codes for asynchronous operations */
-#define H5_DAOS_INCOMPLETE -1   /* Operation has not yet completed (should only be in the item struct) */
-#define H5_DAOS_PRE_ERROR -2    /* A precursor to this task failed (should only be used as the task return value) */
-#define H5_DAOS_H5_CLOSE_ERROR -3 /* Failed to close HDF5 object */
-#define H5_DAOS_H5_DECODE_ERROR -4 /* Failed to decode HDF5 object */
-#define H5_DAOS_H5_CREATE_ERROR -5 /* Failed to create HDF5 object */
-#define H5_DAOS_H5_TCONV_ERROR -6 /* HDF5 type conversion failed */
-#define H5_DAOS_H5_COPY_ERROR -7 /* HDF5 copy operation failed */
-#define H5_DAOS_H5PSET_ERROR -8 /* Failed to set info on HDF5 property list */
-#define H5_DAOS_H5PGET_ERROR -9 /* Failed to get info from HDF5 property list */
-#define H5_DAOS_REMOTE_ERROR -10 /* An operation failed on another process */
-#define H5_DAOS_MPI_ERROR -11   /* MPI operation failed */
-#define H5_DAOS_DAOS_GET_ERROR -12 /* Can't get data from DAOS */
-#define H5_DAOS_ALLOC_ERROR -13 /* Memory allocation failed */
-#define H5_DAOS_FREE_ERROR -14  /* Failed to free memory */
-#define H5_DAOS_CPL_CACHE_ERROR -15 /* Failed to fill creation property list cache */
-#define H5_DAOS_BAD_VALUE -16   /* Invalid value received */
-#define H5_DAOS_PROGRESS_ERROR -17 /* Failed to progress scheduler */
-#define H5_DAOS_SETUP_ERROR -18 /* Error during operation setup */
-#define H5_DAOS_FILE_EXISTS -19 /* File already exists */
+typedef enum {
+    H5_DAOS_INCOMPLETE = 1,     /* Operation has not yet completed (should only be in the item struct) (must be first) */
+    H5_DAOS_PRE_ERROR,          /* A precursor to this task failed (should only be used as the task return value) (must be second) */
+    H5_DAOS_H5_CLOSE_ERROR,     /* Failed to close HDF5 object */
+    H5_DAOS_H5_DECODE_ERROR,    /* Failed to decode HDF5 object */
+    H5_DAOS_H5_CREATE_ERROR,    /* Failed to create HDF5 object */
+    H5_DAOS_H5_TCONV_ERROR,     /* HDF5 type conversion failed */
+    H5_DAOS_H5_COPY_ERROR,      /* HDF5 copy operation failed */
+    H5_DAOS_H5PSET_ERROR,       /* Failed to set info on HDF5 property list */
+    H5_DAOS_H5PGET_ERROR,       /* Failed to get info from HDF5 property list */
+    H5_DAOS_REMOTE_ERROR,       /* An operation failed on another process */
+    H5_DAOS_MPI_ERROR,          /* MPI operation failed */
+    H5_DAOS_DAOS_GET_ERROR,     /* Can't get data from DAOS */
+    H5_DAOS_ALLOC_ERROR,        /* Memory allocation failed */
+    H5_DAOS_FREE_ERROR,         /* Failed to free memory */
+    H5_DAOS_CPL_CACHE_ERROR,    /* Failed to fill creation property list cache */
+    H5_DAOS_BAD_VALUE,          /* Invalid value received */
+    H5_DAOS_PROGRESS_ERROR,     /* Failed to progress scheduler */
+    H5_DAOS_SETUP_ERROR,        /* Error during operation setup */
+    H5_DAOS_FILE_EXISTS,        /* File already exists */
+} H5_daos_error_code_t;
 
 /* Use FUNC to safely handle variations of C99 __func__ keyword handling */
 #ifdef H5_HAVE_C99_FUNC

@@ -1367,7 +1367,7 @@ H5_daos_dataset_refresh_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
-        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get private data for dataset dataspace read task")
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for dataset dataspace read task")
 
     assert(udata->md_rw_cb_ud.req);
     assert(udata->md_rw_cb_ud.req->file);
@@ -1383,14 +1383,14 @@ H5_daos_dataset_refresh_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
         /* Verify iod size makes sense */
         if(udata->md_rw_cb_ud.sg_iov[0].iov_buf_len != H5_DAOS_SPACE_BUF_SIZE)
-            D_GOTO_ERROR(H5E_DATASET, H5E_BADVALUE, H5_DAOS_BAD_VALUE, "buffer length does not match expected value")
+            D_GOTO_ERROR(H5E_DATASET, H5E_BADVALUE, -H5_DAOS_BAD_VALUE, "buffer length does not match expected value")
 
         if(udata->bcast_udata) {
             /* Reallocate dataspace buffer if necessary */
             if(daos_info_len > H5_DAOS_SPACE_BUF_SIZE) {
                 udata->bcast_udata->buffer = DV_free(udata->bcast_udata->buffer);
                 if(NULL == (udata->bcast_udata->buffer = DV_malloc(daos_info_len + H5_DAOS_ENCODED_UINT64_T_SIZE)))
-                    D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, H5_DAOS_ALLOC_ERROR, "can't allocate buffer for serialized dataspace info")
+                    D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate buffer for serialized dataspace info")
                 udata->bcast_udata->buffer_len = daos_info_len + H5_DAOS_ENCODED_UINT64_T_SIZE;
             } /* end if */
 
@@ -1402,7 +1402,7 @@ H5_daos_dataset_refresh_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
             if(daos_info_len > H5_DAOS_SPACE_BUF_SIZE) {
                 udata->md_rw_cb_ud.sg_iov[0].iov_buf = DV_free(udata->md_rw_cb_ud.sg_iov[0].iov_buf);
                 if(NULL == (udata->md_rw_cb_ud.sg_iov[0].iov_buf = DV_malloc(daos_info_len)))
-                    D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, H5_DAOS_ALLOC_ERROR, "can't allocate buffer for serialized dataspace info")
+                    D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate buffer for serialized dataspace info")
             } /* end if */
 
             /* Set starting point for fetch sg_iovs */
@@ -1435,8 +1435,8 @@ H5_daos_dataset_refresh_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         /* Handle errors in fetch task.  Only record error in udata->req_status
          * if it does not already contain an error (it could contain an error if
          * another task this task is not dependent on also failed). */
-        if(task->dt_result < H5_DAOS_PRE_ERROR
-                && udata->md_rw_cb_ud.req->status >= H5_DAOS_INCOMPLETE) {
+        if(task->dt_result < -H5_DAOS_PRE_ERROR
+                && udata->md_rw_cb_ud.req->status >= -H5_DAOS_INCOMPLETE) {
             udata->md_rw_cb_ud.req->status = task->dt_result;
             udata->md_rw_cb_ud.req->failed_task = udata->md_rw_cb_ud.task_name;
         } /* end if */
@@ -1470,11 +1470,11 @@ done:
     if(udata) {
         /* Close dataset */
         if(H5_daos_dataset_close((H5_daos_dset_t *)udata->md_rw_cb_ud.obj, H5I_INVALID_HID, NULL) < 0)
-            D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, H5_DAOS_H5_CLOSE_ERROR, "can't close dataset")
+            D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close dataset")
 
         if(udata->bcast_udata) {
             /* Clear broadcast buffer if there was an error */
-            if(udata->md_rw_cb_ud.req->status < H5_DAOS_INCOMPLETE)
+            if(udata->md_rw_cb_ud.req->status < -H5_DAOS_INCOMPLETE)
                 (void)memset(udata->bcast_udata->buffer, 0, udata->bcast_udata->count);
         } /* end if */
         else
@@ -1485,14 +1485,14 @@ done:
         /* Do not place any code that can issue errors after this block, except
          * for H5_daos_req_free_int, which updates req->status if it sees an
          * error */
-        if(ret_value < 0 && udata->md_rw_cb_ud.req->status >= H5_DAOS_INCOMPLETE) {
+        if(ret_value < 0 && udata->md_rw_cb_ud.req->status >= -H5_DAOS_INCOMPLETE) {
             udata->md_rw_cb_ud.req->status = ret_value;
             udata->md_rw_cb_ud.req->failed_task = udata->md_rw_cb_ud.task_name;
         } /* end if */
 
         /* Release our reference to req */
         if(H5_daos_req_free_int(udata->md_rw_cb_ud.req) < 0)
-            D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, H5_DAOS_FREE_ERROR, "can't free request")
+            D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request")
 
         /* Complete fetch metatask */
         tse_task_complete(udata->fetch_metatask, ret_value);
@@ -3182,7 +3182,7 @@ done:
 
         /* If there was an error during setup, pass it to the request */
         if(ret_value < 0)
-            int_req->status = H5_DAOS_SETUP_ERROR;
+            int_req->status = -H5_DAOS_SETUP_ERROR;
 
         /* Schedule first task */
         if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))

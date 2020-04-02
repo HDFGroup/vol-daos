@@ -26,10 +26,13 @@ const char *H5_daos_err_to_string(int ret);
 
 extern hid_t dv_err_stack_g;
 extern hid_t dv_err_class_g;
+extern hid_t dv_async_err_g;
 
 #define DAOS_VOL_ERR_CLS_NAME "DAOS VOL"
 #define DAOS_VOL_ERR_LIB_NAME "DAOS VOL"
 #define DAOS_VOL_ERR_VER      "1.0.0"
+
+#define H5E_DAOS_ASYNC (dv_async_err_g)
 
 #define SUCCEED 0
 #define FAIL    (-1)

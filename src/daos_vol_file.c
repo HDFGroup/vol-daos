@@ -182,22 +182,22 @@ H5_daos_tx_open_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get private data for transaction open task")
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for transaction open task")
 
     assert(udata->req);
     assert(udata->req->file);
 
     /* Handle errors */
-    if(udata->req->status < H5_DAOS_INCOMPLETE) {
-        tse_task_complete(task, H5_DAOS_PRE_ERROR);
+    if(udata->req->status < -H5_DAOS_INCOMPLETE) {
+        tse_task_complete(task, -H5_DAOS_PRE_ERROR);
         udata = NULL;
         D_GOTO_DONE(H5_DAOS_PRE_ERROR);
     } /* end if */
 
     /* Set arguments for transaction open */
     if(NULL == (tx_open_args = daos_task_get_args(task))) {
-        tse_task_complete(task, H5_DAOS_DAOS_GET_ERROR);
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get arguments for transaction open task")
+        tse_task_complete(task, -H5_DAOS_DAOS_GET_ERROR);
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for transaction open task")
     } /* end if */
     tx_open_args->coh = udata->req->file->coh;
     tx_open_args->th = &udata->req->th;
@@ -230,7 +230,7 @@ H5_daos_tx_open_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get private data for generic task")
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for generic task")
 
     assert(udata->req);
     assert(udata->req->file);
@@ -239,8 +239,8 @@ H5_daos_tx_open_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
      * udata->req_status if it does not already contain an error (it could
      * contain an error if another task this task is not dependent on also
      * failed). */
-    if(task->dt_result < H5_DAOS_PRE_ERROR
-            && udata->req->status >= H5_DAOS_INCOMPLETE) {
+    if(task->dt_result < -H5_DAOS_PRE_ERROR
+            && udata->req->status >= -H5_DAOS_INCOMPLETE) {
         udata->req->status = task->dt_result;
         udata->req->failed_task = udata->task_name;
     } /* end if */
@@ -250,7 +250,7 @@ H5_daos_tx_open_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     /* Release our reference to req */
     if(H5_daos_req_free_int(udata->req) < 0)
-        D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, H5_DAOS_FREE_ERROR, "can't free request")
+        D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request")
 
     /* Free private data */
     DV_free(udata);
@@ -406,7 +406,7 @@ H5_daos_excl_open_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get private data for generic task")
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for generic task")
 
     assert(udata->req);
     assert(udata->req->file);
@@ -414,9 +414,9 @@ H5_daos_excl_open_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     /* Handle errors in task.  Only record error in udata->req_status if it does
      * not already contain an error (it could contain an error if another task
      * this task is not dependent on also failed). */
-    if(task->dt_result < H5_DAOS_PRE_ERROR
+    if(task->dt_result < -H5_DAOS_PRE_ERROR
             && task->dt_result != -DER_NONEXIST
-            && udata->req->status >= H5_DAOS_INCOMPLETE) {
+            && udata->req->status >= -H5_DAOS_INCOMPLETE) {
         udata->req->status = task->dt_result;
         udata->req->failed_task = udata->task_name;
     } /* end if */
@@ -424,19 +424,19 @@ H5_daos_excl_open_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     /* If the open succeeded, return failure (we're verifying that the file
      * doesn't exist) */
     if(task->dt_result == 0)
-        D_DONE_ERROR(H5E_FILE, H5E_FILEEXISTS, H5_DAOS_FILE_EXISTS, "exclusive open failed: file already exists")
+        D_DONE_ERROR(H5E_FILE, H5E_FILEEXISTS, -H5_DAOS_FILE_EXISTS, "exclusive open failed: file already exists")
 
     /* Handle errors in this function */
     /* Do not place any code that can issue errors after this block, except for
      * H5_daos_req_free_int, which updates req->status if it sees an error */
-    if(ret_value < 0 && udata->req->status >= H5_DAOS_INCOMPLETE) {
+    if(ret_value < 0 && udata->req->status >= -H5_DAOS_INCOMPLETE) {
         udata->req->status = ret_value;
         udata->req->failed_task = udata->task_name;
     } /* end if */
 
     /* Release our reference to req */
     if(H5_daos_req_free_int(udata->req) < 0)
-        D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, H5_DAOS_FREE_ERROR, "can't free request")
+        D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request")
 
     /* Free private data */
     DV_free(udata);
@@ -468,7 +468,7 @@ H5_daos_cont_destroy_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get private data for generic task")
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for generic task")
 
     assert(udata->req);
     assert(udata->req->file);
@@ -476,16 +476,16 @@ H5_daos_cont_destroy_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     /* Handle errors in task.  Only record error in udata->req_status if it does
      * not already contain an error (it could contain an error if another task
      * this task is not dependent on also failed). */
-    if(task->dt_result < H5_DAOS_PRE_ERROR
+    if(task->dt_result < -H5_DAOS_PRE_ERROR
             && task->dt_result != -DER_NONEXIST
-            && udata->req->status >= H5_DAOS_INCOMPLETE) {
+            && udata->req->status >= -H5_DAOS_INCOMPLETE) {
         udata->req->status = task->dt_result;
         udata->req->failed_task = udata->task_name;
     } /* end if */
 
     /* Release our reference to req */
     if(H5_daos_req_free_int(udata->req) < 0)
-        D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, H5_DAOS_FREE_ERROR, "can't free request")
+        D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request")
 
     /* Free private data */
     DV_free(udata);
@@ -693,7 +693,7 @@ H5_daos_gh_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get private data for global handle broadcast task")
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for global handle broadcast task")
 
     assert(udata->req);
     assert(udata->req->file);
@@ -702,8 +702,8 @@ H5_daos_gh_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     /* Handle errors in bcast task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if
      * another task this task is not dependent on also failed). */
-    if(task->dt_result < H5_DAOS_PRE_ERROR
-            && udata->req->status >= H5_DAOS_INCOMPLETE) {
+    if(task->dt_result < -H5_DAOS_PRE_ERROR
+            && udata->req->status >= -H5_DAOS_INCOMPLETE) {
         udata->req->status = task->dt_result;
         udata->req->failed_task = "MPI_Ibcast group info";
     } /* end if */
@@ -743,7 +743,7 @@ H5_daos_gh_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
             /* Check for iov_buf_len set to 0 - indicates failure */
             if(gh_len == 0)
-                D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, H5_DAOS_REMOTE_ERROR, "lead process failed to obtain global handle")
+                D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, -H5_DAOS_REMOTE_ERROR, "lead process failed to obtain global handle")
 
             /* Check if we need another bcast */
             if(gh_len + H5_DAOS_ENCODED_UINT64_T_SIZE > (size_t)udata->count) {
@@ -757,7 +757,7 @@ H5_daos_gh_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
                 udata->buffer_len = (int)gh_len + H5_DAOS_ENCODED_UINT64_T_SIZE;
 
                 if(NULL == (udata->buffer = DV_malloc(udata->buffer_len)))
-                    D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, H5_DAOS_ALLOC_ERROR, "failed to allocate memory for global handle buffer")
+                    D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "failed to allocate memory for global handle buffer")
                 udata->count = udata->buffer_len;
 
                 /* Create task for second bcast */
@@ -795,14 +795,14 @@ done:
         /* Do not place any code that can issue errors after this block, except
          * for H5_daos_req_free_int, which updates req->status if it sees an
          * error */
-        if(ret_value < 0 && udata->req->status >= H5_DAOS_INCOMPLETE) {
+        if(ret_value < 0 && udata->req->status >= -H5_DAOS_INCOMPLETE) {
             udata->req->status = ret_value;
             udata->req->failed_task = "MPI_Ibcast global container handle completion callback";
         } /* end if */
 
         /* Release our reference to req */
         if(H5_daos_req_free_int(udata->req) < 0)
-            D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, H5_DAOS_FREE_ERROR, "can't free request")
+            D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request")
 
         /* Complete bcast metatask */
         tse_task_complete(udata->bcast_metatask, ret_value);
@@ -814,7 +814,7 @@ done:
         DV_free(udata);
     } /* end if */
     else
-        assert(ret_value >= 0 || ret_value == H5_DAOS_DAOS_GET_ERROR);
+        assert(ret_value >= 0 || ret_value == -H5_DAOS_DAOS_GET_ERROR);
 
     return ret_value;
 } /* end H5_daos_gh_bcast_comp_cb() */
@@ -843,26 +843,26 @@ H5_daos_get_gch_task(tse_task_t *task)
 
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get private data forget global container handle task")
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data forget global container handle task")
 
     assert(udata->req);
     assert(udata->req->file);
 
     /* Calculate size of global cont handle */
-    if(udata->req->status >= H5_DAOS_INCOMPLETE)
+    if(udata->req->status >= -H5_DAOS_INCOMPLETE)
         if(0 != (ret = daos_cont_local2global(udata->req->file->coh, &glob)))
             D_DONE_ERROR(H5E_VOL, H5E_CANTGET, ret, "can't calculate size of global container handle: %s", H5_daos_err_to_string(ret))
 
     /* Allocate buffer */
     udata->buffer_len = MAX(glob.iov_buf_len + H5_DAOS_ENCODED_UINT64_T_SIZE, H5_DAOS_GH_BUF_SIZE);
     if(NULL == (udata->buffer = (char *)DV_calloc(udata->buffer_len)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, H5_DAOS_ALLOC_ERROR, "can't allocate space for global container handle")
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate space for global container handle")
     udata->count = H5_DAOS_GH_BUF_SIZE;
     glob.iov_len = glob.iov_buf_len;
 
     /* Check for previous errors (wait until after allocation because that must
      * always be done) */
-    if(udata->req->status < H5_DAOS_INCOMPLETE)
+    if(udata->req->status < -H5_DAOS_INCOMPLETE)
         D_GOTO_DONE(H5_DAOS_PRE_ERROR)
 
     /* Encode global handle length */
@@ -878,14 +878,14 @@ done:
     /* Handle errors in this function */
     /* Do not place any code that can issue errors after this block, except for
      * H5_daos_req_free_int, which updates req->status if it sees an error */
-    if(ret_value < 0 && udata->req->status >= H5_DAOS_INCOMPLETE) {
+    if(ret_value < 0 && udata->req->status >= -H5_DAOS_INCOMPLETE) {
         udata->req->status = ret_value;
         udata->req->failed_task = "get global container handle";
     } /* end if */
 
     /* Release our reference to req */
     if(H5_daos_req_free_int(udata->req) < 0)
-        D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, H5_DAOS_FREE_ERROR, "can't free request")
+        D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request")
 
     /* Complete this task */
     tse_task_complete(task, ret_value);
@@ -1197,7 +1197,7 @@ done:
 
         /* If there was an error during setup, pass it to the request */
         if(NULL == ret_value)
-            int_req->status = H5_DAOS_SETUP_ERROR;
+            int_req->status = -H5_DAOS_SETUP_ERROR;
 
         /* Schedule first task */
         if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
@@ -1365,7 +1365,7 @@ done:
 
         /* If there was an error during setup, pass it to the request */
         if(NULL == ret_value)
-            int_req->status = H5_DAOS_SETUP_ERROR;
+            int_req->status = -H5_DAOS_SETUP_ERROR;
 
         /* Schedule first task */
         if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))

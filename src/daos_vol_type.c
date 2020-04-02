@@ -667,7 +667,7 @@ done:
 
         /* If there was an error during setup, pass it to the request */
         if(NULL == ret_value)
-            int_req->status = H5_DAOS_SETUP_ERROR;
+            int_req->status = -H5_DAOS_SETUP_ERROR;
 
         /* Schedule first task */
         if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))

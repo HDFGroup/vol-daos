@@ -533,7 +533,7 @@ done:
 
         /* If there was an error during setup, pass it to the request */
         if(NULL == ret_value)
-            int_req->status = H5_DAOS_SETUP_ERROR;
+            int_req->status = -H5_DAOS_SETUP_ERROR;
 
         /* Schedule first task */
         if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
@@ -587,7 +587,7 @@ H5_daos_group_open_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
-        D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get private data for group info broadcast task")
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for group info broadcast task")
 
     assert(udata->req);
     assert(udata->obj);
@@ -599,8 +599,8 @@ H5_daos_group_open_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     /* Handle errors in bcast task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if
      * another task this task is not dependent on also failed). */
-    if(task->dt_result < H5_DAOS_PRE_ERROR
-            && udata->req->status >= H5_DAOS_INCOMPLETE) {
+    if(task->dt_result < -H5_DAOS_PRE_ERROR
+            && udata->req->status >= -H5_DAOS_INCOMPLETE) {
         udata->req->status = task->dt_result;
         udata->req->failed_task = "MPI_Ibcast group info";
     } /* end if */
@@ -634,20 +634,20 @@ done:
     if(udata) {
         /* Close group */
         if(H5_daos_group_close((H5_daos_group_t *)udata->obj, H5I_INVALID_HID, NULL) < 0)
-            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, H5_DAOS_H5_CLOSE_ERROR, "can't close group")
+            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close group")
 
         /* Handle errors in this function */
         /* Do not place any code that can issue errors after this block, except
          * for H5_daos_req_free_int, which updates req->status if it sees an
          * error */
-        if(ret_value < 0 && udata->req->status >= H5_DAOS_INCOMPLETE) {
+        if(ret_value < 0 && udata->req->status >= -H5_DAOS_INCOMPLETE) {
             udata->req->status = ret_value;
             udata->req->failed_task = "MPI_Ibcast group info completion callback";
         } /* end if */
 
         /* Release our reference to req */
         if(H5_daos_req_free_int(udata->req) < 0)
-            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, H5_DAOS_FREE_ERROR, "can't free request")
+            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request")
 
         /* Complete bcast metatask */
         tse_task_complete(udata->bcast_metatask, ret_value);
@@ -659,7 +659,7 @@ done:
         DV_free(udata);
     } /* end if */
     else
-        assert(ret_value >= 0 || ret_value == H5_DAOS_DAOS_GET_ERROR);
+        assert(ret_value >= 0 || ret_value == -H5_DAOS_DAOS_GET_ERROR);
 
     return ret_value;
 } /* end H5_daos_group_open_bcast_comp_cb() */
@@ -688,7 +688,7 @@ H5_daos_group_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
-        D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get private data for group info receive task")
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for group info receive task")
 
     assert(udata->req);
     assert(udata->obj);
@@ -700,8 +700,8 @@ H5_daos_group_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     /* Handle errors in bcast task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if
      * another task this task is not dependent on also failed). */
-    if(task->dt_result < H5_DAOS_PRE_ERROR
-            && udata->req->status >= H5_DAOS_INCOMPLETE) {
+    if(task->dt_result < -H5_DAOS_PRE_ERROR
+            && udata->req->status >= -H5_DAOS_INCOMPLETE) {
         udata->req->status = task->dt_result;
         udata->req->failed_task = "MPI_Ibcast group info";
     } /* end if */
@@ -719,7 +719,7 @@ H5_daos_group_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
         /* Check for gcpl_len set to 0 - indicates failure */
         if(gcpl_len == 0)
-            D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, H5_DAOS_REMOTE_ERROR, "lead process failed to open group")
+            D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, -H5_DAOS_REMOTE_ERROR, "lead process failed to open group")
 
         /* Calculate data length */
         ginfo_len = (size_t)gcpl_len + 3 * sizeof(uint64_t);
@@ -734,7 +734,7 @@ H5_daos_group_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
             /* Realloc buffer */
             DV_free(udata->buffer);
             if(NULL == (udata->buffer = DV_malloc(ginfo_len)))
-                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, H5_DAOS_ALLOC_ERROR, "failed to allocate memory for group info buffer")
+                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "failed to allocate memory for group info buffer")
             udata->buffer_len = ginfo_len;
             udata->count = ginfo_len;
 
@@ -759,15 +759,15 @@ H5_daos_group_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
             /* Decode GCPL */
             if((((H5_daos_group_t *)udata->obj)->gcpl_id = H5Pdecode(p)) < 0)
-                D_GOTO_ERROR(H5E_SYM, H5E_CANTDECODE, H5_DAOS_H5_DECODE_ERROR, "can't deserialize GCPL")
+                D_GOTO_ERROR(H5E_SYM, H5E_CANTDECODE, -H5_DAOS_H5_DECODE_ERROR, "can't deserialize GCPL")
 
             /* Fill GCPL cache */
             if(H5_daos_group_fill_gcpl_cache((H5_daos_group_t *)udata->obj) < 0)
-                D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, H5_DAOS_CPL_CACHE_ERROR, "failed to fill GCPL cache")
+                D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, -H5_DAOS_CPL_CACHE_ERROR, "failed to fill GCPL cache")
 
             /* Fill OCPL cache */
             if(H5_daos_fill_ocpl_cache(udata->obj, ((H5_daos_group_t *)udata->obj)->gcpl_id) < 0)
-                D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, H5_DAOS_CPL_CACHE_ERROR, "failed to fill OCPL cache")
+                D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, -H5_DAOS_CPL_CACHE_ERROR, "failed to fill OCPL cache")
         } /* end else */
     } /* end else */
 
@@ -776,20 +776,20 @@ done:
     if(udata) {
         /* Close group */
         if(H5_daos_group_close((H5_daos_group_t *)udata->obj, H5I_INVALID_HID, NULL) < 0)
-            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, H5_DAOS_H5_CLOSE_ERROR, "can't close group")
+            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close group")
 
         /* Handle errors in this function */
         /* Do not place any code that can issue errors after this block, except
          * for H5_daos_req_free_int, which updates req->status if it sees an
          * error */
-        if(ret_value < 0 && udata->req->status >= H5_DAOS_INCOMPLETE) {
+        if(ret_value < 0 && udata->req->status >= -H5_DAOS_INCOMPLETE) {
             udata->req->status = ret_value;
             udata->req->failed_task = "MPI_Ibcast group info completion callback";
         } /* end if */
 
         /* Release our reference to req */
         if(H5_daos_req_free_int(udata->req) < 0)
-            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, H5_DAOS_FREE_ERROR, "can't free request")
+            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request")
 
         /* Complete bcast metatask */
         tse_task_complete(udata->bcast_metatask, ret_value);
@@ -801,7 +801,7 @@ done:
         DV_free(udata);
     } /* end if */
     else
-        assert(ret_value >= 0 || ret_value == H5_DAOS_DAOS_GET_ERROR);
+        assert(ret_value >= 0 || ret_value == -H5_DAOS_DAOS_GET_ERROR);
 
     return ret_value;
 } /* end H5_daos_group_open_recv_comp_cb() */
@@ -830,7 +830,7 @@ H5_daos_ginfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
-        D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, H5_DAOS_DAOS_GET_ERROR, "can't get private data for group info read task")
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for group info read task")
 
     assert(udata->md_rw_cb_ud.req);
     assert(udata->md_rw_cb_ud.req->file);
@@ -846,14 +846,14 @@ H5_daos_ginfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         if(udata->bcast_udata) {
             /* Verify iod size makes sense */
             if(udata->md_rw_cb_ud.sg_iov[0].iov_buf_len != (H5_DAOS_GINFO_BUF_SIZE - 3 * H5_DAOS_ENCODED_UINT64_T_SIZE))
-                D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, H5_DAOS_BAD_VALUE, "buffer length does not match expected value")
+                D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, -H5_DAOS_BAD_VALUE, "buffer length does not match expected value")
             if(udata->md_rw_cb_ud.iod[0].iod_size <= (H5_DAOS_GINFO_BUF_SIZE - 3 * H5_DAOS_ENCODED_UINT64_T_SIZE))
-                D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, H5_DAOS_BAD_VALUE, "invalid iod_size returned from DAOS (buffer should have been large enough)")
+                D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, -H5_DAOS_BAD_VALUE, "invalid iod_size returned from DAOS (buffer should have been large enough)")
             
             /* Reallocate group info buffer */
             udata->bcast_udata->buffer = DV_free(udata->bcast_udata->buffer);
             if(NULL == (udata->bcast_udata->buffer = DV_malloc(udata->md_rw_cb_ud.iod[0].iod_size + 3 * H5_DAOS_ENCODED_UINT64_T_SIZE)))
-                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, H5_DAOS_ALLOC_ERROR, "can't allocate buffer for serialized group info")
+                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate buffer for serialized group info")
             udata->bcast_udata->buffer_len = udata->md_rw_cb_ud.iod[0].iod_size + 3 * H5_DAOS_ENCODED_UINT64_T_SIZE;
 
             /* Set up sgl */
@@ -863,14 +863,14 @@ H5_daos_ginfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         else {
             /* Verify iod size makes sense */
             if(udata->md_rw_cb_ud.sg_iov[0].iov_buf_len != H5_DAOS_GINFO_BUF_SIZE)
-                D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, H5_DAOS_BAD_VALUE, "buffer length does not match expected value")
+                D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, -H5_DAOS_BAD_VALUE, "buffer length does not match expected value")
             if(udata->md_rw_cb_ud.iod[0].iod_size <= H5_DAOS_GINFO_BUF_SIZE)
-                D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, H5_DAOS_BAD_VALUE, "invalid iod_size returned from DAOS (buffer should have been large enough)")
+                D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, -H5_DAOS_BAD_VALUE, "invalid iod_size returned from DAOS (buffer should have been large enough)")
             
             /* Reallocate group info buffer */
             udata->md_rw_cb_ud.sg_iov[0].iov_buf = DV_free(udata->md_rw_cb_ud.sg_iov[0].iov_buf);
             if(NULL == (udata->md_rw_cb_ud.sg_iov[0].iov_buf = DV_malloc(udata->md_rw_cb_ud.iod[0].iod_size)))
-                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, H5_DAOS_ALLOC_ERROR, "can't allocate buffer for serialized group info")
+                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate buffer for serialized group info")
 
             /* Set up sgl */
             udata->md_rw_cb_ud.sg_iov[0].iov_buf_len = udata->md_rw_cb_ud.iod[0].iod_size;
@@ -899,8 +899,8 @@ H5_daos_ginfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         /* Handle errors in fetch task.  Only record error in udata->req_status
          * if it does not already contain an error (it could contain an error if
          * another task this task is not dependent on also failed). */
-        if(task->dt_result < H5_DAOS_PRE_ERROR
-                && udata->md_rw_cb_ud.req->status >= H5_DAOS_INCOMPLETE) {
+        if(task->dt_result < -H5_DAOS_PRE_ERROR
+                && udata->md_rw_cb_ud.req->status >= -H5_DAOS_INCOMPLETE) {
             udata->md_rw_cb_ud.req->status = task->dt_result;
             udata->md_rw_cb_ud.req->failed_task = udata->md_rw_cb_ud.task_name;
         } /* end if */
@@ -921,15 +921,15 @@ H5_daos_ginfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
             /* Finish building group object */
             /* Decode GCPL */
             if((((H5_daos_group_t *)udata->md_rw_cb_ud.obj)->gcpl_id = H5Pdecode(udata->md_rw_cb_ud.sg_iov[0].iov_buf)) < 0)
-                D_GOTO_ERROR(H5E_SYM, H5E_CANTDECODE, H5_DAOS_H5_DECODE_ERROR, "can't deserialize GCPL")
+                D_GOTO_ERROR(H5E_SYM, H5E_CANTDECODE, -H5_DAOS_H5_DECODE_ERROR, "can't deserialize GCPL")
 
             /* Fill GCPL cache */
             if(H5_daos_group_fill_gcpl_cache((H5_daos_group_t *)udata->md_rw_cb_ud.obj) < 0)
-                D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, H5_DAOS_CPL_CACHE_ERROR, "failed to fill GCPL cache")
+                D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, -H5_DAOS_CPL_CACHE_ERROR, "failed to fill GCPL cache")
 
             /* Fill OCPL cache */
             if(H5_daos_fill_ocpl_cache(udata->md_rw_cb_ud.obj, ((H5_daos_group_t *)udata->md_rw_cb_ud.obj)->gcpl_id) < 0)
-                D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, H5_DAOS_CPL_CACHE_ERROR, "failed to fill OCPL cache")
+                D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, -H5_DAOS_CPL_CACHE_ERROR, "failed to fill OCPL cache")
         } /* end else */
     } /* end else */
 
@@ -938,11 +938,11 @@ done:
     if(udata) {
         /* Close group */
         if(H5_daos_group_close((H5_daos_group_t *)udata->md_rw_cb_ud.obj, H5I_INVALID_HID, NULL) < 0)
-            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, H5_DAOS_H5_CLOSE_ERROR, "can't close group")
+            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close group")
 
         if(udata->bcast_udata) {
             /* Clear broadcast buffer if there was an error */
-            if(udata->md_rw_cb_ud.req->status < H5_DAOS_INCOMPLETE)
+            if(udata->md_rw_cb_ud.req->status < -H5_DAOS_INCOMPLETE)
                 (void)memset(udata->bcast_udata->buffer, 0, H5_DAOS_GINFO_BUF_SIZE);
         } /* end if */
         else
@@ -953,14 +953,14 @@ done:
         /* Do not place any code that can issue errors after this block, except
          * for H5_daos_req_free_int, which updates req->status if it sees an
          * error */
-        if(ret_value < 0 && udata->md_rw_cb_ud.req->status >= H5_DAOS_INCOMPLETE) {
+        if(ret_value < 0 && udata->md_rw_cb_ud.req->status >= -H5_DAOS_INCOMPLETE) {
             udata->md_rw_cb_ud.req->status = ret_value;
             udata->md_rw_cb_ud.req->failed_task = udata->md_rw_cb_ud.task_name;
         } /* end if */
 
         /* Release our reference to req */
         if(H5_daos_req_free_int(udata->md_rw_cb_ud.req) < 0)
-            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, H5_DAOS_FREE_ERROR, "can't free request")
+            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request")
 
         /* Complete fetch metatask */
         tse_task_complete(udata->fetch_metatask, ret_value);
@@ -1587,7 +1587,7 @@ done:
 
         /* If there was an error during setup, pass it to the request */
         if(NULL == ret_value)
-            int_req->status = H5_DAOS_SETUP_ERROR;
+            int_req->status = -H5_DAOS_SETUP_ERROR;
 
         /* Schedule first task */
         if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))

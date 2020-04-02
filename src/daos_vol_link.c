@@ -659,7 +659,7 @@ done:
 
         /* If there was an error during setup, pass it to the request */
         if(ret_value < 0)
-            int_req->status = H5_DAOS_SETUP_ERROR;
+            int_req->status = -H5_DAOS_SETUP_ERROR;
 
         /* Schedule link write task */
         if(0 != (ret = tse_task_schedule(link_write_task, false)))
@@ -783,7 +783,7 @@ done:
 
         /* If there was an error during setup, pass it to the request */
         if(ret_value < 0)
-            int_req->status = H5_DAOS_SETUP_ERROR;
+            int_req->status = -H5_DAOS_SETUP_ERROR;
 
         /* Schedule link write task */
         if(0 != (ret = tse_task_schedule(link_write_task, false)))
@@ -911,7 +911,7 @@ done:
 
         /* If there was an error during setup, pass it to the request */
         if(ret_value < 0)
-            int_req->status = H5_DAOS_SETUP_ERROR;
+            int_req->status = -H5_DAOS_SETUP_ERROR;
 
         /* Schedule link write task */
         if(0 != (ret = tse_task_schedule(link_write_task, false)))

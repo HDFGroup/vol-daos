@@ -46,8 +46,8 @@ extern hid_t dv_async_err_g;
 
 /* Private error codes for asynchronous operations */
 typedef enum {
-    H5_DAOS_INCOMPLETE = 1,     /* Operation has not yet completed (should only be in the item struct) */
-    H5_DAOS_PRE_ERROR,          /* A precursor to this task failed (should only be used as the task return value) */
+    H5_DAOS_INCOMPLETE = 1,     /* Operation has not yet completed (should only be in the item struct) (must be first) */
+    H5_DAOS_PRE_ERROR,          /* A precursor to this task failed (should only be used as the task return value) (must be second) */
     H5_DAOS_H5_CLOSE_ERROR,     /* Failed to close HDF5 object */
     H5_DAOS_H5_DECODE_ERROR,    /* Failed to decode HDF5 object */
     H5_DAOS_H5_CREATE_ERROR,    /* Failed to create HDF5 object */

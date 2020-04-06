@@ -732,10 +732,10 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_obj_t *target_obj = NULL;
-    H5_daos_group_t *target_grp = NULL;
     H5_daos_req_t *int_req = NULL;
     tse_task_t *first_task = NULL;
     tse_task_t *dep_task = NULL;
+    const char *oexists_obj_name = NULL;
     hid_t target_obj_id = H5I_INVALID_HID;
     int ret;
     herr_t ret_value = SUCCEED;
@@ -756,12 +756,20 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
     } /* end if */
     else if(loc_params->type == H5VL_OBJECT_BY_NAME) {
         /*
-         * Open target_obj. If H5Oexists_by_name is being called, skip doing
-         * this since the path may point to a soft link that doesn't resolve.
+         * Open target_obj. For H5Oexists_by_name, we use H5_daos_group_traverse
+         * as the path may point to a soft link that doesn't resolve. In that case,
+         * H5_daos_object_open would fail.
          */
-        if(H5VL_OBJECT_EXISTS != specific_type)
+        if(H5VL_OBJECT_EXISTS == specific_type) {
+            /* Open group containing the link in question */
+            if(NULL == (target_obj = (H5_daos_obj_t *)H5_daos_group_traverse(item, loc_params->loc_data.loc_by_name.name,
+                    H5P_LINK_CREATE_DEFAULT, dxpl_id, req, &oexists_obj_name, NULL, NULL)))
+                D_GOTO_ERROR(H5E_SYM, H5E_CANTOPENOBJ, FAIL, "can't open group")
+        }
+        else {
             if(NULL == (target_obj = (H5_daos_obj_t *)H5_daos_object_open(item, loc_params, NULL, dxpl_id, req)))
                 D_GOTO_ERROR(H5E_OHDR, H5E_CANTOPENOBJ, FAIL, "can't open target object")
+        }
     } /* end else */
     else
         D_GOTO_ERROR(H5E_OHDR, H5E_UNSUPPORTED, FAIL, "unsupported object operation location parameters type")
@@ -790,16 +798,11 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
         case H5VL_OBJECT_EXISTS:
         {
             daos_obj_id_t oid;
-            const char *obj_name;
             htri_t *oexists_ret = va_arg(arguments, htri_t *);
 
-            /* Open group containing the link in question */
-            if(NULL == (target_grp = (H5_daos_group_t *)H5_daos_group_traverse(item, loc_params->loc_data.loc_by_name.name,
-                    H5P_LINK_CREATE_DEFAULT, dxpl_id, req, &obj_name, NULL, NULL)))
-                D_GOTO_ERROR(H5E_SYM, H5E_CANTOPENOBJ, FAIL, "can't open group")
-
             /* Check if the link resolves */
-            if((*oexists_ret = H5_daos_link_follow(target_grp, obj_name, strlen(obj_name), dxpl_id, req, &oid)) < 0)
+            if((*oexists_ret = H5_daos_link_follow((H5_daos_group_t *)target_obj, oexists_obj_name,
+                    strlen(oexists_obj_name), dxpl_id, req, &oid)) < 0)
                 D_GOTO_ERROR(H5E_OHDR, H5E_TRAVERSE, FAIL, "can't follow link to object")
 
             break;
@@ -940,12 +943,6 @@ done:
         /* Close internal request */
         if(H5_daos_req_free_int(int_req) < 0)
             D_DONE_ERROR(H5E_OHDR, H5E_CLOSEERROR, FAIL, "can't free request")
-    } /* end if */
-
-    if(target_grp) {
-        if(H5_daos_group_close(target_grp, dxpl_id, req) < 0)
-            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group")
-        target_grp = NULL;
     } /* end if */
 
     if(target_obj_id >= 0) {

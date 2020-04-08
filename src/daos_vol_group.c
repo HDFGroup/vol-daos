@@ -1035,7 +1035,7 @@ H5_daos_group_open_helper_async(H5_daos_file_t *file, daos_obj_id_t oid,
         tse_task_t *fetch_task = NULL;
 
         /* Open group object */
-        if(H5_daos_obj_open(file, req, &oid, file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &grp->obj.obj_oh, "group object open", first_task, dep_task) < 0)
+        if(H5_daos_obj_open(file, req, &grp->obj.oid, file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &grp->obj.obj_oh, "group object open", first_task, dep_task) < 0)
             D_GOTO_ERROR(H5E_SYM, H5E_CANTOPENOBJ, NULL, "can't open group object")
 
         /* Allocate argument struct for fetch task */

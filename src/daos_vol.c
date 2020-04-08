@@ -41,6 +41,12 @@
 /* Local Type and Struct Definition */
 /************************************/
 
+/* Task user data for DAOS object open */
+typedef struct H5_daos_obj_open_ud_t {
+    H5_daos_generic_cb_ud_t generic_ud; /* Must be first */
+    daos_obj_id_t *oid;
+} H5_daos_obj_open_ud_t;
+
 /********************/
 /* Local Prototypes */
 /********************/
@@ -2474,7 +2480,7 @@ done:
 int
 H5_daos_obj_open_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
-    H5_daos_generic_cb_ud_t *udata;
+    H5_daos_obj_open_ud_t *udata;
     daos_obj_open_t *open_args;
     int ret_value = 0;
 
@@ -2482,22 +2488,23 @@ H5_daos_obj_open_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for object open task")
 
-    assert(udata->req);
-    assert(udata->req->file);
+    assert(udata->generic_ud.req);
+    assert(udata->generic_ud.req->file);
 
     /* Handle errors */
-    if(udata->req->status < -H5_DAOS_INCOMPLETE) {
+    if(udata->generic_ud.req->status < -H5_DAOS_INCOMPLETE) {
         tse_task_complete(task, -H5_DAOS_PRE_ERROR);
         udata = NULL;
         D_GOTO_DONE(H5_DAOS_PRE_ERROR);
     } /* end if */
 
-    /* Set container open handle in args */
+    /* Set container open handle and oid in args */
     if(NULL == (open_args = daos_task_get_args(task))) {
         tse_task_complete(task, -H5_DAOS_DAOS_GET_ERROR);
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for object open task")
     } /* end if */
-    open_args->coh = udata->req->file->coh;
+    open_args->coh = udata->generic_ud.req->file->coh;
+    open_args->oid = *udata->oid;
 
 done:
     D_FUNC_LEAVE
@@ -2704,7 +2711,8 @@ H5_daos_metatask_autocomplete(tse_task_t *task)
  *              is a non-blocking call but it might be necessary to insert
  *              it into the scheduler so it doesn't run until certain
  *              conditions are met (such as the file's container handle
- *              being open)
+ *              being open).  oid must not point to memory that might be
+ *              freed or go out of scope before the open task executes.
  *
  * Return:      Non-negative on success/Negative on failure
  *
@@ -2716,7 +2724,7 @@ H5_daos_obj_open(H5_daos_file_t *file, H5_daos_req_t *req, daos_obj_id_t *oid,
     tse_task_t **first_task, tse_task_t **dep_task)
 {
     tse_task_t *open_task;
-    H5_daos_generic_cb_ud_t *open_udata = NULL;
+    H5_daos_obj_open_ud_t *open_udata = NULL;
     daos_obj_open_t *open_args;
     int ret;
     herr_t ret_value = SUCCEED; /* Return value */
@@ -2740,16 +2748,17 @@ H5_daos_obj_open(H5_daos_file_t *file, H5_daos_req_t *req, daos_obj_id_t *oid,
         D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't register callbacks for task to open object: %s", H5_daos_err_to_string(ret))
 
     /* Set private data for object open */
-    if(NULL == (open_udata = (H5_daos_generic_cb_ud_t *)DV_malloc(sizeof(H5_daos_generic_cb_ud_t))))
+    if(NULL == (open_udata = (H5_daos_obj_open_ud_t *)DV_malloc(sizeof(H5_daos_obj_open_ud_t))))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate user data struct for object open task")
-    open_udata->req = req;
-    open_udata->task_name = task_name;
+    open_udata->generic_ud.req = req;
+    open_udata->generic_ud.task_name = task_name;
+    open_udata->oid = oid;
     (void)tse_task_set_priv(open_task, open_udata);
 
-    /* Set arguments for object open */
+    /* Set arguments for object open (oid will be set later by the prep
+     * callback) */
     if(NULL == (open_args = daos_task_get_args(open_task)))
         D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't get arguments for object open task")
-    open_args->oid = *oid;
     open_args->mode = mode;
     open_args->oh = oh;
 

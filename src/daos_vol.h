@@ -301,6 +301,7 @@ typedef struct H5_daos_file_t {
     unsigned flags;
     hbool_t closed;
     daos_handle_t glob_md_oh;
+    daos_obj_id_t glob_md_oid;
     struct H5_daos_group_t *root_grp;
     hid_t fapl_id;
     H5_daos_fapl_cache_t fapl_cache;

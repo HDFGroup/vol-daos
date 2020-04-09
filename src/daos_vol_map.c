@@ -134,6 +134,13 @@ H5_daos_map_create(void *_item,
     map->mcpl_id = H5I_INVALID_HID;
     map->mapl_id = H5I_INVALID_HID;
 
+#ifdef H5_DAOS_USE_TRANSACTIONS
+    /* Start transaction */
+    if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't start transaction")
+    int_req->th_open = TRUE;
+#endif /* H5_DAOS_USE_TRANSACTIONS */
+
     /* Generate map oid */
     if(H5_daos_oid_generate(&map->obj.oid, H5I_MAP, mcpl_id == H5P_MAP_CREATE_DEFAULT ? H5P_DEFAULT : mcpl_id, item->file, collective) < 0)
         D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't generate object id")
@@ -150,11 +157,6 @@ H5_daos_map_create(void *_item,
         size_t vtype_size = 0;
         tse_task_t *update_task;
         tse_task_t *link_write_task;
-
-        /* Start transaction */
-        if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't start transaction")
-        int_req->th_open = TRUE;
 
         /* Traverse the path */
         if(name) {

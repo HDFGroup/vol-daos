@@ -40,8 +40,10 @@ typedef struct get_obj_ids_udata_t {
 
 static herr_t H5_daos_cont_get_fapl_info(hid_t fapl_id, H5_daos_fapl_t *fa_out);
 static herr_t H5_daos_cont_set_mpi_info(H5_daos_file_t *file, H5_daos_fapl_t *fa);
+#ifdef H5_DAOS_USE_TRANSACTIONS
 static int H5_daos_tx_open_prep_cb(tse_task_t *task, void *args);
 static int H5_daos_tx_open_comp_cb(tse_task_t *task, void *args);
+#endif /* H5_DAOS_USE_TRANSACTIONS */
 static herr_t H5_daos_cont_open(H5_daos_file_t *file, unsigned flags,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 static int H5_daos_excl_open_comp_cb(tse_task_t *task, void *args);
@@ -157,6 +159,7 @@ done:
     D_FUNC_LEAVE
 } /* end H5_daos_cont_set_mpi_info() */
 
+#ifdef H5_DAOS_USE_TRANSACTIONS
 
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_tx_open_prep_cb
@@ -258,6 +261,7 @@ H5_daos_tx_open_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 done:
     D_FUNC_LEAVE
 } /* end H5_daos_tx_open_comp_cb() */
+#endif /* H5_DAOS_USE_TRANSACTIONS */
 
 
 /*-------------------------------------------------------------------------
@@ -326,6 +330,7 @@ H5_daos_cont_open(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *req,
     open_udata = NULL;
     *dep_task = open_task;
 
+#ifdef H5_DAOS_USE_TRANSACTIONS
     /* Create task for transaction open */
     if(0 != (ret = daos_task_create(DAOS_OPC_TX_OPEN, &file->sched, 0, NULL, &tx_open_task)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create task to open transaction: %s", H5_daos_err_to_string(ret))
@@ -353,6 +358,7 @@ H5_daos_cont_open(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *req,
     req->rc++;
     tx_open_udata = NULL;
     *dep_task = tx_open_task;
+#endif /* H5_DAOS_USE_TRANSACTIONS */
 
     /* If a snapshot was requested, use it as the epoch, otherwise query it
      */

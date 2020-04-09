@@ -480,12 +480,14 @@ H5_daos_group_create(void *_item,
     if(NULL == (int_req = H5_daos_req_create(item->file, H5I_INVALID_HID)))
         D_GOTO_ERROR(H5E_SYM, H5E_CANTALLOC, NULL, "can't create DAOS request")
 
-    if(!collective || (item->file->my_rank == 0)) {
-        /* Start transaction */
-        if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't start transaction")
-        int_req->th_open = TRUE;
+#ifdef H5_DAOS_USE_TRANSACTIONS
+    /* Start transaction */
+    if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't start transaction")
+    int_req->th_open = TRUE;
+#endif /* H5_DAOS_USE_TRANSACTIONS */
 
+    if(!collective || (item->file->my_rank == 0)) {
         /* Traverse the path */
         if(name) {
             if(NULL == (target_grp = H5_daos_group_traverse(item, name, lcpl_id, dxpl_id,
@@ -1399,16 +1401,18 @@ H5_daos_group_open(void *_item, const H5VL_loc_params_t *loc_params,
     if(NULL == (int_req = H5_daos_req_create(item->file, H5I_INVALID_HID)))
         D_GOTO_ERROR(H5E_SYM, H5E_CANTALLOC, NULL, "can't create DAOS request")
 
+#ifdef H5_DAOS_USE_TRANSACTIONS
+    /* Start transaction */
+    if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't start transaction")
+    int_req->th_open = TRUE;
+#endif /* H5_DAOS_USE_TRANSACTIONS */
+
     /* Check if we're actually opening the group or just receiving the group
      * info from the leader */
     if(!collective || (item->file->my_rank == 0)) {
         if(collective && (item->file->num_procs > 1))
             must_bcast = TRUE;
-
-        /* Start transaction */
-        if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't start transaction")
-        int_req->th_open = TRUE;
 
         /* Check for open by object token */
         if(H5VL_OBJECT_BY_TOKEN == loc_params->type) {

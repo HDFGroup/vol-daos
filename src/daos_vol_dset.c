@@ -416,6 +416,13 @@ H5_daos_dataset_create(void *_item,
     dset->dcpl_id = FAIL;
     dset->dapl_id = FAIL;
 
+#ifdef H5_DAOS_USE_TRANSACTIONS
+    /* Start transaction */
+    if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't start transaction")
+    int_req->th_open = TRUE;
+#endif /* H5_DAOS_USE_TRANSACTIONS */
+
     /* Set up datatypes, dataspace, property list fields.  Do this earlier
      * because we need some of these things */
     if((dset->type_id = H5Tcopy(type_id)) < 0)
@@ -1576,6 +1583,13 @@ H5_daos_dataset_open(void *_item,
     dset->dcpl_id = FAIL;
     if((dset->dapl_id = H5Pcopy(dapl_id)) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, NULL, "failed to copy dapl");
+
+#ifdef H5_DAOS_USE_TRANSACTIONS
+    /* Start transaction */
+    if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't start transaction")
+    int_req->th_open = TRUE;
+#endif /* H5_DAOS_USE_TRANSACTIONS */
 
     /* Set up broadcast user data (if appropriate) and calculate initial dataset
      * info buffer size */
@@ -3135,6 +3149,13 @@ H5_daos_dataset_specific(void *_item, H5VL_dataset_specific_t specific_type,
                 if(H5D_CHUNKED != dset->dcpl_cache.layout)
                     D_GOTO_ERROR(H5E_DATASET, H5E_BADVALUE, FAIL, "dataset storage layout is not chunked")
 
+#ifdef H5_DAOS_USE_TRANSACTIONS
+                /* Start transaction */
+                if(0 != (ret = daos_tx_open(dset->obj.item.file->coh, &int_req->th, NULL /*event*/)))
+                    D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't start transaction")
+                int_req->th_open = TRUE;
+#endif /* H5_DAOS_USE_TRANSACTIONS */
+
                 /* Call main routine */
                 if(H5_daos_dataset_set_extent(dset, size, dxpl_id, int_req, &first_task, &dep_task) < 0)
                     D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "failed to set dataset extent")
@@ -3152,6 +3173,13 @@ H5_daos_dataset_specific(void *_item, H5VL_dataset_specific_t specific_type,
 
         case H5VL_DATASET_REFRESH:
             {
+#ifdef H5_DAOS_USE_TRANSACTIONS
+                /* Start transaction */
+                if(0 != (ret = daos_tx_open(dset->obj.item.file->coh, &int_req->th, NULL /*event*/)))
+                    D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't start transaction")
+                int_req->th_open = TRUE;
+#endif /* H5_DAOS_USE_TRANSACTIONS */
+
                 /* Call main routine */
                 if(H5_daos_dataset_refresh(dset, dxpl_id, int_req, &first_task, &dep_task) < 0)
                     D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "failed to refresh dataset")

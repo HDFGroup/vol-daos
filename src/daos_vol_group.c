@@ -426,11 +426,11 @@ done:
     if(NULL == ret_value) {
         /* Close group */
         if(grp && H5_daos_group_close(grp, dxpl_id, NULL) < 0)
-            D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, NULL, "can't close group")
+            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, NULL, "can't close group")
 
         /* Free memory */
         if(update_cb_ud && update_cb_ud->obj && H5_daos_object_close(update_cb_ud->obj, dxpl_id, NULL) < 0)
-            D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, NULL, "can't close object")
+            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, NULL, "can't close object")
         gcpl_buf = DV_free(gcpl_buf);
         update_cb_ud = DV_free(update_cb_ud);
     } /* end if */

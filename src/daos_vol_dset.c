@@ -634,7 +634,7 @@ H5_daos_dataset_create(void *_item,
         /* Schedule dataset metadata write task and give it a reference to req
          * and the dataset */
         if(0 != (ret = tse_task_schedule(update_task, false)))
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't schedule task to write group metadata: %s", H5_daos_err_to_string(ret))
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't schedule task to write dataset metadata: %s", H5_daos_err_to_string(ret))
         int_req->rc++;
         dset->obj.item.rc++;
         update_cb_ud = NULL;
@@ -756,7 +756,7 @@ done:
 
         /* Free memory */
         if(update_cb_ud && update_cb_ud->obj && H5_daos_object_close(update_cb_ud->obj, dxpl_id, NULL) < 0)
-            D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, NULL, "can't close object")
+            D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, NULL, "can't close object")
         type_buf = DV_free(type_buf);
         space_buf = DV_free(space_buf);
         dcpl_buf = DV_free(dcpl_buf);

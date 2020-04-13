@@ -298,7 +298,7 @@ H5_daos_map_create(void *_item,
         } /* end if */
     } /* end if */
     else {
-        /* Only open_task created, register it as the finalize dependency */
+        /* Only dep_task created, register it as the finalize dependency */
         assert(finalize_ndeps == 0);
         assert(dep_task);
         finalize_deps[0] = dep_task;
@@ -382,7 +382,7 @@ done:
 
         /* Free memory */
         if(update_cb_ud && update_cb_ud->obj && H5_daos_object_close(update_cb_ud->obj, dxpl_id, NULL) < 0)
-            D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, NULL, "can't close object")
+            D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't close object")
         ktype_buf = DV_free(ktype_buf);
         vtype_buf = DV_free(vtype_buf);
         mcpl_buf = DV_free(mcpl_buf);

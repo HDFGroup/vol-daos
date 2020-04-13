@@ -493,6 +493,7 @@ H5_daos_datatype_commit(void *_item,
     tse_task_t *finalize_deps[2];
     H5_daos_req_t *int_req = NULL;
     tse_task_t *first_task = NULL;
+    tse_task_t *dep_task = NULL;
     int ret;
     void *ret_value = NULL;
 
@@ -529,7 +530,9 @@ H5_daos_datatype_commit(void *_item,
     dtype->tapl_id = FAIL;
 
     /* Generate datatype oid */
-    if(H5_daos_oid_generate(&dtype->obj.oid, H5I_DATATYPE, tcpl_id == H5P_DATATYPE_CREATE_DEFAULT ? H5P_DEFAULT : tcpl_id, item->file, collective) < 0)
+    if(H5_daos_oid_generate(&dtype->obj.oid, H5I_DATATYPE,
+            (tcpl_id == H5P_DATATYPE_CREATE_DEFAULT ? H5P_DEFAULT : tcpl_id),
+            item->file, collective, int_req, &first_task, &dep_task) < 0)
         D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't generate object id")
 
     /* Create datatype and write metadata if this process should */
@@ -541,7 +544,6 @@ H5_daos_datatype_commit(void *_item,
         daos_iov_t sg_iov[2];
         size_t type_size = 0;
         size_t tcpl_size = 0;
-        tse_task_t *link_write_task;
 
         /* Traverse the path */
         if(name) {
@@ -611,10 +613,12 @@ H5_daos_datatype_commit(void *_item,
 
             link_val.type = H5L_TYPE_HARD;
             link_val.target.hard = dtype->obj.oid;
-            if(H5_daos_link_write(target_grp, target_name, strlen(target_name), &link_val, int_req, &link_write_task, NULL) < 0)
+            link_val.target_oid_async = &dtype->obj.oid;
+            if(H5_daos_link_write(target_grp, target_name, strlen(target_name),
+                    &link_val, int_req, &dep_task, NULL) < 0)
                 D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't create link to group")
-            first_task = link_write_task;
-            finalize_deps[finalize_ndeps] = link_write_task;
+            first_task = dep_task;
+            finalize_deps[finalize_ndeps] = dep_task;
             finalize_ndeps++;
         } /* end if */
     } /* end if */

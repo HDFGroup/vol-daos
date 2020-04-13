@@ -31,6 +31,28 @@
 #define H5_DAOS_MAX_GRP_NAME     64
 #define H5_DAOS_MAX_SVC_REPLICAS 13
 
+/* Macro to "allocate" the next OIDX value from the local allocation of OIDXs */
+#define H5_DAOS_ALLOCATE_NEXT_OIDX(oidx_out_ptr, next_oidx_ptr, max_oidx_ptr) \
+do {                                                                          \
+    assert((*next_oidx_ptr) <= (*max_oidx_ptr));                              \
+    (*oidx_out_ptr) = (*next_oidx_ptr);                                       \
+    (*next_oidx_ptr)++;                                                       \
+} while(0)
+
+/* Macro to adjust the next OIDX and max. OIDX pointers after
+ * allocating more OIDXs from DAOS.
+ */
+#define H5_DAOS_ADJUST_MAX_AND_NEXT_OIDX(next_oidx_ptr, max_oidx_ptr) \
+do {                                                                  \
+    /* Set max oidx */                                                \
+    (*max_oidx_ptr) = (*next_oidx_ptr) + H5_DAOS_OIDX_NALLOC - 1;     \
+                                                                      \
+    /* Skip over reserved indices for the next oidx */                \
+    assert(H5_DAOS_OIDX_NALLOC > H5_DAOS_OIDX_FIRST_USER);            \
+    if((*next_oidx_ptr) < H5_DAOS_OIDX_FIRST_USER)                    \
+        (*next_oidx_ptr) = H5_DAOS_OIDX_FIRST_USER;                   \
+} while(0)
+
 #define H5_DAOS_PRINT_UUID(uuid) do {       \
     char uuid_buf[37];                      \
     uuid_unparse(uuid, uuid_buf);           \
@@ -75,6 +97,13 @@ static herr_t H5_daos_opt_query(void *item, H5VL_subclass_t cls, int opt_type,
     hbool_t *supported);
 static herr_t H5_daos_optional(void *item, int op_type, hid_t dxpl_id,
     void **req, va_list arguments);
+
+static herr_t H5_daos_oidx_bcast(H5_daos_file_t *file, uint64_t *oidx_out,
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
+static int H5_daos_oidx_bcast_prep_cb(tse_task_t *task, void *args);
+static int H5_daos_oidx_bcast_comp_cb(tse_task_t *task, void *args);
+static int H5_daos_oidx_generate_comp_cb(tse_task_t *task, void *args);
+static int H5_daos_oid_encode_task(tse_task_t *task);
 
 /*******************/
 /* Local Variables */
@@ -1697,8 +1726,11 @@ done:
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_oidx_generate
  *
- * Purpose:     Generate a unique 64 bit object index.  This index will be
- *              used as the lower 64 bits of the DAOS object ID.
+ * Purpose:     Generates a unique 64 bit object index.  This index will be
+ *              used as the lower 64 bits of a DAOS object ID. If
+ *              necessary, this routine creates a task to allocate
+ *              additional object indices for the given container before
+ *              generating the object index that is returned.
  *
  * Return:      Success:    0
  *              Failure:    -1
@@ -1706,71 +1738,411 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_oidx_generate(uint64_t *oidx, H5_daos_file_t *file, hbool_t collective)
+H5_daos_oidx_generate(uint64_t *oidx, H5_daos_file_t *file, hbool_t collective,
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
+    H5_daos_oidx_generate_ud_t *generate_udata = NULL;
+    daos_cont_alloc_oids_t *alloc_args;
+    tse_task_t *generate_task = NULL;
     uint64_t *next_oidx = collective ? &file->next_oidx_collective : &file->next_oidx;
     uint64_t *max_oidx = collective ? &file->max_oidx_collective : &file->max_oidx;
     int ret;
-    int ret_value = SUCCEED;
+    herr_t ret_value = SUCCEED;
+
+    assert(req);
+    assert(first_task);
+    assert(dep_task);
 
     /* Allocate more object indices for this process if necessary */
     if((*max_oidx == 0) || (*next_oidx > *max_oidx)) {
-        uint8_t next_oidx_buf[H5_DAOS_ENCODED_UINT64_T_SIZE];
-        uint8_t *p;
-
         /* Check if this process should allocate object IDs or just wait for the
          * result from the leader process */
         if(!collective || (file->my_rank == 0)) {
-            /* Allocate oidxs */
-            if((ret = daos_cont_alloc_oids(file->coh, H5_DAOS_OIDX_NALLOC, next_oidx, NULL /*event*/)))
-                D_GOTO_ERROR(H5E_VOL, H5E_CANTALLOC, FAIL, "can't allocate object indices: %s", H5_daos_err_to_string(ret))
+            /* Create task to allocate oidxs */
+            if(0 != (ret = daos_task_create(DAOS_OPC_CONT_ALLOC_OIDS, &file->sched, 0, NULL, &generate_task)))
+                D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create task to generate OIDXs: %s", H5_daos_err_to_string(ret))
 
-            /* Broadcast next_oidx if there are other processes that need it */
-            if(collective && (file->num_procs > 1)) {
-                /* Encode next_oidx */
-                p = next_oidx_buf;
-                UINT64ENCODE(p, *next_oidx)
+            /* Register task dependency */
+            if(*dep_task && 0 != (ret = tse_task_register_deps(generate_task, 1, dep_task)))
+                D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create dependencies for OIDX generation task: %s", H5_daos_err_to_string(ret))
 
-                /* MPI_Bcast next_oidx_buf */
-                if(MPI_SUCCESS != MPI_Bcast((char *)next_oidx_buf, sizeof(next_oidx_buf), MPI_BYTE, 0, file->comm))
-                    D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't broadcast next object index")
-            } /* end if */
+            /* Set callback functions for container open */
+            if(0 != (ret = tse_task_register_cbs(generate_task, H5_daos_generic_prep_cb, NULL, 0, H5_daos_oidx_generate_comp_cb, NULL, 0)))
+                D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't register callbacks for task to generate OIDXs: %s", H5_daos_err_to_string(ret))
+
+            /* Set private data for OIDX generation task */
+            if(NULL == (generate_udata = (H5_daos_oidx_generate_ud_t *)DV_malloc(sizeof(H5_daos_oidx_generate_ud_t))))
+                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate user data struct for OIDX generation task")
+            generate_udata->generic_ud.req = req;
+            generate_udata->generic_ud.task_name = "OIDX generation";
+            generate_udata->collective = collective;
+            generate_udata->oidx_out = oidx;
+            generate_udata->next_oidx = next_oidx;
+            generate_udata->max_oidx = max_oidx;
+            (void)tse_task_set_priv(generate_task, generate_udata);
+
+            /* Set arguments for OIDX generation */
+            if(NULL == (alloc_args = daos_task_get_args(generate_task)))
+                D_GOTO_ERROR(H5E_FILE, H5E_CANTGET, FAIL, "can't get arguments for OIDX generation task")
+            alloc_args->coh = file->coh;
+            alloc_args->num_oids = H5_DAOS_OIDX_NALLOC;
+            alloc_args->oid = next_oidx;
+
+            /* Schedule OIDX generation task (or save it to be scheduled later) and give it
+             * a reference to req */
+            if(*first_task) {
+                if(0 != (ret = tse_task_schedule(generate_task, false)))
+                    D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't schedule task to generate OIDXs: %s", H5_daos_err_to_string(ret))
+            }
+            else
+                *first_task = generate_task;
+            req->rc++;
+            file->item.rc++;
+
+            /* Relinquish control of the OIDX generation udata to the
+             * task's completion callback */
+            generate_udata = NULL;
+
+            *dep_task = generate_task;
         } /* end if */
-        else {
-            /* Receive next_oidx_buf */
-            if(MPI_SUCCESS != MPI_Bcast((char *)next_oidx_buf, sizeof(next_oidx_buf), MPI_BYTE, 0, file->comm))
-                D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't receive broadcasted next object index")
 
-            /* Decode next_oidx */
-            p = next_oidx_buf;
-            UINT64DECODE(p, *next_oidx)
-        } /* end if */
-
-        /* Set max oidx */
-        *max_oidx = *next_oidx + H5_DAOS_OIDX_NALLOC - 1;
-
-        /* Skip over reserved indices */
-        assert(H5_DAOS_OIDX_NALLOC > H5_DAOS_OIDX_FIRST_USER);
-        if(*next_oidx < H5_DAOS_OIDX_FIRST_USER)
-            *next_oidx = H5_DAOS_OIDX_FIRST_USER;
+        /* Broadcast next_oidx if there are other processes that need it */
+        if(collective && (file->num_procs > 1) && H5_daos_oidx_bcast(file, oidx, req, first_task, dep_task) < 0)
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTSET, FAIL, "can't broadcast next object index")
     } /* end if */
-
-    /* Allocate oidx from local allocation */
-    assert(*next_oidx <= *max_oidx);
-    *oidx = *next_oidx;
-    (*next_oidx)++;
+    else {
+        /* Allocate oidx from local allocation */
+        H5_DAOS_ALLOCATE_NEXT_OIDX(oidx, next_oidx, max_oidx);
+    }
 
 done:
+    /* Cleanup on failure */
+    if(ret_value < 0) {
+        generate_udata = DV_free(generate_udata);
+    }
+
+    /* Make sure we cleaned up */
+    assert(!generate_udata);
+
     D_FUNC_LEAVE
 } /* end H5_daos_oidx_generate() */
 
 
 /*-------------------------------------------------------------------------
+ * Function:    H5_daos_oidx_generate_comp_cb
+ *
+ * Purpose:     Complete callback for the DAOS OIDX generation task. When
+ *              H5_daos_oidx_generate is called independently, this
+ *              callback is responsible for updating the current process'
+ *              file's max_oidx and next_oidx fields and "allocating" the
+ *              actually returned next oidx. When H5_daos_oidx_generate is
+ *              called collectively, the completion callback for the
+ *              ensuing oidx broadcast task will be responsible for these
+ *              tasks instead.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_oidx_generate_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_oidx_generate_ud_t *udata;
+    uint64_t *next_oidx;
+    uint64_t *max_oidx;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for OIDX generation task")
+
+    assert(!udata->generic_ud.req->file->closed);
+
+    /* Handle errors in OIDX generation task.  Only record error in udata->req_status if
+     * it does not already contain an error (it could contain an error if
+     * another task this task is not dependent on also failed). */
+    if(task->dt_result < -H5_DAOS_PRE_ERROR
+            && udata->generic_ud.req->status >= -H5_DAOS_INCOMPLETE) {
+        udata->generic_ud.req->status = task->dt_result;
+        udata->generic_ud.req->failed_task = udata->generic_ud.task_name;
+    } /* end if */
+
+    next_oidx = udata->next_oidx;
+    max_oidx = udata->max_oidx;
+
+    /* If H5_daos_oidx_generate was called independently, it is
+     * safe to update the file's max and next OIDX fields and
+     * allocate the next OIDX. Otherwise, this must be delayed
+     * until after the next OIDX value has been broadcasted to
+     * the other ranks.
+     */
+    if(!udata->collective || (udata->generic_ud.req->file->num_procs == 1)) {
+        /* Adjust the max and next OIDX values for the file on this process */
+        H5_DAOS_ADJUST_MAX_AND_NEXT_OIDX(next_oidx, max_oidx);
+
+        /* Allocate oidx from local allocation */
+        H5_DAOS_ALLOCATE_NEXT_OIDX(udata->oidx_out, next_oidx, max_oidx);
+    }
+
+    /* DSINC - H5_daos_file_close currently always tries to complete the task scheduler */
+    udata->generic_ud.req->file->item.rc--;
+
+    /* Handle errors in this function */
+    /* Do not place any code that can issue errors after this block, except for
+     * H5_daos_req_free_int, which updates req->status if it sees an error */
+    if(ret_value < 0 && udata->generic_ud.req->status >= -H5_DAOS_INCOMPLETE) {
+        udata->generic_ud.req->status = ret_value;
+        udata->generic_ud.req->failed_task = udata->generic_ud.task_name;
+    } /* end if */
+
+    /* Release our reference to req */
+    if(H5_daos_req_free_int(udata->generic_ud.req) < 0)
+        D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request")
+
+    /* Free private data */
+    DV_free(udata);
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_oidx_generate_comp_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_oidx_bcast
+ *
+ * Purpose:     Creates an asynchronous task for broadcasting the next OIDX
+ *              value after rank 0 has allocated more from DAOS.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_oidx_bcast(H5_daos_file_t *file, uint64_t *oidx_out,
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
+{
+    H5_daos_oidx_bcast_ud_t *oidx_bcast_udata = NULL;
+    tse_task_t *bcast_task = NULL;
+    int ret;
+    herr_t ret_value = SUCCEED;
+
+    assert(file);
+    assert(oidx_out);
+    assert(req);
+    assert(first_task);
+    assert(dep_task);
+
+    /* Set up broadcast user data */
+    if(NULL == (oidx_bcast_udata = (H5_daos_oidx_bcast_ud_t *)DV_malloc(sizeof(H5_daos_oidx_bcast_ud_t))))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "failed to allocate buffer for MPI broadcast user data")
+    oidx_bcast_udata->bcast_udata.req = req;
+    oidx_bcast_udata->bcast_udata.obj = NULL;
+    oidx_bcast_udata->bcast_udata.bcast_metatask = NULL;
+    oidx_bcast_udata->bcast_udata.buffer = NULL;
+    oidx_bcast_udata->bcast_udata.buffer_len = 0;
+    oidx_bcast_udata->bcast_udata.count = 0;
+    oidx_bcast_udata->oidx_out = oidx_out;
+    oidx_bcast_udata->next_oidx = &file->next_oidx_collective;
+    oidx_bcast_udata->max_oidx = &file->max_oidx_collective;
+
+    /* Allocate oidx buffer */
+    if(NULL == (oidx_bcast_udata->bcast_udata.buffer = DV_malloc(H5_DAOS_ENCODED_UINT64_T_SIZE)))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for next object index")
+    oidx_bcast_udata->bcast_udata.buffer_len = H5_DAOS_ENCODED_UINT64_T_SIZE;
+    oidx_bcast_udata->bcast_udata.count = H5_DAOS_ENCODED_UINT64_T_SIZE;
+
+    /* Create task for broadcast */
+    if(0 != (ret = tse_task_create(H5_daos_mpi_ibcast_task, &file->sched, oidx_bcast_udata, &bcast_task)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create task to broadcast next object index: %s", H5_daos_err_to_string(ret))
+
+    /* Register dependency on dep_task if present */
+    if(*dep_task && 0 != (ret = tse_task_register_deps(bcast_task, 1, dep_task)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create dependencies for next object index broadcast task: %s", H5_daos_err_to_string(ret))
+
+    /* Set callback functions for next object index bcast */
+    if(0 != (ret = tse_task_register_cbs(bcast_task, (file->my_rank == 0) ? H5_daos_oidx_bcast_prep_cb : NULL,
+            NULL, 0, H5_daos_oidx_bcast_comp_cb, NULL, 0)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't register callbacks for next object index broadcast: %s", H5_daos_err_to_string(ret))
+
+    /* Schedule OIDX broadcast task (or save it to be scheduled later) and give it
+     * a reference to req */
+    if(*first_task) {
+        if(0 != (ret = tse_task_schedule(bcast_task, false)))
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't schedule task to broadcast next object index: %s", H5_daos_err_to_string(ret))
+    }
+    else
+        *first_task = bcast_task;
+    req->rc++;
+    file->item.rc++;
+
+    /* Relinquish control of the OIDX broadcast udata to the
+     * task's completion callback */
+    oidx_bcast_udata = NULL;
+
+    *dep_task = bcast_task;
+
+done:
+    /* Cleanup on failure */
+    if(oidx_bcast_udata) {
+        assert(ret_value < 0);
+        DV_free(oidx_bcast_udata->bcast_udata.buffer);
+        oidx_bcast_udata = DV_free(oidx_bcast_udata);
+    } /* end if */
+
+    D_FUNC_LEAVE
+} /* end H5_daos_oidx_bcast() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_oidx_bcast_prep_cb
+ *
+ * Purpose:     Prepare callback for asynchronous OIDX broadcasts.
+ *              Currently checks for errors from previous tasks and then
+ *              encodes the OIDX value into the broadcast buffer before
+ *              sending. Meant only to be called by rank 0.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_oidx_bcast_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_oidx_bcast_ud_t *udata;
+    uint8_t *p;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for object index broadcast task")
+
+    assert(udata->bcast_udata.req);
+    assert(udata->bcast_udata.buffer);
+    assert(udata->next_oidx);
+    assert(H5_DAOS_ENCODED_UINT64_T_SIZE == udata->bcast_udata.buffer_len);
+    assert(H5_DAOS_ENCODED_UINT64_T_SIZE == udata->bcast_udata.count);
+
+    /* Handle errors */
+    if(udata->bcast_udata.req->status < -H5_DAOS_INCOMPLETE) {
+        tse_task_complete(task, -H5_DAOS_PRE_ERROR);
+        udata = NULL;
+        D_GOTO_DONE(H5_DAOS_PRE_ERROR);
+    } /* end if */
+
+    p = udata->bcast_udata.buffer;
+    UINT64ENCODE(p, *udata->next_oidx);
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_oidx_bcast_prep_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_oidx_bcast_comp_cb
+ *
+ * Purpose:     Complete callback for asynchronous OIDX broadcasts.
+ *              Currently checks for a failed task, then performs the
+ *              following in order:
+ *
+ *              - decodes the sent OIDX buffer on the ranks that are
+ *                receiving it
+ *              - adjusts the max OIDX and next OIDX fields in the file on
+ *                all ranks
+ *              - allocates the next OIDX value on all ranks
+ *              - frees private data
+ *
+ *              Meant to be called by all ranks.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_oidx_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_oidx_bcast_ud_t *udata;
+    uint64_t *next_oidx;
+    uint64_t *max_oidx;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for object index broadcast task")
+
+    assert(udata->bcast_udata.req);
+    assert(udata->bcast_udata.buffer);
+    assert(udata->oidx_out);
+    assert(udata->next_oidx);
+    assert(udata->max_oidx);
+    assert(H5_DAOS_ENCODED_UINT64_T_SIZE == udata->bcast_udata.buffer_len);
+    assert(H5_DAOS_ENCODED_UINT64_T_SIZE == udata->bcast_udata.count);
+
+    /* Handle errors in OIDX broadcast task.  Only record error in
+     * udata->req_status if it does not already contain an error (it could
+     * contain an error if another task this task is not dependent on also
+     * failed). */
+    if(task->dt_result < -H5_DAOS_PRE_ERROR
+            && udata->bcast_udata.req->status >= -H5_DAOS_INCOMPLETE) {
+        udata->bcast_udata.req->status = task->dt_result;
+        udata->bcast_udata.req->failed_task = "MPI_Ibcast next object index";
+    } /* end if */
+
+    next_oidx = udata->next_oidx;
+    max_oidx = udata->max_oidx;
+
+    /* Decode sent OIDX on receiving ranks */
+    if(udata->bcast_udata.req->file->my_rank != 0) {
+        uint8_t *p = udata->bcast_udata.buffer;
+        UINT64DECODE(p, *next_oidx);
+    }
+
+    /* Adjust the max and next OIDX values for the file on this process */
+    H5_DAOS_ADJUST_MAX_AND_NEXT_OIDX(next_oidx, max_oidx);
+
+    /* Allocate oidx from local allocation */
+    H5_DAOS_ALLOCATE_NEXT_OIDX(udata->oidx_out, next_oidx, max_oidx);
+
+done:
+    if(udata) {
+        /* Handle errors in this function */
+        /* Do not place any code that can issue errors after this block, except
+         * for H5_daos_req_free_int, which updates req->status if it sees an
+         * error */
+        if(ret_value < 0 && udata->bcast_udata.req->status >= -H5_DAOS_INCOMPLETE) {
+            udata->bcast_udata.req->status = ret_value;
+            udata->bcast_udata.req->failed_task = "MPI_Ibcast next object index completion callback";
+        } /* end if */
+
+        /* DSINC - H5_daos_file_close currently always tries to complete the task scheduler */
+        udata->bcast_udata.req->file->item.rc--;
+
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(udata->bcast_udata.req) < 0)
+            D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request")
+
+        /* Free buffer */
+        DV_free(udata->bcast_udata.buffer);
+
+        /* Free private data */
+        DV_free(udata);
+    }
+    else
+        assert(ret_value >= 0 || ret_value == -H5_DAOS_DAOS_GET_ERROR);
+
+    D_FUNC_LEAVE
+} /* end H5_daos_oidx_bcast_comp_cb() */
+
+
+/*-------------------------------------------------------------------------
  * Function:    H5_daos_oid_encode
  *
- * Purpose:     Create a DAOS OID given the object type and a 64 bit
- *              index.  file must have at least the default_object_class
- *              field set, but may be otherwise uninitialized.
+ * Purpose:     Creates a DAOS OID given the object type and a 64 bit
+ *              object index.  Note that `file` must have at least the
+ *              default_object_class field set, but may be otherwise
+ *              uninitialized.
  *
  * Return:      Success:    0
  *              Failure:    -1
@@ -1783,14 +2155,12 @@ H5_daos_oid_encode(daos_obj_id_t *oid, uint64_t oidx, H5I_type_t obj_type,
 {
     daos_oclass_id_t object_class = OC_UNKNOWN;
     daos_ofeat_t object_feats;
-    htri_t prop_exists;
-    char *oclass_str = NULL;
-    int ret_value = SUCCEED;
+    herr_t ret_value = SUCCEED;
 
     /* Initialize oid.lo to oidx */
     oid->lo = oidx;
 
-    /* Set type bits in the upper 2 bits of of the lower 32 of oid.hi (for
+    /* Set type bits in the upper 2 bits of the lower 32 of oid.hi (for
      * simplicity so they're in the same location as in the compacted haddr_t
      * form) */
     if(obj_type == H5I_GROUP)
@@ -1815,9 +2185,13 @@ H5_daos_oid_encode(daos_obj_id_t *oid, uint64_t oidx, H5I_type_t obj_type,
      * "get" callback, so this is more like an H5P_peek, and we do not need to
      * free oclass_str as it points directly into the plist value */
     if(crt_plist_id != H5P_DEFAULT) {
+        htri_t prop_exists;
+
         if((prop_exists = H5Pexist(crt_plist_id, oclass_prop_name)) < 0)
             D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "can't check for object class property")
         if(prop_exists) {
+            char *oclass_str = NULL;
+
             if(H5Pget(crt_plist_id, oclass_prop_name, &oclass_str) < 0)
                 D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "can't get object class")
             if(oclass_str && (oclass_str[0] != '\0'))
@@ -1844,6 +2218,71 @@ done:
 
 
 /*-------------------------------------------------------------------------
+ * Function:    H5_daos_oid_encode_task
+ *
+ * Purpose:     Asynchronous task for calling H5_daos_oid_encode.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_oid_encode_task(tse_task_t *task)
+{
+    H5_daos_oid_encode_ud_t *udata = NULL;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for OID encoding task")
+
+    assert(udata->req);
+    assert(udata->oid_out);
+
+    /* Check for previous errors */
+    if(udata->req->status < -H5_DAOS_INCOMPLETE)
+        D_GOTO_DONE(H5_DAOS_PRE_ERROR)
+
+    if(H5_daos_oid_encode(udata->oid_out, udata->oidx, udata->obj_type,
+            udata->crt_plist_id, udata->oclass_prop_name, udata->req->file) < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTENCODE, -H5_DAOS_H5_ENCODE_ERROR, "can't encode object ID")
+
+done:
+    /* Free private data if we haven't released ownership */
+    if(udata) {
+        if(H5P_DEFAULT != udata->crt_plist_id)
+            if(H5Idec_ref(udata->crt_plist_id) < 0)
+                D_DONE_ERROR(H5E_PLIST, H5E_CANTDEC, -H5_DAOS_H5_CLOSE_ERROR, "can't decrement ref. count on creation plist")
+
+        /* DSINC - H5_daos_file_close currently always tries to complete the task scheduler */
+        udata->req->file->item.rc--;
+
+        /* Handle errors in this function */
+        /* Do not place any code that can issue errors after this block, except for
+         * H5_daos_req_free_int, which updates req->status if it sees an error */
+        if(ret_value < 0 && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+            udata->req->status = ret_value;
+            udata->req->failed_task = "OID encoding task";
+        } /* end if */
+
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(udata->req) < 0)
+            D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request")
+
+        /* Free private data */
+        DV_free(udata);
+    } /* end if */
+    else
+        assert(ret_value == -H5_DAOS_DAOS_GET_ERROR);
+
+    /* Complete this task */
+    tse_task_complete(task, ret_value);
+
+    D_FUNC_LEAVE
+} /* end H5_daos_oid_encode_task() */
+
+
+/*-------------------------------------------------------------------------
  * Function:    H5_daos_oid_generate
  *
  * Purpose:     Generate a DAOS OID given the object type and file
@@ -1855,50 +2294,84 @@ done:
  */
 herr_t
 H5_daos_oid_generate(daos_obj_id_t *oid, H5I_type_t obj_type,
-    hid_t crt_plist_id, H5_daos_file_t *file, hbool_t collective)
+    hid_t crt_plist_id, H5_daos_file_t *file, hbool_t collective,
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
-    uint64_t oidx;
-    int ret_value = SUCCEED;
+    H5_daos_oid_encode_ud_t *encode_udata = NULL;
+    tse_task_t *dep_task_orig;
+    tse_task_t *encode_task = NULL;
+    int ret;
+    herr_t ret_value = SUCCEED;
+
+    assert(req);
+    assert(first_task);
+    assert(dep_task);
+
+    /* Track originally passed in dep task */
+    dep_task_orig = *dep_task;
+
+    /* Set up user data for OID encoding */
+    if(NULL == (encode_udata = (H5_daos_oid_encode_ud_t *)DV_malloc(sizeof(H5_daos_oid_encode_ud_t))))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "failed to allocate buffer for OID encoding user data")
+    encode_udata->req = req;
+    encode_udata->oid_out = oid;
 
     /* Generate oidx */
-    if(H5_daos_oidx_generate(&oidx, file, collective) < 0)
+    if(H5_daos_oidx_generate(&encode_udata->oidx, file, collective, req, first_task, dep_task) < 0)
         D_GOTO_ERROR(H5E_VOL, H5E_CANTALLOC, FAIL, "can't generate object index")
 
-    /* Encode oid */
-    if(H5_daos_oid_encode(oid, oidx, obj_type, crt_plist_id, H5_DAOS_OBJ_CLASS_NAME, file) < 0)
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTENCODE, FAIL, "can't encode object ID")
+    /* If OIDX generation created tasks, the following OID encoding must also
+     * create tasks to depend on those tasks. Otherwise, the encoding proceeds
+     * synchronously.
+     */
+    if(dep_task_orig == *dep_task) {
+        /* Encode oid */
+        if(H5_daos_oid_encode(encode_udata->oid_out, encode_udata->oidx, obj_type,
+                crt_plist_id, H5_DAOS_OBJ_CLASS_NAME, file) < 0)
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTENCODE, FAIL, "can't encode object ID")
+    }
+    else {
+        /* Create asynchronous task for OID encoding */
+
+        encode_udata->obj_type = obj_type;
+        encode_udata->crt_plist_id = crt_plist_id;
+        encode_udata->oclass_prop_name = H5_DAOS_OBJ_CLASS_NAME;
+
+        /* Create task to encode OID */
+        if(0 != (ret = tse_task_create(H5_daos_oid_encode_task, &file->sched, encode_udata, &encode_task)))
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create task to encode OID: %s", H5_daos_err_to_string(ret))
+
+        /* Register task dependency */
+        if(*dep_task && 0 != (ret = tse_task_register_deps(encode_task, 1, dep_task)))
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create dependencies for OID encoding task: %s", H5_daos_err_to_string(ret))
+
+        /* Schedule OID encoding task (or save it to be scheduled later) and give it
+         * a reference to req */
+        if(*first_task) {
+            if(0 != (ret = tse_task_schedule(encode_task, false)))
+                D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't schedule task to encode OID: %s", H5_daos_err_to_string(ret))
+        }
+        else
+            *first_task = encode_task;
+        req->rc++;
+        file->item.rc++;
+
+        /* Relinquish control of the OID encoding udata to the
+         * task's completion callback */
+        encode_udata = NULL;
+
+        if(H5P_DEFAULT != crt_plist_id)
+            if(H5Iinc_ref(crt_plist_id) < 0)
+                D_GOTO_ERROR(H5E_PLIST, H5E_CANTINC, FAIL, "can't increment ref. count on creation plist")
+
+        *dep_task = encode_task;
+    }
 
 done:
+    encode_udata = DV_free(encode_udata);
+
     D_FUNC_LEAVE
 } /* end H5_daos_oid_generate() */
-
-
-/*-------------------------------------------------------------------------
- * Function:    H5_daos_addr_to_oid
- *
- * Purpose:     Convert a compacted address to an OID
- *
- * Return:      Success:    0
- *              Failure:    -1
- *
- *-------------------------------------------------------------------------
- */
-herr_t
-H5_daos_addr_to_oid(daos_obj_id_t *oid, haddr_t addr)
-{
-    int ret_value = SUCCEED;
-
-    /* Check for HADDR_UNDEF */
-    if(addr == HADDR_UNDEF)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "address is undefined")
-
-    /* Build OID */
-    oid->lo = addr & H5_DAOS_ADDR_OIDLO_MASK;
-    oid->hi = addr & H5_DAOS_ADDR_OIDHI_MASK;
-
-done:
-    D_FUNC_LEAVE
-} /* end H5_daos_addr_to_oid() */
 
 
 /*-------------------------------------------------------------------------

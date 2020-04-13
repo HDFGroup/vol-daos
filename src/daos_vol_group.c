@@ -224,11 +224,10 @@ done:
  *-------------------------------------------------------------------------
  */
 void *
-H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
-    hid_t gapl_id, hid_t dxpl_id, H5_daos_req_t *req,
+H5_daos_group_create_helper(H5_daos_file_t *file, hbool_t is_root,
+    hid_t gcpl_id, hid_t gapl_id, hid_t dxpl_id, H5_daos_req_t *req,
     H5_daos_group_t *parent_grp, const char *name, size_t name_len,
-    uint64_t oidx, hbool_t collective, tse_task_t **first_task,
-    tse_task_t **dep_task)
+    hbool_t collective, tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_group_t *grp = NULL;
     void *gcpl_buf = NULL;
@@ -256,9 +255,20 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
     grp->gcpl_id = FAIL;
     grp->gapl_id = FAIL;
 
-    /* Encode group oid */
-    if(H5_daos_oid_encode(&grp->obj.oid, oidx, H5I_GROUP, gcpl_id == H5P_GROUP_CREATE_DEFAULT ? H5P_DEFAULT : gcpl_id, H5_DAOS_OBJ_CLASS_NAME, file) < 0)
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTENCODE, NULL, "can't encode object ID")
+    if(is_root) {
+        /* Encode root group oid */
+        if(H5_daos_oid_encode(&grp->obj.oid, H5_DAOS_OIDX_ROOT, H5I_GROUP,
+                (gcpl_id == H5P_GROUP_CREATE_DEFAULT ? H5P_DEFAULT : gcpl_id),
+                H5_DAOS_OBJ_CLASS_NAME, file) < 0)
+            D_GOTO_ERROR(H5E_FILE, H5E_CANTENCODE, NULL, "can't encode object ID")
+    }
+    else {
+        /* Generate an oid for the group */
+        if(H5_daos_oid_generate(&grp->obj.oid, H5I_GROUP,
+                (gcpl_id == H5P_GROUP_CREATE_DEFAULT ? H5P_DEFAULT : gcpl_id),
+                file, collective, req, first_task, dep_task) < 0)
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't generate object id")
+    }
 
     /* Open group object */
     if(H5_daos_obj_open(file, req, &grp->obj.oid, DAOS_OO_RW, &grp->obj.obj_oh, "group object open", first_task, dep_task) < 0)
@@ -349,7 +359,9 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hid_t gcpl_id,
 
             link_val.type = H5L_TYPE_HARD;
             link_val.target.hard = grp->obj.oid;
-            if(H5_daos_link_write(parent_grp, name, name_len, &link_val, req, &link_write_task, *dep_task) < 0)
+            link_val.target_oid_async = &grp->obj.oid;
+            if(H5_daos_link_write(parent_grp, name, name_len,
+                    &link_val, req, &link_write_task, *dep_task) < 0)
                 D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't create link to group")
             gmt_deps[gmt_ndeps] = link_write_task;
             gmt_ndeps++;
@@ -453,7 +465,6 @@ H5_daos_group_create(void *_item,
     H5_daos_group_t *grp = NULL;
     H5_daos_group_t *target_grp = NULL;
     const char *target_name = NULL;
-    uint64_t oidx;
     hbool_t collective;
     H5_daos_req_t *int_req = NULL;
     tse_task_t *first_task = NULL;
@@ -500,13 +511,10 @@ H5_daos_group_create(void *_item,
         } /* end if */
     } /* end if */
 
-    /* Generate object index */
-    if(H5_daos_oidx_generate(&oidx, item->file, collective) < 0)
-        D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't generate object index")
-
     /* Create group and link to group */
-    if(NULL == (grp = (H5_daos_group_t *)H5_daos_group_create_helper(item->file, gcpl_id, gapl_id, dxpl_id,
-            int_req, target_grp, target_name, target_name ? strlen(target_name) : 0, oidx, collective, &first_task, &dep_task)))
+    if(NULL == (grp = (H5_daos_group_t *)H5_daos_group_create_helper(item->file, FALSE,
+            gcpl_id, gapl_id, dxpl_id, int_req, target_grp, target_name,
+            target_name ? strlen(target_name) : 0, collective, &first_task, &dep_task)))
         D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't create group")
 
     /* Set return value */

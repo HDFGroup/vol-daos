@@ -2024,12 +2024,10 @@ H5_daos_oidx_bcast_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     assert(H5_DAOS_ENCODED_UINT64_T_SIZE == udata->bcast_udata.buffer_len);
     assert(H5_DAOS_ENCODED_UINT64_T_SIZE == udata->bcast_udata.count);
 
-    /* Handle errors */
-    if(udata->bcast_udata.req->status < -H5_DAOS_INCOMPLETE) {
-        tse_task_complete(task, -H5_DAOS_PRE_ERROR);
-        udata = NULL;
-        D_GOTO_DONE(H5_DAOS_PRE_ERROR);
-    } /* end if */
+    /* Note that we do not handle errors from a previous task here.
+     * The broadcast must still proceed on all ranks even if a
+     * previous task has failed.
+     */
 
     p = udata->bcast_udata.buffer;
     UINT64ENCODE(p, *udata->next_oidx);
@@ -2089,21 +2087,22 @@ H5_daos_oidx_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         udata->bcast_udata.req->status = task->dt_result;
         udata->bcast_udata.req->failed_task = "MPI_Ibcast next object index";
     } /* end if */
+    else {
+        next_oidx = udata->next_oidx;
+        max_oidx = udata->max_oidx;
 
-    next_oidx = udata->next_oidx;
-    max_oidx = udata->max_oidx;
+        /* Decode sent OIDX on receiving ranks */
+        if(udata->bcast_udata.req->file->my_rank != 0) {
+            uint8_t *p = udata->bcast_udata.buffer;
+            UINT64DECODE(p, *next_oidx);
+        }
 
-    /* Decode sent OIDX on receiving ranks */
-    if(udata->bcast_udata.req->file->my_rank != 0) {
-        uint8_t *p = udata->bcast_udata.buffer;
-        UINT64DECODE(p, *next_oidx);
-    }
+        /* Adjust the max and next OIDX values for the file on this process */
+        H5_DAOS_ADJUST_MAX_AND_NEXT_OIDX(next_oidx, max_oidx);
 
-    /* Adjust the max and next OIDX values for the file on this process */
-    H5_DAOS_ADJUST_MAX_AND_NEXT_OIDX(next_oidx, max_oidx);
-
-    /* Allocate oidx from local allocation */
-    H5_DAOS_ALLOCATE_NEXT_OIDX(udata->oidx_out, next_oidx, max_oidx);
+        /* Allocate oidx from local allocation */
+        H5_DAOS_ALLOCATE_NEXT_OIDX(udata->oidx_out, next_oidx, max_oidx);
+    } /* end else */
 
 done:
     if(udata) {

@@ -313,14 +313,11 @@ H5_daos_link_write(H5_daos_group_t *target_grp, const char *name,
             if(NULL == (link_write_ud->link_val_buf = (uint8_t *)DV_malloc(link_write_ud->link_val_buf_size)))
                 D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate space for link target")
 
-            /* If this link write depends on an OID that may be filled in
-             * asynchronously, delay encoding of the OID until the task's
-             * prep callback.
+            /* For hard links, encoding of the OID into the link's value buffer
+             * is delayed until the link write task's preparation callback. This
+             * is to allow for the case where the link write might depend on an
+             * OID that gets generated asynchronously.
              */
-            if(!link_val->target_oid_async) {
-                H5_DAOS_ENCODE_LINK_VALUE(link_write_ud->link_val_buf, link_write_ud->link_val_buf_size,
-                    link_write_ud->link_val, H5L_TYPE_HARD);
-            }
 
             break;
 
@@ -494,18 +491,23 @@ H5_daos_link_write_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         D_GOTO_DONE(H5_DAOS_PRE_ERROR);
     } /* end if */
 
-    /*
-     * If this task depends on an OID that may be filled in
-     * asynchronously, encoding of the OID information into
-     * the link value buffer can now happen.
+    /* If this is a hard link, encoding of the OID into
+     * the link's value buffer was delayed until this point.
+     * Go ahead and do the encoding now.
      */
-    if(udata->link_val.target_oid_async) {
-        assert(udata->link_val.type == H5L_TYPE_HARD);
-        udata->link_val.target.hard.lo = udata->link_val.target_oid_async->lo;
-        udata->link_val.target.hard.hi = udata->link_val.target_oid_async->hi;
+    if(udata->link_val.type == H5L_TYPE_HARD) {
+        if(udata->link_val.target_oid_async) {
+            /* If the OID for this link was generated asynchronously,
+             * go ahead and set up the target OID field in the
+             * H5_daos_link_val_t to be used for the encoding process.
+             */
+            udata->link_val.target.hard.lo = udata->link_val.target_oid_async->lo;
+            udata->link_val.target.hard.hi = udata->link_val.target_oid_async->hi;
+        } /* end if */
+
         H5_DAOS_ENCODE_LINK_VALUE(udata->link_val_buf, udata->link_val_buf_size,
                 udata->link_val, H5L_TYPE_HARD);
-    }
+    } /* end if */
 
     /* Set up SGL */
     daos_iov_set(&udata->md_rw_cb_ud.sg_iov[0], udata->link_val_buf, udata->md_rw_cb_ud.iod[0].iod_size);

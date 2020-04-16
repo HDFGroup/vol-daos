@@ -485,6 +485,7 @@ H5_daos_datatype_commit(void *_item,
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_dtype_t *dtype = NULL;
     H5_daos_group_t *target_grp = NULL;
+    H5_daos_md_rw_cb_ud_t *update_cb_ud = NULL;
     void *type_buf = NULL;
     void *tcpl_buf = NULL;
     hbool_t collective;
@@ -493,6 +494,7 @@ H5_daos_datatype_commit(void *_item,
     tse_task_t *finalize_deps[2];
     H5_daos_req_t *int_req = NULL;
     tse_task_t *first_task = NULL;
+    tse_task_t *dep_task = NULL;
     int ret;
     void *ret_value = NULL;
 
@@ -528,19 +530,30 @@ H5_daos_datatype_commit(void *_item,
     dtype->tcpl_id = FAIL;
     dtype->tapl_id = FAIL;
 
+#ifdef H5_DAOS_USE_TRANSACTIONS
+    /* Start transaction */
+    if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't start transaction")
+    int_req->th_open = TRUE;
+#endif /* H5_DAOS_USE_TRANSACTIONS */
+
     /* Generate datatype oid */
-    if(H5_daos_oid_generate(&dtype->obj.oid, H5I_DATATYPE, tcpl_id == H5P_DATATYPE_CREATE_DEFAULT ? H5P_DEFAULT : tcpl_id, item->file, collective) < 0)
+    if(H5_daos_oid_generate(&dtype->obj.oid, H5I_DATATYPE,
+            (tcpl_id == H5P_DATATYPE_CREATE_DEFAULT ? H5P_DEFAULT : tcpl_id),
+            item->file, collective, int_req, &first_task, &dep_task) < 0)
         D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't generate object id")
+
+    /* Open datatype object */
+    if(H5_daos_obj_open(item->file, int_req, &dtype->obj.oid, DAOS_OO_RW,
+            &dtype->obj.obj_oh, "datatype object open", &first_task, &dep_task) < 0)
+        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTOPENOBJ, NULL, "can't open datatype object")
 
     /* Create datatype and write metadata if this process should */
     if(!collective || (item->file->my_rank == 0)) {
         const char *target_name = NULL;
-        daos_key_t dkey;
-        daos_iod_t iod[2];
-        daos_sg_list_t sgl[2];
-        daos_iov_t sg_iov[2];
         size_t type_size = 0;
         size_t tcpl_size = 0;
+        tse_task_t *update_task;
         tse_task_t *link_write_task;
 
         /* Traverse the path */
@@ -555,9 +568,10 @@ H5_daos_datatype_commit(void *_item,
         } /* end if */
 
         /* Create datatype */
-        /* Open datatype */
-        if(0 != (ret = daos_obj_open(item->file->coh, dtype->obj.oid, DAOS_OO_RW, &dtype->obj.obj_oh, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTOPENOBJ, NULL, "can't open datatype: %s", H5_daos_err_to_string(ret))
+
+        /* Allocate argument struct */
+        if(NULL == (update_cb_ud = (H5_daos_md_rw_cb_ud_t *)DV_calloc(sizeof(H5_daos_md_rw_cb_ud_t))))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for update callback arguments")
 
         /* Encode datatype */
         if(H5Tencode(type_id, NULL, &type_size) < 0)
@@ -576,34 +590,73 @@ H5_daos_datatype_commit(void *_item,
             D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTENCODE, NULL, "can't serialize tcpl")
 
         /* Set up operation to write datatype and TCPL to datatype */
-        /* Set up dkey */
-        daos_iov_set(&dkey, (void *)H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
+        /* Point to datatype object */
+        update_cb_ud->obj = &dtype->obj;
+
+        /* Point to req */
+        update_cb_ud->req = int_req;
+
+        /* Set up dkey.  Point to global name buffer, do not free. */
+        daos_iov_set(&update_cb_ud->dkey, (void *)H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
+        update_cb_ud->free_dkey = FALSE;
 
         /* Set up iod */
-        memset(iod, 0, sizeof(iod));
-        daos_iov_set(&iod[0].iod_name, (void *)H5_daos_type_key_g, H5_daos_type_key_size_g);
-        iod[0].iod_nr = 1u;
-        iod[0].iod_size = (uint64_t)type_size;
-        iod[0].iod_type = DAOS_IOD_SINGLE;
+        daos_iov_set(&update_cb_ud->iod[0].iod_name, (void *)H5_daos_type_key_g, H5_daos_type_key_size_g);
+        update_cb_ud->iod[0].iod_nr = 1u;
+        update_cb_ud->iod[0].iod_size = (uint64_t)type_size;
+        update_cb_ud->iod[0].iod_type = DAOS_IOD_SINGLE;
 
-        daos_iov_set(&iod[1].iod_name, (void *)H5_daos_cpl_key_g, H5_daos_cpl_key_size_g);
-        iod[1].iod_nr = 1u;
-        iod[1].iod_size = (uint64_t)tcpl_size;
-        iod[1].iod_type = DAOS_IOD_SINGLE;
+        daos_iov_set(&update_cb_ud->iod[1].iod_name, (void *)H5_daos_cpl_key_g, H5_daos_cpl_key_size_g);
+        update_cb_ud->iod[1].iod_nr = 1u;
+        update_cb_ud->iod[1].iod_size = (uint64_t)tcpl_size;
+        update_cb_ud->iod[1].iod_type = DAOS_IOD_SINGLE;
+
+        update_cb_ud->free_akeys = FALSE;
 
         /* Set up sgl */
-        daos_iov_set(&sg_iov[0], type_buf, (daos_size_t)type_size);
-        sgl[0].sg_nr = 1;
-        sgl[0].sg_nr_out = 0;
-        sgl[0].sg_iovs = &sg_iov[0];
-        daos_iov_set(&sg_iov[1], tcpl_buf, (daos_size_t)tcpl_size);
-        sgl[1].sg_nr = 1;
-        sgl[1].sg_nr_out = 0;
-        sgl[1].sg_iovs = &sg_iov[1];
+        daos_iov_set(&update_cb_ud->sg_iov[0], type_buf, (daos_size_t)type_size);
+        update_cb_ud->sgl[0].sg_nr = 1;
+        update_cb_ud->sgl[0].sg_nr_out = 0;
+        update_cb_ud->sgl[0].sg_iovs = &update_cb_ud->sg_iov[0];
+        daos_iov_set(&update_cb_ud->sg_iov[1], tcpl_buf, (daos_size_t)tcpl_size);
+        update_cb_ud->sgl[1].sg_nr = 1;
+        update_cb_ud->sgl[1].sg_nr_out = 0;
+        update_cb_ud->sgl[1].sg_iovs = &update_cb_ud->sg_iov[1];
 
-        /* Write internal metadata to datatype */
-        if(0 != (ret = daos_obj_update(dtype->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 2, iod, sgl, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't write metadata to datatype: %s", H5_daos_err_to_string(ret))
+        /* Set nr */
+        update_cb_ud->nr = 2u;
+
+        /* Set task name */
+        update_cb_ud->task_name = "datatype metadata write";
+
+        /* Create task for datatype metadata write */
+        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_UPDATE, &item->file->sched, 0, NULL, &update_task)))
+            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't create task to write datatype medadata: %s", H5_daos_err_to_string(ret))
+
+        /* Register dependency for task */
+        if(0 != (ret = tse_task_register_deps(update_task, 1, &dep_task)))
+            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't create dependencies for datatype metadata write task: %s", H5_daos_err_to_string(ret))
+
+        /* Set callback functions for datatype metadata write */
+        if(0 != (ret = tse_task_register_cbs(update_task, H5_daos_md_rw_prep_cb, NULL, 0, H5_daos_md_update_comp_cb, NULL, 0)))
+            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't register callbacks for task to write datatype medadata: %s", H5_daos_err_to_string(ret))
+
+        /* Set private data for datatype metadata write */
+        (void)tse_task_set_priv(update_task, update_cb_ud);
+
+        /* Schedule datatype metadata write task and give it a reference to req
+         * and the datatype */
+        if(0 != (ret = tse_task_schedule(update_task, false)))
+            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't schedule task to write datatype metadata: %s", H5_daos_err_to_string(ret))
+        int_req->rc++;
+        dtype->obj.item.rc++;
+        update_cb_ud = NULL;
+        type_buf = NULL;
+        tcpl_buf = NULL;
+
+        /* Add dependency for finalize task */
+        finalize_deps[finalize_ndeps] = update_task;
+        finalize_ndeps++;
 
         /* Create link to datatype */
         if(target_grp) {
@@ -611,9 +664,10 @@ H5_daos_datatype_commit(void *_item,
 
             link_val.type = H5L_TYPE_HARD;
             link_val.target.hard = dtype->obj.oid;
-            if(H5_daos_link_write(target_grp, target_name, strlen(target_name), &link_val, int_req, &link_write_task, NULL) < 0)
-                D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't create link to group")
-            first_task = link_write_task;
+            link_val.target_oid_async = &dtype->obj.oid;
+            if(H5_daos_link_write(target_grp, target_name, strlen(target_name),
+                    &link_val, int_req, &link_write_task, dep_task) < 0)
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't create link to datatype")
             finalize_deps[finalize_ndeps] = link_write_task;
             finalize_ndeps++;
         } /* end if */
@@ -626,18 +680,22 @@ H5_daos_datatype_commit(void *_item,
          * There is probably never an issue with file reopen since all commits
          * are from process 0, same as the datatype create above. */
 
-        /* Open datatype */
-        if(0 != (ret = daos_obj_open(item->file->coh, dtype->obj.oid, DAOS_OO_RW, &dtype->obj.obj_oh, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTOPENOBJ, NULL, "can't open datatype: %s", H5_daos_err_to_string(ret))
+        /* Only dep_task created, register it as the finalize dependency */
+        assert(finalize_ndeps == 0);
+        assert(dep_task);
+        finalize_deps[0] = dep_task;
+        finalize_ndeps = 1;
+
+        /* Check for failure of process 0 DSINC */
     } /* end else */
 
     /* Finish setting up datatype struct */
     if((dtype->type_id = H5Tcopy(type_id)) < 0)
-        D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, NULL, "failed to copy datatype")
+        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTCOPY, NULL, "failed to copy datatype")
     if((dtype->tcpl_id = H5Pcopy(tcpl_id)) < 0)
-        D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, NULL, "failed to copy tcpl")
+        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTCOPY, NULL, "failed to copy tcpl")
     if((dtype->tapl_id = H5Pcopy(tapl_id)) < 0)
-        D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, NULL, "failed to copy tapl")
+        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTCOPY, NULL, "failed to copy tapl")
 
     /* Fill OCPL cache */
     if(H5_daos_fill_ocpl_cache(&dtype->obj, dtype->tcpl_id) < 0)
@@ -671,7 +729,7 @@ done:
 
         /* Schedule first task */
         if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
-            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret))
+            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret))
 
         /* Block until operation completes */
         /* Wait for scheduler to be empty */
@@ -689,14 +747,22 @@ done:
 
     /* Cleanup on failure */
     /* Destroy DAOS object if created before failure DSINC */
-    if(NULL == ret_value)
-        /* Close dataset */
+    if(NULL == ret_value) {
+        /* Close datatype */
         if(dtype && H5_daos_datatype_close(dtype, dxpl_id, NULL) < 0)
             D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, NULL, "can't close datatype")
 
-    /* Free memory */
-    type_buf = DV_free(type_buf);
-    tcpl_buf = DV_free(tcpl_buf);
+        /* Free memory */
+        if(update_cb_ud && update_cb_ud->obj && H5_daos_object_close(update_cb_ud->obj, dxpl_id, NULL) < 0)
+            D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, NULL, "can't close object")
+        type_buf = DV_free(type_buf);
+        tcpl_buf = DV_free(tcpl_buf);
+        update_cb_ud = DV_free(update_cb_ud);
+    } /* end if */
+
+    assert(!update_cb_ud);
+    assert(!type_buf);
+    assert(!tcpl_buf);
 
     D_FUNC_LEAVE_API
 } /* end H5_daos_datatype_commit() */

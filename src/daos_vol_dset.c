@@ -374,7 +374,7 @@ H5_daos_dataset_create(void *_item,
     tse_task_t *finalize_deps[3];
     H5_daos_req_t *int_req = NULL;
     tse_task_t *first_task = NULL;
-    tse_task_t *open_task = NULL;
+    tse_task_t *dep_task = NULL;
     int ret;
     void *ret_value = NULL;
 
@@ -443,11 +443,14 @@ H5_daos_dataset_create(void *_item,
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "failed to fill DCPL cache")
 
     /* Generate dataset oid */
-    if(H5_daos_oid_generate(&dset->obj.oid, H5I_DATASET, dcpl_id == H5P_DATASET_CREATE_DEFAULT ? H5P_DEFAULT : dcpl_id, item->file, collective) < 0)
+    if(H5_daos_oid_generate(&dset->obj.oid, H5I_DATASET,
+            (dcpl_id == H5P_DATASET_CREATE_DEFAULT ? H5P_DEFAULT : dcpl_id),
+            item->file, collective, int_req, &first_task, &dep_task) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't generate object id")
 
     /* Open dataset object */
-    if(H5_daos_obj_open(item->file, int_req, &dset->obj.oid, DAOS_OO_RW, &dset->obj.obj_oh, "dataset object open", &first_task, &open_task) < 0)
+    if(H5_daos_obj_open(item->file, int_req, &dset->obj.oid, DAOS_OO_RW,
+            &dset->obj.obj_oh, "dataset object open", &first_task, &dep_task) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTOPENOBJ, NULL, "can't open dataset object")
 
     /* Create dataset and write metadata if this process should */
@@ -604,7 +607,7 @@ H5_daos_dataset_create(void *_item,
              * reference types because calling H5Pget_fill_value on each process
              * would write a separate vl sequence on each process. */
             if(is_vl_ref && collective && (item->file->num_procs > 1)) {
-                if(H5_daos_bcast_fill_val(dset, int_req, fill_val_size, &finalize_deps[finalize_ndeps], open_task) < 0)
+                if(H5_daos_bcast_fill_val(dset, int_req, fill_val_size, &finalize_deps[finalize_ndeps], dep_task) < 0)
                     D_GOTO_ERROR(H5E_DATASET, H5E_MPI, NULL, "can't broadcast fill value")
                 finalize_ndeps++;
             } /* end if */
@@ -618,7 +621,7 @@ H5_daos_dataset_create(void *_item,
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't create task to write dataset medadata: %s", H5_daos_err_to_string(ret))
 
         /* Register dependency for task */
-        if(0 != (ret = tse_task_register_deps(update_task, 1, &open_task)))
+        if(0 != (ret = tse_task_register_deps(update_task, 1, &dep_task)))
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't create dependencies for dataset metadata write: %s", H5_daos_err_to_string(ret))
 
         /* Set callback functions for dataset metadata write */
@@ -631,7 +634,7 @@ H5_daos_dataset_create(void *_item,
         /* Schedule dataset metadata write task and give it a reference to req
          * and the dataset */
         if(0 != (ret = tse_task_schedule(update_task, false)))
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't schedule task to write group metadata: %s", H5_daos_err_to_string(ret))
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't schedule task to write dataset metadata: %s", H5_daos_err_to_string(ret))
         int_req->rc++;
         dset->obj.item.rc++;
         update_cb_ud = NULL;
@@ -650,7 +653,9 @@ H5_daos_dataset_create(void *_item,
 
             link_val.type = H5L_TYPE_HARD;
             link_val.target.hard = dset->obj.oid;
-            if(H5_daos_link_write(target_grp, target_name, strlen(target_name), &link_val, int_req, &link_write_task, open_task) < 0)
+            link_val.target_oid_async = &dset->obj.oid;
+            if(H5_daos_link_write(target_grp, target_name, strlen(target_name),
+                    &link_val, int_req, &link_write_task, dep_task) < 0)
                 D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't create link to dataset")
             finalize_deps[finalize_ndeps] = link_write_task;
             finalize_ndeps++;
@@ -677,7 +682,7 @@ H5_daos_dataset_create(void *_item,
             if((is_vl_ref = H5_daos_detect_vl_vlstr_ref(type_id)) < 0)
                 D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, NULL, "can't check for vl or reference type")
             if(is_vl_ref) {
-                if(H5_daos_bcast_fill_val(dset, int_req, fill_val_size, &finalize_deps[finalize_ndeps], open_task) < 0)
+                if(H5_daos_bcast_fill_val(dset, int_req, fill_val_size, &finalize_deps[finalize_ndeps], dep_task) < 0)
                     D_GOTO_ERROR(H5E_DATASET, H5E_CANTRECV, NULL, "can't broadcast fill value")
                 finalize_ndeps++;
             } /* end if */
@@ -686,10 +691,10 @@ H5_daos_dataset_create(void *_item,
                     D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, NULL, "can't get fill value")
         } /* end if */
 
-        /* Check for only open_task created, register it as the finalize
+        /* Check for only dep_task created, register it as the finalize
          * dependency if so */
-        if(open_task && finalize_ndeps == 0) {
-            finalize_deps[0] = open_task;
+        if(dep_task && finalize_ndeps == 0) {
+            finalize_deps[0] = dep_task;
             finalize_ndeps = 1;
         } /* end if */
     } /* end else */
@@ -751,7 +756,7 @@ done:
 
         /* Free memory */
         if(update_cb_ud && update_cb_ud->obj && H5_daos_object_close(update_cb_ud->obj, dxpl_id, NULL) < 0)
-            D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, NULL, "can't close object")
+            D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, NULL, "can't close object")
         type_buf = DV_free(type_buf);
         space_buf = DV_free(space_buf);
         dcpl_buf = DV_free(dcpl_buf);

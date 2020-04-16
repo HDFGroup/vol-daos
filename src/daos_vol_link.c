@@ -24,7 +24,38 @@
 
 #define H5_DAOS_HARD_LINK_VAL_SIZE (H5_DAOS_ENCODED_OID_SIZE + 1)
 #define H5_DAOS_RECURSE_LINK_PATH_BUF_INIT 1024
-#define H5_DAOS_CRT_ORDER_TO_LINK_TRGT_BUF_SIZE 9
+
+/*
+ * Given an H5_daos_link_val_t and the link's type, encodes
+ * the link's value into the given buffer.
+ */
+#define H5_DAOS_ENCODE_LINK_VALUE(link_val_buf, link_val_buf_size, link_val, link_type) \
+H5_DAOS_ENCODE_LINK_VALUE_##link_type(link_val_buf, link_val_buf_size, link_val, link_type)
+
+#define H5_DAOS_ENCODE_LINK_VALUE_H5L_TYPE_HARD(link_val_buf, link_val_buf_size, link_val, link_type) \
+do {                                                                                                  \
+    uint8_t *p = link_val_buf;                                                                        \
+                                                                                                      \
+    assert(H5_DAOS_HARD_LINK_VAL_SIZE <= link_val_buf_size);                                          \
+                                                                                                      \
+    /* Encode link type */                                                                            \
+    *p++ = (uint8_t)H5L_TYPE_HARD;                                                                    \
+                                                                                                      \
+    /* Encode OID */                                                                                  \
+    UINT64ENCODE(p, link_val.target.hard.lo)                                                          \
+    UINT64ENCODE(p, link_val.target.hard.hi)                                                          \
+} while(0)
+
+#define H5_DAOS_ENCODE_LINK_VALUE_H5L_TYPE_SOFT(link_val_buf, link_val_buf_size, link_val, link_type) \
+do {                                                                                                  \
+    uint8_t *p = link_val_buf;                                                                        \
+                                                                                                      \
+    /* Encode link type */                                                                            \
+    *p++ = (uint8_t)H5L_TYPE_SOFT;                                                                    \
+                                                                                                      \
+    /* Copy target name */                                                                            \
+    (void)memcpy(p, link_val.target.soft, link_val_buf_size - 1);                                     \
+} while(0)
 
 /*
  * Given an H5_daos_link_val_t, uses this to fill out the
@@ -96,6 +127,13 @@ static herr_t H5_daos_link_shift_crt_idx_keys_down(H5_daos_group_t *target_grp, 
 static uint64_t H5_daos_hash_obj_id(dv_hash_table_key_t obj_id_lo);
 static int H5_daos_cmp_obj_id(dv_hash_table_key_t obj_id_lo1, dv_hash_table_key_t obj_id_lo2);
 static void H5_daos_free_visited_link_hash_table_key(dv_hash_table_key_t value);
+
+static herr_t H5_daos_link_write_corder_info(H5_daos_group_t *target_grp, uint64_t new_max_corder,
+    H5_daos_link_write_ud_t *link_write_ud, H5_daos_req_t *req, tse_task_t **taskp,
+    tse_task_t *dep_task);
+static int H5_daos_link_write_prep_cb(tse_task_t *task, void *args);
+static int H5_daos_link_write_comp_cb(tse_task_t *task, void *args);
+static int H5_daos_link_write_corder_comp_cb(tse_task_t *task, void *args);
 
 
 /*-------------------------------------------------------------------------
@@ -229,7 +267,9 @@ done:
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_link_write
  *
- * Purpose:     Writes the specified link to the given group
+ * Purpose:     Creates an asynchronous task for writing the specified link
+ *              into the given group `target_grp`. `link_val` specifies the
+ *              type of link to create and the value to write for the link.
  *
  * Return:      Success:        SUCCEED 
  *              Failure:        FAIL
@@ -240,94 +280,54 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_link_write(H5_daos_group_t *grp, const char *name,
-    size_t name_len, H5_daos_link_val_t *val, H5_daos_req_t *req,
+H5_daos_link_write(H5_daos_group_t *target_grp, const char *name,
+    size_t name_len, H5_daos_link_val_t *link_val, H5_daos_req_t *req,
     tse_task_t **taskp, tse_task_t *dep_task)
 {
-    H5_daos_md_rw_cb_ud_t *update_cb_ud = NULL;
+    H5_daos_link_write_ud_t *link_write_ud = NULL;
+    tse_task_t *corder_write_task = NULL;
     hbool_t update_task_scheduled = FALSE;
-    char *name_buf = NULL;
-    uint8_t *iov_buf = NULL;
-    uint8_t *max_corder_old_buf = NULL; /* Holds the previous max creation order value, which is the creation order for this link */
-    uint8_t *p;
     int ret;
     herr_t ret_value = SUCCEED;
 
-    assert(grp);
+    assert(target_grp);
     assert(name);
-    assert(val);
-    H5daos_compile_assert(H5_DAOS_ENCODED_NUM_LINKS_SIZE == 8);
-    H5daos_compile_assert(H5_DAOS_ENCODED_CRT_ORDER_SIZE == 8);
+    assert(link_val);
 
     /* Check for write access */
-    if(!(grp->obj.item.file->flags & H5F_ACC_RDWR))
+    if(!(target_grp->obj.item.file->flags & H5F_ACC_RDWR))
         D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, FAIL, "no write intent on file")
 
     /* Allocate argument struct */
-    if(NULL == (update_cb_ud = (H5_daos_md_rw_cb_ud_t *)DV_calloc(sizeof(H5_daos_md_rw_cb_ud_t))))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for update callback arguments")
+    if(NULL == (link_write_ud = (H5_daos_link_write_ud_t *)DV_calloc(sizeof(H5_daos_link_write_ud_t))))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for link write callback arguments")
+    link_write_ud->shared = FALSE;
+    link_write_ud->link_val = *link_val;
 
-    /* Copy name */
-    if(NULL == (name_buf = (char *)DV_malloc(name_len)))
-        D_GOTO_ERROR(H5E_SYM, H5E_CANTALLOC, FAIL, "can't allocate space for name buffer")
-    (void)memcpy(name_buf, name, name_len);
+    /* Allocate buffer for link value and encode type-specific value information */
+    switch(link_val->type) {
+        case H5L_TYPE_HARD:
+            assert(H5_DAOS_HARD_LINK_VAL_SIZE == sizeof(link_val->target.hard) + 1);
 
-    /* Set up known fields of update_cb_ud */
-    update_cb_ud->req = req;
-    update_cb_ud->obj = &grp->obj;
-    grp->obj.item.rc++;
-    update_cb_ud->nr = 1;
+            link_write_ud->link_val_buf_size = H5_DAOS_HARD_LINK_VAL_SIZE;
+            if(NULL == (link_write_ud->link_val_buf = (uint8_t *)DV_malloc(link_write_ud->link_val_buf_size)))
+                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate space for link target")
 
-    /* Set up dkey */
-    daos_iov_set(&update_cb_ud->dkey, (void *)name_buf, (daos_size_t)name_len);
-    update_cb_ud->free_dkey = TRUE;
-
-    /* Encode type specific value information */
-    switch(val->type) {
-         case H5L_TYPE_HARD:
-            assert(H5_DAOS_HARD_LINK_VAL_SIZE == sizeof(val->target.hard) + 1);
-
-            /* Allocate iov_buf */
-            if(NULL == (iov_buf = (uint8_t *)DV_malloc(H5_DAOS_HARD_LINK_VAL_SIZE)))
-                D_GOTO_ERROR(H5E_SYM, H5E_CANTALLOC, FAIL, "can't allocate space for link target")
-            p = iov_buf;
-
-            /* Encode link type */
-            *p++ = (uint8_t)H5L_TYPE_HARD;
-
-            /* Encode oid */
-            UINT64ENCODE(p, val->target.hard.lo)
-            UINT64ENCODE(p, val->target.hard.hi)
-
-            update_cb_ud->iod[0].iod_size = (uint64_t)H5_DAOS_HARD_LINK_VAL_SIZE;
-
-            /* Set up type specific sgl */
-            daos_iov_set(&update_cb_ud->sg_iov[0], iov_buf, (daos_size_t)H5_DAOS_HARD_LINK_VAL_SIZE);
-            update_cb_ud->sgl[0].sg_nr = 1;
-            update_cb_ud->sgl[0].sg_nr_out = 0;
+            /* For hard links, encoding of the OID into the link's value buffer
+             * is delayed until the link write task's preparation callback. This
+             * is to allow for the case where the link write might depend on an
+             * OID that gets generated asynchronously.
+             */
 
             break;
 
         case H5L_TYPE_SOFT:
-            /* We need an extra byte for the link type */
-            update_cb_ud->iod[0].iod_size = (uint64_t)(strlen(val->target.soft) + 1);
+            link_write_ud->link_val_buf_size = strlen(link_val->target.soft) + 1;
+            if(NULL == (link_write_ud->link_val_buf = (uint8_t *)DV_malloc(link_write_ud->link_val_buf_size)))
+                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate space for link target")
 
-            /* Allocate iov_buf */
-            if(NULL == (iov_buf = (uint8_t *)DV_malloc((size_t)update_cb_ud->iod[0].iod_size)))
-                D_GOTO_ERROR(H5E_SYM, H5E_CANTALLOC, FAIL, "can't allocate space for link target")
-            p = iov_buf;
-
-            /* Encode link type */
-            *p++ = (uint8_t)H5L_TYPE_SOFT;
-
-            /* Copy target name */
-            (void)memcpy(p, val->target.soft, (size_t)(update_cb_ud->iod[0].iod_size - (uint64_t)1));
-
-            /* Set up type specific sgl.  We use two entries, the first for the
-             * link type, the second for the string. */
-            daos_iov_set(&update_cb_ud->sg_iov[0], iov_buf, update_cb_ud->iod[0].iod_size);
-            update_cb_ud->sgl[0].sg_nr = 1;
-            update_cb_ud->sgl[0].sg_nr_out = 0;
+            H5_DAOS_ENCODE_LINK_VALUE(link_write_ud->link_val_buf, link_write_ud->link_val_buf_size,
+                    link_write_ud->link_val, H5L_TYPE_SOFT);
 
             break;
 
@@ -338,149 +338,47 @@ H5_daos_link_write(H5_daos_group_t *grp, const char *name,
             D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, FAIL, "invalid or unsupported link type")
     } /* end switch */
 
-    /* Finish setting up iod */
-    daos_iov_set(&update_cb_ud->iod[0].iod_name, (void *)H5_daos_link_key_g, H5_daos_link_key_size_g);
-    update_cb_ud->iod[0].iod_nr = 1u;
-    update_cb_ud->iod[0].iod_type = DAOS_IOD_SINGLE;
-    update_cb_ud->free_akeys = FALSE;
+    /* Copy name */
+    if(NULL == (link_write_ud->link_name_buf = (char *)DV_malloc(name_len)))
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTALLOC, FAIL, "can't allocate space for name buffer")
+    (void)memcpy(link_write_ud->link_name_buf, name, name_len);
+    link_write_ud->link_name_buf_size = name_len;
 
-    /* Set up general sgl */
-    update_cb_ud->sgl[0].sg_iovs = &update_cb_ud->sg_iov[0];
+    /* Set up known fields of link_write_ud */
+    link_write_ud->md_rw_cb_ud.req = req;
+    link_write_ud->md_rw_cb_ud.obj = &target_grp->obj;
+    target_grp->obj.item.rc++;
+    link_write_ud->md_rw_cb_ud.nr = 1;
 
     /* Set task name */
-    update_cb_ud->task_name = "link write";
+    link_write_ud->md_rw_cb_ud.task_name = "link write";
 
-    /* Check for creation order tracking/indexing */
-    if(grp->gcpl_cache.track_corder) {
-        daos_key_t dkey;
-        daos_iod_t iod[4];
-        daos_sg_list_t sgl[4];
-        daos_iov_t sg_iov[4];
-        uint8_t nlinks_old_buf[H5_DAOS_ENCODED_NUM_LINKS_SIZE];
-        uint8_t nlinks_new_buf[H5_DAOS_ENCODED_NUM_LINKS_SIZE];
-        uint8_t max_corder_new_buf[H5_DAOS_ENCODED_CRT_ORDER_SIZE];
-        uint8_t corder_target_buf[H5_DAOS_CRT_ORDER_TO_LINK_TRGT_BUF_SIZE];
-        ssize_t nlinks;
-        uint64_t uint_nlinks;
-        uint64_t max_corder;
+    /* Set up dkey */
+    daos_iov_set(&link_write_ud->md_rw_cb_ud.dkey, (void *)link_write_ud->link_name_buf, (daos_size_t)name_len);
+    link_write_ud->md_rw_cb_ud.free_dkey = TRUE;
 
-        /* Allocate buffer for group's current maximum creation order value */
-        if(NULL == (max_corder_old_buf = (uint8_t *)DV_malloc(H5_DAOS_ENCODED_CRT_ORDER_SIZE)))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for max. creation order value")
+    /* Set up iod */
+    daos_iov_set(&link_write_ud->md_rw_cb_ud.iod[0].iod_name, (void *)H5_daos_link_key_g, H5_daos_link_key_size_g);
+    link_write_ud->md_rw_cb_ud.iod[0].iod_nr = 1u;
+    link_write_ud->md_rw_cb_ud.iod[0].iod_size = link_write_ud->link_val_buf_size;
+    link_write_ud->md_rw_cb_ud.iod[0].iod_type = DAOS_IOD_SINGLE;
+    link_write_ud->md_rw_cb_ud.free_akeys = FALSE;
 
-        /* Read group's current maximum creation order value */
-        if(H5_daos_group_get_max_crt_order(grp, &max_corder) < 0)
-            D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, FAIL, "can't get group's maximum creation order value")
-
-        p = max_corder_old_buf;
-        UINT64ENCODE(p, max_corder);
-
-        /* Add new link to max. creation order value */
-        max_corder++;
-
-        /* Read num links */
-        if((nlinks = H5_daos_group_get_num_links(grp)) < 0)
-            D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, FAIL, "can't get number of links in group")
-        uint_nlinks = (uint64_t)nlinks;
-
-        p = nlinks_old_buf;
-        UINT64ENCODE(p, uint_nlinks);
-
-        assert(H5_daos_nlinks_key_size_g != 8);
-
-        /* Add new link to count */
-        uint_nlinks++;
-
-        /* Write new info to creation order index */
-
-        /* Set up dkey */
-        daos_iov_set(&dkey, (void *)H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
-
-        /* Encode buffers */
-        p = max_corder_new_buf;
-        UINT64ENCODE(p, max_corder);
-        p = nlinks_new_buf;
-        UINT64ENCODE(p, uint_nlinks);
-        memcpy(corder_target_buf, nlinks_old_buf, 8);
-        corder_target_buf[8] = 0;
-
-        /* Set up iod */
-        memset(iod, 0, sizeof(iod));
-        daos_iov_set(&iod[0].iod_name, (void *)H5_daos_max_link_corder_key_g, H5_daos_max_link_corder_key_size_g);
-        iod[0].iod_nr = 1u;
-        iod[0].iod_size = (daos_size_t)H5_DAOS_ENCODED_CRT_ORDER_SIZE;
-        iod[0].iod_type = DAOS_IOD_SINGLE;
-
-        daos_iov_set(&iod[1].iod_name, (void *)H5_daos_nlinks_key_g, H5_daos_nlinks_key_size_g);
-        iod[1].iod_nr = 1u;
-        iod[1].iod_size = (daos_size_t)H5_DAOS_ENCODED_NUM_LINKS_SIZE;
-        iod[1].iod_type = DAOS_IOD_SINGLE;
-
-        daos_iov_set(&iod[2].iod_name, (void *)nlinks_old_buf, H5_DAOS_ENCODED_NUM_LINKS_SIZE);
-        iod[2].iod_nr = 1u;
-        iod[2].iod_size = (uint64_t)name_len;
-        iod[2].iod_type = DAOS_IOD_SINGLE;
-
-        daos_iov_set(&iod[3].iod_name, (void *)corder_target_buf, H5_DAOS_CRT_ORDER_TO_LINK_TRGT_BUF_SIZE);
-        iod[3].iod_nr = 1u;
-        iod[3].iod_size = update_cb_ud->iod[0].iod_size;
-        iod[3].iod_type = DAOS_IOD_SINGLE;
-
-        /* Set up sgl */
-        daos_iov_set(&sg_iov[0], max_corder_new_buf, (daos_size_t)H5_DAOS_ENCODED_CRT_ORDER_SIZE);
-        sgl[0].sg_nr = 1;
-        sgl[0].sg_nr_out = 0;
-        sgl[0].sg_iovs = &sg_iov[0];
-
-        daos_iov_set(&sg_iov[1], nlinks_new_buf, (daos_size_t)H5_DAOS_ENCODED_NUM_LINKS_SIZE);
-        sgl[1].sg_nr = 1;
-        sgl[1].sg_nr_out = 0;
-        sgl[1].sg_iovs = &sg_iov[1];
-
-        daos_iov_set(&sg_iov[2], (void *)name_buf, (daos_size_t)name_len);
-        sgl[2].sg_nr = 1;
-        sgl[2].sg_nr_out = 0;
-        sgl[2].sg_iovs = &sg_iov[2];
-
-        daos_iov_set(&sg_iov[3], iov_buf, update_cb_ud->iod[0].iod_size);
-        sgl[3].sg_nr = 1;
-        sgl[3].sg_nr_out = 0;
-        sgl[3].sg_iovs = &sg_iov[3];
-
-        /* Issue write */
-        if(0 != (ret = daos_obj_update(grp->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 4, iod, sgl, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_SYM, H5E_WRITEERROR, FAIL, "can't write link creation order information: %s", H5_daos_err_to_string(ret))
-
-        /* Add link name->creation order mapping key-value pair to main write */
-        /* Increment number of records */
-        update_cb_ud->nr++;
-
-        /* Set up iod */
-        daos_iov_set(&update_cb_ud->iod[1].iod_name, (void *)H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
-        update_cb_ud->iod[1].iod_nr = 1u;
-        update_cb_ud->iod[1].iod_size = (uint64_t)8;
-        update_cb_ud->iod[1].iod_type = DAOS_IOD_SINGLE;
-
-        /* Set up sgl */
-        daos_iov_set(&update_cb_ud->sg_iov[1], (void *)max_corder_old_buf, 8);
-        update_cb_ud->sgl[1].sg_nr = 1;
-        update_cb_ud->sgl[1].sg_nr_out = 0;
-        update_cb_ud->sgl[1].sg_iovs = &update_cb_ud->sg_iov[1];
-    } /* end if */
+    /* SGL is setup by link write task prep callback */
 
     /* Create task for link write */
-    if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_UPDATE, &grp->obj.item.file->sched, 0, NULL, taskp)))
+    if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_UPDATE, &target_grp->obj.item.file->sched, 0, NULL, taskp)))
         D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't create task to write link: %s", H5_daos_err_to_string(ret))
 
     /* Set callback functions for link write */
-    if(0 != (ret = tse_task_register_cbs(*taskp, H5_daos_md_rw_prep_cb, NULL, 0, H5_daos_md_update_comp_cb, NULL, 0)))
+    if(0 != (ret = tse_task_register_cbs(*taskp, H5_daos_link_write_prep_cb, NULL, 0, H5_daos_link_write_comp_cb, NULL, 0)))
         D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't register callbacks for task to write link: %s", H5_daos_err_to_string(ret))
 
     /* Set private data for link write */
-    (void)tse_task_set_priv(*taskp, update_cb_ud);
+    (void)tse_task_set_priv(*taskp, link_write_ud);
 
     /* Schedule link task if it has a dependency, and give it a reference to
-     * req.  If it does not have a dependecy the calling funciton will schedule
+     * req.  If it does not have a dependency the calling function will schedule
      * it.  This is done so the calling function can delay scheduling the first
      * task in a chain until every task is scheduled. */
     if(dep_task) {
@@ -495,23 +393,465 @@ H5_daos_link_write(H5_daos_group_t *grp, const char *name,
 
     /* Task is scheduled or will be scheduled, give it a reference to req */
     update_task_scheduled = TRUE;
-    update_cb_ud->req->rc++;
+    link_write_ud->md_rw_cb_ud.req->rc++;
+
+    /* Check for creation order tracking/indexing */
+    if(target_grp->gcpl_cache.track_corder) {
+        uint64_t max_corder;
+        uint8_t *p;
+
+        /* Read group's current maximum creation order value */
+        if(H5_daos_group_get_max_crt_order(target_grp, &max_corder) < 0)
+            D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, FAIL, "can't get group's maximum creation order value")
+
+        /* Encode group's current max creation order value */
+        p = link_write_ud->prev_max_corder_buf;
+        UINT64ENCODE(p, max_corder);
+
+        /* Add new link to max. creation order value */
+        max_corder++;
+
+        /* Create a task for writing the link creation order info to the
+         * target group.
+         */
+        if(H5_daos_link_write_corder_info(target_grp, max_corder, link_write_ud,
+                link_write_ud->md_rw_cb_ud.req, &corder_write_task, *taskp) < 0)
+            D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't create task for writing link creation order information to group")
+
+        /* Add link name -> creation order mapping key-value pair
+         * to main link write operation
+         */
+        link_write_ud->md_rw_cb_ud.nr++;
+
+        /* Adjust IOD for creation order info */
+        daos_iov_set(&link_write_ud->md_rw_cb_ud.iod[1].iod_name, (void *)H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
+        link_write_ud->md_rw_cb_ud.iod[1].iod_nr = 1u;
+        link_write_ud->md_rw_cb_ud.iod[1].iod_size = (uint64_t)8;
+        link_write_ud->md_rw_cb_ud.iod[1].iod_type = DAOS_IOD_SINGLE;
+
+        /* Adjust SGL for creation order info */
+        daos_iov_set(&link_write_ud->md_rw_cb_ud.sg_iov[1], (void *)link_write_ud->prev_max_corder_buf, sizeof(link_write_ud->prev_max_corder_buf));
+        link_write_ud->md_rw_cb_ud.sgl[1].sg_nr = 1;
+        link_write_ud->md_rw_cb_ud.sgl[1].sg_nr_out = 0;
+        link_write_ud->md_rw_cb_ud.sgl[1].sg_iovs = &link_write_ud->md_rw_cb_ud.sg_iov[1];
+    } /* end if */
 
 done:
     /* Cleanup on failure */
     if(!update_task_scheduled) {
         assert(ret_value < 0);
-        if(update_cb_ud && update_cb_ud->obj && H5_daos_object_close(update_cb_ud->obj, -1, NULL) < 0)
-            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close object")
-        name_buf = DV_free(name_buf);
-        iov_buf = DV_free(iov_buf);
-        max_corder_old_buf = DV_free(max_corder_old_buf);
-        update_cb_ud = DV_free(update_cb_ud);
+        if(link_write_ud) {
+            if(link_write_ud->md_rw_cb_ud.obj &&
+                    H5_daos_object_close(link_write_ud->md_rw_cb_ud.obj, H5I_INVALID_HID, NULL) < 0)
+                D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close object")
+            link_write_ud->link_name_buf = DV_free(link_write_ud->link_name_buf);
+        }
+        link_write_ud = DV_free(link_write_ud);
         *taskp = NULL;
     } /* end if */
 
     D_FUNC_LEAVE
 } /* end H5_daos_link_write() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_link_write_prep_cb
+ *
+ * Purpose:     Prepare callback for asynchronous link write. Currently
+ *              checks for errors from previous tasks then sets arguments
+ *              for the DAOS operation. If creation order is tracked for
+ *              the target group, also creates a task to write that info.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_link_write_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_link_write_ud_t *udata;
+    daos_obj_rw_t *update_args;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for link write task")
+
+    assert(udata->md_rw_cb_ud.obj);
+    assert(udata->md_rw_cb_ud.req);
+    assert(udata->md_rw_cb_ud.req->file);
+    assert(!udata->md_rw_cb_ud.req->file->closed);
+    assert(udata->link_val_buf);
+
+    /* Handle errors */
+    if(udata->md_rw_cb_ud.req->status < -H5_DAOS_INCOMPLETE) {
+        tse_task_complete(task, -H5_DAOS_PRE_ERROR);
+        udata = NULL;
+        D_GOTO_DONE(H5_DAOS_PRE_ERROR);
+    } /* end if */
+
+    /* If this is a hard link, encoding of the OID into
+     * the link's value buffer was delayed until this point.
+     * Go ahead and do the encoding now.
+     */
+    if(udata->link_val.type == H5L_TYPE_HARD) {
+        if(udata->link_val.target_oid_async) {
+            /* If the OID for this link was generated asynchronously,
+             * go ahead and set up the target OID field in the
+             * H5_daos_link_val_t to be used for the encoding process.
+             */
+            udata->link_val.target.hard.lo = udata->link_val.target_oid_async->lo;
+            udata->link_val.target.hard.hi = udata->link_val.target_oid_async->hi;
+        } /* end if */
+
+        H5_DAOS_ENCODE_LINK_VALUE(udata->link_val_buf, udata->link_val_buf_size,
+                udata->link_val, H5L_TYPE_HARD);
+    } /* end if */
+
+    /* Set up SGL */
+    daos_iov_set(&udata->md_rw_cb_ud.sg_iov[0], udata->link_val_buf, udata->md_rw_cb_ud.iod[0].iod_size);
+    udata->md_rw_cb_ud.sgl[0].sg_nr = 1;
+    udata->md_rw_cb_ud.sgl[0].sg_nr_out = 0;
+    udata->md_rw_cb_ud.sgl[0].sg_iovs = &udata->md_rw_cb_ud.sg_iov[0];
+
+    /* Set update task arguments */
+    if(NULL == (update_args = daos_task_get_args(task))) {
+        tse_task_complete(task, -H5_DAOS_DAOS_GET_ERROR);
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for link write task")
+    } /* end if */
+    update_args->oh = udata->md_rw_cb_ud.obj->obj_oh;
+    update_args->th = DAOS_TX_NONE;
+    update_args->flags = 0;
+    update_args->dkey = &udata->md_rw_cb_ud.dkey;
+    update_args->nr = udata->md_rw_cb_ud.nr;
+    update_args->iods = udata->md_rw_cb_ud.iod;
+    update_args->sgls = udata->md_rw_cb_ud.sgl;
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_link_write_prep_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_link_write_comp_cb
+ *
+ * Purpose:     Completion callback for asynchronous link write. Currently
+ *              checks for a failed task then frees private data.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_link_write_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_link_write_ud_t *udata;
+    unsigned i;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for link write task")
+
+    assert(!udata->md_rw_cb_ud.req->file->closed);
+
+    /* Handle errors in update task.  Only record error in udata->req_status if
+     * it does not already contain an error (it could contain an error if
+     * another task this task is not dependent on also failed). */
+    if(task->dt_result < -H5_DAOS_PRE_ERROR
+            && udata->md_rw_cb_ud.req->status >= -H5_DAOS_INCOMPLETE) {
+        udata->md_rw_cb_ud.req->status = task->dt_result;
+        udata->md_rw_cb_ud.req->failed_task = udata->md_rw_cb_ud.task_name;
+    } /* end if */
+
+    /* Close object */
+    if(H5_daos_object_close(udata->md_rw_cb_ud.obj, H5I_INVALID_HID, NULL) < 0)
+        D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object")
+
+    /* Handle errors in this function */
+    /* Do not place any code that can issue errors after this block, except for
+     * H5_daos_req_free_int, which updates req->status if it sees an error */
+    if(ret_value < 0 && udata->md_rw_cb_ud.req->status >= -H5_DAOS_INCOMPLETE) {
+        udata->md_rw_cb_ud.req->status = ret_value;
+        udata->md_rw_cb_ud.req->failed_task = udata->md_rw_cb_ud.task_name;
+    } /* end if */
+
+    /* Release our reference to req */
+    if(H5_daos_req_free_int(udata->md_rw_cb_ud.req) < 0)
+        D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request")
+
+    /* Free private data */
+    if(udata->md_rw_cb_ud.free_akeys)
+        for(i = 0; i < udata->md_rw_cb_ud.nr; i++)
+            DV_free(udata->md_rw_cb_ud.iod[i].iod_name.iov_buf);
+
+    /* Only free udata if there is no creation order writing
+     * task depending on shared buffers from this udata. We do
+     * not explicitly free the sg_iovs as some of them are
+     * not dynamically allocated.
+     */
+    if(!udata->shared) {
+        DV_free(udata->link_name_buf);
+        DV_free(udata->link_val_buf);
+        DV_free(udata);
+    }
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_link_write_comp_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_link_write_corder_info
+ *
+ * Purpose:     Creates an asynchronous task for writing link creation
+ *              order information to the given target group. This task
+ *              doesn't necessarily depend on the main link write task
+ *              having completed, but it does share some common buffers
+ *              with the main link write task. Therefore, this task cannot
+ *              be scheduled until the main link write task has been
+ *              prepped.
+ *
+ * Return:      Success:        SUCCEED
+ *              Failure:        FAIL
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_link_write_corder_info(H5_daos_group_t *target_grp, uint64_t new_max_corder,
+    H5_daos_link_write_ud_t *link_write_ud, H5_daos_req_t *req, tse_task_t **taskp,
+    tse_task_t *dep_task)
+{
+    H5_daos_link_write_corder_ud_t *write_corder_ud = NULL;
+    hbool_t write_task_scheduled = FALSE;
+    uint64_t uint_nlinks;
+    ssize_t nlinks;
+    uint8_t *p;
+    int ret;
+    herr_t ret_value = SUCCEED;
+
+    assert(target_grp);
+    assert(link_write_ud);
+    H5daos_compile_assert(H5_DAOS_ENCODED_NUM_LINKS_SIZE == 8);
+    H5daos_compile_assert(H5_DAOS_ENCODED_CRT_ORDER_SIZE == 8);
+    assert(H5_daos_nlinks_key_size_g != 8);
+
+    /* Allocate argument struct */
+    if(NULL == (write_corder_ud = (H5_daos_link_write_corder_ud_t *)DV_calloc(sizeof(H5_daos_link_write_corder_ud_t))))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for link creation order info write callback arguments")
+
+    /* Set up known fields of write_corder_ud */
+    write_corder_ud->md_rw_cb_ud.req = req;
+    write_corder_ud->md_rw_cb_ud.obj = &target_grp->obj;
+    target_grp->obj.item.rc++;
+    write_corder_ud->md_rw_cb_ud.nr = 4;
+    write_corder_ud->link_write_ud = link_write_ud;
+
+    /* Set task name */
+    write_corder_ud->md_rw_cb_ud.task_name = "link creation order info write";
+
+    /* Set up dkey */
+    daos_iov_set(&write_corder_ud->md_rw_cb_ud.dkey, (void *)H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
+    write_corder_ud->md_rw_cb_ud.free_dkey = FALSE;
+
+    /* Read number of links in target group */
+    if((nlinks = H5_daos_group_get_num_links(target_grp)) < 0)
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, FAIL, "can't get number of links in group")
+    uint_nlinks = (uint64_t)nlinks;
+
+    p = write_corder_ud->nlinks_old_buf;
+    UINT64ENCODE(p, uint_nlinks);
+
+    /* Add new link to count */
+    uint_nlinks++;
+
+    /* Encode buffers */
+    p = write_corder_ud->max_corder_new_buf;
+    UINT64ENCODE(p, new_max_corder);
+    p = write_corder_ud->nlinks_new_buf;
+    UINT64ENCODE(p, uint_nlinks);
+    memcpy(write_corder_ud->corder_target_buf, write_corder_ud->nlinks_old_buf, 8);
+    write_corder_ud->corder_target_buf[8] = 0;
+
+    /* Set up IOD */
+
+    /* Max Link Creation Order Key */
+    daos_iov_set(&write_corder_ud->md_rw_cb_ud.iod[0].iod_name, (void *)H5_daos_max_link_corder_key_g, H5_daos_max_link_corder_key_size_g);
+    write_corder_ud->md_rw_cb_ud.iod[0].iod_nr = 1u;
+    write_corder_ud->md_rw_cb_ud.iod[0].iod_size = (daos_size_t)H5_DAOS_ENCODED_CRT_ORDER_SIZE;
+    write_corder_ud->md_rw_cb_ud.iod[0].iod_type = DAOS_IOD_SINGLE;
+
+    /* Key for new number of links in group */
+    daos_iov_set(&write_corder_ud->md_rw_cb_ud.iod[1].iod_name, (void *)H5_daos_nlinks_key_g, H5_daos_nlinks_key_size_g);
+    write_corder_ud->md_rw_cb_ud.iod[1].iod_nr = 1u;
+    write_corder_ud->md_rw_cb_ud.iod[1].iod_size = (daos_size_t)H5_DAOS_ENCODED_NUM_LINKS_SIZE;
+    write_corder_ud->md_rw_cb_ud.iod[1].iod_type = DAOS_IOD_SINGLE;
+
+    /* Key for mapping from link creation order value -> link name */
+    daos_iov_set(&write_corder_ud->md_rw_cb_ud.iod[2].iod_name, (void *)write_corder_ud->nlinks_old_buf, H5_DAOS_ENCODED_NUM_LINKS_SIZE);
+    write_corder_ud->md_rw_cb_ud.iod[2].iod_nr = 1u;
+    write_corder_ud->md_rw_cb_ud.iod[2].iod_size = (uint64_t)link_write_ud->link_name_buf_size;
+    write_corder_ud->md_rw_cb_ud.iod[2].iod_type = DAOS_IOD_SINGLE;
+
+    /* Key for mapping from link creation order value -> link target */
+    daos_iov_set(&write_corder_ud->md_rw_cb_ud.iod[3].iod_name, (void *)write_corder_ud->corder_target_buf, H5_DAOS_CRT_ORDER_TO_LINK_TRGT_BUF_SIZE);
+    write_corder_ud->md_rw_cb_ud.iod[3].iod_nr = 1u;
+    write_corder_ud->md_rw_cb_ud.iod[3].iod_size = link_write_ud->link_val_buf_size;
+    write_corder_ud->md_rw_cb_ud.iod[3].iod_type = DAOS_IOD_SINGLE;
+
+    write_corder_ud->md_rw_cb_ud.free_akeys = FALSE;
+
+    /* Set up SGL */
+
+    /* Max Link Creation Order Value */
+    daos_iov_set(&write_corder_ud->md_rw_cb_ud.sg_iov[0], write_corder_ud->max_corder_new_buf, (daos_size_t)H5_DAOS_ENCODED_CRT_ORDER_SIZE);
+    write_corder_ud->md_rw_cb_ud.sgl[0].sg_nr = 1;
+    write_corder_ud->md_rw_cb_ud.sgl[0].sg_nr_out = 0;
+    write_corder_ud->md_rw_cb_ud.sgl[0].sg_iovs = &write_corder_ud->md_rw_cb_ud.sg_iov[0];
+
+    /* Value for new number of links in group */
+    daos_iov_set(&write_corder_ud->md_rw_cb_ud.sg_iov[1], write_corder_ud->nlinks_new_buf, (daos_size_t)H5_DAOS_ENCODED_NUM_LINKS_SIZE);
+    write_corder_ud->md_rw_cb_ud.sgl[1].sg_nr = 1;
+    write_corder_ud->md_rw_cb_ud.sgl[1].sg_nr_out = 0;
+    write_corder_ud->md_rw_cb_ud.sgl[1].sg_iovs = &write_corder_ud->md_rw_cb_ud.sg_iov[1];
+
+    /* Link name value for mapping from link creation order value -> link name */
+    daos_iov_set(&write_corder_ud->md_rw_cb_ud.sg_iov[2], (void *)link_write_ud->link_name_buf,
+            (daos_size_t)link_write_ud->link_name_buf_size);
+    write_corder_ud->md_rw_cb_ud.sgl[2].sg_nr = 1;
+    write_corder_ud->md_rw_cb_ud.sgl[2].sg_nr_out = 0;
+    write_corder_ud->md_rw_cb_ud.sgl[2].sg_iovs = &write_corder_ud->md_rw_cb_ud.sg_iov[2];
+
+    /* Link target value for mapping from link creation order value -> link target */
+    daos_iov_set(&write_corder_ud->md_rw_cb_ud.sg_iov[3], link_write_ud->link_val_buf,
+            link_write_ud->link_val_buf_size);
+    write_corder_ud->md_rw_cb_ud.sgl[3].sg_nr = 1;
+    write_corder_ud->md_rw_cb_ud.sgl[3].sg_nr_out = 0;
+    write_corder_ud->md_rw_cb_ud.sgl[3].sg_iovs = &write_corder_ud->md_rw_cb_ud.sg_iov[3];
+
+
+    /* Create task for writing link creation order information
+     * to the target group.
+     */
+    if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_UPDATE, &target_grp->obj.item.file->sched, 0, NULL, taskp)))
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't create task to write link creation order info: %s", H5_daos_err_to_string(ret))
+
+    /* Set callback functions for link creation order info write */
+    if(0 != (ret = tse_task_register_cbs(*taskp, H5_daos_md_rw_prep_cb, NULL, 0, H5_daos_link_write_corder_comp_cb, NULL, 0)))
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't register callbacks for task to write link creation order info: %s", H5_daos_err_to_string(ret))
+
+    /* Set private data for link creation order info write */
+    (void)tse_task_set_priv(*taskp, write_corder_ud);
+
+    /* Schedule write task if it has a dependency, and give it a reference to
+     * req.  If it does not have a dependency the calling function will schedule
+     * it.  This is done so the calling function can delay scheduling the first
+     * task in a chain until every task is scheduled. */
+    if(dep_task) {
+        /* Set dependency for write task */
+        if(dep_task && 0 != (ret = tse_task_register_deps(*taskp, 1, &dep_task)))
+            D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't create dependencies for link creation order info write task: %s", H5_daos_err_to_string(ret))
+
+        /* Schedule task */
+        if(0 != (ret = tse_task_schedule(*taskp, false)))
+            D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't schedule task to write link creation order info: %s", H5_daos_err_to_string(ret))
+    } /* end if */
+
+    /* Task is scheduled or will be scheduled, give it a reference to req */
+    write_task_scheduled = TRUE;
+    write_corder_ud->link_write_ud->shared = TRUE;
+    write_corder_ud->md_rw_cb_ud.req->rc++;
+
+done:
+    /* Cleanup on failure */
+    if(!write_task_scheduled) {
+        assert(ret_value < 0);
+        if(write_corder_ud && write_corder_ud->md_rw_cb_ud.obj &&
+                H5_daos_object_close(write_corder_ud->md_rw_cb_ud.obj, H5I_INVALID_HID, NULL) < 0)
+            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close object")
+        write_corder_ud = DV_free(write_corder_ud);
+        *taskp = NULL;
+    } /* end if */
+
+    D_FUNC_LEAVE
+} /* end H5_daos_link_write_corder_info() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_link_write_corder_comp_cb
+ *
+ * Purpose:     Completion callback for asynchronous task to write link
+ *              creation order information to a target group.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_link_write_corder_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_link_write_corder_ud_t *udata;
+    unsigned i;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for link creation order info writing task")
+
+    assert(!udata->md_rw_cb_ud.req->file->closed);
+    assert(udata->link_write_ud);
+    assert(udata->link_write_ud->shared);
+
+    /* Handle errors in update task.  Only record error in udata->req_status if
+     * it does not already contain an error (it could contain an error if
+     * another task this task is not dependent on also failed). */
+    if(task->dt_result < -H5_DAOS_PRE_ERROR
+            && udata->md_rw_cb_ud.req->status >= -H5_DAOS_INCOMPLETE) {
+        udata->md_rw_cb_ud.req->status = task->dt_result;
+        udata->md_rw_cb_ud.req->failed_task = udata->md_rw_cb_ud.task_name;
+    } /* end if */
+
+    /* Close object */
+    if(H5_daos_object_close(udata->md_rw_cb_ud.obj, H5I_INVALID_HID, NULL) < 0)
+        D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object")
+
+    /* Handle errors in this function */
+    /* Do not place any code that can issue errors after this block, except for
+     * H5_daos_req_free_int, which updates req->status if it sees an error */
+    if(ret_value < 0 && udata->md_rw_cb_ud.req->status >= -H5_DAOS_INCOMPLETE) {
+        udata->md_rw_cb_ud.req->status = ret_value;
+        udata->md_rw_cb_ud.req->failed_task = udata->md_rw_cb_ud.task_name;
+    } /* end if */
+
+    /* Release our reference to req */
+    if(H5_daos_req_free_int(udata->md_rw_cb_ud.req) < 0)
+        D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request")
+
+    /* Free private data from shared H5_daos_link_write_ud_t struct */
+    DV_free(udata->link_write_ud->link_val_buf);
+    DV_free(udata->link_write_ud->link_name_buf);
+    udata->link_write_ud = DV_free(udata->link_write_ud);
+
+    /* Free private data */
+    if(udata->md_rw_cb_ud.free_dkey)
+        DV_free(udata->md_rw_cb_ud.dkey.iov_buf);
+    if(udata->md_rw_cb_ud.free_akeys)
+        for(i = 0; i < udata->md_rw_cb_ud.nr; i++)
+            DV_free(udata->md_rw_cb_ud.iod[i].iod_name.iov_buf);
+
+    /* We do not explicitly free the sg_iovs as some of them are
+     * not dynamically allocated and the rest are freed from the
+     * shared structure above.
+     */
+
+    DV_free(udata);
+
+done:
+    D_FUNC_LEAVE
+} /* end H5_daos_link_write_corder_comp_cb() */
 
 
 /*-------------------------------------------------------------------------
@@ -631,7 +971,9 @@ H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
         D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, FAIL, "invalid link name - '.'")
 
     /* Create link */
-    if(H5_daos_link_write(link_grp, link_name, strlen(link_name), &link_val, int_req, &link_write_task, NULL) < 0)
+    link_val.target_oid_async = NULL;
+    if(H5_daos_link_write(link_grp, link_name, strlen(link_name),
+            &link_val, int_req, &link_write_task, NULL) < 0)
         D_GOTO_ERROR(H5E_LINK, H5E_WRITEERROR, FAIL, "can't create link")
     finalize_deps[finalize_ndeps] = link_write_task;
     finalize_ndeps++;
@@ -751,7 +1093,9 @@ H5_daos_link_copy(void *src_obj, const H5VL_loc_params_t *loc_params1,
     /* Set convenience pointer to file to use for scheduling */
     sched_file = src_obj ? ((H5_daos_item_t *)src_obj)->file : ((H5_daos_item_t *)dst_obj)->file;
 
-    if(H5_daos_link_write(target_grp, new_link_name, strlen(new_link_name), &link_val, int_req, &link_write_task, NULL) < 0)
+    link_val.target_oid_async = NULL;
+    if(H5_daos_link_write(target_grp, new_link_name, strlen(new_link_name),
+            &link_val, int_req, &link_write_task, NULL) < 0)
         D_GOTO_ERROR(H5E_LINK, H5E_CANTCOPY, FAIL, "failed to copy link")
     finalize_deps[finalize_ndeps] = link_write_task;
     finalize_ndeps++;
@@ -875,7 +1219,9 @@ H5_daos_link_move(void *src_obj, const H5VL_loc_params_t *loc_params1,
     /* Set convenience pointer to file to use for scheduling */
     sched_file = src_obj ? ((H5_daos_item_t *)src_obj)->file : ((H5_daos_item_t *)dst_obj)->file;
 
-    if(H5_daos_link_write(target_grp, new_link_name, strlen(new_link_name), &link_val, int_req, &link_write_task, NULL) < 0)
+    link_val.target_oid_async = NULL;
+    if(H5_daos_link_write(target_grp, new_link_name, strlen(new_link_name),
+            &link_val, int_req, &link_write_task, NULL) < 0)
         D_GOTO_ERROR(H5E_LINK, H5E_CANTCOPY, FAIL, "failed to copy link")
     finalize_deps[finalize_ndeps] = link_write_task;
     finalize_ndeps++;

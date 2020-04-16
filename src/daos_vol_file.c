@@ -924,7 +924,7 @@ H5_daos_cont_handle_bcast(H5_daos_file_t *file, H5_daos_req_t *req,
 
     /* Set up broadcast user data */
     if(NULL == (bcast_udata = (H5_daos_mpi_ibcast_ud_t *)DV_malloc(sizeof(H5_daos_mpi_ibcast_ud_t))))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "failed to allocate buffer for MPI broadcast user data")
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "failed to allocate buffer for MPI broadcast user data")
     bcast_udata->req = req;
     bcast_udata->obj = NULL;
     bcast_udata->bcast_metatask = NULL;
@@ -1143,7 +1143,9 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
         D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENOBJ, NULL, "can't open global metadata object")
 
     /* Create root group */
-    if(NULL == (file->root_grp = (H5_daos_group_t *)H5_daos_group_create_helper(file, fcpl_id, H5P_GROUP_ACCESS_DEFAULT, dxpl_id, int_req, NULL, NULL, 0, H5_DAOS_OIDX_ROOT, TRUE, &first_task, &dep_task)))
+    if(NULL == (file->root_grp = (H5_daos_group_t *)H5_daos_group_create_helper(file, TRUE,
+            fcpl_id, H5P_GROUP_ACCESS_DEFAULT, dxpl_id, int_req, NULL, NULL, 0,
+            TRUE, &first_task, &dep_task)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create root group")
 
     /* Write root group OID to global metadata object */

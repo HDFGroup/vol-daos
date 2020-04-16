@@ -1033,6 +1033,7 @@ test_map_nonexistent_key(hid_t file_id, const char *map_name, hid_t key_dtype, h
         }
 
         free(non_existent_key.p);
+        free(non_existent_value.p);
     } else if(!strcmp(map_name, MAP_VLS_VLS_NAME)) {
         char   *non_existent_key = "deadbeef", *non_existent_value = "foobar", *out_value;
 
@@ -1219,6 +1220,8 @@ test_map_nonexistent_key(hid_t file_id, const char *map_name, hid_t key_dtype, h
             printf("failed to reclaim space\n");
             goto error;
         }
+
+        free(non_existent_value.c.p);
     } else if(!strcmp(map_name, MAP_SIMPLE_TCONV1_NAME)) {
         int non_existent_key, non_existent_value, out_value;
 
@@ -1592,10 +1595,8 @@ test_map_update(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t valu
         int j;
 
         for(i = 0; i < NUMB_KEYS; i++) {
-            for(j=0; j<(i + NUMB_KEYS); j++) {
-                updated_values[i].p = malloc((size_t) (i + 2 * NUMB_KEYS) * sizeof(int));
-                updated_values[i].len = (size_t) (i + 2 * NUMB_KEYS);
-            }
+            updated_values[i].p = malloc((size_t) (i + 2 * NUMB_KEYS) * sizeof(int));
+            updated_values[i].len = (size_t) (i + 2 * NUMB_KEYS);
 
             for(j=0; j<(i + 2*NUMB_KEYS); j++)
                 ((int *)updated_values[i].p)[j] = rand();
@@ -1623,6 +1624,9 @@ test_map_update(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t valu
                 printf("failed to reclaim space\n");
                 goto error;
             }
+
+            free(updated_values[i].p);
+            updated_values[i].p = NULL;
         }
     } else if(!strcmp(map_name, MAP_VLS_VLS_NAME)) {
         char *updated_values[NUMB_KEYS] = {"", NULL, "cat", "parasaurolophus"};
@@ -1684,11 +1688,8 @@ test_map_update(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t valu
         for(i = 0; i < NUMB_KEYS; i++) {
             updated_values[i].a = rand();
             updated_values[i].b = (float)rand();
-
-            for(j=0; j<(i + NUMB_KEYS); j++) {
-                updated_values[i].c.p = malloc((size_t) (i + 2 * NUMB_KEYS) * sizeof(int));
-                updated_values[i].c.len = (size_t) (i + 2 * NUMB_KEYS);
-            }
+            updated_values[i].c.p = malloc((size_t) (i + 2 * NUMB_KEYS) * sizeof(int));
+            updated_values[i].c.len = (size_t) (i + 2 * NUMB_KEYS);
 
             for(j=0; j<(i + 2*NUMB_KEYS); j++)
                 ((int *)updated_values[i].c.p)[j] = rand();
@@ -1717,6 +1718,9 @@ test_map_update(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t valu
                 printf("failed to reclaim space\n");
                 goto error;
             }
+
+            free(updated_values[i].c.p);
+            updated_values[i].c.p = NULL;
         }
     } else if(!strcmp(map_name, MAP_SIMPLE_TCONV1_NAME)) {
         int updated_values[NUMB_KEYS];
@@ -1981,6 +1985,8 @@ test_map_exists(hid_t file_id, const char *map_name, hid_t key_dtype)
             printf("incorrect value returned\n");
             goto error;
         } /* end if */
+
+        free(nonexist_key_vl.p);
     } else if(!strcmp(map_name, MAP_VLS_VLS_NAME)) {
         char *nonexist_key_vls = "Dodgson here";
 

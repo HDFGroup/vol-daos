@@ -50,7 +50,7 @@ H5_daos_dump_obj_keys(daos_handle_t obj)
 
     /* Allocate dkey_buf */
     if(NULL == (dkey_buf = (char *) DV_malloc(H5_DAOS_ITER_SIZE_INIT)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "failed to allocate key buffer")
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "failed to allocate key buffer");
     dkey_buf_len = H5_DAOS_ITER_SIZE_INIT;
 
     /* Set up sgl.  Report size as 1 less than buffer size so we
@@ -62,7 +62,7 @@ H5_daos_dump_obj_keys(daos_handle_t obj)
 
     /* Allocate akey_buf */
     if(NULL == (akey_buf = (char *) DV_malloc(H5_DAOS_ITER_SIZE_INIT)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "failed to allocate key buffer")
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "failed to allocate key buffer");
     akey_buf_len = H5_DAOS_ITER_SIZE_INIT;
 
     /* Set up sgl.  Report size as 1 less than buffer size so we
@@ -160,7 +160,7 @@ done:
     akey_buf = DV_free(akey_buf);
     dkey_buf = DV_free(dkey_buf);
 
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_dump_obj_keys() */
 
 #endif /* DV_PLUGIN_DEBUG */

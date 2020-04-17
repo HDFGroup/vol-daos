@@ -141,19 +141,19 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
     H5_DAOS_G_INIT(NULL)
 
     if(!_item)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "attribute parent object is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "attribute parent object is NULL");
     if(!loc_params)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "location parameters object is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "location parameters object is NULL");
     if(!name)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "attribute name is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "attribute name is NULL");
 
     /* Check for write access */
     if(!(item->file->flags & H5F_ACC_RDWR))
-        D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, NULL, "no write intent on file")
+        D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, NULL, "no write intent on file");
 
     /* Allocate the attribute object that is returned to the user */
     if(NULL == (attr = H5FL_CALLOC(H5_daos_attr_t)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate DAOS dataset struct")
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate DAOS dataset struct");
     attr->item.type = H5I_ATTR;
     attr->item.open_req = NULL;
     attr->item.file = item->file;
@@ -175,34 +175,34 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
     else if(loc_params->type == H5VL_OBJECT_BY_NAME) {
         /* Open target_obj */
         if(NULL == (attr->parent = (H5_daos_obj_t *)H5_daos_object_open(item, loc_params, NULL, dxpl_id, req)))
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, NULL, "can't open object for attribute")
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, NULL, "can't open object for attribute");
     } /* end else */
     else
-        D_GOTO_ERROR(H5E_ATTR, H5E_UNSUPPORTED, NULL, "unsupported attribute create location parameters type")
+        D_GOTO_ERROR(H5E_ATTR, H5E_UNSUPPORTED, NULL, "unsupported attribute create location parameters type");
 
     /* Encode datatype */
     if(H5Tencode(type_id, NULL, &type_size) < 0)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of datatype")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of datatype");
     if(NULL == (type_buf = DV_malloc(type_size)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized datatype")
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized datatype");
     if(H5Tencode(type_id, type_buf, &type_size) < 0)
-        D_GOTO_ERROR(H5E_DATASET, H5E_CANTENCODE, NULL, "can't serialize datatype")
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTENCODE, NULL, "can't serialize datatype");
 
     /* Encode dataspace */
     if(H5Sencode2(space_id, NULL, &space_size, item->file->fapl_id) < 0)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of dataspace")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of dataspace");
     if(NULL == (space_buf = DV_malloc(space_size)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized dataspace")
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized dataspace");
     if(H5Sencode2(space_id, space_buf, &space_size, item->file->fapl_id) < 0)
-        D_GOTO_ERROR(H5E_DATASET, H5E_CANTENCODE, NULL, "can't serialize dataspace")
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTENCODE, NULL, "can't serialize dataspace");
 
     /* Encode ACPL */
     if(H5Pencode2(acpl_id, NULL, &acpl_size, item->file->fapl_id) < 0)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of acpl")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of acpl");
     if(NULL == (acpl_buf = DV_malloc(acpl_size)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized acpl")
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized acpl");
     if(H5Pencode2(acpl_id, acpl_buf, &acpl_size, item->file->fapl_id) < 0)
-        D_GOTO_ERROR(H5E_DATASET, H5E_CANTENCODE, NULL, "can't serialize acpl")
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTENCODE, NULL, "can't serialize acpl");
 
     /* Set up operation to write datatype, dataspace and ACPL to attribute */
     /* Set up dkey */
@@ -210,7 +210,7 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
 
     /* Set up akey strings (attribute name prefixed with 'T-', 'S-' and 'P-' for datatype, dataspace and ACPL, respectively) */
     if(H5_daos_attribute_get_akey_strings(name, &type_key, &space_key, &acpl_key, attr->parent->ocpl_cache.track_acorder ? &acorder_key : NULL, NULL, &akey_len) < 0)
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTALLOC, NULL, "can't generate akey strings")
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTALLOC, NULL, "can't generate akey strings");
 
     /* Set up iod */
     memset(iod, 0, sizeof(iod));
@@ -300,7 +300,7 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
 
         /* Read num attributes and max creation order */
         if(0 != (ret = daos_obj_fetch(attr->parent->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 2, &iod[3], &sgl[3], NULL /*maps*/, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't read num attributes: %s", H5_daos_err_to_string(ret))
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't read num attributes: %s", H5_daos_err_to_string(ret));
 
         p = &nattr_old_buf[1];
         /* Check for no num attributes found, in this case it must be 0 */
@@ -314,7 +314,7 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
         else {
             /* Verify the iod size was 8 as expected */
             if(iod[3].iod_size != (uint64_t)8)
-                D_GOTO_ERROR(H5E_ATTR, H5E_CANTDECODE, NULL, "invalid size of number of attributes value")
+                D_GOTO_ERROR(H5E_ATTR, H5E_CANTDECODE, NULL, "invalid size of number of attributes value");
 
             /* Decode num attributes */
             UINT64DECODE(p, nattr);
@@ -335,7 +335,7 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
         else {
             /* Verify the iod size was 8 as expected */
             if(iod[4].iod_size != (uint64_t)8)
-                D_GOTO_ERROR(H5E_ATTR, H5E_CANTDECODE, NULL, "invalid size of maximum attribute creation order record")
+                D_GOTO_ERROR(H5E_ATTR, H5E_CANTDECODE, NULL, "invalid size of maximum attribute creation order record");
 
             /* Decode max. attribute creation order */
             UINT64DECODE(p, max_corder);
@@ -407,21 +407,21 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
 
     /* Write attribute metadata to parent object */
     if(0 != (ret = daos_obj_update(attr->parent->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, attr->parent->ocpl_cache.track_acorder ? 7 : 3, iod, sgl, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't write attribute metadata: %s", H5_daos_err_to_string(ret))
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't write attribute metadata: %s", H5_daos_err_to_string(ret));
 
     /* Finish setting up attribute struct */
     if(NULL == (attr->name = strdup(name)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't copy attribute name")
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't copy attribute name");
     if((attr->type_id = H5Tcopy(type_id)) < 0)
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTCOPY, NULL, "failed to copy datatype")
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTCOPY, NULL, "failed to copy datatype");
     if((attr->file_type_id = H5VLget_file_type(item->file, H5_DAOS_g, type_id)) < 0)
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "failed to get file datatype")
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "failed to get file datatype");
     if((attr->space_id = H5Scopy(space_id)) < 0)
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTCOPY, NULL, "failed to copy dataspace")
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTCOPY, NULL, "failed to copy dataspace");
     if((attr->acpl_id = H5Pcopy(acpl_id)) < 0)
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTCOPY, NULL, "failed to copy acpl")
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTCOPY, NULL, "failed to copy acpl");
     if(H5Sselect_all(attr->space_id) < 0)
-        D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTDELETE, NULL, "can't change selection")
+        D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTDELETE, NULL, "can't change selection");
 
     ret_value = (void *)attr;
 
@@ -440,9 +440,9 @@ done:
     if(NULL == ret_value)
         /* Close attribute */
         if(attr && H5_daos_attribute_close(attr, dxpl_id, req) < 0)
-            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, NULL, "can't close attribute")
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, NULL, "can't close attribute");
 
-    D_FUNC_LEAVE_API
+    D_FUNC_LEAVE_API;
 } /* end H5_daos_attribute_create() */
 
 
@@ -484,15 +484,15 @@ H5_daos_attribute_open(void *_item, const H5VL_loc_params_t *loc_params,
     H5_DAOS_G_INIT(NULL)
 
     if(!_item)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "attribute parent object is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "attribute parent object is NULL");
     if(!loc_params)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "location parameters object is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "location parameters object is NULL");
     if(!name && (H5VL_OBJECT_BY_IDX != loc_params->type))
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "attribute name is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "attribute name is NULL");
 
     /* Allocate the attribute object that is returned to the user */
     if(NULL == (attr = H5FL_CALLOC(H5_daos_attr_t)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate DAOS dataset struct")
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate DAOS dataset struct");
     attr->item.type = H5I_ATTR;
     attr->item.open_req = NULL;
     attr->item.file = item->file;
@@ -515,7 +515,7 @@ H5_daos_attribute_open(void *_item, const H5VL_loc_params_t *loc_params,
 
             /* Set attribute's name */
             if(NULL == (attr->name = strdup(name)))
-                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't copy attribute name")
+                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't copy attribute name");
 
             break;
         } /* H5VL_OBJECT_BY_SELF */
@@ -524,11 +524,11 @@ H5_daos_attribute_open(void *_item, const H5VL_loc_params_t *loc_params,
         {
             /* Open target_obj */
             if(NULL == (attr->parent = (H5_daos_obj_t *)H5_daos_object_open(item, loc_params, NULL, dxpl_id, req)))
-                D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, NULL, "can't open object for attribute")
+                D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, NULL, "can't open object for attribute");
 
             /* Set attribute's name */
             if(NULL == (attr->name = strdup(name)))
-                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't copy attribute name")
+                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't copy attribute name");
 
             break;
         } /* H5VL_OBJECT_BY_NAME */
@@ -536,13 +536,13 @@ H5_daos_attribute_open(void *_item, const H5VL_loc_params_t *loc_params,
         case H5VL_OBJECT_BY_IDX:
         {
             if(H5_daos_attribute_open_by_idx_helper((H5_daos_obj_t *)item, loc_params, attr, dxpl_id, req) < 0)
-                D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, NULL, "can't get attribute's parent object and name by index")
+                D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, NULL, "can't get attribute's parent object and name by index");
             break;
         } /* H5VL_OBJECT_BY_IDX */
 
         case H5VL_OBJECT_BY_TOKEN:
         default:
-            D_GOTO_ERROR(H5E_ATTR, H5E_UNSUPPORTED, NULL, "invalid or unsupported attribute open location parameters type")
+            D_GOTO_ERROR(H5E_ATTR, H5E_UNSUPPORTED, NULL, "invalid or unsupported attribute open location parameters type");
     } /* end switch */
 
     /* Set up operation to write datatype and dataspace to attribute */
@@ -551,7 +551,7 @@ H5_daos_attribute_open(void *_item, const H5VL_loc_params_t *loc_params,
 
     /* Set up akey strings (attribute name prefixed with 'T-', 'S-' and 'P-' for datatype, dataspace and ACPL, respectively) */
     if(H5_daos_attribute_get_akey_strings(attr->name, &type_key, &space_key, &acpl_key, NULL, NULL, &akey_len) < 0)
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTALLOC, NULL, "can't generate akey strings")
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTALLOC, NULL, "can't generate akey strings");
 
     /* Set up iod */
     memset(iod, 0, sizeof(iod));
@@ -572,18 +572,18 @@ H5_daos_attribute_open(void *_item, const H5VL_loc_params_t *loc_params,
 
     /* Read attribute metadata sizes from parent object */
     if(0 != (ret = daos_obj_fetch(attr->parent->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 3, iod, NULL, NULL /*maps*/, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTDECODE, NULL, "can't read attribute metadata sizes: %s", H5_daos_err_to_string(ret))
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTDECODE, NULL, "can't read attribute metadata sizes: %s", H5_daos_err_to_string(ret));
 
     if(iod[0].iod_size == (uint64_t)0 || iod[1].iod_size == (uint64_t)0 || iod[2].iod_size == (uint64_t)0)
-        D_GOTO_ERROR(H5E_ATTR, H5E_NOTFOUND, NULL, "attribute not found")
+        D_GOTO_ERROR(H5E_ATTR, H5E_NOTFOUND, NULL, "attribute not found");
 
     /* Allocate buffers for datatype, dataspace and ACPL */
     if(NULL == (type_buf = DV_malloc(iod[0].iod_size)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized datatype")
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized datatype");
     if(NULL == (space_buf = DV_malloc(iod[1].iod_size)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized dataspace")
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized dataspace");
     if(NULL == (acpl_buf = DV_malloc(iod[2].iod_size)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized acpl")
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized acpl");
 
     /* Set up sgl */
     daos_iov_set(&sg_iov[0], type_buf, (daos_size_t)iod[0].iod_size);
@@ -601,21 +601,21 @@ H5_daos_attribute_open(void *_item, const H5VL_loc_params_t *loc_params,
 
     /* Read attribute metadata from parent object */
     if(0 != (ret = daos_obj_fetch(attr->parent->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 3, iod, sgl, NULL /*maps*/, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTDECODE, NULL, "can't read attribute metadata: %s", H5_daos_err_to_string(ret))
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTDECODE, NULL, "can't read attribute metadata: %s", H5_daos_err_to_string(ret));
 
     /* Decode datatype and dataspace */
     if((attr->type_id = H5Tdecode(type_buf)) < 0)
-        D_GOTO_ERROR(H5E_ARGS, H5E_CANTDECODE, NULL, "can't deserialize datatype")
+        D_GOTO_ERROR(H5E_ARGS, H5E_CANTDECODE, NULL, "can't deserialize datatype");
     if((attr->space_id = H5Sdecode(space_buf)) < 0)
-        D_GOTO_ERROR(H5E_ARGS, H5E_CANTDECODE, NULL, "can't deserialize datatype")
+        D_GOTO_ERROR(H5E_ARGS, H5E_CANTDECODE, NULL, "can't deserialize datatype");
     if((attr->acpl_id = H5Pdecode(acpl_buf)) < 0)
-        D_GOTO_ERROR(H5E_ARGS, H5E_CANTDECODE, NULL, "can't deserialize acpl")
+        D_GOTO_ERROR(H5E_ARGS, H5E_CANTDECODE, NULL, "can't deserialize acpl");
     if(H5Sselect_all(attr->space_id) < 0)
-        D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTDELETE, NULL, "can't change selection")
+        D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTDELETE, NULL, "can't change selection");
 
     /* Finish setting up attribute struct */
     if((attr->file_type_id = H5VLget_file_type(item->file, H5_DAOS_g, attr->type_id)) < 0)
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "failed to get file datatype")
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "failed to get file datatype");
 
     ret_value = (void *)attr;
 
@@ -633,9 +633,9 @@ done:
     if(NULL == ret_value)
         /* Close attribute */
         if(attr && H5_daos_attribute_close(attr, dxpl_id, req) < 0)
-            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, NULL, "can't close attribute")
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, NULL, "can't close attribute");
 
-    D_FUNC_LEAVE_API
+    D_FUNC_LEAVE_API;
 } /* end H5_daos_attribute_open() */
 
 
@@ -679,24 +679,24 @@ H5_daos_attribute_open_by_idx_helper(H5_daos_obj_t *target_obj, const H5VL_loc_p
     sub_loc_params.loc_data.loc_by_name.lapl_id = loc_params->loc_data.loc_by_idx.lapl_id;
     if(NULL == (attr_parent_obj = (H5_daos_obj_t *)H5_daos_object_open(target_obj, &sub_loc_params,
             NULL, dxpl_id, req)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, (-1), "can't open attribute's parent object")
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, (-1), "can't open attribute's parent object");
 
     /* Retrieve the attribute's name by index */
     if((attr_name_size = H5_daos_attribute_get_name_by_idx(attr_parent_obj, loc_params->loc_data.loc_by_idx.idx_type,
             loc_params->loc_data.loc_by_idx.order, (uint64_t)loc_params->loc_data.loc_by_idx.n,
             attr_name_buf_static, H5_DAOS_ATTR_NAME_BUF_SIZE)) < 0)
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute name")
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute name");
 
     /* Check that buffer was large enough to fit attribute's name */
     if(attr_name_size > H5_DAOS_ATTR_NAME_BUF_SIZE - 1) {
         if(NULL == (attr_name_buf_dyn = DV_malloc((size_t)attr_name_size + 1)))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate attribute name buffer")
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate attribute name buffer");
 
         /* Re-issue the call with a larger buffer */
         if((attr_name_size = H5_daos_attribute_get_name_by_idx(attr_parent_obj, loc_params->loc_data.loc_by_idx.idx_type,
                 loc_params->loc_data.loc_by_idx.order, (uint64_t)loc_params->loc_data.loc_by_idx.n,
                 attr_name_buf_dyn, (size_t)attr_name_size + 1)) < 0)
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute name")
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute name");
 
         target_name = attr_name_buf_dyn;
     } /* end if */
@@ -705,7 +705,7 @@ H5_daos_attribute_open_by_idx_helper(H5_daos_obj_t *target_obj, const H5VL_loc_p
 
     /* Setup attribute's parent object and name fields */
     if(NULL == (attr_out->name = strdup(target_name)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't copy attribute name")
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't copy attribute name");
     attr_out->parent = attr_parent_obj;
 
 done:
@@ -715,9 +715,9 @@ done:
     /* Cleanup on failure */
     if(ret_value < 0)
         if(attr_parent_obj && H5_daos_object_close(attr_parent_obj, dxpl_id, req) < 0)
-            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close attribute's parent object")
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close attribute's parent object");
 
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_attribute_open_by_idx_helper() */
 
 
@@ -761,21 +761,21 @@ H5_daos_attribute_read(void *_attr, hid_t mem_type_id, void *buf,
     herr_t ret_value = SUCCEED;
 
     if(!_attr)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "attribute object is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "attribute object is NULL");
     if(!buf)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "read buffer is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "read buffer is NULL");
     if(H5I_ATTR != attr->item.type)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not an attribute")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not an attribute");
 
     /* Check for a NULL dataspace */
     if(H5S_NULL == H5Sget_simple_extent_type(attr->space_id))
-        D_GOTO_DONE(SUCCEED)
+        D_GOTO_DONE(SUCCEED);
 
     /* Get dataspace extent */
     if((ndims = H5Sget_simple_extent_ndims(attr->space_id)) < 0)
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get number of dimensions")
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get number of dimensions");
     if(ndims != H5Sget_simple_extent_dims(attr->space_id, dim, NULL))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get dimensions")
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get dimensions");
 
     /* Calculate attribute size */
     attr_size = (uint64_t)1;
@@ -783,20 +783,20 @@ H5_daos_attribute_read(void *_attr, hid_t mem_type_id, void *buf,
         attr_size *= (uint64_t)dim[i];
 
     if(0 == attr_size)
-        D_GOTO_DONE(SUCCEED)
+        D_GOTO_DONE(SUCCEED);
 
     /* Set up dkey */
     daos_iov_set(&dkey, (void *)H5_daos_attr_key_g, H5_daos_attr_key_size_g);
 
     /* Check if the type conversion is needed */
     if((need_tconv = H5_daos_need_tconv(attr->file_type_id, mem_type_id)) < 0)
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTCOMPARE, FAIL, "can't check if type conversion is needed")
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTCOMPARE, FAIL, "can't check if type conversion is needed");
 
     /* Type conversion */
     if(need_tconv) {
         /* Initialize type conversion */
         if(H5_daos_tconv_init(attr->file_type_id, &file_type_size, mem_type_id, &mem_type_size, (size_t)attr_size, FALSE, FALSE, &tconv_buf, &bkg_buf, &reuse, &fill_bkg) < 0)
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't initialize type conversion")
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't initialize type conversion");
 
         /* Reuse buffer as appropriate */
         if(reuse == H5_DAOS_TCONV_REUSE_TCONV)
@@ -814,7 +814,7 @@ H5_daos_attribute_read(void *_attr, hid_t mem_type_id, void *buf,
     else {
         /* Get datatype size */
         if((file_type_size = H5Tget_size(attr->file_type_id)) == 0)
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get datatype size for file datatype")
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get datatype size for file datatype");
 
         /* Set up sgl_iov to point to buf */
         daos_iov_set(&sg_iov, buf, (daos_size_t)(attr_size * (uint64_t)file_type_size));
@@ -824,7 +824,7 @@ H5_daos_attribute_read(void *_attr, hid_t mem_type_id, void *buf,
     /* Create akey string (prefix "V-") */
     akey_len = strlen(attr->name) + 2;
     if(NULL == (akey = (char *)DV_malloc(akey_len + 1)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akey")
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akey");
     akey[0] = 'V';
     akey[1] = '-';
     (void)strcpy(akey + 2, attr->name);
@@ -848,7 +848,7 @@ H5_daos_attribute_read(void *_attr, hid_t mem_type_id, void *buf,
 
     /* Read data from attribute */
     if(0 != (ret = daos_obj_fetch(attr->parent->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, FAIL, "can't read data from attribute: %s", H5_daos_err_to_string(ret))
+        D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, FAIL, "can't read data from attribute: %s", H5_daos_err_to_string(ret));
 
     /* Check for nothing read, in this case we must clear the read buffer */
     if(sgl.sg_nr_out == 0)
@@ -858,7 +858,7 @@ H5_daos_attribute_read(void *_attr, hid_t mem_type_id, void *buf,
     if(need_tconv) {
         /* Type conversion */
         if(H5Tconvert(attr->file_type_id, mem_type_id, attr_size, tconv_buf, bkg_buf, dxpl_id) < 0)
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTCONVERT, FAIL, "can't perform type conversion")
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTCONVERT, FAIL, "can't perform type conversion");
 
         /* Copy to user's buffer if necessary */
         if(buf != tconv_buf)
@@ -873,7 +873,7 @@ done:
     if(bkg_buf && (bkg_buf != buf))
         DV_free(bkg_buf);
 
-    D_FUNC_LEAVE_API
+    D_FUNC_LEAVE_API;
 } /* end H5_daos_attribute_read() */
 
 
@@ -916,25 +916,25 @@ H5_daos_attribute_write(void *_attr, hid_t mem_type_id, const void *buf,
     herr_t ret_value = SUCCEED;
 
     if(!_attr)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "attribute object is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "attribute object is NULL");
     if(!buf)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "write buffer is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "write buffer is NULL");
     if(H5I_ATTR != attr->item.type)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not an attribute")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not an attribute");
 
     /* Check for write access */
     if(!(attr->item.file->flags & H5F_ACC_RDWR))
-        D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, FAIL, "no write intent on file")
+        D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, FAIL, "no write intent on file");
 
     /* Check for a NULL dataspace */
     if(H5S_NULL == H5Sget_simple_extent_type(attr->space_id))
-        D_GOTO_DONE(SUCCEED)
+        D_GOTO_DONE(SUCCEED);
 
     /* Get dataspace extent */
     if((ndims = H5Sget_simple_extent_ndims(attr->space_id)) < 0)
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get number of dimensions")
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get number of dimensions");
     if(ndims != H5Sget_simple_extent_dims(attr->space_id, dim, NULL))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get dimensions")
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get dimensions");
 
     /* Calculate attribute size */
     attr_size = (uint64_t)1;
@@ -942,31 +942,31 @@ H5_daos_attribute_write(void *_attr, hid_t mem_type_id, const void *buf,
         attr_size *= (uint64_t)dim[i];
 
     if(0 == attr_size)
-        D_GOTO_DONE(SUCCEED)
+        D_GOTO_DONE(SUCCEED);
 
     /* Set up dkey */
     daos_iov_set(&dkey, (void *)H5_daos_attr_key_g, H5_daos_attr_key_size_g);
 
     /* Check if the type conversion is needed */
     if((need_tconv = H5_daos_need_tconv(mem_type_id, attr->file_type_id)) < 0)
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTCOMPARE, FAIL, "can't check if type conversion is needed")
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTCOMPARE, FAIL, "can't check if type conversion is needed");
 
     /* Type conversion */
     if(need_tconv) {
         /* Initialize type conversion */
         if(H5_daos_tconv_init(mem_type_id, &mem_type_size, attr->file_type_id, &file_type_size, (size_t)attr_size, FALSE, TRUE, &tconv_buf, &bkg_buf, NULL, &fill_bkg) < 0)
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't initialize type conversion")
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't initialize type conversion");
     } /* end if */
     else
         /* Get datatype size */
         if((file_type_size = H5Tget_size(attr->file_type_id)) == 0)
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get datatype size for file datatype")
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get datatype size for file datatype");
 
     /* Set up operation to write data */
     /* Create akey string (prefix "V-") */
     akey_len = strlen(attr->name) + 2;
     if(NULL == (akey = (char *)DV_malloc(akey_len + 1)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akey")
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akey");
     akey[0] = 'V';
     akey[1] = '-';
     (void)strcpy(akey + 2, attr->name);
@@ -998,7 +998,7 @@ H5_daos_attribute_write(void *_attr, hid_t mem_type_id, const void *buf,
             daos_iov_set(&sg_iov, bkg_buf, (daos_size_t)(attr_size * (uint64_t)file_type_size));
 
             if(0 != (ret = daos_obj_fetch(attr->parent->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
-                D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, FAIL, "can't read data from attribute: %s", H5_daos_err_to_string(ret))
+                D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, FAIL, "can't read data from attribute: %s", H5_daos_err_to_string(ret));
 
             /* Reset iod_size, if the attribute was not writted to then it could
              * have been overwritten by daos_obj_fetch */
@@ -1010,7 +1010,7 @@ H5_daos_attribute_write(void *_attr, hid_t mem_type_id, const void *buf,
 
         /* Perform type conversion */
         if(H5Tconvert(mem_type_id, attr->file_type_id, attr_size, tconv_buf, bkg_buf, dxpl_id) < 0)
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTCONVERT, FAIL, "can't perform type conversion")
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTCONVERT, FAIL, "can't perform type conversion");
 
         /* Set sgl to write from tconv_buf */
         daos_iov_set(&sg_iov, tconv_buf, (daos_size_t)(attr_size * (uint64_t)file_type_size));
@@ -1021,7 +1021,7 @@ H5_daos_attribute_write(void *_attr, hid_t mem_type_id, const void *buf,
 
     /* Write data to attribute */
     if(0 != (ret = daos_obj_update(attr->parent->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod, &sgl, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_WRITEERROR, FAIL, "can't write data to attribute: %s", H5_daos_err_to_string(ret))
+        D_GOTO_ERROR(H5E_ATTR, H5E_WRITEERROR, FAIL, "can't write data to attribute: %s", H5_daos_err_to_string(ret));
 
 done:
     /* Free memory */
@@ -1029,7 +1029,7 @@ done:
     tconv_buf = DV_free(tconv_buf);
     bkg_buf = DV_free(bkg_buf);
 
-    D_FUNC_LEAVE_API
+    D_FUNC_LEAVE_API;
 } /* end H5_daos_attribute_write() */
 
 
@@ -1053,7 +1053,7 @@ H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
     herr_t ret_value = SUCCEED;    /* Return value */
 
     if(!_item)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
 
     switch (get_type) {
         /* H5Aget_space */
@@ -1075,7 +1075,7 @@ H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
 
                 /* Retrieve the attribute's datatype */
                 if((*ret_id = H5Tcopy(attr->type_id)) < 0)
-                    D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get datatype ID of attribute")
+                    D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get datatype ID of attribute");
                 break;
             } /* end block */
         /* H5Aget_create_plist */
@@ -1099,7 +1099,7 @@ H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
 
                 if((*ret_val = H5_daos_attribute_get_name((H5_daos_obj_t *)_item, loc_params,
                         buf, buf_size, dxpl_id, req)) < 0)
-                    D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute name")
+                    D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute name");
 
                 break;
             } /* end block */
@@ -1112,17 +1112,17 @@ H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
                         va_arg(arguments, const char *) : NULL;
 
                 if(H5_daos_attribute_get_info(_item, loc_params, attr_name, attr_info, dxpl_id, req) < 0)
-                    D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute info")
+                    D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute info");
 
                 break;
             } /* H5VL_ATTR_GET_INFO */
         case H5VL_ATTR_GET_STORAGE_SIZE:
         default:
-            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "can't get this type of information from attribute")
+            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "can't get this type of information from attribute");
     } /* end switch */
 
 done:
-    D_FUNC_LEAVE_API
+    D_FUNC_LEAVE_API;
 } /* end H5_daos_attribute_get() */
 
 
@@ -1150,9 +1150,9 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
     herr_t ret_value = SUCCEED;    /* Return value */
 
     if(!_item)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
     if(!loc_params)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "location parameters object is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "location parameters object is NULL");
 
     /* Determine attribute object */
     switch (loc_params->type) {
@@ -1169,7 +1169,7 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
         case H5VL_OBJECT_BY_NAME:
             /* Open target_obj */
             if(NULL == (target_obj = (H5_daos_obj_t *)H5_daos_object_open(item, loc_params, NULL, dxpl_id, req)))
-                D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, FAIL, "can't open object for attribute")
+                D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, FAIL, "can't open object for attribute");
             break;
 
         case H5VL_OBJECT_BY_IDX:
@@ -1181,14 +1181,14 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
             sub_loc_params.loc_data.loc_by_name.name = loc_params->loc_data.loc_by_idx.name;
             sub_loc_params.loc_data.loc_by_name.lapl_id = loc_params->loc_data.loc_by_idx.lapl_id;
             if(NULL == (target_obj = (H5_daos_obj_t *)H5_daos_object_open(item, &sub_loc_params, NULL, dxpl_id, req)))
-                D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, FAIL, "can't open object for attribute")
+                D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, FAIL, "can't open object for attribute");
 
             break;
         }
 
         case H5VL_OBJECT_BY_TOKEN:
         default:
-            D_GOTO_ERROR(H5E_ATTR, H5E_BADVALUE, FAIL, "invalid or unsupported attribute operation location parameters type")
+            D_GOTO_ERROR(H5E_ATTR, H5E_BADVALUE, FAIL, "invalid or unsupported attribute operation location parameters type");
     } /* end switch */
 
     switch (specific_type) {
@@ -1198,7 +1198,7 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
                 const char *attr_name = va_arg(arguments, const char *);
 
                 if(H5_daos_attribute_delete(target_obj, loc_params, attr_name) < 0)
-                    D_GOTO_ERROR(H5E_ATTR, H5E_CANTDELETE, FAIL, "unable to delete attribute")
+                    D_GOTO_ERROR(H5E_ATTR, H5E_CANTDELETE, FAIL, "unable to delete attribute");
 
                 break;
             } /* H5VL_ATTR_DELETE */
@@ -1211,7 +1211,7 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
                 htri_t attr_found = FALSE;
 
                 if((attr_found = H5_daos_attribute_exists(target_obj, attr_name)) < 0)
-                    D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't determine if attribute exists")
+                    D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't determine if attribute exists");
 
                 *attr_exists = attr_found;
 
@@ -1229,7 +1229,7 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
 
                 /* Register id for target_obj */
                 if((target_obj_id = H5VLwrap_register(target_obj, target_obj->item.type)) < 0)
-                    D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, FAIL, "unable to atomize object handle")
+                    D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, FAIL, "unable to atomize object handle");
 
                 /* Initialize iteration data */
                 H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_ATTR, idx_type, iter_order,
@@ -1237,7 +1237,7 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
                 iter_data.u.attr_iter_data.attr_iter_op = iter_op;
 
                 if((ret_value = H5_daos_attribute_iterate(target_obj, &iter_data)) < 0)
-                    D_GOTO_ERROR(H5E_ATTR, H5E_BADITER, FAIL, "can't iterate over attributes")
+                    D_GOTO_ERROR(H5E_ATTR, H5E_BADITER, FAIL, "can't iterate over attributes");
 
                 break;
             } /* end block */
@@ -1249,29 +1249,29 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
                 const char *new_attr_name = va_arg(arguments, const char *);
 
                 if(H5_daos_attribute_rename(target_obj, cur_attr_name, new_attr_name) < 0)
-                    D_GOTO_ERROR(H5E_ATTR, H5E_CANTRENAME, FAIL, "can't rename attribute")
+                    D_GOTO_ERROR(H5E_ATTR, H5E_CANTRENAME, FAIL, "can't rename attribute");
 
                 break;
             } /* H5VL_ATTR_RENAME */
 
         default:
-            D_GOTO_ERROR(H5E_VOL, H5E_BADVALUE, FAIL, "invalid specific operation")
+            D_GOTO_ERROR(H5E_VOL, H5E_BADVALUE, FAIL, "invalid specific operation");
     } /* end switch */
 
 done:
     if(target_obj_id != FAIL) {
         if(H5Idec_ref(target_obj_id) < 0)
-            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close object ID")
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close object ID");
         target_obj_id = FAIL;
         target_obj = NULL;
     } /* end if */
     else if(target_obj) {
         if(H5_daos_object_close(target_obj, dxpl_id, req) < 0)
-            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close object")
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close object");
         target_obj = NULL;
     } /* end else */
 
-    D_FUNC_LEAVE_API
+    D_FUNC_LEAVE_API;
 } /* end H5_daos_attribute_specific() */
 
 
@@ -1295,29 +1295,29 @@ H5_daos_attribute_close(void *_attr, hid_t dxpl_id, void **req)
     herr_t ret_value = SUCCEED;
 
     if(!_attr)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "attribute object is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "attribute object is NULL");
 
     if(--attr->item.rc == 0) {
         /* Free attribute data structures */
         if(attr->item.open_req)
             if(H5_daos_req_free_int(attr->item.open_req) < 0)
-                D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't free request")
+                D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't free request");
         if(attr->parent && H5_daos_object_close(attr->parent, dxpl_id, req))
-            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close attribute's parent object")
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close attribute's parent object");
         attr->name = DV_free(attr->name);
         if(attr->type_id != FAIL && H5Idec_ref(attr->type_id) < 0)
-            D_DONE_ERROR(H5E_ATTR, H5E_CANTDEC, FAIL, "failed to close attribute's datatype")
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTDEC, FAIL, "failed to close attribute's datatype");
         if(attr->file_type_id != FAIL && H5Idec_ref(attr->file_type_id) < 0)
-            D_DONE_ERROR(H5E_ATTR, H5E_CANTDEC, FAIL, "failed to close attribute's file datatype")
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTDEC, FAIL, "failed to close attribute's file datatype");
         if(attr->space_id != FAIL && H5Idec_ref(attr->space_id) < 0)
-            D_DONE_ERROR(H5E_ATTR, H5E_CANTDEC, FAIL, "failed to close attribute's dataspace")
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTDEC, FAIL, "failed to close attribute's dataspace");
         if(attr->acpl_id != FAIL && H5Idec_ref(attr->acpl_id) < 0)
-            D_DONE_ERROR(H5E_ATTR, H5E_CANTDEC, FAIL, "failed to close acpl")
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTDEC, FAIL, "failed to close acpl");
         attr = H5FL_FREE(H5_daos_attr_t, attr);
     } /* end if */
 
 done:
-    D_FUNC_LEAVE_API
+    D_FUNC_LEAVE_API;
 } /* end H5_daos_attribute_close() */
 
 
@@ -1380,12 +1380,12 @@ H5_daos_attribute_get_name(H5_daos_obj_t *target_obj, const H5VL_loc_params_t *l
             sub_loc_params.loc_data.loc_by_name.lapl_id = loc_params->loc_data.loc_by_idx.lapl_id;
             if(NULL == (parent_obj = (H5_daos_obj_t *)H5_daos_object_open(target_obj, &sub_loc_params,
                     NULL, dxpl_id, req)))
-                D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, (-1), "can't open attribute's parent object")
+                D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, (-1), "can't open attribute's parent object");
 
             if((ret_value = H5_daos_attribute_get_name_by_idx(parent_obj, loc_params->loc_data.loc_by_idx.idx_type,
                     loc_params->loc_data.loc_by_idx.order, (uint64_t)loc_params->loc_data.loc_by_idx.n,
                     attr_name_out, attr_name_out_size)) < 0)
-                D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, (-1), "can't get attribute name by index")
+                D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, (-1), "can't get attribute name by index");
 
             break;
         } /* H5VL_OBJECT_BY_IDX */
@@ -1393,14 +1393,14 @@ H5_daos_attribute_get_name(H5_daos_obj_t *target_obj, const H5VL_loc_params_t *l
         case H5VL_OBJECT_BY_NAME:
         case H5VL_OBJECT_BY_TOKEN:
         default:
-            D_GOTO_ERROR(H5E_ATTR, H5E_BADVALUE, (-1), "invalid loc_params type")
+            D_GOTO_ERROR(H5E_ATTR, H5E_BADVALUE, (-1), "invalid loc_params type");
     } /* end switch */
 
 done:
     if(parent_obj && H5_daos_object_close(parent_obj, dxpl_id, req) < 0)
-        D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, (-1), "can't close object")
+        D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, (-1), "can't close object");
 
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_attribute_get_name() */
 
 
@@ -1446,14 +1446,14 @@ H5_daos_attribute_get_info(H5_daos_item_t *item, const H5VL_loc_params_t *loc_pa
             /* Open the target attribute */
             if(NULL == (target_attr = (H5_daos_attr_t *)H5_daos_attribute_open(item, loc_params,
                     attr_name, H5P_DEFAULT, dxpl_id, req)))
-                D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, FAIL, "can't open target attribute")
+                D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, FAIL, "can't open target attribute");
 
             break;
         } /* H5VL_OBJECT_BY_IDX */
 
         case H5VL_OBJECT_BY_TOKEN:
         default:
-            D_GOTO_ERROR(H5E_ATTR, H5E_BADVALUE, FAIL, "invalid loc_params type")
+            D_GOTO_ERROR(H5E_ATTR, H5E_BADVALUE, FAIL, "invalid loc_params type");
     } /* end switch */
 
     /* Retrieve the attribute's info */
@@ -1463,7 +1463,7 @@ H5_daos_attribute_get_info(H5_daos_item_t *item, const H5VL_loc_params_t *loc_pa
         uint64_t attr_crt_order = 0;
 
         if(H5_daos_attribute_get_crt_order_by_name(target_attr->parent, target_attr->name, &attr_crt_order) < 0)
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute's creation order value")
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute's creation order value");
         local_attr_info.corder = (H5O_msg_crt_idx_t)attr_crt_order; /* DSINC - no check for overflow */
         local_attr_info.corder_valid = TRUE;
     } /* end if */
@@ -1477,10 +1477,10 @@ H5_daos_attribute_get_info(H5_daos_item_t *item, const H5VL_loc_params_t *loc_pa
 
     /* Retrieve attribute's data size */
     if(0 == (datatype_size = H5Tget_size(target_attr->file_type_id)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't retrieve attribute's datatype size")
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't retrieve attribute's datatype size");
 
     if((dataspace_nelmts = H5Sget_simple_extent_npoints(target_attr->space_id)) < 0)
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't retrieve number of elements in attribute's dataspace")
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't retrieve number of elements in attribute's dataspace");
 
     /* DSINC - data_size will likely be incorrect currently for VLEN types */
     local_attr_info.data_size = datatype_size * (size_t)dataspace_nelmts;
@@ -1489,9 +1489,9 @@ H5_daos_attribute_get_info(H5_daos_item_t *item, const H5VL_loc_params_t *loc_pa
 
 done:
     if(target_attr && H5_daos_attribute_close(target_attr, dxpl_id, req) < 0)
-        D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close attribute")
+        D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close attribute");
 
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_attribute_get_info() */
 
 
@@ -1540,18 +1540,18 @@ H5_daos_attribute_delete(H5_daos_obj_t *attr_container_obj, const H5VL_loc_param
         if((attr_name_size = H5_daos_attribute_get_name_by_idx(attr_container_obj, loc_params->loc_data.loc_by_idx.idx_type,
                 loc_params->loc_data.loc_by_idx.order, (uint64_t)loc_params->loc_data.loc_by_idx.n,
                 attr_name_buf_static, H5_DAOS_ATTR_NAME_BUF_SIZE)) < 0)
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute name")
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute name");
 
         /* Check that the buffer was large enough to fit attribute name */
         if(attr_name_size > H5_DAOS_ATTR_NAME_BUF_SIZE - 1) {
             if(NULL == (attr_name_buf_dyn = DV_malloc((size_t)attr_name_size + 1)))
-                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for attribute name")
+                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for attribute name");
 
             /* Re-issue the call with a larger buffer */
             if((attr_name_size = H5_daos_attribute_get_name_by_idx(attr_container_obj, loc_params->loc_data.loc_by_idx.idx_type,
                     loc_params->loc_data.loc_by_idx.order, (uint64_t)loc_params->loc_data.loc_by_idx.n,
                     attr_name_buf_dyn, (size_t)attr_name_size + 1)) < 0)
-                D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute name")
+                D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute name");
 
             target_attr_name = attr_name_buf_dyn;
         } /* end if */
@@ -1564,7 +1564,7 @@ H5_daos_attribute_delete(H5_daos_obj_t *attr_container_obj, const H5VL_loc_param
 
     /* Set up akey strings (attribute name prefixed with 'T-', 'S-' and 'P-' for datatype, dataspace and ACPL, respectively) */
     if(H5_daos_attribute_get_akey_strings(target_attr_name, &type_key, &space_key, &acpl_key, &acorder_key, &data_key, &akey_len) < 0)
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTALLOC, FAIL, "can't generate akey strings")
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTALLOC, FAIL, "can't generate akey strings");
 
     /* Set up akeys */
     memset(akeys, 0, sizeof(akeys));
@@ -1577,7 +1577,7 @@ H5_daos_attribute_delete(H5_daos_obj_t *attr_container_obj, const H5VL_loc_param
     /* DSINC - currently no support for deleting vlen data akeys */
     if(0 != (ret = daos_obj_punch_akeys(attr_container_obj->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey,
             nr, akeys, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTDELETE, FAIL, "unable to delete attribute")
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTDELETE, FAIL, "unable to delete attribute");
 
     /* If attribute creation order is tracked, perform some bookkeeping */
     if(attr_container_obj->ocpl_cache.track_acorder) {
@@ -1585,16 +1585,16 @@ H5_daos_attribute_delete(H5_daos_obj_t *attr_container_obj, const H5VL_loc_param
 
         /* Update the "number of attributes" key on the object */
         if((obj_num_attrs = H5_daos_object_get_num_attrs(attr_container_obj)) < 0)
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get number of attributes attached to object")
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get number of attributes attached to object");
         if(obj_num_attrs > 0)
             obj_num_attrs--;
 
         if(H5_daos_object_update_num_attrs_key(attr_container_obj, (uint64_t)obj_num_attrs) < 0)
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTMODIFY, FAIL, "can't update number of attributes attached to object")
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTMODIFY, FAIL, "can't update number of attributes attached to object");
 
         /* Remove the attribute from the attribute creation order index */
         if(H5_daos_attribute_remove_from_crt_idx(attr_container_obj, loc_params, target_attr_name) < 0)
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTREMOVE, FAIL, "can't remove attribute from creation order index")
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTREMOVE, FAIL, "can't remove attribute from creation order index");
     } /* end if */
 
 done:
@@ -1607,7 +1607,7 @@ done:
     if(attr_name_buf_dyn)
         attr_name_buf_dyn = DV_free(attr_name_buf_dyn);
 
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_attribute_delete() */
 
 
@@ -1642,7 +1642,7 @@ H5_daos_attribute_remove_from_crt_idx(H5_daos_obj_t *target_obj, const H5VL_loc_
 
     /* Retrieve the current number of attributes attached to the object */
     if((obj_nattrs_remaining = H5_daos_object_get_num_attrs(target_obj)) < 0)
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get the number of attributes attached to object")
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get the number of attributes attached to object");
 
     /* Determine the index value of the attribute to be removed */
     if(H5VL_OBJECT_BY_IDX == loc_params->type) {
@@ -1662,7 +1662,7 @@ H5_daos_attribute_remove_from_crt_idx(H5_daos_obj_t *target_obj, const H5VL_loc_
 
         /* Register ID for object for attribute iteration */
         if((target_obj_id = H5VLwrap_register(target_obj, target_obj->item.type)) < 0)
-            D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, FAIL, "unable to atomize object handle")
+            D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, FAIL, "unable to atomize object handle");
         target_obj->item.rc++;
 
         /* Initialize iteration data */
@@ -1687,7 +1687,7 @@ H5_daos_attribute_remove_from_crt_idx(H5_daos_obj_t *target_obj, const H5VL_loc_
          *       found by the iteration.
          */
         if(H5_daos_attribute_iterate(target_obj, &iter_data) < 0)
-            D_GOTO_ERROR(H5E_ATTR, H5E_BADITER, FAIL, "attribute iteration failed")
+            D_GOTO_ERROR(H5E_ATTR, H5E_BADITER, FAIL, "attribute iteration failed");
     } /* end else */
 
     /* Set up dkey */
@@ -1700,7 +1700,7 @@ H5_daos_attribute_remove_from_crt_idx(H5_daos_obj_t *target_obj, const H5VL_loc_
 
     /* Remove the akey */
     if(0 != (ret = daos_obj_punch_akeys(target_obj->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &crt_akey, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTREMOVE, FAIL, "failed to punch attribute akey: %s", H5_daos_err_to_string(ret))
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTREMOVE, FAIL, "failed to punch attribute akey: %s", H5_daos_err_to_string(ret));
 
     /*
      * If there are still attributes remaining on the object and we didn't delete
@@ -1711,13 +1711,13 @@ H5_daos_attribute_remove_from_crt_idx(H5_daos_obj_t *target_obj, const H5VL_loc_
      */
     if((obj_nattrs_remaining > 0) && (delete_idx < (uint64_t)obj_nattrs_remaining))
         if(H5_daos_attribute_shift_crt_idx_keys_down(target_obj, delete_idx + 1, (uint64_t)obj_nattrs_remaining) < 0)
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTMODIFY, FAIL, "failed to update attribute creation order index")
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTMODIFY, FAIL, "failed to update attribute creation order index");
 
 done:
     if((target_obj_id >= 0) && (H5Idec_ref(target_obj_id) < 0))
-        D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close attribute's parent object ID")
+        D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close attribute's parent object ID");
 
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_attribute_remove_from_crt_idx() */
 
 
@@ -1817,13 +1817,13 @@ H5_daos_attribute_shift_crt_idx_keys_down(H5_daos_obj_t *target_obj,
      * attribute's creation order value to the attribute's name.
      */
     if(NULL == (iods = DV_malloc(nattrs_shift * sizeof(*iods))))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate IOD buffer")
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate IOD buffer");
     if(NULL == (sgls = DV_malloc(nattrs_shift * sizeof(*sgls))))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate SGL buffer")
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate SGL buffer");
     if(NULL == (sg_iovs = DV_calloc(nattrs_shift * sizeof(*sg_iovs))))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate IOV buffer")
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate IOV buffer");
     if(NULL == (crt_order_attr_name_buf = DV_malloc(nattrs_shift * (H5_DAOS_ENCODED_CRT_ORDER_SIZE + 1))))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate akey data buffer")
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate akey data buffer");
 
     /* Set up dkey */
     daos_iov_set(&dkey, (void *)H5_daos_attr_key_g, H5_daos_attr_key_size_g);
@@ -1848,15 +1848,15 @@ H5_daos_attribute_shift_crt_idx_keys_down(H5_daos_obj_t *target_obj,
     /* Fetch the data size for each akey */
     if(0 != (ret = daos_obj_fetch(target_obj->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, (unsigned) nattrs_shift,
             iods, NULL, NULL /*maps*/, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, FAIL, "can't read akey data sizes: %s", H5_daos_err_to_string(ret))
+        D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, FAIL, "can't read akey data sizes: %s", H5_daos_err_to_string(ret));
 
     /* Allocate buffers and setup sgls for each akey */
     for(i = 0; i < nattrs_shift; i++) {
         /* Allocate buffer for the current 'creation order -> attribute name' akey */
         if(iods[i].iod_size == 0)
-            D_GOTO_ERROR(H5E_ATTR, H5E_BADSIZE, FAIL, "invalid iod size - missing metadata")
+            D_GOTO_ERROR(H5E_ATTR, H5E_BADSIZE, FAIL, "invalid iod size - missing metadata");
         if(NULL == (tmp_buf = DV_malloc(iods[i].iod_size)))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akey data")
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akey data");
 
         /* Set up sgls for the current 'creation order -> attribute name' akey */
         daos_iov_set(&sg_iovs[i], tmp_buf, iods[i].iod_size);
@@ -1868,7 +1868,7 @@ H5_daos_attribute_shift_crt_idx_keys_down(H5_daos_obj_t *target_obj,
     /* Read the akey's data */
     if(0 != (ret = daos_obj_fetch(target_obj->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, (unsigned) nattrs_shift,
             iods, sgls, NULL /*maps*/, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, FAIL, "can't read akey data: %s", H5_daos_err_to_string(ret))
+        D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, FAIL, "can't read akey data: %s", H5_daos_err_to_string(ret));
 
     /*
      * Adjust the akeys down by setting their integer 'name' values to
@@ -1887,7 +1887,7 @@ H5_daos_attribute_shift_crt_idx_keys_down(H5_daos_obj_t *target_obj,
     /* Write the akeys back */
     if(0 != (ret = daos_obj_update(target_obj->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, (unsigned) nattrs_shift,
             iods, sgls, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_WRITEERROR, FAIL, "can't write akey data: %s", H5_daos_err_to_string(ret))
+        D_GOTO_ERROR(H5E_ATTR, H5E_WRITEERROR, FAIL, "can't write akey data: %s", H5_daos_err_to_string(ret));
 
     /* Delete the (now invalid) akey at the end of the creation index */
     tmp_uint = idx_end;
@@ -1897,7 +1897,7 @@ H5_daos_attribute_shift_crt_idx_keys_down(H5_daos_obj_t *target_obj,
 
     if(0 != (ret = daos_obj_punch_akeys(target_obj->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey,
             1, &tail_akey, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTDELETE, FAIL, "can't trim tail akey from attribute creation order index")
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTDELETE, FAIL, "can't trim tail akey from attribute creation order index");
 
 done:
     for(i = 0; i < nattrs_shift; i++) {
@@ -1913,7 +1913,7 @@ done:
     if(iods)
         iods = DV_free(iods);
 
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_attribute_shift_crt_idx_keys_down() */
 
 
@@ -1957,7 +1957,7 @@ H5_daos_attribute_exists(H5_daos_obj_t *attr_container_obj, const char *attr_nam
 
     if(H5_daos_attribute_get_akey_strings(attr_name, &type_key, &space_key, &acpl_key,
             (attr_container_obj->ocpl_cache.track_acorder) ? &acorder_key : NULL, NULL, &akey_len) < 0)
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't generate akey strings")
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't generate akey strings");
 
     /* Set up dkey */
     daos_iov_set(&dkey, (void *)H5_daos_attr_key_g, H5_daos_attr_key_size_g);
@@ -1988,7 +1988,7 @@ H5_daos_attribute_exists(H5_daos_obj_t *attr_container_obj, const char *attr_nam
 
     if(0 != (ret = daos_obj_fetch(attr_container_obj->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey,
             nr, iod, NULL, NULL, NULL)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "akey fetch for attribute '%s' failed: %s", attr_name, H5_daos_err_to_string(ret))
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "akey fetch for attribute '%s' failed: %s", attr_name, H5_daos_err_to_string(ret));
 
     /* Attribute exists if all of its metadata keys are present. */
     attr_exists = (iod[0].iod_size != 0)
@@ -2014,11 +2014,11 @@ H5_daos_attribute_exists(H5_daos_obj_t *attr_container_obj, const char *attr_nam
     } /* end if */
 
     if(attr_exists)
-        D_GOTO_DONE(TRUE)
+        D_GOTO_DONE(TRUE);
     else if(attr_missing)
-        D_GOTO_DONE(FALSE)
+        D_GOTO_DONE(FALSE);
     else
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "attribute exists in inconsistent state (metadata missing)")
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "attribute exists in inconsistent state (metadata missing)");
 
 done:
     type_key = (char *)DV_free(type_key);
@@ -2026,7 +2026,7 @@ done:
     acpl_key = (char *)DV_free(acpl_key);
     acorder_key = (char *)DV_free(acorder_key);
 
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_attribute_exists() */
 
 
@@ -2056,27 +2056,27 @@ H5_daos_attribute_iterate(H5_daos_obj_t *attr_container_obj, H5_daos_iter_data_t
 
     /* Iteration restart not supported */
     if(iter_data->idx_p && (*iter_data->idx_p != 0))
-        D_GOTO_ERROR(H5E_ATTR, H5E_UNSUPPORTED, FAIL, "iteration restart not supported (must start from 0)")
+        D_GOTO_ERROR(H5E_ATTR, H5E_UNSUPPORTED, FAIL, "iteration restart not supported (must start from 0)");
 
     switch (iter_data->index_type) {
         case H5_INDEX_NAME:
             if((ret_value = H5_daos_attribute_iterate_by_name_order(attr_container_obj, iter_data)) < 0)
-                D_GOTO_ERROR(H5E_ATTR, H5E_BADITER, FAIL, "attribute iteration by name order failed")
+                D_GOTO_ERROR(H5E_ATTR, H5E_BADITER, FAIL, "attribute iteration by name order failed");
             break;
 
         case H5_INDEX_CRT_ORDER:
             if((ret_value = H5_daos_attribute_iterate_by_crt_order(attr_container_obj, iter_data)) < 0)
-                D_GOTO_ERROR(H5E_ATTR, H5E_BADITER, FAIL, "attribute iteration by creation order failed")
+                D_GOTO_ERROR(H5E_ATTR, H5E_BADITER, FAIL, "attribute iteration by creation order failed");
             break;
 
         case H5_INDEX_UNKNOWN:
         case H5_INDEX_N:
         default:
-            D_GOTO_ERROR(H5E_ATTR, H5E_BADVALUE, FAIL, "invalid or unsupported index type")
+            D_GOTO_ERROR(H5E_ATTR, H5E_BADVALUE, FAIL, "invalid or unsupported index type");
     } /* end switch */
 
 done:
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_attribute_iterate() */
 
 
@@ -2119,7 +2119,7 @@ H5_daos_attribute_iterate_by_name_order(H5_daos_obj_t *attr_container_obj, H5_da
 
     /* Native iteration order is currently associated with increasing order; decreasing order iteration is not currently supported */
     if(iter_data->iter_order == H5_ITER_DEC)
-        D_GOTO_ERROR(H5E_ATTR, H5E_UNSUPPORTED, FAIL, "decreasing iteration order not supported (order must be H5_ITER_NATIVE or H5_ITER_INC)")
+        D_GOTO_ERROR(H5E_ATTR, H5E_UNSUPPORTED, FAIL, "decreasing iteration order not supported (order must be H5_ITER_NATIVE or H5_ITER_INC)");
 
     /* Initialize sub_loc_params */
     sub_loc_params.obj_type = attr_container_obj->item.type;
@@ -2140,7 +2140,7 @@ H5_daos_attribute_iterate_by_name_order(H5_daos_obj_t *attr_container_obj, H5_da
 
     /* Allocate akey_buf */
     if(NULL == (akey_buf = (char *)DV_malloc(H5_DAOS_ITER_SIZE_INIT)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akeys")
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akeys");
     akey_buf_len = H5_DAOS_ITER_SIZE_INIT;
 
     /* Set up sgl.  Report size as 1 less than buffer size so we
@@ -2162,7 +2162,7 @@ H5_daos_attribute_iterate_by_name_order(H5_daos_obj_t *attr_container_obj, H5_da
         for(i = 0; (i < nr) && (op_ret == 0); i++) {
             /* Check for invalid key */
             if(kds[i].kd_key_len < 3)
-                D_GOTO_ERROR(H5E_ATTR, H5E_CANTDECODE, FAIL, "attribute akey too short")
+                D_GOTO_ERROR(H5E_ATTR, H5E_CANTDECODE, FAIL, "attribute akey too short");
 
             /* Only do callbacks for "S-" (dataspace) keys, to avoid duplication */
             if(p[0] == 'S') {
@@ -2175,11 +2175,11 @@ H5_daos_attribute_iterate_by_name_order(H5_daos_obj_t *attr_container_obj, H5_da
                 /* Retrieve attribute's info */
                 if(H5_daos_attribute_get_info((H5_daos_item_t *)attr_container_obj, &sub_loc_params,
                         &p[2], &ainfo, iter_data->dxpl_id, iter_data->req) < 0)
-                    D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute info")
+                    D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute info");
 
                 /* Make callback */
                 if((op_ret = iter_data->u.attr_iter_data.attr_iter_op(iter_data->iter_root_obj, &p[2], &ainfo, iter_data->op_data)) < 0)
-                    D_GOTO_ERROR(H5E_ATTR, H5E_BADITER, op_ret, "operator function returned failure")
+                    D_GOTO_ERROR(H5E_ATTR, H5E_BADITER, op_ret, "operator function returned failure");
 
                 /* Replace null terminator */
                 p[kds[i].kd_key_len] = tmp_char;
@@ -2200,7 +2200,7 @@ H5_daos_attribute_iterate_by_name_order(H5_daos_obj_t *attr_container_obj, H5_da
 done:
     akey_buf = (char *)DV_free(akey_buf);
 
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_attribute_iterate_by_name_order() */
 
 
@@ -2239,11 +2239,11 @@ H5_daos_attribute_iterate_by_crt_order(H5_daos_obj_t *attr_container_obj, H5_dao
 
     /* Check that creation order is tracked for the attribute's parent object */
     if(!attr_container_obj->ocpl_cache.track_acorder)
-        D_GOTO_ERROR(H5E_ATTR, H5E_BADVALUE, FAIL, "creation order is not tracked for attribute's parent object")
+        D_GOTO_ERROR(H5E_ATTR, H5E_BADVALUE, FAIL, "creation order is not tracked for attribute's parent object");
 
     /* Retrieve the number of attributes attached to the target object */
     if((obj_nattrs = H5_daos_object_get_num_attrs(attr_container_obj)) < 0)
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get number of attributes attached to object")
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get number of attributes attached to object");
 
     /* Check if there are no attributes to process */
     if(obj_nattrs == 0)
@@ -2267,7 +2267,7 @@ H5_daos_attribute_iterate_by_crt_order(H5_daos_obj_t *attr_container_obj, H5_dao
         /* Retrieve the attribute's name length + the attribute's name if the buffer is large enough */
         if((attr_name_size = H5_daos_attribute_get_name_by_idx(attr_container_obj, iter_data->index_type,
                 iter_data->iter_order, cur_idx, attr_name, attr_name_buf_size)) < 0)
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute name")
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute name");
 
         /* Check if the buffer was large enough */
         if((size_t)attr_name_size > attr_name_buf_size - 1) {
@@ -2281,27 +2281,27 @@ H5_daos_attribute_iterate_by_crt_order(H5_daos_obj_t *attr_container_obj, H5_dao
                     (size_t)attr_name_size + 1 : (2 * attr_name_buf_size);
 
             if(NULL == (tmp_realloc = DV_realloc(attr_name_buf_dyn, attr_name_buf_size)))
-                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "failed to allocate attribute name buffer")
+                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "failed to allocate attribute name buffer");
             attr_name = attr_name_buf_dyn = tmp_realloc;
 
             /* Re-issue the call to fetch the attribute's name with a larger buffer */
             if(H5_daos_attribute_get_name_by_idx(attr_container_obj, iter_data->index_type,
                     iter_data->iter_order, cur_idx, attr_name, attr_name_buf_size) < 0)
-                D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute name")
+                D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute name");
         } /* end if */
 
         /* Retrieve the attribute's info */
         if(H5_daos_attribute_get_info((H5_daos_item_t *)attr_container_obj, &sub_loc_params,
                 attr_name, &ainfo, iter_data->dxpl_id, iter_data->req) < 0)
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute's info")
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute's info");
 
         /* Make callback */
         if((op_ret = iter_data->u.attr_iter_data.attr_iter_op(iter_data->iter_root_obj, attr_name, &ainfo, iter_data->op_data)) < 0)
-            D_GOTO_ERROR(H5E_ATTR, H5E_BADITER, op_ret, "operator function returned failure")
+            D_GOTO_ERROR(H5E_ATTR, H5E_BADITER, op_ret, "operator function returned failure");
 
         /* Check for short-circuit success */
         if(op_ret)
-            D_GOTO_DONE(op_ret)
+            D_GOTO_DONE(op_ret);
 
         /* Advance idx */
         if(iter_data->idx_p)
@@ -2314,7 +2314,7 @@ done:
     if(attr_name_buf_dyn)
         attr_name_buf_dyn = DV_free(attr_name_buf_dyn);
 
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_attribute_iterate_by_crt_order() */
 
 
@@ -2372,49 +2372,49 @@ H5_daos_attribute_rename(H5_daos_obj_t *attr_container_obj, const char *cur_attr
     sub_loc_params.obj_type = H5I_ATTR;
     if(NULL == (cur_attr = (H5_daos_attr_t *)H5_daos_attribute_open(attr_container_obj, &sub_loc_params,
             cur_attr_name, H5P_DEFAULT, H5P_DEFAULT, NULL)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, FAIL, "can't open attribute")
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, FAIL, "can't open attribute");
 
     /* Create the new attribute */
     if(NULL == (new_attr = (H5_daos_attr_t *)H5_daos_attribute_create(attr_container_obj, &sub_loc_params,
             new_attr_name, cur_attr->type_id, cur_attr->space_id, cur_attr->acpl_id, H5P_DEFAULT,
             H5P_DEFAULT, NULL)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTCREATE, FAIL, "can't create new attribute")
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTCREATE, FAIL, "can't create new attribute");
 
     /* Transfer data from the old attribute to the new attribute */
     if(0 == (attr_type_size = H5Tget_size(cur_attr->type_id)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't retrieve attribute's datatype size")
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't retrieve attribute's datatype size");
 
     if((attr_space_nelmts = H5Sget_simple_extent_npoints(cur_attr->space_id)) < 0)
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't retrieve number of elements in attribute's dataspace")
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't retrieve number of elements in attribute's dataspace");
 
     if(NULL == (attr_data_buf = DV_malloc(attr_type_size * (size_t)attr_space_nelmts)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTALLOC, FAIL, "can't allocate buffer for attribute data")
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTALLOC, FAIL, "can't allocate buffer for attribute data");
 
     if(H5_daos_attribute_read(cur_attr, cur_attr->type_id, attr_data_buf, H5P_DEFAULT, NULL) < 0)
-        D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, FAIL, "can't read data from attribute")
+        D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, FAIL, "can't read data from attribute");
 
     if(H5_daos_attribute_write(new_attr, new_attr->type_id, attr_data_buf, H5P_DEFAULT, NULL) < 0)
-        D_GOTO_ERROR(H5E_ATTR, H5E_WRITEERROR, FAIL, "can't write data to attribute")
+        D_GOTO_ERROR(H5E_ATTR, H5E_WRITEERROR, FAIL, "can't write data to attribute");
 
     /* Delete the old attribute */
     if(H5_daos_attribute_delete(attr_container_obj, &sub_loc_params, cur_attr_name) < 0)
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTDELETE, FAIL, "can't delete old attribute")
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTDELETE, FAIL, "can't delete old attribute");
 
 done:
     attr_data_buf = DV_free(attr_data_buf);
 
     if(new_attr) {
         if(H5_daos_attribute_close(new_attr, H5P_DEFAULT, NULL) < 0)
-            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close attribute")
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close attribute");
             new_attr = NULL;
     }
     if(cur_attr) {
         if(H5_daos_attribute_close(cur_attr, H5P_DEFAULT, NULL) < 0)
-            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close attribute")
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close attribute");
         cur_attr = NULL;
     }
 
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_attribute_rename() */
 
 
@@ -2453,35 +2453,35 @@ H5_daos_attribute_get_akey_strings(const char *attr_name, char **datatype_key_ou
 
     if(datatype_key_out) {
         if(NULL == (type_key = (char *)DV_malloc(akey_len + 1)))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akey")
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akey");
         type_key[0] = 'T';
         type_key[1] = '-';
         (void)strcpy(type_key + 2, attr_name);
     }
     if(dataspace_key_out) {
         if(NULL == (space_key = (char *)DV_malloc(akey_len + 1)))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akey")
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akey");
         space_key[0] = 'S';
         space_key[1] = '-';
         (void)strcpy(space_key + 2, attr_name);
     }
     if(acpl_key_out) {
         if(NULL == (acpl_key = (char *)DV_malloc(akey_len + 1)))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akey")
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akey");
         acpl_key[0] = 'P';
         acpl_key[1] = '-';
         (void)strcpy(acpl_key + 2, attr_name);
     }
     if(acorder_key_out) {
         if(NULL == (acorder_key = (char *)DV_malloc(akey_len + 1)))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akey")
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akey");
         acorder_key[0] = 'C';
         acorder_key[1] = '-';
         (void)strcpy(acorder_key + 2, attr_name);
     }
     if(raw_data_key_out) {
         if(NULL == (data_key = (char *)DV_malloc(akey_len + 1)))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akey")
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akey");
         data_key[0] = 'V';
         data_key[1] = '-';
         (void)strcpy(data_key + 2, attr_name);
@@ -2509,7 +2509,7 @@ done:
         data_key = (char *)DV_free(data_key);
     } /* end if */
 
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_attribute_get_akey_strings() */
 
 
@@ -2541,17 +2541,17 @@ H5_daos_attribute_get_name_by_idx(H5_daos_obj_t *target_obj, H5_index_t index_ty
 
     if(H5_INDEX_CRT_ORDER == index_type) {
         if((ret_value = H5_daos_attribute_get_name_by_crt_order(target_obj, iter_order, idx, attr_name_out, attr_name_out_size)) < 0)
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, (-1), "can't retrieve attribute name from creation order index")
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, (-1), "can't retrieve attribute name from creation order index");
     } /* end if */
     else if(H5_INDEX_NAME == index_type) {
         if((ret_value = H5_daos_attribute_get_name_by_name_order(target_obj, iter_order, idx, attr_name_out, attr_name_out_size)) < 0)
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, (-1), "can't retrieve attribute name from name order index")
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, (-1), "can't retrieve attribute name from name order index");
     } /* end else */
     else
-        D_GOTO_ERROR(H5E_ATTR, H5E_BADVALUE, (-1), "invalid or unsupported index type")
+        D_GOTO_ERROR(H5E_ATTR, H5E_BADVALUE, (-1), "invalid or unsupported index type");
 
 done:
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_attribute_get_name_by_idx() */
 
 
@@ -2593,15 +2593,15 @@ H5_daos_attribute_get_name_by_crt_order(H5_daos_obj_t *target_obj, H5_iter_order
 
     /* Check that creation order is tracked for the attribute's parent object */
     if(!target_obj->ocpl_cache.track_acorder)
-        D_GOTO_ERROR(H5E_ATTR, H5E_BADVALUE, (-1), "creation order is not tracked for attribute's parent object")
+        D_GOTO_ERROR(H5E_ATTR, H5E_BADVALUE, (-1), "creation order is not tracked for attribute's parent object");
 
     /* Retrieve the current number of attributes attached to the target object */
     if((obj_nattrs = H5_daos_object_get_num_attrs(target_obj)) < 0)
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, (-1), "can't get number of attributes attached to object")
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, (-1), "can't get number of attributes attached to object");
 
     /* Ensure the index is within range */
     if(index >= (uint64_t)obj_nattrs)
-        D_GOTO_ERROR(H5E_ATTR, H5E_BADVALUE, (-1), "index value out of range")
+        D_GOTO_ERROR(H5E_ATTR, H5E_BADVALUE, (-1), "index value out of range");
 
     /* Calculate the correct index of the attribute, based upon the iteration order */
     if(H5_ITER_DEC == iter_order)
@@ -2634,10 +2634,10 @@ H5_daos_attribute_get_name_by_crt_order(H5_daos_obj_t *target_obj, H5_iter_order
     /* Fetch the size of the attribute's name + attribute's name if attr_name_out is supplied */
     if(0 != (ret = daos_obj_fetch(target_obj->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod,
             attr_name_out ? &sgl : NULL, NULL /*maps*/, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, (-1), "can't fetch%s attribute's name: %s", attr_name_out ? "" : " size of", H5_daos_err_to_string(ret))
+        D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, (-1), "can't fetch%s attribute's name: %s", attr_name_out ? "" : " size of", H5_daos_err_to_string(ret));
 
     if(iod.iod_size == (daos_size_t)0)
-        D_GOTO_ERROR(H5E_ATTR, H5E_NOTFOUND, (-1), "attribute name record not found")
+        D_GOTO_ERROR(H5E_ATTR, H5E_NOTFOUND, (-1), "attribute name record not found");
 
     if(attr_name_out && attr_name_out_size > 0)
         attr_name_out[MIN(iod.iod_size, attr_name_out_size - 1)] = '\0';
@@ -2645,7 +2645,7 @@ H5_daos_attribute_get_name_by_crt_order(H5_daos_obj_t *target_obj, H5_iter_order
     ret_value = (ssize_t)iod.iod_size;
 
 done:
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_attribute_get_name_by_crt_order() */
 
 
@@ -2680,19 +2680,19 @@ H5_daos_attribute_get_name_by_name_order(H5_daos_obj_t *target_obj, H5_iter_orde
     assert(target_obj);
 
     if(H5_ITER_DEC == iter_order)
-        D_GOTO_ERROR(H5E_ATTR, H5E_UNSUPPORTED, (-1), "decreasing order iteration is unsupported")
+        D_GOTO_ERROR(H5E_ATTR, H5E_UNSUPPORTED, (-1), "decreasing order iteration is unsupported");
 
     /* Retrieve the current number of attributes attached to the target object */
     if((obj_nattrs = H5_daos_object_get_num_attrs(target_obj)) < 0)
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, (-1), "can't get number of attributes attached to object")
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, (-1), "can't get number of attributes attached to object");
 
     /* Ensure the index is within range */
     if(index >= (uint64_t)obj_nattrs)
-        D_GOTO_ERROR(H5E_ATTR, H5E_BADVALUE, (-1), "index value out of range")
+        D_GOTO_ERROR(H5E_ATTR, H5E_BADVALUE, (-1), "index value out of range");
 
     /* Register ID for target object */
     if((target_obj_id = H5VLwrap_register(target_obj, target_obj->item.type)) < 0)
-        D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, (-1), "unable to atomize object handle")
+        D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, (-1), "unable to atomize object handle");
     target_obj->item.rc++;
 
     /* Initialize iteration data */
@@ -2705,15 +2705,15 @@ H5_daos_attribute_get_name_by_name_order(H5_daos_obj_t *target_obj, H5_iter_orde
     iter_data.u.attr_iter_data.attr_iter_op = H5_daos_attribute_get_name_by_name_order_cb;
 
     if(H5_daos_attribute_iterate(target_obj, &iter_data) < 0)
-        D_GOTO_ERROR(H5E_ATTR, H5E_BADITER, (-1), "attribute iteration failed")
+        D_GOTO_ERROR(H5E_ATTR, H5E_BADITER, (-1), "attribute iteration failed");
 
     ret_value = (ssize_t)iter_cb_ud.attr_name_out_size;
 
 done:
     if((target_obj_id >= 0) && (H5Idec_ref(target_obj_id) < 0))
-        D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, (-1), "can't close attribute's parent object")
+        D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, (-1), "can't close attribute's parent object");
 
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_attribute_get_name_by_name_order() */
 
 
@@ -2790,11 +2790,11 @@ H5_daos_attribute_get_crt_order_by_name(H5_daos_obj_t *target_obj, const char *a
 
     /* Check that creation order is tracked for the attribute's parent object */
     if(!target_obj->ocpl_cache.track_acorder)
-        D_GOTO_ERROR(H5E_ATTR, H5E_BADVALUE, FAIL, "creation order is not tracked for attribute's parent object")
+        D_GOTO_ERROR(H5E_ATTR, H5E_BADVALUE, FAIL, "creation order is not tracked for attribute's parent object");
 
     /* Retrieve akey string for creation order */
     if(H5_daos_attribute_get_akey_strings(attr_name, NULL, NULL, NULL, &acorder_key, NULL, &akey_len) < 0)
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTALLOC, FAIL, "can't generate creation order akey string")
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTALLOC, FAIL, "can't generate creation order akey string");
 
     /* Set up dkey */
     daos_iov_set(&dkey, (void *)H5_daos_attr_key_g, H5_daos_attr_key_size_g);
@@ -2814,10 +2814,10 @@ H5_daos_attribute_get_crt_order_by_name(H5_daos_obj_t *target_obj, const char *a
 
     /* Read attribute creation order value */
     if(0 != (ret = daos_obj_fetch(target_obj->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, FAIL, "can't read attribute's creation order value: %s", H5_daos_err_to_string(ret))
+        D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, FAIL, "can't read attribute's creation order value: %s", H5_daos_err_to_string(ret));
 
     if(iod.iod_size == 0)
-        D_GOTO_ERROR(H5E_ATTR, H5E_NOTFOUND, FAIL, "attribute creation order value record is missing")
+        D_GOTO_ERROR(H5E_ATTR, H5E_NOTFOUND, FAIL, "attribute creation order value record is missing");
 
     p = crt_order_buf;
     UINT64DECODE(p, crt_order_val);
@@ -2827,5 +2827,5 @@ H5_daos_attribute_get_crt_order_by_name(H5_daos_obj_t *target_obj, const char *a
 done:
     acorder_key = (char *)DV_free(acorder_key);
 
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_attribute_get_crt_order_by_name() */

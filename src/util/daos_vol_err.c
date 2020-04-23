@@ -67,6 +67,12 @@ H5_daos_err_to_string(int ret)
             return "failed to fill creation property list cache (H5_DAOS_CPL_CACHE_ERROR)";
         case -H5_DAOS_BAD_VALUE:
             return "invalid value received (H5_DAOS_BAD_VALUE)";
+        case -H5_DAOS_NONEXIST_LINK:
+            return "link does not exist (H5_DAOS_NONEXIST_LINK)";
+        case -H5_DAOS_TRAVERSE_ERROR:
+            return "failed to traverse path (H5_DAOS_TRAVERSE_ERROR)";
+        case -H5_DAOS_FOLLOW_ERROR:
+            return "failed to follow link (H5_DAOS_FOLLOW_ERROR)";
         case -H5_DAOS_PROGRESS_ERROR:
             return "failed to progress scheduler (H5_DAOS_PROGRESS_ERROR)";
         case -H5_DAOS_SETUP_ERROR:

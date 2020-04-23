@@ -52,7 +52,7 @@ H5_daos_req_create(H5_daos_file_t *file, hid_t dxpl_id)
     ret_value->file->item.rc++;
     ret_value->rc = 1;
     ret_value->status = -H5_DAOS_INCOMPLETE;
-    ret_value->failed_task = NULL;
+    ret_value->failed_task = "default (probably operation setup)";
 
 done:
     D_FUNC_LEAVE

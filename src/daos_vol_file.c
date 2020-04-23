@@ -291,12 +291,8 @@ H5_daos_cont_open(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *req,
     assert(dep_task);
 
     /* Create task for container open */
-    if(0 != (ret = daos_task_create(DAOS_OPC_CONT_OPEN, &file->sched, 0, NULL, &open_task)))
+    if(0 != (ret = daos_task_create(DAOS_OPC_CONT_OPEN, &file->sched, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &open_task)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create task to open container: %s", H5_daos_err_to_string(ret))
-
-    /* Register dependency for task */
-    if(*dep_task && 0 != (ret = tse_task_register_deps(open_task, 1, dep_task)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create dependencies for task to open container: %s", H5_daos_err_to_string(ret))
 
     /* Set callback functions for container open */
     if(0 != (ret = tse_task_register_cbs(open_task, H5_daos_generic_prep_cb, NULL, 0, H5_daos_generic_comp_cb, NULL, 0)))
@@ -335,8 +331,8 @@ H5_daos_cont_open(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *req,
     if(0 != (ret = daos_task_create(DAOS_OPC_TX_OPEN, &file->sched, 0, NULL, &tx_open_task)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create task to open transaction: %s", H5_daos_err_to_string(ret))
 
-    assert(*dep_task);
     /* Register dependency for task */
+    assert(*dep_task);
     if(0 != (ret = tse_task_register_deps(tx_open_task, 1, dep_task)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create dependencies for task to open transaction: %s", H5_daos_err_to_string(ret))
 
@@ -535,12 +531,8 @@ H5_daos_cont_create(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *req,
         daos_cont_open_t *excl_open_args;
 
         /* Create task for container open attempt (open should fail) */
-        if(0 != (ret = daos_task_create(DAOS_OPC_CONT_OPEN, &file->sched, 0, NULL, &excl_open_task)))
+        if(0 != (ret = daos_task_create(DAOS_OPC_CONT_OPEN, &file->sched, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &excl_open_task)))
             D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create task to try to open container: %s", H5_daos_err_to_string(ret))
-
-        /* Register dependency for task */
-        if(*dep_task && 0 != (ret = tse_task_register_deps(excl_open_task, 1, dep_task)))
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create dependencies for task to try toopen container: %s", H5_daos_err_to_string(ret))
 
         /* Set callback functions for container open */
         if(0 != (ret = tse_task_register_cbs(excl_open_task, H5_daos_generic_prep_cb, NULL, 0, H5_daos_excl_open_comp_cb, NULL, 0)))
@@ -582,12 +574,8 @@ H5_daos_cont_create(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *req,
         daos_cont_destroy_t *destroy_args;
 
         /* Create task for container destroy */
-        if(0 != (ret = daos_task_create(DAOS_OPC_CONT_DESTROY, &file->sched, 0, NULL, &destroy_task)))
+        if(0 != (ret = daos_task_create(DAOS_OPC_CONT_DESTROY, &file->sched, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &destroy_task)))
             D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create task to destroy container: %s", H5_daos_err_to_string(ret))
-
-        /* Register dependency for task */
-        if(*dep_task && 0 != (ret = tse_task_register_deps(destroy_task, 1, dep_task)))
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create dependencies for task to destroy container: %s", H5_daos_err_to_string(ret))
 
         /* Set callback functions for container destroy */
         if(0 != (ret = tse_task_register_cbs(destroy_task, H5_daos_generic_prep_cb, NULL, 0, H5_daos_cont_destroy_comp_cb, NULL, 0)))
@@ -621,12 +609,8 @@ H5_daos_cont_create(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *req,
     } /* end if */
 
     /* Create task for container create */
-    if(0 != (ret = daos_task_create(DAOS_OPC_CONT_CREATE, &file->sched, 0, NULL, &create_task)))
+    if(0 != (ret = daos_task_create(DAOS_OPC_CONT_CREATE, &file->sched, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &create_task)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create task to create container: %s", H5_daos_err_to_string(ret))
-
-    /* Register dependency for task */
-    if(*dep_task && 0 != (ret = tse_task_register_deps(create_task, 1, dep_task)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create dependencies for task to create container: %s", H5_daos_err_to_string(ret))
 
     /* Set callback functions for container create */
     if(0 != (ret = tse_task_register_cbs(create_task, H5_daos_generic_prep_cb, NULL, 0, H5_daos_generic_comp_cb, NULL, 0)))
@@ -1143,9 +1127,9 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
         D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENOBJ, NULL, "can't open global metadata object")
 
     /* Create root group */
-    if(NULL == (file->root_grp = (H5_daos_group_t *)H5_daos_group_create_helper(file, TRUE,
-            fcpl_id, H5P_GROUP_ACCESS_DEFAULT, dxpl_id, int_req, NULL, NULL, 0,
-            TRUE, &first_task, &dep_task)))
+    if(NULL == (file->root_grp = (H5_daos_group_t *)H5_daos_group_create_helper(
+            file, TRUE, fcpl_id, H5P_GROUP_ACCESS_DEFAULT, int_req, NULL, NULL,
+            0, TRUE, &first_task, &dep_task)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create root group")
 
     /* Write root group OID to global metadata object */
@@ -1346,9 +1330,11 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     if(H5_daos_obj_open(file, int_req, &file->glob_md_oid, flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &file->glob_md_oh, "global metadata object open", &first_task, &dep_task) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENOBJ, NULL, "can't open global metadata object")
 
-    /* Open root group */
-    if(NULL == (file->root_grp = H5_daos_group_open_helper_async(file, root_grp_oid, H5P_GROUP_ACCESS_DEFAULT, dxpl_id, int_req, TRUE, &first_task, &dep_task)))
+    /* Open root group and fill in root group's oid */
+    if(NULL == (file->root_grp = H5_daos_group_open_helper(file,
+            H5P_GROUP_ACCESS_DEFAULT, int_req, TRUE, &first_task, &dep_task)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENOBJ, NULL, "can't open root group")
+    file->root_grp->obj.oid = root_grp_oid;
 
     ret_value = (void *)file;
 

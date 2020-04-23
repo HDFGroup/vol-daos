@@ -55,7 +55,10 @@ H5_daos_map_create(void *_item,
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_map_t *map = NULL;
-    H5_daos_group_t *target_grp = NULL;
+    H5_daos_obj_t *target_obj = NULL;
+    char *path_buf = NULL;
+    const char *target_name = NULL;
+    size_t target_name_len = 0;
     H5T_class_t ktype_class;
     htri_t has_vl_vlstr_ref;
     hid_t ktype_parent_id = H5I_INVALID_HID;
@@ -64,7 +67,6 @@ H5_daos_map_create(void *_item,
     void *mcpl_buf = NULL;
     hbool_t collective;
     H5_daos_md_rw_cb_ud_t *update_cb_ud = NULL;
-    tse_task_t *finalize_task;
     int finalize_ndeps = 0;
     tse_task_t *finalize_deps[2];
     H5_daos_req_t *int_req = NULL;
@@ -141,6 +143,26 @@ H5_daos_map_create(void *_item,
     int_req->th_open = TRUE;
 #endif /* H5_DAOS_USE_TRANSACTIONS */
 
+    /* Traverse the path */
+    /* Call this on every rank for now so errors are handled correctly.  If/when
+     * we add a bcast to check for failure we could only call this on the lead
+     * rank. */
+    if(name) {
+        if(NULL == (target_obj = H5_daos_group_traverse(item, name, lcpl_id, int_req,
+                collective, &path_buf, &target_name, &target_name_len, &first_task,
+                &dep_task)))
+            D_GOTO_ERROR(H5E_MAP, H5E_BADITER, NULL, "can't traverse path")
+
+        /* Check type of target_obj */
+        if(target_obj->item.type != H5I_GROUP)
+            D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "target object is not a group")
+
+        /* Reject invalid object names during object creation - if a name is
+         * given it must parse to a link name that can be created */
+        if(target_name_len == 0)
+            D_GOTO_ERROR(H5E_MAP, H5E_BADVALUE, NULL, "path given does not resolve to a final link name")
+    } /* end if */
+
     /* Generate map oid */
     if(H5_daos_oid_generate(&map->obj.oid, H5I_MAP,
             (mcpl_id == H5P_MAP_CREATE_DEFAULT ? H5P_DEFAULT : mcpl_id),
@@ -154,23 +176,11 @@ H5_daos_map_create(void *_item,
 
     /* Create map and write metadata if this process should */
     if(!collective || (item->file->my_rank == 0)) {
-        const char *target_name = NULL;
         size_t mcpl_size = 0;
         size_t ktype_size = 0;
         size_t vtype_size = 0;
         tse_task_t *update_task;
         tse_task_t *link_write_task;
-
-        /* Traverse the path */
-        if(name) {
-            if(NULL == (target_grp = H5_daos_group_traverse(item, name, lcpl_id, dxpl_id,
-                    NULL, &target_name, NULL, NULL)))
-                D_GOTO_ERROR(H5E_MAP, H5E_BADITER, NULL, "can't traverse path")
-
-            /* Reject invalid object names during object creation */
-            if(!strncmp(target_name, ".", 2))
-                D_GOTO_ERROR(H5E_MAP, H5E_BADVALUE, NULL, "invalid map name - '.'")
-        } /* end if */
 
         /* Create map */
         /* Allocate argument struct */
@@ -254,7 +264,8 @@ H5_daos_map_create(void *_item,
         update_cb_ud->task_name = "map metadata write";
 
         /* Create task for map metadata write */
-        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_UPDATE, &item->file->sched, 0, NULL, &update_task)))
+        assert(dep_task);
+        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_UPDATE, &item->file->sched, 1, &dep_task, &update_task)))
             D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create task to write map medadata: %s", H5_daos_err_to_string(ret))
 
         /* Register dependency for task */
@@ -284,13 +295,13 @@ H5_daos_map_create(void *_item,
         finalize_ndeps++;
 
         /* Create link to map */
-        if(target_grp) {
+        if(target_obj) {
             H5_daos_link_val_t link_val;
 
             link_val.type = H5L_TYPE_HARD;
             link_val.target.hard = map->obj.oid;
             link_val.target_oid_async = &map->obj.oid;
-            if(H5_daos_link_write(target_grp, target_name, strlen(target_name),
+            if(H5_daos_link_write((H5_daos_group_t *)target_obj, target_name, target_name_len,
                     &link_val, int_req, &link_write_task, dep_task) < 0)
                 D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create link to map")
             finalize_deps[finalize_ndeps] = link_write_task;
@@ -329,15 +340,21 @@ H5_daos_map_create(void *_item,
     ret_value = (void *)map;
 
 done:
-    /* Close target group */
-    if(target_grp && H5_daos_group_close(target_grp, dxpl_id, NULL) < 0)
-        D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't close group")
+    /* Close target object */
+    if(target_obj && H5_daos_object_close(target_obj, dxpl_id, NULL) < 0)
+        D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't close object")
 
     /* Close key type parent type */
     if(ktype_parent_id >= 0 && H5Tclose(ktype_parent_id) < 0)
         D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't close key type parent type")
 
     if(int_req) {
+        tse_task_t *finalize_task;
+
+        /* Free path_buf if necessary */
+        if(path_buf && H5_daos_free_async(item->file, path_buf, &first_task, &dep_task) < 0)
+            D_DONE_ERROR(H5E_MAP, H5E_CANTFREE, NULL, "can't free path buffer")
+
         /* Create task to finalize H5 operation */
         if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &item->file->sched, int_req, &finalize_task)))
             D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
@@ -415,7 +432,7 @@ H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_map_t *map = NULL;
     H5_daos_group_t *target_grp = NULL;
-    const char *target_name = NULL;
+    char *path_buf = NULL;
     H5T_class_t ktype_class;
     htri_t has_vl_vlstr_ref;
     hid_t ktype_parent_id = H5I_INVALID_HID;
@@ -433,6 +450,9 @@ H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
     uint8_t *p;
     hbool_t collective;
     hbool_t must_bcast = FALSE;
+    H5_daos_req_t *int_req = NULL;
+    tse_task_t *first_task = NULL;
+    tse_task_t *dep_task = NULL;
     int ret;
     void *ret_value = NULL;
 
@@ -449,6 +469,10 @@ H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
         if(H5Pget_all_coll_metadata_ops(mapl_id, &collective) < 0)
             D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, NULL, "can't get collective access property")
 
+    /* Start H5 operation */
+    if(NULL == (int_req = H5_daos_req_create(item->file, H5I_INVALID_HID)))
+        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTALLOC, NULL, "can't create DAOS request")
+
     /* Allocate the map object that is returned to the user */
     if(NULL == (map = H5FL_CALLOC(H5_daos_map_t)))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate DAOS map struct")
@@ -464,6 +488,13 @@ H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
     map->mcpl_id = FAIL;
     map->mapl_id = FAIL;
 
+#ifdef H5_DAOS_USE_TRANSACTIONS
+    /* Start transaction */
+    if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't start transaction")
+    int_req->th_open = TRUE;
+#endif /* H5_DAOS_USE_TRANSACTIONS */
+
     /* Check if we're actually opening the group or just receiving the map
      * info from the leader */
     if(!collective || (item->file->my_rank == 0)) {
@@ -477,7 +508,9 @@ H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
                 D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't convert object token to OID")
         } /* end if */
         else {
-            htri_t link_resolved;
+            const char *target_name = NULL;
+            size_t target_name_len;
+            daos_obj_id_t **oid_ptr = NULL;
 
             /* Open using name parameter */
             if(H5VL_OBJECT_BY_SELF != loc_params->type)
@@ -486,15 +519,33 @@ H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
                 D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "map name is NULL")
 
             /* Traverse the path */
-            if(NULL == (target_grp = H5_daos_group_traverse(item, name, H5P_LINK_CREATE_DEFAULT, dxpl_id,
-                    req, &target_name, NULL, NULL)))
+            if(NULL == (target_grp = (H5_daos_group_t *)H5_daos_group_traverse(item, name, H5P_LINK_CREATE_DEFAULT, int_req,
+                    collective, &path_buf, &target_name, &target_name_len, &first_task, &dep_task)))
                 D_GOTO_ERROR(H5E_MAP, H5E_BADITER, NULL, "can't traverse path")
 
+            /* Reject no target_name, since target_grp is not a map */
+            if(target_name_len == 0)
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_BADVALUE, NULL, "path given does not resolve to a final link name")
+
             /* Follow link to map */
-            if((link_resolved = H5_daos_link_follow(target_grp, target_name, strlen(target_name), dxpl_id, req, &map->obj.oid)) < 0)
+            if(H5_daos_link_follow(target_grp, target_name, target_name_len, FALSE,
+                    int_req, &oid_ptr, NULL, &first_task, &dep_task) < 0)
                 D_GOTO_ERROR(H5E_MAP, H5E_TRAVERSE, NULL, "can't follow link to map")
-            if(!link_resolved)
-                D_GOTO_ERROR(H5E_MAP, H5E_TRAVERSE, NULL, "link to map did not resolve")
+
+            /* Retarget *oid_ptr so H5_daos_link_follow fills in the map's oid
+             */
+            *oid_ptr = &map->obj.oid;
+
+            /* Wait until everything is complete then check for errors
+             * (temporary code until the rest of this function is async) */
+            if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
+                D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret))
+            if(H5_daos_progress(&item->file->sched, H5_DAOS_PROGRESS_WAIT) < 0)
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't progress scheduler")\
+            first_task = NULL;
+            dep_task = NULL;
+            if(int_req->status < -H5_DAOS_INCOMPLETE)
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "asynchronous task failed")
         } /* end else */
 
         /* Open map */
@@ -698,6 +749,48 @@ done:
         /* Close map */
         if(map && H5_daos_map_close(map, dxpl_id, req) < 0)
             D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't close map")
+    } /* end if */
+
+    if(int_req) {
+        tse_task_t *finalize_task;
+
+        /* Free path_buf if necessary */
+        if(path_buf && H5_daos_free_async(item->file, path_buf, &first_task, &dep_task) < 0)
+            D_DONE_ERROR(H5E_MAP, H5E_CANTFREE, NULL, "can't free path buffer")
+
+        /* Create task to finalize H5 operation */
+        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &item->file->sched, int_req, &finalize_task)))
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+        /* Register dependency (if any) */
+        else if(dep_task && 0 != (ret = tse_task_register_deps(finalize_task, 1, &dep_task)))
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+        /* Schedule finalize task */
+        else if(0 != (ret = tse_task_schedule(finalize_task, false)))
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+        else
+            /* finalize_task now owns a reference to req */
+            int_req->rc++;
+
+        /* If there was an error during setup, pass it to the request */
+        if(NULL == ret_value)
+            int_req->status = -H5_DAOS_SETUP_ERROR;
+
+        /* Schedule first task */
+        if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret))
+
+        /* Block until operation completes */
+        /* Wait for scheduler to be empty */
+        if(H5_daos_progress(&item->file->sched, H5_DAOS_PROGRESS_WAIT) < 0)
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't progress scheduler")
+
+        /* Check for failure */
+        if(int_req->status < 0)
+            D_DONE_ERROR(H5E_MAP, H5E_CANTOPERATE, NULL, "group open failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status))
+
+        /* Close internal request */
+        if(H5_daos_req_free_int(int_req) < 0)
+            D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't free request")
     } /* end if */
 
     /* Close target group */

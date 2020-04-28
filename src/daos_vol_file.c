@@ -1129,7 +1129,7 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     /* Create root group */
     if(NULL == (file->root_grp = (H5_daos_group_t *)H5_daos_group_create_helper(
             file, TRUE, fcpl_id, H5P_GROUP_ACCESS_DEFAULT, int_req, NULL, NULL,
-            0, TRUE, &first_task, &dep_task)));
+            0, TRUE, &first_task, &dep_task)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create root group");
 
     /* Write root group OID to global metadata object */

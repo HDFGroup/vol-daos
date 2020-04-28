@@ -1293,7 +1293,7 @@ H5_daos_link_copy(void *src_item, const H5VL_loc_params_t *loc_params1,
 
 #ifdef H5_DAOS_USE_TRANSACTIONS
     /* Start transaction */
-    if(0 != (ret = daos_tx_open(target_grp->obj.itemfile->coh, &int_req->th, NULL /*event*/)))
+    if(0 != (ret = daos_tx_open(sched_file->coh, &int_req->th, NULL /*event*/)))
         D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't start transaction");
     int_req->th_open = TRUE;
 #endif /* H5_DAOS_USE_TRANSACTIONS */
@@ -1475,7 +1475,7 @@ H5_daos_link_move(void *src_item, const H5VL_loc_params_t *loc_params1,
 
 #ifdef H5_DAOS_USE_TRANSACTIONS
     /* Start transaction */
-    if(0 != (ret = daos_tx_open(target_grp->obj.itemfile->coh, &int_req->th, NULL /*event*/)))
+    if(0 != (ret = daos_tx_open(sched_file->coh, &int_req->th, NULL /*event*/)))
         D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't start transaction");
     int_req->th_open = TRUE;
 #endif /* H5_DAOS_USE_TRANSACTIONS */

@@ -248,8 +248,8 @@ done:
             D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close dataset");
 
         /* Handle errors in this function */
-    /* Do not place any code that can issue errors after this block, except for
-     * H5_daos_req_free_int, which updates req->status if it sees an error */
+        /* Do not place any code that can issue errors after this block, except for
+         * H5_daos_req_free_int, which updates req->status if it sees an error */
         if(ret_value < 0 && udata->req->status >= -H5_DAOS_INCOMPLETE) {
             udata->req->status = ret_value;
             udata->req->failed_task = "MPI_Ibcast fill value completion callback";
@@ -968,7 +968,7 @@ H5_daos_dset_open_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         udata->req->status = task->dt_result;
         udata->req->failed_task = "MPI_Ibcast dataset info";
     } /* end if */
-    else
+    else if(task->dt_result == 0)
         /* Reissue bcast if necesary */
         if(udata->buffer_len != udata->count) {
             tse_task_t *bcast_task;
@@ -1073,7 +1073,7 @@ H5_daos_dset_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         udata->req->status = task->dt_result;
         udata->req->failed_task = "MPI_Ibcast dataset info";
     } /* end if */
-    else {
+    else if(task->dt_result == 0) {
         uint64_t type_buf_len = 0;
         uint64_t space_buf_len = 0;
         uint64_t dcpl_buf_len = 0;
@@ -1295,7 +1295,7 @@ H5_daos_dinfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
             udata->md_rw_cb_ud.req->status = task->dt_result;
             udata->md_rw_cb_ud.req->failed_task = udata->md_rw_cb_ud.task_name;
         } /* end if */
-        else {
+        else if(task->dt_result == 0) {
             uint64_t type_buf_len = (uint64_t)(udata->md_rw_cb_ud.sg_iov[1].iov_buf
                     - udata->md_rw_cb_ud.sg_iov[0].iov_buf);
             uint64_t space_buf_len = (uint64_t)(udata->md_rw_cb_ud.sg_iov[2].iov_buf
@@ -1466,7 +1466,7 @@ H5_daos_dataset_refresh_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
             udata->md_rw_cb_ud.req->status = task->dt_result;
             udata->md_rw_cb_ud.req->failed_task = udata->md_rw_cb_ud.task_name;
         } /* end if */
-        else {
+        else if(task->dt_result == 0) {
             H5_daos_dset_t *dset = (H5_daos_dset_t *)udata->md_rw_cb_ud.obj;
             hid_t decoded_space;
 
@@ -2213,31 +2213,33 @@ H5_daos_chunk_io_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         udata->req->failed_task = "raw data I/O";
     } /* end if */
 
-    /* Close dataset */
-    if(H5_daos_dataset_close(udata->dset, H5I_INVALID_HID, NULL) < 0)
-        D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
+done:
+    if(udata) {
+        /* Close dataset */
+        if(H5_daos_dataset_close(udata->dset, H5I_INVALID_HID, NULL) < 0)
+            D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
 
-    /* Handle errors in this function */
-    /* Do not place any code that can issue errors after this block, except for
-     * H5_daos_req_free_int, which updates req->status if it sees an error */
-    if(ret_value < 0 && udata->req->status >= -H5_DAOS_INCOMPLETE) {
-        udata->req->status = ret_value;
-        udata->req->failed_task = "raw data I/O completion callback";
+        /* Handle errors in this function */
+        /* Do not place any code that can issue errors after this block, except for
+         * H5_daos_req_free_int, which updates req->status if it sees an error */
+        if(ret_value < 0 && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+            udata->req->status = ret_value;
+            udata->req->failed_task = "raw data I/O completion callback";
+        } /* end if */
+
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(udata->req) < 0)
+            D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+        /* Free private data */
+        DV_free(udata->dkey.iov_buf);
+        if(udata->recxs != &udata->recx)
+            DV_free(udata->recxs);
+        if(udata->sg_iovs != &udata->sg_iov)
+            DV_free(udata->sg_iovs);
+        DV_free(udata);
     } /* end if */
 
-    /* Release our reference to req */
-    if(H5_daos_req_free_int(udata->req) < 0)
-        D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
-
-    /* Free private data */
-    DV_free(udata->dkey.iov_buf);
-    if(udata->recxs != &udata->recx)
-        DV_free(udata->recxs);
-    if(udata->sg_iovs != &udata->sg_iov)
-        DV_free(udata->sg_iovs);
-    DV_free(udata);
-
-done:
     D_FUNC_LEAVE;
 } /* end H5_daos_chunk_io_comp_cb() */
 

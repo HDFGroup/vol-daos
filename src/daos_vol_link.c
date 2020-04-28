@@ -238,53 +238,55 @@ H5_daos_link_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
             udata->md_rw_cb_ud.req->failed_task = udata->md_rw_cb_ud.task_name;
             *udata->link_read = FALSE;
         } /* end if */
-        else if(udata->md_rw_cb_ud.iod[0].iod_size == (uint64_t)0) {
-            /* No link found */
-            if(udata->link_read)
-                *udata->link_read = FALSE;
-            else
-                D_GOTO_ERROR(H5E_LINK, H5E_TRAVERSE, -H5_DAOS_NONEXIST_LINK, "link not found");
+        else if(task->dt_result == 0) {
+            if(udata->md_rw_cb_ud.iod[0].iod_size == (uint64_t)0) {
+                /* No link found */
+                if(udata->link_read)
+                    *udata->link_read = FALSE;
+                else
+                    D_GOTO_ERROR(H5E_LINK, H5E_TRAVERSE, -H5_DAOS_NONEXIST_LINK, "link not found");
+            } /* end if */
+            else {
+                uint8_t *p = (uint8_t *)udata->md_rw_cb_ud.sg_iov[0].iov_buf;
+
+                /* Decode link type */
+                udata->link_val->type = (H5L_type_t)*p++;
+
+                /* Decode remainder of link value */
+                switch(udata->link_val->type) {
+                    case H5L_TYPE_HARD:
+                        /* Decode oid */
+                        UINT64DECODE(p, udata->link_val->target.hard.lo)
+                        UINT64DECODE(p, udata->link_val->target.hard.hi)
+
+                        break;
+
+                    case H5L_TYPE_SOFT:
+                        /* The buffer allocated is guaranteed to be big enough to
+                         * hold the soft link path, since the path needs an extra
+                         * byte for the null terminator but loses the byte
+                         * specifying the type.  Take ownership of the buffer and
+                         * shift the value down one byte. */
+                        udata->link_val->target.soft = (char *)udata->md_rw_cb_ud.sg_iov[0].iov_buf;
+                        udata->md_rw_cb_ud.sg_iov[0].iov_buf = NULL;
+                        memmove(udata->link_val->target.soft, udata->link_val->target.soft + 1, udata->md_rw_cb_ud.iod[0].iod_size - 1);
+
+                        /* Add null terminator */
+                        udata->link_val->target.soft[udata->md_rw_cb_ud.iod[0].iod_size - 1] = '\0';
+
+                        break;
+
+                    case H5L_TYPE_ERROR:
+                    case H5L_TYPE_EXTERNAL:
+                    case H5L_TYPE_MAX:
+                    default:
+                        D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, -H5_DAOS_BAD_VALUE, "invalid or unsupported link type");
+                } /* end switch */
+
+                if(udata->link_read)
+                    *udata->link_read = TRUE;
+            } /* end else */
         } /* end if */
-        else {
-            uint8_t *p = (uint8_t *)udata->md_rw_cb_ud.sg_iov[0].iov_buf;
-
-            /* Decode link type */
-            udata->link_val->type = (H5L_type_t)*p++;
-
-            /* Decode remainder of link value */
-            switch(udata->link_val->type) {
-                case H5L_TYPE_HARD:
-                    /* Decode oid */
-                    UINT64DECODE(p, udata->link_val->target.hard.lo)
-                    UINT64DECODE(p, udata->link_val->target.hard.hi)
-
-                    break;
-
-                case H5L_TYPE_SOFT:
-                    /* The buffer allocated is guaranteed to be big enough to
-                     * hold the soft link path, since the path needs an extra
-                     * byte for the null terminator but loses the byte
-                     * specifying the type.  Take ownership of the buffer and
-                     * shift the value down one byte. */
-                    udata->link_val->target.soft = (char *)udata->md_rw_cb_ud.sg_iov[0].iov_buf;
-                    udata->md_rw_cb_ud.sg_iov[0].iov_buf = NULL;
-                    memmove(udata->link_val->target.soft, udata->link_val->target.soft + 1, udata->md_rw_cb_ud.iod[0].iod_size - 1);
-
-                    /* Add null terminator */
-                    udata->link_val->target.soft[udata->md_rw_cb_ud.iod[0].iod_size - 1] = '\0';
-
-                    break;
-
-                case H5L_TYPE_ERROR:
-                case H5L_TYPE_EXTERNAL:
-                case H5L_TYPE_MAX:
-                default:
-                    D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, -H5_DAOS_BAD_VALUE, "invalid or unsupported link type");
-            } /* end switch */
-
-            if(udata->link_read)
-                *udata->link_read = TRUE;
-        } /* end else */
     } /* end else */
 
 done:
@@ -745,39 +747,41 @@ H5_daos_link_write_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         udata->md_rw_cb_ud.req->failed_task = udata->md_rw_cb_ud.task_name;
     } /* end if */
 
-    /* Close object */
-    if(H5_daos_object_close(udata->md_rw_cb_ud.obj, H5I_INVALID_HID, NULL) < 0)
-        D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
+done:
+    if(udata) {
+        /* Close object */
+        if(H5_daos_object_close(udata->md_rw_cb_ud.obj, H5I_INVALID_HID, NULL) < 0)
+            D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
 
-    /* Handle errors in this function */
-    /* Do not place any code that can issue errors after this block, except for
-     * H5_daos_req_free_int, which updates req->status if it sees an error */
-    if(ret_value < 0 && udata->md_rw_cb_ud.req->status >= -H5_DAOS_INCOMPLETE) {
-        udata->md_rw_cb_ud.req->status = ret_value;
-        udata->md_rw_cb_ud.req->failed_task = udata->md_rw_cb_ud.task_name;
+        /* Handle errors in this function */
+        /* Do not place any code that can issue errors after this block, except for
+         * H5_daos_req_free_int, which updates req->status if it sees an error */
+        if(ret_value < 0 && udata->md_rw_cb_ud.req->status >= -H5_DAOS_INCOMPLETE) {
+            udata->md_rw_cb_ud.req->status = ret_value;
+            udata->md_rw_cb_ud.req->failed_task = udata->md_rw_cb_ud.task_name;
+        } /* end if */
+
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(udata->md_rw_cb_ud.req) < 0)
+            D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+        /* Free private data */
+        if(udata->md_rw_cb_ud.free_akeys)
+            for(i = 0; i < udata->md_rw_cb_ud.nr; i++)
+                DV_free(udata->md_rw_cb_ud.iod[i].iod_name.iov_buf);
+
+        /* Only free udata if there is no creation order writing
+         * task depending on shared buffers from this udata. We do
+         * not explicitly free the sg_iovs as some of them are
+         * not dynamically allocated.
+         */
+        if(!udata->shared) {
+            DV_free(udata->link_name_buf);
+            DV_free(udata->link_val_buf);
+            DV_free(udata);
+        }
     } /* end if */
 
-    /* Release our reference to req */
-    if(H5_daos_req_free_int(udata->md_rw_cb_ud.req) < 0)
-        D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
-
-    /* Free private data */
-    if(udata->md_rw_cb_ud.free_akeys)
-        for(i = 0; i < udata->md_rw_cb_ud.nr; i++)
-            DV_free(udata->md_rw_cb_ud.iod[i].iod_name.iov_buf);
-
-    /* Only free udata if there is no creation order writing
-     * task depending on shared buffers from this udata. We do
-     * not explicitly free the sg_iovs as some of them are
-     * not dynamically allocated.
-     */
-    if(!udata->shared) {
-        DV_free(udata->link_name_buf);
-        DV_free(udata->link_val_buf);
-        DV_free(udata);
-    }
-
-done:
     D_FUNC_LEAVE;
 } /* end H5_daos_link_write_comp_cb() */
 
@@ -994,42 +998,44 @@ H5_daos_link_write_corder_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         udata->md_rw_cb_ud.req->failed_task = udata->md_rw_cb_ud.task_name;
     } /* end if */
 
-    /* Close object */
-    if(H5_daos_object_close(udata->md_rw_cb_ud.obj, H5I_INVALID_HID, NULL) < 0)
-        D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
+done:
+    if(udata) {
+        /* Close object */
+        if(H5_daos_object_close(udata->md_rw_cb_ud.obj, H5I_INVALID_HID, NULL) < 0)
+            D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
 
-    /* Handle errors in this function */
-    /* Do not place any code that can issue errors after this block, except for
-     * H5_daos_req_free_int, which updates req->status if it sees an error */
-    if(ret_value < 0 && udata->md_rw_cb_ud.req->status >= -H5_DAOS_INCOMPLETE) {
-        udata->md_rw_cb_ud.req->status = ret_value;
-        udata->md_rw_cb_ud.req->failed_task = udata->md_rw_cb_ud.task_name;
+        /* Handle errors in this function */
+        /* Do not place any code that can issue errors after this block, except for
+         * H5_daos_req_free_int, which updates req->status if it sees an error */
+        if(ret_value < 0 && udata->md_rw_cb_ud.req->status >= -H5_DAOS_INCOMPLETE) {
+            udata->md_rw_cb_ud.req->status = ret_value;
+            udata->md_rw_cb_ud.req->failed_task = udata->md_rw_cb_ud.task_name;
+        } /* end if */
+
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(udata->md_rw_cb_ud.req) < 0)
+            D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+        /* Free private data from shared H5_daos_link_write_ud_t struct */
+        DV_free(udata->link_write_ud->link_val_buf);
+        DV_free(udata->link_write_ud->link_name_buf);
+        udata->link_write_ud = DV_free(udata->link_write_ud);
+
+        /* Free private data */
+        if(udata->md_rw_cb_ud.free_dkey)
+            DV_free(udata->md_rw_cb_ud.dkey.iov_buf);
+        if(udata->md_rw_cb_ud.free_akeys)
+            for(i = 0; i < udata->md_rw_cb_ud.nr; i++)
+                DV_free(udata->md_rw_cb_ud.iod[i].iod_name.iov_buf);
+
+        /* We do not explicitly free the sg_iovs as some of them are
+         * not dynamically allocated and the rest are freed from the
+         * shared structure above.
+         */
+
+        DV_free(udata);
     } /* end if */
 
-    /* Release our reference to req */
-    if(H5_daos_req_free_int(udata->md_rw_cb_ud.req) < 0)
-        D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
-
-    /* Free private data from shared H5_daos_link_write_ud_t struct */
-    DV_free(udata->link_write_ud->link_val_buf);
-    DV_free(udata->link_write_ud->link_name_buf);
-    udata->link_write_ud = DV_free(udata->link_write_ud);
-
-    /* Free private data */
-    if(udata->md_rw_cb_ud.free_dkey)
-        DV_free(udata->md_rw_cb_ud.dkey.iov_buf);
-    if(udata->md_rw_cb_ud.free_akeys)
-        for(i = 0; i < udata->md_rw_cb_ud.nr; i++)
-            DV_free(udata->md_rw_cb_ud.iod[i].iod_name.iov_buf);
-
-    /* We do not explicitly free the sg_iovs as some of them are
-     * not dynamically allocated and the rest are freed from the
-     * shared structure above.
-     */
-
-    DV_free(udata);
-
-done:
     D_FUNC_LEAVE;
 } /* end H5_daos_link_write_corder_comp_cb() */
 

@@ -65,6 +65,9 @@ typedef enum {
     H5_DAOS_FREE_ERROR,         /* Failed to free memory */
     H5_DAOS_CPL_CACHE_ERROR,    /* Failed to fill creation property list cache */
     H5_DAOS_BAD_VALUE,          /* Invalid value received */
+    H5_DAOS_NONEXIST_LINK,      /* Link does not exist */
+    H5_DAOS_TRAVERSE_ERROR,     /* Failed to traverse path */
+    H5_DAOS_FOLLOW_ERROR,       /* Failed to follow link */
     H5_DAOS_PROGRESS_ERROR,     /* Failed to progress scheduler */
     H5_DAOS_SETUP_ERROR,        /* Error during operation setup */
     H5_DAOS_FILE_EXISTS,        /* File already exists */

@@ -1233,7 +1233,7 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
 
                 /* Initialize iteration data */
                 H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_ATTR, idx_type, iter_order,
-                        FALSE, idx_p, target_obj_id, op_data, dxpl_id, req);
+                        FALSE, idx_p, target_obj_id, op_data, dxpl_id, NULL, NULL, NULL);
                 iter_data.u.attr_iter_data.attr_iter_op = iter_op;
 
                 if((ret_value = H5_daos_attribute_iterate(target_obj, &iter_data)) < 0)
@@ -1669,7 +1669,7 @@ H5_daos_attribute_remove_from_crt_idx(H5_daos_obj_t *target_obj, const H5VL_loc_
         iter_cb_ud.target_attr_name = attr_name;
         iter_cb_ud.attr_idx_out = &delete_idx;
         H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_ATTR, H5_INDEX_CRT_ORDER, H5_ITER_INC,
-                FALSE, NULL, target_obj_id, &iter_cb_ud, H5P_DATASET_XFER_DEFAULT, NULL);
+                FALSE, NULL, target_obj_id, &iter_cb_ud, H5P_DATASET_XFER_DEFAULT, NULL, NULL, NULL);
         iter_data.u.attr_iter_data.attr_iter_op = H5_daos_attribute_remove_from_crt_idx_name_cb;
 
         /*
@@ -2174,7 +2174,7 @@ H5_daos_attribute_iterate_by_name_order(H5_daos_obj_t *attr_container_obj, H5_da
 
                 /* Retrieve attribute's info */
                 if(H5_daos_attribute_get_info((H5_daos_item_t *)attr_container_obj, &sub_loc_params,
-                        &p[2], &ainfo, iter_data->dxpl_id, iter_data->req) < 0)
+                        &p[2], &ainfo, iter_data->dxpl_id, NULL) < 0)
                     D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute info");
 
                 /* Make callback */
@@ -2292,7 +2292,7 @@ H5_daos_attribute_iterate_by_crt_order(H5_daos_obj_t *attr_container_obj, H5_dao
 
         /* Retrieve the attribute's info */
         if(H5_daos_attribute_get_info((H5_daos_item_t *)attr_container_obj, &sub_loc_params,
-                attr_name, &ainfo, iter_data->dxpl_id, iter_data->req) < 0)
+                attr_name, &ainfo, iter_data->dxpl_id, NULL) < 0)
             D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute's info");
 
         /* Make callback */
@@ -2701,7 +2701,7 @@ H5_daos_attribute_get_name_by_name_order(H5_daos_obj_t *target_obj, H5_iter_orde
     iter_cb_ud.attr_name_out = attr_name_out;
     iter_cb_ud.attr_name_out_size = attr_name_out_size;
     H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_ATTR, H5_INDEX_NAME, iter_order,
-            FALSE, NULL, target_obj_id, &iter_cb_ud, H5P_DATASET_XFER_DEFAULT, NULL);
+            FALSE, NULL, target_obj_id, &iter_cb_ud, H5P_DATASET_XFER_DEFAULT, NULL, NULL, NULL);
     iter_data.u.attr_iter_data.attr_iter_op = H5_daos_attribute_get_name_by_name_order_cb;
 
     if(H5_daos_attribute_iterate(target_obj, &iter_data) < 0)

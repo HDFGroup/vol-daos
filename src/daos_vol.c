@@ -104,6 +104,7 @@ static int H5_daos_oidx_bcast_prep_cb(tse_task_t *task, void *args);
 static int H5_daos_oidx_bcast_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_oidx_generate_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_oid_encode_task(tse_task_t *task);
+static int H5_daos_free_async_task(tse_task_t *task);
 
 /*******************/
 /* Local Variables */
@@ -1767,12 +1768,8 @@ H5_daos_oidx_generate(uint64_t *oidx, H5_daos_file_t *file, hbool_t collective,
          * result from the leader process */
         if(!collective || (file->my_rank == 0)) {
             /* Create task to allocate oidxs */
-            if(0 != (ret = daos_task_create(DAOS_OPC_CONT_ALLOC_OIDS, &file->sched, 0, NULL, &generate_task)))
+            if(0 != (ret = daos_task_create(DAOS_OPC_CONT_ALLOC_OIDS, &file->sched, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &generate_task)))
                 D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create task to generate OIDXs: %s", H5_daos_err_to_string(ret));
-
-            /* Register task dependency */
-            if(*dep_task && 0 != (ret = tse_task_register_deps(generate_task, 1, dep_task)))
-                D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create dependencies for OIDX generation task: %s", H5_daos_err_to_string(ret));
 
             /* Set callback functions for container open */
             if(0 != (ret = tse_task_register_cbs(generate_task, H5_daos_generic_prep_cb, NULL, 0, H5_daos_oidx_generate_comp_cb, NULL, 0)))
@@ -2710,10 +2707,10 @@ H5_daos_h5op_finalize(tse_task_t *task)
     if(H5_daos_req_free_int(req) < 0)
         D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
 
+done:
     /* Complete task in engine */
     tse_task_complete(task, ret_value);
 
-done:
     D_FUNC_LEAVE;
 } /* end H5_daos_h5op_finalize() */
 
@@ -3216,12 +3213,8 @@ H5_daos_obj_open(H5_daos_file_t *file, H5_daos_req_t *req, daos_obj_id_t *oid,
     assert(dep_task);
 
     /* Create task for object open */
-    if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_OPEN, &file->sched, 0, NULL, &open_task)))
+    if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_OPEN, &file->sched, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &open_task)))
         D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create task to open object: %s", H5_daos_err_to_string(ret));
-
-    /* Register dependency for task */
-    if(*dep_task && 0 != (ret = tse_task_register_deps(open_task, 1, dep_task)))
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create dependencies for object open: %s", H5_daos_err_to_string(ret));
 
     /* Set callback functions for object open */
     if(0 != (ret = tse_task_register_cbs(open_task, H5_daos_obj_open_prep_cb, NULL, 0, H5_daos_generic_comp_cb, NULL, 0)))
@@ -3263,6 +3256,84 @@ done:
 
     D_FUNC_LEAVE;
 } /* end H5_daos_obj_open() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_free_async_task
+ *
+ * Purpose:     Frees a buffer (the private data).
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_free_async_task(tse_task_t *task)
+{
+    void *buf = NULL;
+    int ret_value = 0;
+
+    assert(!H5_daos_mpi_task_g);
+
+    /* Get private data */
+    if(NULL == (buf = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for free task");
+
+    /* Free buffer */
+    DV_free(buf);
+
+done:
+    /* Complete this task */
+    tse_task_complete(task, ret_value);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_free_async_task() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_free_async
+ *
+ * Purpose:     Schedules a task to free a buffer.  Executes even if a
+ *              previous task failed, does not issue new failures.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_free_async(H5_daos_file_t *file, void *buf, tse_task_t **first_task,
+    tse_task_t **dep_task)
+{
+    tse_task_t *free_task;
+    int ret;
+    herr_t ret_value = SUCCEED; /* Return value */
+
+    assert(file);
+    assert(buf);
+    assert(first_task);
+    assert(dep_task);
+
+    /* Create task for free */
+    if(0 != (ret = tse_task_create(H5_daos_free_async_task, &file->sched, buf, &free_task)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create task to free buffer: %s", H5_daos_err_to_string(ret));
+
+    /* Register dependency for task */
+    if(*dep_task && 0 != (ret = tse_task_register_deps(free_task, 1, dep_task)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create dependencies for free: %s", H5_daos_err_to_string(ret));
+
+    /* Schedule free task (or save it to be scheduled later) */
+    if(*first_task) {
+        if(0 != (ret = tse_task_schedule(free_task, false)))
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't schedule task to free buffert: %s", H5_daos_err_to_string(ret));
+    } /* end if */
+    else
+        *first_task = free_task;
+    *dep_task = free_task;
+
+done:
+    D_FUNC_LEAVE;
+} /* end H5_daos_free_async() */
 
 
 /*-------------------------------------------------------------------------

@@ -80,35 +80,35 @@ H5_daos_map_create(void *_item,
     H5_DAOS_G_INIT(NULL)
 
     if(!_item)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "map parent object is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "map parent object is NULL");
 
     /* Check validity of key type.  Vlens are only allwed at the top level, no
      * references allowed at all. */
     if(H5T_NO_CLASS == (ktype_class = H5Tget_class(ktype_id)))
-        D_GOTO_ERROR(H5E_ARGS, H5E_CANTGET, NULL, "can't get key type class")
+        D_GOTO_ERROR(H5E_ARGS, H5E_CANTGET, NULL, "can't get key type class");
     if(ktype_class == H5T_VLEN) {
         /* Vlen types must not contain any nested vlens */
         if((ktype_parent_id = H5Tget_super(ktype_id)) < 0)
-            D_GOTO_ERROR(H5E_ARGS, H5E_CANTGET, NULL, "can't get key type parent")
+            D_GOTO_ERROR(H5E_ARGS, H5E_CANTGET, NULL, "can't get key type parent");
         if((has_vl_vlstr_ref = H5_daos_detect_vl_vlstr_ref(ktype_parent_id)) < 0)
-            D_GOTO_ERROR(H5E_ARGS, H5E_CANTINIT, NULL, "can't check for vlen or reference type")
+            D_GOTO_ERROR(H5E_ARGS, H5E_CANTINIT, NULL, "can't check for vlen or reference type");
         if(has_vl_vlstr_ref)
-            D_GOTO_ERROR(H5E_ARGS, H5E_UNSUPPORTED, NULL, "key type contains nested vlen or reference")
+            D_GOTO_ERROR(H5E_ARGS, H5E_UNSUPPORTED, NULL, "key type contains nested vlen or reference");
     } /* end if */
     else if(ktype_class == H5T_REFERENCE)
         /* References not supported */
-        D_GOTO_ERROR(H5E_ARGS, H5E_UNSUPPORTED, NULL, "key type is a reference type")
+        D_GOTO_ERROR(H5E_ARGS, H5E_UNSUPPORTED, NULL, "key type is a reference type");
     else if(ktype_class != H5T_STRING) {
         /* No nested vlens */
         if((has_vl_vlstr_ref = H5_daos_detect_vl_vlstr_ref(ktype_id)) < 0)
-            D_GOTO_ERROR(H5E_ARGS, H5E_CANTINIT, NULL, "can't check for vlen or reference type")
+            D_GOTO_ERROR(H5E_ARGS, H5E_CANTINIT, NULL, "can't check for vlen or reference type");
         if(has_vl_vlstr_ref)
-            D_GOTO_ERROR(H5E_ARGS, H5E_UNSUPPORTED, NULL, "key type contains nested vlen or reference")
+            D_GOTO_ERROR(H5E_ARGS, H5E_UNSUPPORTED, NULL, "key type contains nested vlen or reference");
     } /* end if */
 
     /* Check for write access */
     if(!(item->file->flags & H5F_ACC_RDWR))
-        D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, NULL, "no write intent on file")
+        D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, NULL, "no write intent on file");
 
     /*
      * Like HDF5, all metadata writes are collective by default. Once independent
@@ -118,11 +118,11 @@ H5_daos_map_create(void *_item,
 
     /* Start H5 operation */
     if(NULL == (int_req = H5_daos_req_create(item->file, H5I_INVALID_HID)))
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTALLOC, NULL, "can't create DAOS request")
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTALLOC, NULL, "can't create DAOS request");
 
     /* Allocate the map object that is returned to the user */
     if(NULL == (map = H5FL_CALLOC(H5_daos_map_t)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate DAOS map struct")
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate DAOS map struct");
     map->obj.item.type = H5I_MAP;
     map->obj.item.open_req = int_req;
     int_req->rc++;
@@ -139,7 +139,7 @@ H5_daos_map_create(void *_item,
 #ifdef H5_DAOS_USE_TRANSACTIONS
     /* Start transaction */
     if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't start transaction")
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't start transaction");
     int_req->th_open = TRUE;
 #endif /* H5_DAOS_USE_TRANSACTIONS */
 
@@ -151,28 +151,28 @@ H5_daos_map_create(void *_item,
         if(NULL == (target_obj = H5_daos_group_traverse(item, name, lcpl_id, int_req,
                 collective, &path_buf, &target_name, &target_name_len, &first_task,
                 &dep_task)))
-            D_GOTO_ERROR(H5E_MAP, H5E_BADITER, NULL, "can't traverse path")
+            D_GOTO_ERROR(H5E_MAP, H5E_BADITER, NULL, "can't traverse path");
 
         /* Check type of target_obj */
         if(target_obj->item.type != H5I_GROUP)
-            D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "target object is not a group")
+            D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "target object is not a group");
 
         /* Reject invalid object names during object creation - if a name is
          * given it must parse to a link name that can be created */
         if(target_name_len == 0)
-            D_GOTO_ERROR(H5E_MAP, H5E_BADVALUE, NULL, "path given does not resolve to a final link name")
+            D_GOTO_ERROR(H5E_MAP, H5E_BADVALUE, NULL, "path given does not resolve to a final link name");
     } /* end if */
 
     /* Generate map oid */
     if(H5_daos_oid_generate(&map->obj.oid, H5I_MAP,
             (mcpl_id == H5P_MAP_CREATE_DEFAULT ? H5P_DEFAULT : mcpl_id),
             item->file, collective, int_req, &first_task, &dep_task) < 0)
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't generate object id")
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't generate object id");
 
     /* Open map object */
     if(H5_daos_obj_open(item->file, int_req, &map->obj.oid, DAOS_OO_RW,
             &map->obj.obj_oh, "map object open", &first_task, &dep_task) < 0)
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, NULL, "can't open map object")
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, NULL, "can't open map object");
 
     /* Create map and write metadata if this process should */
     if(!collective || (item->file->my_rank == 0)) {
@@ -185,30 +185,30 @@ H5_daos_map_create(void *_item,
         /* Create map */
         /* Allocate argument struct */
         if(NULL == (update_cb_ud = (H5_daos_md_rw_cb_ud_t *)DV_calloc(sizeof(H5_daos_md_rw_cb_ud_t))))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for update callback arguments")
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for update callback arguments");
 
         /* Encode datatypes */
         if(H5Tencode(ktype_id, NULL, &ktype_size) < 0)
-            D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of datatype")
+            D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of datatype");
         if(NULL == (ktype_buf = DV_malloc(ktype_size)))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized datatype")
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized datatype");
         if(H5Tencode(ktype_id, ktype_buf, &ktype_size) < 0)
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTENCODE, NULL, "can't serialize datatype")
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTENCODE, NULL, "can't serialize datatype");
 
         if(H5Tencode(vtype_id, NULL, &vtype_size) < 0)
-            D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of datatype")
+            D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of datatype");
         if(NULL == (vtype_buf = DV_malloc(vtype_size)))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized datatype")
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized datatype");
         if(H5Tencode(vtype_id, vtype_buf, &vtype_size) < 0)
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTENCODE, NULL, "can't serialize datatype")
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTENCODE, NULL, "can't serialize datatype");
 
         /* Encode MCPL */
         if(H5Pencode2(mcpl_id, NULL, &mcpl_size, item->file->fapl_id) < 0)
-            D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of mcpl")
+            D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of mcpl");
         if(NULL == (mcpl_buf = DV_malloc(mcpl_size)))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized mcpl")
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized mcpl");
         if(H5Pencode2(mcpl_id, mcpl_buf, &mcpl_size, item->file->fapl_id) < 0)
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTENCODE, NULL, "can't serialize mcpl")
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTENCODE, NULL, "can't serialize mcpl");
 
         /* Set up operation to write MCPl and datatypes to map */
         /* Point to map */
@@ -266,15 +266,15 @@ H5_daos_map_create(void *_item,
         /* Create task for map metadata write */
         assert(dep_task);
         if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_UPDATE, &item->file->sched, 1, &dep_task, &update_task)))
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create task to write map medadata: %s", H5_daos_err_to_string(ret))
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create task to write map medadata: %s", H5_daos_err_to_string(ret));
 
         /* Register dependency for task */
         if(0 != (ret = tse_task_register_deps(update_task, 1, &dep_task)))
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't create dependencies for dataset metadata write: %s", H5_daos_err_to_string(ret))
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't create dependencies for dataset metadata write: %s", H5_daos_err_to_string(ret));
 
         /* Set callback functions for map metadata write */
         if(0 != (ret = tse_task_register_cbs(update_task, H5_daos_md_rw_prep_cb, NULL, 0, H5_daos_md_update_comp_cb, NULL, 0)))
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't register callbacks for task to write map medadata: %s", H5_daos_err_to_string(ret))
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't register callbacks for task to write map medadata: %s", H5_daos_err_to_string(ret));
 
         /* Set private data for map metadata write */
         (void)tse_task_set_priv(update_task, update_cb_ud);
@@ -282,7 +282,7 @@ H5_daos_map_create(void *_item,
         /* Schedule map metadata write task and give it a reference to req and
          * the map */
         if(0 != (ret = tse_task_schedule(update_task, false)))
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't schedule task to write map metadata: %s", H5_daos_err_to_string(ret))
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't schedule task to write map metadata: %s", H5_daos_err_to_string(ret));
         int_req->rc++;
         map->obj.item.rc++;
         update_cb_ud = NULL;
@@ -303,7 +303,7 @@ H5_daos_map_create(void *_item,
             link_val.target_oid_async = &map->obj.oid;
             if(H5_daos_link_write((H5_daos_group_t *)target_obj, target_name, target_name_len,
                     &link_val, int_req, &link_write_task, dep_task) < 0)
-                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create link to map")
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create link to map");
             finalize_deps[finalize_ndeps] = link_write_task;
             finalize_ndeps++;
         } /* end if */
@@ -320,13 +320,13 @@ H5_daos_map_create(void *_item,
 
     /* Finish setting up map struct */
     if((map->key_type_id = H5Tcopy(ktype_id)) < 0)
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTCOPY, NULL, "failed to copy datatype")
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTCOPY, NULL, "failed to copy datatype");
     if((map->key_file_type_id = H5VLget_file_type(item->file, H5_DAOS_g, ktype_id)) < 0)
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "failed to get file datatype")
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "failed to get file datatype");
     if((map->val_type_id = H5Tcopy(vtype_id)) < 0)
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTCOPY, NULL, "failed to copy datatype")
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTCOPY, NULL, "failed to copy datatype");
     if((map->val_file_type_id = H5VLget_file_type(item->file, H5_DAOS_g, vtype_id)) < 0)
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "failed to get file datatype")
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "failed to get file datatype");
     if((map->mcpl_id = H5Pcopy(mcpl_id)) < 0)
         D_GOTO_ERROR(H5E_MAP, H5E_CANTCOPY, NULL, "failed to copy gcpl");
     if((map->mapl_id = H5Pcopy(mapl_id)) < 0)
@@ -334,7 +334,7 @@ H5_daos_map_create(void *_item,
 
     /* Fill OCPL cache */
     if(H5_daos_fill_ocpl_cache(&map->obj, map->mcpl_id) < 0)
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "failed to fill OCPL cache")
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "failed to fill OCPL cache");
 
     /* Set return value */
     ret_value = (void *)map;
@@ -342,28 +342,28 @@ H5_daos_map_create(void *_item,
 done:
     /* Close target object */
     if(target_obj && H5_daos_object_close(target_obj, dxpl_id, NULL) < 0)
-        D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't close object")
+        D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't close object");
 
     /* Close key type parent type */
     if(ktype_parent_id >= 0 && H5Tclose(ktype_parent_id) < 0)
-        D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't close key type parent type")
+        D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't close key type parent type");
 
     if(int_req) {
         tse_task_t *finalize_task;
 
         /* Free path_buf if necessary */
         if(path_buf && H5_daos_free_async(item->file, path_buf, &first_task, &dep_task) < 0)
-            D_DONE_ERROR(H5E_MAP, H5E_CANTFREE, NULL, "can't free path buffer")
+            D_DONE_ERROR(H5E_MAP, H5E_CANTFREE, NULL, "can't free path buffer");
 
         /* Create task to finalize H5 operation */
         if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &item->file->sched, int_req, &finalize_task)))
-            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
         /* Register dependencies (if any) */
         else if(finalize_ndeps > 0 && 0 != (ret = tse_task_register_deps(finalize_task, finalize_ndeps, finalize_deps)))
-            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
         /* Schedule finalize task */
         else if(0 != (ret = tse_task_schedule(finalize_task, false)))
-            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
         else
             /* finalize_task now owns a reference to req */
             int_req->rc++;
@@ -374,20 +374,20 @@ done:
 
         /* Schedule first task */
         if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
-            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret))
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
 
         /* Block until operation completes */
         /* Wait for scheduler to be empty */
         if(H5_daos_progress(&item->file->sched, H5_DAOS_PROGRESS_WAIT) < 0)
-            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't progress scheduler")
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't progress scheduler");
 
         /* Check for failure */
         if(int_req->status < 0)
-            D_DONE_ERROR(H5E_MAP, H5E_CANTOPERATE, NULL, "map creation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status))
+            D_DONE_ERROR(H5E_MAP, H5E_CANTOPERATE, NULL, "map creation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status));
 
         /* Close internal request */
         if(H5_daos_req_free_int(int_req) < 0)
-            D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't free request")
+            D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't free request");
     } /* end if */
 
     /* Cleanup on failure */
@@ -399,7 +399,7 @@ done:
 
         /* Free memory */
         if(update_cb_ud && update_cb_ud->obj && H5_daos_object_close(update_cb_ud->obj, dxpl_id, NULL) < 0)
-            D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't close object")
+            D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't close object");
         ktype_buf = DV_free(ktype_buf);
         vtype_buf = DV_free(vtype_buf);
         mcpl_buf = DV_free(mcpl_buf);
@@ -411,7 +411,7 @@ done:
     assert(!vtype_buf);
     assert(!mcpl_buf);
 
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_map_create() */
 
 
@@ -461,21 +461,21 @@ H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
     H5_DAOS_G_INIT(NULL)
 
     if(!_item)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "map parent object is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "map parent object is NULL");
 
     /* Check for collective access, if not already set by the file */
     collective = item->file->fapl_cache.is_collective_md_read;
     if(!collective)
         if(H5Pget_all_coll_metadata_ops(mapl_id, &collective) < 0)
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, NULL, "can't get collective access property")
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, NULL, "can't get collective access property");
 
     /* Start H5 operation */
     if(NULL == (int_req = H5_daos_req_create(item->file, H5I_INVALID_HID)))
-        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTALLOC, NULL, "can't create DAOS request")
+        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTALLOC, NULL, "can't create DAOS request");
 
     /* Allocate the map object that is returned to the user */
     if(NULL == (map = H5FL_CALLOC(H5_daos_map_t)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate DAOS map struct")
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate DAOS map struct");
     map->obj.item.type = H5I_MAP;
     map->obj.item.open_req = NULL;
     map->obj.item.file = item->file;
@@ -491,7 +491,7 @@ H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
 #ifdef H5_DAOS_USE_TRANSACTIONS
     /* Start transaction */
     if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't start transaction")
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't start transaction");
     int_req->th_open = TRUE;
 #endif /* H5_DAOS_USE_TRANSACTIONS */
 
@@ -505,7 +505,7 @@ H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
         if(H5VL_OBJECT_BY_TOKEN == loc_params->type) {
             /* Generate oid from token */
             if(H5_daos_token_to_oid(loc_params->loc_data.loc_by_token.token, &map->obj.oid) < 0)
-                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't convert object token to OID")
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't convert object token to OID");
         } /* end if */
         else {
             const char *target_name = NULL;
@@ -514,23 +514,23 @@ H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
 
             /* Open using name parameter */
             if(H5VL_OBJECT_BY_SELF != loc_params->type)
-                D_GOTO_ERROR(H5E_ARGS, H5E_UNSUPPORTED, NULL, "unsupported map open location parameters type")
+                D_GOTO_ERROR(H5E_ARGS, H5E_UNSUPPORTED, NULL, "unsupported map open location parameters type");
             if(!name)
-                D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "map name is NULL")
+                D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "map name is NULL");
 
             /* Traverse the path */
             if(NULL == (target_grp = (H5_daos_group_t *)H5_daos_group_traverse(item, name, H5P_LINK_CREATE_DEFAULT, int_req,
                     collective, &path_buf, &target_name, &target_name_len, &first_task, &dep_task)))
-                D_GOTO_ERROR(H5E_MAP, H5E_BADITER, NULL, "can't traverse path")
+                D_GOTO_ERROR(H5E_MAP, H5E_BADITER, NULL, "can't traverse path");
 
             /* Reject no target_name, since target_grp is not a map */
             if(target_name_len == 0)
-                D_GOTO_ERROR(H5E_DATATYPE, H5E_BADVALUE, NULL, "path given does not resolve to a final link name")
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_BADVALUE, NULL, "path given does not resolve to a final link name");
 
             /* Follow link to map */
             if(H5_daos_link_follow(target_grp, target_name, target_name_len, FALSE,
                     int_req, &oid_ptr, NULL, &first_task, &dep_task) < 0)
-                D_GOTO_ERROR(H5E_MAP, H5E_TRAVERSE, NULL, "can't follow link to map")
+                D_GOTO_ERROR(H5E_MAP, H5E_TRAVERSE, NULL, "can't follow link to map");
 
             /* Retarget *oid_ptr so H5_daos_link_follow fills in the map's oid
              */
@@ -539,18 +539,18 @@ H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
             /* Wait until everything is complete then check for errors
              * (temporary code until the rest of this function is async) */
             if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
-                D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret))
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
             if(H5_daos_progress(&item->file->sched, H5_DAOS_PROGRESS_WAIT) < 0)
-                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't progress scheduler")\
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't progress scheduler");
             first_task = NULL;
             dep_task = NULL;
             if(int_req->status < -H5_DAOS_INCOMPLETE)
-                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "asynchronous task failed")
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "asynchronous task failed");
         } /* end else */
 
         /* Open map */
         if(0 != (ret = daos_obj_open(item->file->coh, map->obj.oid, item->file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &map->obj.obj_oh, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, NULL, "can't open map: %s", H5_daos_err_to_string(ret))
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, NULL, "can't open map: %s", H5_daos_err_to_string(ret));
 
         /* Set up operation to read datatype and MCPL sizes from map */
         /* Set up dkey */
@@ -576,7 +576,7 @@ H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
         /* Read internal metadata sizes from map */
         if(0 != (ret = daos_obj_fetch(map->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 3, iod, NULL,
                       NULL /*maps*/, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTDECODE, NULL, "can't read metadata sizes from map: %s", H5_daos_err_to_string(ret))
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTDECODE, NULL, "can't read metadata sizes from map: %s", H5_daos_err_to_string(ret));
 
         /* Check for metadata not found */
         if((iod[0].iod_size == (uint64_t)0) || (iod[1].iod_size == (uint64_t)0)
@@ -592,7 +592,7 @@ H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
         /* Allocate map info buffer if necessary */
         if((tot_len + (5 * sizeof(uint64_t))) > sizeof(minfo_buf_static)) {
             if(NULL == (minfo_buf_dyn = (uint8_t *)DV_malloc(tot_len + (5 * sizeof(uint64_t)))))
-                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate map info buffer")
+                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate map info buffer");
             minfo_buf = minfo_buf_dyn;
         } /* end if */
 
@@ -615,7 +615,7 @@ H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
 
         /* Read internal metadata from map */
         if(0 != (ret = daos_obj_fetch(map->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 3, iod, sgl, NULL /*maps*/, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTDECODE, NULL, "can't read metadata from map: %s", H5_daos_err_to_string(ret))
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTDECODE, NULL, "can't read metadata from map: %s", H5_daos_err_to_string(ret));
 
         /* Broadcast map info if there are other processes that need it */
         if(collective && (item->file->num_procs > 1)) {
@@ -640,7 +640,7 @@ H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
              * buffer */
             if(tot_len + (5 * sizeof(uint64_t)) > sizeof(minfo_buf_static))
                 if(MPI_SUCCESS != MPI_Bcast((char *)p, (int)tot_len, MPI_BYTE, 0, item->file->comm))
-                    D_GOTO_ERROR(H5E_MAP, H5E_MPI, NULL, "can't broadcast map info (second broadcast)")
+                    D_GOTO_ERROR(H5E_MAP, H5E_MPI, NULL, "can't broadcast map info (second broadcast)");
         } /* end if */
         else
             p = minfo_buf + (5 * sizeof(uint64_t));
@@ -648,7 +648,7 @@ H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
     else {
         /* Receive map info */
         if(MPI_SUCCESS != MPI_Bcast((char *)minfo_buf, sizeof(minfo_buf_static), MPI_BYTE, 0, item->file->comm))
-            D_GOTO_ERROR(H5E_MAP, H5E_MPI, NULL, "can't receive broadcasted map info")
+            D_GOTO_ERROR(H5E_MAP, H5E_MPI, NULL, "can't receive broadcasted map info");
 
         /* Decode oid */
         p = minfo_buf_static;
@@ -663,74 +663,74 @@ H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
 
         /* Check for ktype_len set to 0 - indicates failure */
         if(ktype_len == 0)
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "lead process failed to open map")
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "lead process failed to open map");
 
         /* Check if we need to perform another bcast */
         if(tot_len + (5 * sizeof(uint64_t)) > sizeof(minfo_buf_static)) {
             /* Allocate a dynamic buffer if necessary */
             if(tot_len > sizeof(minfo_buf_static)) {
                 if(NULL == (minfo_buf_dyn = (uint8_t *)DV_malloc(tot_len)))
-                    D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate space for map info")
+                    D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate space for map info");
                 minfo_buf = minfo_buf_dyn;
             } /* end if */
 
             /* Receive map info */
             if(MPI_SUCCESS != MPI_Bcast((char *)minfo_buf, (int)tot_len, MPI_BYTE, 0, item->file->comm))
-                D_GOTO_ERROR(H5E_MAP, H5E_MPI, NULL, "can't receive broadcasted map info (second broadcast)")
+                D_GOTO_ERROR(H5E_MAP, H5E_MPI, NULL, "can't receive broadcasted map info (second broadcast)");
 
             p = minfo_buf;
         } /* end if */
 
         /* Open map */
         if(0 != (ret = daos_obj_open(item->file->coh, map->obj.oid, item->file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &map->obj.obj_oh, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, NULL, "can't open map: %s", H5_daos_err_to_string(ret))
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, NULL, "can't open map: %s", H5_daos_err_to_string(ret));
     } /* end else */
 
     /* Decode datatypes and MCPL */
     if((map->key_type_id = H5Tdecode(p)) < 0)
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTDECODE, NULL, "can't deserialize datatype")
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTDECODE, NULL, "can't deserialize datatype");
     p += ktype_len;
     if((map->val_type_id = H5Tdecode(p)) < 0)
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTDECODE, NULL, "can't deserialize datatype")
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTDECODE, NULL, "can't deserialize datatype");
     p += vtype_len;
     if((map->mcpl_id = H5Pdecode(p)) < 0)
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTDECODE, NULL, "can't deserialize map creation property list")
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTDECODE, NULL, "can't deserialize map creation property list");
 
     /* Check validity of key type.  Vlens are only allwed at the top level, no
      * references allowed at all. */
     if(H5T_NO_CLASS == (ktype_class = H5Tget_class(map->key_type_id)))
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, NULL, "can't get key type class")
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, NULL, "can't get key type class");
     if(ktype_class == H5T_VLEN) {
         /* Vlen types must not contain any nested vlens */
         if((ktype_parent_id = H5Tget_super(map->key_type_id)) < 0)
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, NULL, "can't get key type parent")
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, NULL, "can't get key type parent");
         if((has_vl_vlstr_ref = H5_daos_detect_vl_vlstr_ref(ktype_parent_id)) < 0)
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't check for vlen or reference type")
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't check for vlen or reference type");
         if(has_vl_vlstr_ref)
-            D_GOTO_ERROR(H5E_MAP, H5E_UNSUPPORTED, NULL, "key type contains nested vlen or reference")
+            D_GOTO_ERROR(H5E_MAP, H5E_UNSUPPORTED, NULL, "key type contains nested vlen or reference");
     } /* end if */
     else if(ktype_class == H5T_REFERENCE)
         /* References not supported */
-        D_GOTO_ERROR(H5E_ARGS, H5E_UNSUPPORTED, NULL, "key type is a reference type")
+        D_GOTO_ERROR(H5E_ARGS, H5E_UNSUPPORTED, NULL, "key type is a reference type");
     else if(ktype_class != H5T_STRING) {
         /* No nested vlens */
         if((has_vl_vlstr_ref = H5_daos_detect_vl_vlstr_ref(map->key_type_id)) < 0)
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't check for vlen or reference type")
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't check for vlen or reference type");
         if(has_vl_vlstr_ref)
-            D_GOTO_ERROR(H5E_MAP, H5E_UNSUPPORTED, NULL, "key type contains nested vlen or reference")
+            D_GOTO_ERROR(H5E_MAP, H5E_UNSUPPORTED, NULL, "key type contains nested vlen or reference");
     } /* end if */
 
     /* Finish setting up map struct */
     if((map->key_file_type_id = H5VLget_file_type(item->file, H5_DAOS_g, map->key_type_id)) < 0)
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "failed to get file datatype")
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "failed to get file datatype");
     if((map->val_file_type_id = H5VLget_file_type(item->file, H5_DAOS_g, map->val_type_id)) < 0)
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "failed to get file datatype")
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "failed to get file datatype");
     if((map->mapl_id = H5Pcopy(mapl_id)) < 0)
         D_GOTO_ERROR(H5E_MAP, H5E_CANTCOPY, NULL, "failed to copy mapl");
 
     /* Fill OCPL cache */
     if(H5_daos_fill_ocpl_cache(&map->obj, map->mcpl_id) < 0)
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "failed to fill OCPL cache")
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "failed to fill OCPL cache");
 
     /* Set return value */
     ret_value = (void *)map;
@@ -743,12 +743,12 @@ done:
         if(must_bcast) {
             memset(minfo_buf_static, 0, sizeof(minfo_buf_static));
             if(MPI_SUCCESS != MPI_Bcast(minfo_buf_static, sizeof(minfo_buf_static), MPI_BYTE, 0, item->file->comm))
-                D_DONE_ERROR(H5E_MAP, H5E_MPI, NULL, "can't broadcast empty map info")
+                D_DONE_ERROR(H5E_MAP, H5E_MPI, NULL, "can't broadcast empty map info");
         } /* end if */
 
         /* Close map */
         if(map && H5_daos_map_close(map, dxpl_id, req) < 0)
-            D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't close map")
+            D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't close map");
     } /* end if */
 
     if(int_req) {
@@ -756,17 +756,17 @@ done:
 
         /* Free path_buf if necessary */
         if(path_buf && H5_daos_free_async(item->file, path_buf, &first_task, &dep_task) < 0)
-            D_DONE_ERROR(H5E_MAP, H5E_CANTFREE, NULL, "can't free path buffer")
+            D_DONE_ERROR(H5E_MAP, H5E_CANTFREE, NULL, "can't free path buffer");
 
         /* Create task to finalize H5 operation */
         if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &item->file->sched, int_req, &finalize_task)))
-            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
         /* Register dependency (if any) */
         else if(dep_task && 0 != (ret = tse_task_register_deps(finalize_task, 1, &dep_task)))
-            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
         /* Schedule finalize task */
         else if(0 != (ret = tse_task_schedule(finalize_task, false)))
-            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
         else
             /* finalize_task now owns a reference to req */
             int_req->rc++;
@@ -777,34 +777,34 @@ done:
 
         /* Schedule first task */
         if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
-            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret))
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
 
         /* Block until operation completes */
         /* Wait for scheduler to be empty */
         if(H5_daos_progress(&item->file->sched, H5_DAOS_PROGRESS_WAIT) < 0)
-            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't progress scheduler")
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't progress scheduler");
 
         /* Check for failure */
         if(int_req->status < 0)
-            D_DONE_ERROR(H5E_MAP, H5E_CANTOPERATE, NULL, "group open failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status))
+            D_DONE_ERROR(H5E_MAP, H5E_CANTOPERATE, NULL, "group open failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status));
 
         /* Close internal request */
         if(H5_daos_req_free_int(int_req) < 0)
-            D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't free request")
+            D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't free request");
     } /* end if */
 
     /* Close target group */
     if(target_grp && H5_daos_group_close(target_grp, dxpl_id, req) < 0)
-        D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't close group")
+        D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't close group");
 
     /* Close key type parent type */
     if(ktype_parent_id >= 0 && H5Tclose(ktype_parent_id) < 0)
-        D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't close key type parent type")
+        D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't close key type parent type");
 
     /* Free memory */
     minfo_buf_dyn = (uint8_t *)DV_free(minfo_buf_dyn);
 
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_map_open() */
 
 
@@ -860,13 +860,13 @@ H5_daos_map_key_conv(hid_t src_type_id, hid_t dst_type_id, const void *key,
 
     /* Check if type conversion is needed for the key */
     if((need_tconv = H5_daos_need_tconv(src_type_id, dst_type_id)) < 0)
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTCOMPARE, FAIL, "can't check if type conversion is needed")
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTCOMPARE, FAIL, "can't check if type conversion is needed");
     if(need_tconv) {
         H5T_class_t type_class;
 
         /* Get class */
         if(H5T_NO_CLASS == (type_class = H5Tget_class(src_type_id)))
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't get datatype class")
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't get datatype class");
 
         /* Check for vlen */
         if(type_class == H5T_VLEN) {
@@ -877,21 +877,21 @@ H5_daos_map_key_conv(hid_t src_type_id, hid_t dst_type_id, const void *key,
 
             /* Check for empty key - currently unsupported */
             if(vl->len == 0)
-                D_GOTO_ERROR(H5E_MAP, H5E_UNSUPPORTED, FAIL, "vl key cannot have length of 0")
+                D_GOTO_ERROR(H5E_MAP, H5E_UNSUPPORTED, FAIL, "vl key cannot have length of 0");
 
             /* Get parent types */
             if((src_parent_type_id = H5Tget_super(src_type_id)) < 0)
-                D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get source type parent")
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get source type parent");
             if((dst_parent_type_id = H5Tget_super(dst_type_id)) < 0)
-                D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get destination type parent")
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get destination type parent");
 
             /* Check if type conversion is needed for the parent type */
             if((parent_need_tconv = H5_daos_need_tconv(src_parent_type_id, dst_parent_type_id)) < 0)
-                D_GOTO_ERROR(H5E_MAP, H5E_CANTCOMPARE, FAIL, "can't check if type conversion is needed")
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTCOMPARE, FAIL, "can't check if type conversion is needed");
             if(parent_need_tconv) {
                 /* Initialize type conversion */
                 if(H5_daos_tconv_init(src_parent_type_id, &src_parent_type_size, dst_parent_type_id, &dst_parent_type_size, vl->len, FALSE, TRUE, &tconv_buf, &bkg_buf, NULL, &fill_bkg) < 0)
-                    D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't initialize type conversion")
+                    D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't initialize type conversion");
 
                 /* If needed, fill the background buffer (with zeros) */
                 if(fill_bkg) {
@@ -904,7 +904,7 @@ H5_daos_map_key_conv(hid_t src_type_id, hid_t dst_type_id, const void *key,
 
                 /* Perform type conversion */
                 if(H5Tconvert(src_parent_type_id, dst_parent_type_id, vl->len, tconv_buf, bkg_buf, dxpl_id) < 0)
-                    D_GOTO_ERROR(H5E_MAP, H5E_CANTCONVERT, FAIL, "can't perform type conversion")
+                    D_GOTO_ERROR(H5E_MAP, H5E_CANTCONVERT, FAIL, "can't perform type conversion");
 
                 /* Set return values to point to converted buffer */
                 *key_buf = (const void *)tconv_buf;
@@ -916,7 +916,7 @@ H5_daos_map_key_conv(hid_t src_type_id, hid_t dst_type_id, const void *key,
                 /* Just get parent size and set return values to point to vlen
                  * buffer */
                 if(0 == (dst_parent_type_size = H5Tget_size(dst_parent_type_id)))
-                    D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't get size of datatype")
+                    D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't get size of datatype");
                 *key_buf = vl->p;
                 *key_size = vl->len * dst_parent_type_size;
             } /* end else */
@@ -927,7 +927,7 @@ H5_daos_map_key_conv(hid_t src_type_id, hid_t dst_type_id, const void *key,
             /* Check for VL string */
             if(type_class == H5T_STRING)
                 if((is_vl_str = H5Tis_variable_str(src_type_id)) < 0)
-                    D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't check for variable length string")
+                    D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't check for variable length string");
             if(is_vl_str) {
                 /* Set return values to point to string (exclude null terminator
                  * since it's not needed */
@@ -944,7 +944,7 @@ H5_daos_map_key_conv(hid_t src_type_id, hid_t dst_type_id, const void *key,
                     /* If NULL was passed as the key, set the key to be the
                      * magic value of {'\0', '\0'} */
                     if(NULL == (*key_buf_alloc = DV_calloc(2)))
-                        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate space for NULL key")
+                        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate space for NULL key");
                     *key_buf = (const void *)*key_buf_alloc;
                     *key_size = 2;
                 } /* end else */
@@ -952,7 +952,7 @@ H5_daos_map_key_conv(hid_t src_type_id, hid_t dst_type_id, const void *key,
             else {
                 /* Initialize type conversion */
                 if(H5_daos_tconv_init(src_type_id, &src_type_size, dst_type_id, &dst_type_size, 1, FALSE, TRUE, &tconv_buf, &bkg_buf, NULL, &fill_bkg) < 0)
-                    D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't initialize type conversion")
+                    D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't initialize type conversion");
 
                 /* If needed, fill the background buffer (with zeros) */
                 if(fill_bkg) {
@@ -965,7 +965,7 @@ H5_daos_map_key_conv(hid_t src_type_id, hid_t dst_type_id, const void *key,
 
                 /* Perform type conversion */
                 if(H5Tconvert(src_type_id, dst_type_id, 1, tconv_buf, bkg_buf, dxpl_id) < 0)
-                    D_GOTO_ERROR(H5E_MAP, H5E_CANTCONVERT, FAIL, "can't perform type conversion")
+                    D_GOTO_ERROR(H5E_MAP, H5E_CANTCONVERT, FAIL, "can't perform type conversion");
 
                 /* Set return values to point to converted buffer */
                 *key_buf = (const void *)tconv_buf;
@@ -978,7 +978,7 @@ H5_daos_map_key_conv(hid_t src_type_id, hid_t dst_type_id, const void *key,
     else {
         /* Just get size and return key */
         if(0 == (dst_type_size = H5Tget_size(dst_type_id)))
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't get size of datatype")
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't get size of datatype");
         *key_buf = key;
         *key_size = dst_type_size;
     } /* end else */
@@ -986,13 +986,13 @@ H5_daos_map_key_conv(hid_t src_type_id, hid_t dst_type_id, const void *key,
 done:
     /* Cleanup */
     if(src_parent_type_id > 0 && H5Tclose(src_parent_type_id) < 0)
-        D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't close source type parent type")
+        D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't close source type parent type");
     if(dst_parent_type_id > 0 && H5Tclose(dst_parent_type_id) < 0)
-        D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't close destination type parent type")
+        D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't close destination type parent type");
     tconv_buf = DV_free(tconv_buf);
     bkg_buf = DV_free(bkg_buf);
 
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_map_key_conv() */
 
 
@@ -1055,13 +1055,13 @@ H5_daos_map_key_conv_reverse(hid_t src_type_id, hid_t dst_type_id,
 
     /* Check if type conversion is needed for the key */
     if((need_tconv = H5_daos_need_tconv(src_type_id, dst_type_id)) < 0)
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTCOMPARE, FAIL, "can't check if type conversion is needed")
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTCOMPARE, FAIL, "can't check if type conversion is needed");
     if(need_tconv) {
         H5T_class_t type_class;
 
         /* Get class */
         if(H5T_NO_CLASS == (type_class = H5Tget_class(src_type_id)))
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't get datatype class")
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't get datatype class");
 
         /* Check for vlen */
         if(type_class == H5T_VLEN) {
@@ -1071,26 +1071,26 @@ H5_daos_map_key_conv_reverse(hid_t src_type_id, hid_t dst_type_id,
 
             /* Get parent types */
             if((src_parent_type_id = H5Tget_super(src_type_id)) < 0)
-                D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get source type parent")
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get source type parent");
             if((dst_parent_type_id = H5Tget_super(dst_type_id)) < 0)
-                D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get destination type parent")
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get destination type parent");
 
             /* Check if type conversion is needed for the parent type */
             if((parent_need_tconv = H5_daos_need_tconv(src_parent_type_id, dst_parent_type_id)) < 0)
-                D_GOTO_ERROR(H5E_MAP, H5E_CANTCOMPARE, FAIL, "can't check if type conversion is needed")
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTCOMPARE, FAIL, "can't check if type conversion is needed");
             if(parent_need_tconv) {
                 /* Get source parent type size */
                 if(0 == (src_parent_type_size = H5Tget_size(src_parent_type_id)))
-                    D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't get size of datatype")
+                    D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't get size of datatype");
 
                 /* Calculate sequence length */
                 if(key_size % src_parent_type_size)
-                    D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "key size is not a multiple of source datatype size")
+                    D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "key size is not a multiple of source datatype size");
                 vl_union->vl.len = key_size / src_parent_type_size;
 
                 /* Initialize type conversion */
                 if(H5_daos_tconv_init(src_parent_type_id, &src_parent_type_size, dst_parent_type_id, &dst_parent_type_size, vl_union->vl.len, FALSE, FALSE, &tconv_buf, &bkg_buf, NULL, &fill_bkg) < 0)
-                    D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't initialize type conversion")
+                    D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't initialize type conversion");
 
                 /* Note we could reuse buffers here if we change around some of
                  * the logic in H5_daos_tconv_init() to support being passed the
@@ -1107,7 +1107,7 @@ H5_daos_map_key_conv_reverse(hid_t src_type_id, hid_t dst_type_id,
 
                 /* Perform type conversion */
                 if(H5Tconvert(src_parent_type_id, dst_parent_type_id, vl_union->vl.len, tconv_buf, bkg_buf, dxpl_id) < 0)
-                    D_GOTO_ERROR(H5E_MAP, H5E_CANTCONVERT, FAIL, "can't perform type conversion")
+                    D_GOTO_ERROR(H5E_MAP, H5E_CANTCONVERT, FAIL, "can't perform type conversion");
 
                 /* Set return values to point to converted buffer */
                 vl_union->vl.p = tconv_buf;
@@ -1121,11 +1121,11 @@ H5_daos_map_key_conv_reverse(hid_t src_type_id, hid_t dst_type_id,
                 /* Just get parent size and set return values to point to vlen
                  * buffer */
                 if(0 == (dst_parent_type_size = H5Tget_size(dst_parent_type_id)))
-                    D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't get size of datatype")
+                    D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't get size of datatype");
 
                 /* Calculate sequence length */
                 if(key_size % dst_parent_type_size)
-                    D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "key size is not a multiple of source datatype size")
+                    D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "key size is not a multiple of source datatype size");
                 vl_union->vl.len = key_size / dst_parent_type_size;
                 vl_union->vl.p = key;
                 *key_buf = (void *)&(vl_union->vl);
@@ -1137,7 +1137,7 @@ H5_daos_map_key_conv_reverse(hid_t src_type_id, hid_t dst_type_id,
             /* Check for VL string */
             if(type_class == H5T_STRING)
                 if((is_vl_str = H5Tis_variable_str(src_type_id)) < 0)
-                    D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't check for variable length string")
+                    D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't check for variable length string");
             if(is_vl_str) {
                 /* Check for magic value indicating key was passed as a NULL
                  * pointer */
@@ -1155,11 +1155,11 @@ H5_daos_map_key_conv_reverse(hid_t src_type_id, hid_t dst_type_id,
             else {
                 /* Initialize type conversion */
                 if(H5_daos_tconv_init(src_type_id, &src_type_size, dst_type_id, &dst_type_size, 1, FALSE, FALSE, &tconv_buf, &bkg_buf, NULL, &fill_bkg) < 0)
-                    D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't initialize type conversion")
+                    D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't initialize type conversion");
 
                 /* Check size is correct */
                 if(key_size != src_type_size)
-                    D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "key size does not match source datatype size")
+                    D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "key size does not match source datatype size");
 
                 /* Note we could reuse buffers here if we change around some of
                  * the logic in H5_daos_tconv_init() to support being passed the
@@ -1176,7 +1176,7 @@ H5_daos_map_key_conv_reverse(hid_t src_type_id, hid_t dst_type_id,
 
                 /* Perform type conversion */
                 if(H5Tconvert(src_type_id, dst_type_id, 1, tconv_buf, bkg_buf, dxpl_id) < 0)
-                    D_GOTO_ERROR(H5E_MAP, H5E_CANTCONVERT, FAIL, "can't perform type conversion")
+                    D_GOTO_ERROR(H5E_MAP, H5E_CANTCONVERT, FAIL, "can't perform type conversion");
 
                 /* Set return values to point to converted buffer */
                 *key_buf = tconv_buf;
@@ -1194,15 +1194,15 @@ H5_daos_map_key_conv_reverse(hid_t src_type_id, hid_t dst_type_id,
 done:
     /* Cleanup */
     if(src_parent_type_id > 0 && H5Tclose(src_parent_type_id) < 0)
-        D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't close source type parent type")
+        D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't close source type parent type");
     if(dst_parent_type_id > 0 && H5Tclose(dst_parent_type_id) < 0)
-        D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't close destination type parent type")
+        D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't close destination type parent type");
     if(tconv_buf && (tconv_buf != key))
         DV_free(tconv_buf);
     if(bkg_buf && (bkg_buf != key))
         DV_free(bkg_buf);
 
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_map_key_conv_reverse() */
 
 
@@ -1250,28 +1250,28 @@ H5_daos_map_get_val(void *_map, hid_t key_mem_type_id, const void *key,
     herr_t ret_value = SUCCEED;
 
     if(!_map)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map object is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map object is NULL");
     if(!key)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map key is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map key is NULL");
     if(!value)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map value is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map value is NULL");
 
     /* Convert key (if necessary) */
     if(H5_daos_map_key_conv(key_mem_type_id, map->key_file_type_id, key, &key_buf, &key_size, &key_buf_alloc, dxpl_id) < 0)
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't convert key")
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't convert key");
 
     /* Set up dkey */
     daos_iov_set(&dkey, (void *)key_buf, (daos_size_t)key_size);
 
     /* Check if the type conversion is needed */
     if((val_need_tconv = H5_daos_need_tconv(map->val_file_type_id, val_mem_type_id)) < 0)
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTCOMPARE, FAIL, "can't check if type conversion is needed")
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTCOMPARE, FAIL, "can't check if type conversion is needed");
 
     /* Type conversion */
     if(val_need_tconv) {
         /* Initialize type conversion */
         if(H5_daos_tconv_init(map->val_file_type_id, &val_file_type_size, val_mem_type_id, &val_mem_type_size, 1, FALSE, FALSE, &tconv_buf, &bkg_buf, &reuse, &fill_bkg) < 0)
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't initialize type conversion")
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't initialize type conversion");
 
         /* Reuse buffer as appropriate */
         if(reuse == H5_DAOS_TCONV_REUSE_TCONV)
@@ -1289,7 +1289,7 @@ H5_daos_map_get_val(void *_map, hid_t key_mem_type_id, const void *key,
     else {
         /* Get datatype size */
         if((val_file_type_size = H5Tget_size(map->val_file_type_id)) == 0)
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get datatype size for value datatype")
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get datatype size for value datatype");
 
         /* Set up sgl_iov to point to value */
         daos_iov_set(&sg_iov, value, (daos_size_t)val_file_type_size);
@@ -1315,13 +1315,13 @@ H5_daos_map_get_val(void *_map, hid_t key_mem_type_id, const void *key,
 
     /* Check for no key-value pair found */
     if(iod.iod_size == (uint64_t)0)
-        D_GOTO_ERROR(H5E_MAP, H5E_NOTFOUND, FAIL, "key not found")
+        D_GOTO_ERROR(H5E_MAP, H5E_NOTFOUND, FAIL, "key not found");
 
     /* Perform type conversion if necessary */
     if(val_need_tconv) {
         /* Type conversion */
         if(H5Tconvert(map->val_file_type_id, val_mem_type_id, 1, tconv_buf, bkg_buf, dxpl_id) < 0)
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTCONVERT, FAIL, "can't perform type conversion")
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTCONVERT, FAIL, "can't perform type conversion");
 
         /* Copy to user's buffer if necessary */
         if(value != tconv_buf)
@@ -1336,7 +1336,7 @@ done:
     if(bkg_buf && (bkg_buf != value))
         DV_free(bkg_buf);
 
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_map_get_val() */
 
 
@@ -1380,37 +1380,37 @@ H5_daos_map_put(void *_map, hid_t key_mem_type_id, const void *key,
     herr_t ret_value = SUCCEED;
 
     if(!_map)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map object is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map object is NULL");
     if(!key)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map key is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map key is NULL");
     if(!value)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map value is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map value is NULL");
 
     /* Check for write access */
     if(!(map->obj.item.file->flags & H5F_ACC_RDWR))
-        D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, FAIL, "no write intent on file")
+        D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, FAIL, "no write intent on file");
 
     /* Convert key (if necessary) */
     if(H5_daos_map_key_conv(key_mem_type_id, map->key_file_type_id, key, &key_buf, &key_size, &key_buf_alloc, dxpl_id) < 0)
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't convert key")
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't convert key");
 
     /* Set up dkey */
     daos_iov_set(&dkey, (void *)key_buf, (daos_size_t)key_size);
 
     /* Check if the type conversion is needed */
     if((val_need_tconv = H5_daos_need_tconv(map->val_file_type_id, val_mem_type_id)) < 0)
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTCOMPARE, FAIL, "can't check if type conversion is needed")
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTCOMPARE, FAIL, "can't check if type conversion is needed");
 
     /* Type conversion */
     if(val_need_tconv) {
         /* Initialize type conversion */
         if(H5_daos_tconv_init(val_mem_type_id, &val_mem_type_size, map->val_file_type_id, &val_file_type_size, 1, FALSE, TRUE, &tconv_buf, &bkg_buf, NULL, &fill_bkg) < 0)
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't initialize type conversion")
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't initialize type conversion");
     } /* end if */
     else
         /* Get datatype size */
         if((val_file_type_size = H5Tget_size(map->val_file_type_id)) == 0)
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get datatype size for value datatype")
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get datatype size for value datatype");
 
     /* Set up iod */
     memset(&iod, 0, sizeof(iod));
@@ -1434,7 +1434,7 @@ H5_daos_map_put(void *_map, hid_t key_mem_type_id, const void *key,
             daos_iov_set(&sg_iov, bkg_buf, (daos_size_t)val_file_type_size);
 
             if(0 != (ret = daos_obj_fetch(map->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
-                D_GOTO_ERROR(H5E_MAP, H5E_READERROR, FAIL, "can't read value from map: %s", H5_daos_err_to_string(ret))
+                D_GOTO_ERROR(H5E_MAP, H5E_READERROR, FAIL, "can't read value from map: %s", H5_daos_err_to_string(ret));
 
             /* Reset iod_size, if the key was not created then it could have
              * been overwritten by daos_obj_fetch */
@@ -1446,7 +1446,7 @@ H5_daos_map_put(void *_map, hid_t key_mem_type_id, const void *key,
 
         /* Perform type conversion */
         if(H5Tconvert(val_mem_type_id, map->val_file_type_id, 1, tconv_buf, bkg_buf, dxpl_id) < 0)
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTCONVERT, FAIL, "can't perform type conversion")
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTCONVERT, FAIL, "can't perform type conversion");
 
         /* Set sgl to write from tconv_buf */
         daos_iov_set(&sg_iov, tconv_buf, (daos_size_t)val_file_type_size);
@@ -1469,7 +1469,7 @@ done:
     if(bkg_buf && (bkg_buf != value))
         DV_free(bkg_buf);
 
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_map_put() */
 
 
@@ -1499,15 +1499,15 @@ H5_daos_map_exists(void *_map, hid_t key_mem_type_id, const void *key,
     herr_t ret_value = SUCCEED;
 
     if(!_map)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map object is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map object is NULL");
     if(!key)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map key is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map key is NULL");
     if(!exists)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map exists pointer is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map exists pointer is NULL");
 
     /* Convert key (if necessary) */
     if(H5_daos_map_key_conv(key_mem_type_id, map->key_file_type_id, key, &key_buf, &key_size, &key_buf_alloc, dxpl_id) < 0)
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't convert key")
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't convert key");
 
     /* Set up dkey */
     daos_iov_set(&dkey, (void *)key_buf, (daos_size_t)key_size);
@@ -1533,7 +1533,7 @@ done:
     /* Free memory */
     key_buf_alloc = DV_free(key_buf_alloc);
 
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_map_exists() */
 
 
@@ -1555,7 +1555,7 @@ H5_daos_map_get(void *_map, H5VL_map_get_t get_type,
     herr_t       ret_value = SUCCEED;    /* Return value */
 
     if(!_map)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
 
     switch (get_type) {
         case H5VL_MAP_GET_MCPL:
@@ -1564,11 +1564,11 @@ H5_daos_map_get(void *_map, H5VL_map_get_t get_type,
 
                 /* Retrieve the map's creation property list */
                 if((*plist_id = H5Pcopy(map->mcpl_id)) < 0)
-                    D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get map creation property list")
+                    D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get map creation property list");
 
                 /* Set map's object class on dcpl */
                 if(H5_daos_set_oclass_from_oid(*plist_id, map->obj.oid) < 0)
-                    D_GOTO_ERROR(H5E_PLIST, H5E_CANTSET, FAIL, "can't set object class property")
+                    D_GOTO_ERROR(H5E_PLIST, H5E_CANTSET, FAIL, "can't set object class property");
 
                 break;
             } /* end block */
@@ -1578,7 +1578,7 @@ H5_daos_map_get(void *_map, H5VL_map_get_t get_type,
 
                 /* Retrieve the map's access property list */
                 if((*plist_id = H5Pcopy(map->mapl_id)) < 0)
-                    D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get map access property list")
+                    D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get map access property list");
 
                 break;
             } /* end block */
@@ -1588,7 +1588,7 @@ H5_daos_map_get(void *_map, H5VL_map_get_t get_type,
 
                 /* Retrieve the map's key datatype */
                 if((*ret_id = H5Tcopy(map->key_type_id)) < 0)
-                    D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get key datatype ID of map")
+                    D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get key datatype ID of map");
                 break;
             } /* end block */
         case H5VL_MAP_GET_VAL_TYPE:
@@ -1597,7 +1597,7 @@ H5_daos_map_get(void *_map, H5VL_map_get_t get_type,
 
                 /* Retrieve the map's value datatype */
                 if((*ret_id = H5Tcopy(map->val_type_id)) < 0)
-                    D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get value datatype ID of map")
+                    D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get value datatype ID of map");
                 break;
             } /* end block */
         case H5VL_MAP_GET_COUNT:
@@ -1608,18 +1608,18 @@ H5_daos_map_get(void *_map, H5VL_map_get_t get_type,
 
                 /* Iterate over the keys, counting them */
                 if(H5_daos_map_iterate(map, 0, &idx, map->key_type_id, H5_daos_map_get_count_cb, &int_count, dxpl_id, req) < 0)
-                    D_GOTO_ERROR(H5E_MAP, H5E_BADITER, FAIL, "can't iterate over map keys")
+                    D_GOTO_ERROR(H5E_MAP, H5E_BADITER, FAIL, "can't iterate over map keys");
 
                 /* Set return value */
                 *count = int_count;
                 break;
             } /* end block */
         default:
-            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "can't get this type of information from map")
+            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "can't get this type of information from map");
     } /* end switch */
 
 done:
-    D_FUNC_LEAVE_API
+    D_FUNC_LEAVE_API;
 } /* end H5_daos_map_get() */
 
 
@@ -1665,9 +1665,9 @@ H5_daos_map_specific(void *_item, const H5VL_loc_params_t *loc_params,
     herr_t ret_value = SUCCEED;
 
     if(!_item)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
     if(!loc_params)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "location parameters object is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "location parameters object is NULL");
 
     switch (specific_type) {
         /* H5Miterate(_by_name) */
@@ -1684,7 +1684,7 @@ H5_daos_map_specific(void *_item, const H5VL_loc_params_t *loc_params,
                 {
                     /* Use item as the map for iteration */
                     if(item->type != H5I_MAP)
-                        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "item not a map")
+                        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "item not a map");
 
                     map = (H5_daos_map_t *)item;
                     map->obj.item.rc++;
@@ -1700,7 +1700,7 @@ H5_daos_map_specific(void *_item, const H5VL_loc_params_t *loc_params,
                     sub_loc_params.obj_type = item->type;
                     sub_loc_params.type = H5VL_OBJECT_BY_SELF;
                     if(NULL == (map = (H5_daos_map_t *)H5_daos_map_open(item, &sub_loc_params, loc_params->loc_data.loc_by_name.name, loc_params->loc_data.loc_by_name.lapl_id, dxpl_id, req)))
-                        D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, FAIL, "can't open map for operation")
+                        D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, FAIL, "can't open map for operation");
 
                     break;
                 } /* H5VL_OBJECT_BY_NAME */
@@ -1708,16 +1708,16 @@ H5_daos_map_specific(void *_item, const H5VL_loc_params_t *loc_params,
                 case H5VL_OBJECT_BY_IDX:
                 case H5VL_OBJECT_BY_TOKEN:
                 default:
-                    D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, FAIL, "invalid loc_params type")
+                    D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, FAIL, "invalid loc_params type");
             } /* end switch */
 
             /* Register id for target_map */
             if((map_id = H5VLwrap_register(map, H5I_MAP)) < 0)
-                D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, FAIL, "unable to atomize object handle")
+                D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, FAIL, "unable to atomize object handle");
 
             /* Perform map iteration */
             if((ret_value = H5_daos_map_iterate(map, map_id, idx, key_mem_type_id, op, op_data, dxpl_id, req)) < 0)
-                D_GOTO_ERROR(H5E_MAP, H5E_BADITER, FAIL, "map iteration failed")
+                D_GOTO_ERROR(H5E_MAP, H5E_BADITER, FAIL, "map iteration failed");
 
             break;
         } /* H5VL_MAP_ITER */
@@ -1729,36 +1729,36 @@ H5_daos_map_specific(void *_item, const H5VL_loc_params_t *loc_params,
 
             /* Verify loc_params */
             if(H5VL_OBJECT_BY_SELF != loc_params->type)
-                D_GOTO_ERROR(H5E_ARGS, H5E_UNSUPPORTED, FAIL, "unsupported map key delete location parameters type")
+                D_GOTO_ERROR(H5E_ARGS, H5E_UNSUPPORTED, FAIL, "unsupported map key delete location parameters type");
             map = (H5_daos_map_t *)item;
             map->obj.item.rc++;
 
             /* Perform key delete */
             if((ret_value = H5_daos_map_delete_key(map, key_mem_type_id, key,
                     dxpl_id, req)) < 0)
-                D_GOTO_ERROR(H5E_MAP, H5E_CANTREMOVE, FAIL, "map key delete failed")
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTREMOVE, FAIL, "map key delete failed");
 
             break;
         } /* H5VL_MAP_DELETE */
 
         default:
-            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported map specific operation")
+            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported map specific operation");
     } /* end switch */
 
 done:
     if(map_id >= 0) {
         if(H5Idec_ref(map_id) < 0)
-            D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't close map ID")
+            D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't close map ID");
         map_id = -1;
         map = NULL;
     } /* end if */
     else if(map) {
         if(H5_daos_map_close(map, dxpl_id, req) < 0)
-            D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't close map")
+            D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't close map");
         map = NULL;
     } /* end else */
 
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_map_specific() */
 
 
@@ -1808,26 +1808,26 @@ H5_daos_map_iterate(H5_daos_map_t *map, hid_t map_id, hsize_t *idx,
     assert(map);
     assert(map_id >= 0);
     if(!op)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "operator is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "operator is NULL");
 
     /* Iteration restart not supported */
     if(idx && (*idx != 0))
-        D_GOTO_ERROR(H5E_MAP, H5E_UNSUPPORTED, FAIL, "iteration restart not supported (must start from 0)")
+        D_GOTO_ERROR(H5E_MAP, H5E_UNSUPPORTED, FAIL, "iteration restart not supported (must start from 0)");
 
     /* Get map iterate hints */
     if(H5Pget_map_iterate_hints(map->mapl_id, &dkey_prefetch_size, &dkey_alloc_size) < 0)
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get map iterate hints")
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get map iterate hints");
 
     /* Initialize anchor */
     memset(&anchor, 0, sizeof(anchor));
 
     /* Allocate kds */
     if(NULL == (kds = (daos_key_desc_t *)DV_malloc(dkey_prefetch_size * sizeof(daos_key_desc_t))))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for dkeys")
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for dkeys");
 
     /* Allocate dkey_buf */
     if(NULL == (dkey_buf = (char *)DV_malloc(dkey_alloc_size)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for dkeys")
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for dkeys");
 
     /* Set up list_sgl.  Report size as 1 less than buffer size so we
      * always have room for a null terminator. */
@@ -1883,11 +1883,11 @@ H5_daos_map_iterate(H5_daos_map_t *map, hid_t map_id, hsize_t *idx,
 
             /* Convert key (if necessary) */
             if(H5_daos_map_key_conv_reverse(map->key_file_type_id, key_mem_type_id, p, (size_t)kds[i].kd_key_len, &key_buf, &key_buf_alloc, &vl_union, dxpl_id) < 0)
-                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't convert key")
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't convert key");
 
             /* Make callback */
             if((op_ret = op(map_id, key_buf, op_data)) < 0)
-                D_GOTO_ERROR(H5E_MAP, H5E_BADITER, op_ret, "operator function returned failure")
+                D_GOTO_ERROR(H5E_MAP, H5E_BADITER, op_ret, "operator function returned failure");
 
             /* Replace null terminator */
             p[kds[i].kd_key_len] = tmp_char;
@@ -1917,7 +1917,7 @@ done:
     dkey_buf = (char *)DV_free(dkey_buf);
     key_buf_alloc = DV_free(key_buf_alloc);
 
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_map_iterate() */
 
 
@@ -1949,17 +1949,17 @@ H5_daos_map_delete_key(H5_daos_map_t *map, hid_t key_mem_type_id,
     herr_t ret_value = SUCCEED;
 
     if(!map)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map object is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map object is NULL");
     if(!key)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map key is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map key is NULL");
 
     /* Check for write access */
     if(!(map->obj.item.file->flags & H5F_ACC_RDWR))
-        D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, FAIL, "no write intent on file")
+        D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, FAIL, "no write intent on file");
 
     /* Convert key (if necessary) */
     if(H5_daos_map_key_conv(key_mem_type_id, map->key_file_type_id, key, &key_buf, &key_size, &key_buf_alloc, dxpl_id) < 0)
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't convert key")
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't convert key");
 
     /* Set up dkey */
     daos_iov_set(&dkey, (void *)key_buf, (daos_size_t)key_size);
@@ -1990,7 +1990,7 @@ done:
     /* Free memory */
     key_buf_alloc = DV_free(key_buf_alloc);
 
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_map_delete_key() */
 
 
@@ -2016,31 +2016,31 @@ H5_daos_map_close(void *_map, hid_t H5VL_DAOS_UNUSED dxpl_id,
     herr_t ret_value = SUCCEED;
 
     if(!_map)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map object is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map object is NULL");
 
     if(--map->obj.item.rc == 0) {
         /* Free map data structures */
         if(map->obj.item.open_req)
             if(H5_daos_req_free_int(map->obj.item.open_req) < 0)
-                D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't free request")
+                D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't free request");
         if(!daos_handle_is_inval(map->obj.obj_oh))
             if(0 != (ret = daos_obj_close(map->obj.obj_oh, NULL /*event*/)))
-                D_DONE_ERROR(H5E_MAP, H5E_CANTCLOSEOBJ, FAIL, "can't close map DAOS object: %s", H5_daos_err_to_string(ret))
+                D_DONE_ERROR(H5E_MAP, H5E_CANTCLOSEOBJ, FAIL, "can't close map DAOS object: %s", H5_daos_err_to_string(ret));
         if(map->key_type_id != FAIL && H5Idec_ref(map->key_type_id) < 0)
-            D_DONE_ERROR(H5E_MAP, H5E_CANTDEC, FAIL, "failed to close datatype")
+            D_DONE_ERROR(H5E_MAP, H5E_CANTDEC, FAIL, "failed to close datatype");
         if(map->key_file_type_id != FAIL && H5Idec_ref(map->key_file_type_id) < 0)
-            D_DONE_ERROR(H5E_MAP, H5E_CANTDEC, FAIL, "failed to close datatype")
+            D_DONE_ERROR(H5E_MAP, H5E_CANTDEC, FAIL, "failed to close datatype");
         if(map->val_type_id != FAIL && H5Idec_ref(map->val_type_id) < 0)
-            D_DONE_ERROR(H5E_MAP, H5E_CANTDEC, FAIL, "failed to close datatype")
+            D_DONE_ERROR(H5E_MAP, H5E_CANTDEC, FAIL, "failed to close datatype");
         if(map->val_file_type_id != FAIL && H5Idec_ref(map->val_file_type_id) < 0)
-            D_DONE_ERROR(H5E_MAP, H5E_CANTDEC, FAIL, "failed to close datatype")
+            D_DONE_ERROR(H5E_MAP, H5E_CANTDEC, FAIL, "failed to close datatype");
         if(map->mcpl_id != FAIL && H5Idec_ref(map->mcpl_id) < 0)
-            D_DONE_ERROR(H5E_MAP, H5E_CANTDEC, FAIL, "failed to close mcpl")
+            D_DONE_ERROR(H5E_MAP, H5E_CANTDEC, FAIL, "failed to close mcpl");
         if(map->mapl_id != FAIL && H5Idec_ref(map->mapl_id) < 0)
-            D_DONE_ERROR(H5E_MAP, H5E_CANTDEC, FAIL, "failed to close mapl")
+            D_DONE_ERROR(H5E_MAP, H5E_CANTDEC, FAIL, "failed to close mapl");
         map = H5FL_FREE(H5_daos_map_t, map);
     } /* end if */
 
 done:
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_map_close() */

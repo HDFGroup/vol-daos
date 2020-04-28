@@ -82,7 +82,7 @@ H5_daos_cont_get_fapl_info(hid_t fapl_id, H5_daos_fapl_t *fa_out)
      * a H5Pset_fapl_daos() call.
      */
     if(H5Pget_vol_info(fapl_id, (void **) &local_fapl_info) < 0)
-        D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, FAIL, "can't get VOL info struct")
+        D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, FAIL, "can't get VOL info struct");
     if(local_fapl_info) {
         fa_out->comm = local_fapl_info->comm;
         fa_out->info = local_fapl_info->info;
@@ -95,10 +95,10 @@ H5_daos_cont_get_fapl_info(hid_t fapl_id, H5_daos_fapl_t *fa_out)
          * set any MPI info by using HDF5's H5Pset_fapl_mpio().
          */
         if((driver_id = H5Pget_driver(fapl_id)) < 0)
-            D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, FAIL, "can't determine if a MPI-based HDF5 VFD was requested for file access")
+            D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, FAIL, "can't determine if a MPI-based HDF5 VFD was requested for file access");
         if(H5FD_MPIO == driver_id) {
             if(H5Pget_fapl_mpio(fapl_id, &fa_out->comm, &fa_out->info) < 0)
-                D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, FAIL, "can't get HDF5 MPI information")
+                D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, FAIL, "can't get HDF5 MPI information");
         }
         else {
             /*
@@ -114,7 +114,7 @@ done:
     if(local_fapl_info)
         H5VLfree_connector_info(H5_DAOS_g, local_fapl_info);
 
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_cont_get_fapl_info() */
 
 
@@ -137,14 +137,14 @@ H5_daos_cont_set_mpi_info(H5_daos_file_t *file, H5_daos_fapl_t *fa)
     assert(fa);
 
     if(MPI_SUCCESS != MPI_Initialized(&mpi_initialized))
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't determine if MPI has been initialized")
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't determine if MPI has been initialized");
     if(mpi_initialized) {
         /* Duplicate communicator and Info object. */
         /*
          * XXX: DSINC - Need to pass in MPI Info to VOL connector as well.
          */
         if(FAIL == H5_daos_comm_info_dup(fa->comm, fa->info, &file->comm, &file->info))
-            D_GOTO_ERROR(H5E_INTERNAL, H5E_CANTCOPY, FAIL, "failed to duplicate MPI communicator and info")
+            D_GOTO_ERROR(H5E_INTERNAL, H5E_CANTCOPY, FAIL, "failed to duplicate MPI communicator and info");
 
         /* Obtain the process rank and size from the communicator attached to the
          * fapl ID */
@@ -156,7 +156,7 @@ H5_daos_cont_set_mpi_info(H5_daos_file_t *file, H5_daos_fapl_t *fa)
     }
 
 done:
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_cont_set_mpi_info() */
 
 #ifdef H5_DAOS_USE_TRANSACTIONS
@@ -185,7 +185,7 @@ H5_daos_tx_open_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for transaction open task")
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for transaction open task");
 
     assert(udata->req);
     assert(udata->req->file);
@@ -200,13 +200,13 @@ H5_daos_tx_open_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     /* Set arguments for transaction open */
     if(NULL == (tx_open_args = daos_task_get_args(task))) {
         tse_task_complete(task, -H5_DAOS_DAOS_GET_ERROR);
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for transaction open task")
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for transaction open task");
     } /* end if */
     tx_open_args->coh = udata->req->file->coh;
     tx_open_args->th = &udata->req->th;
 
 done:
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_tx_open_prep_cb() */
 
 
@@ -233,7 +233,7 @@ H5_daos_tx_open_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for generic task")
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for generic task");
 
     assert(udata->req);
     assert(udata->req->file);
@@ -253,13 +253,13 @@ H5_daos_tx_open_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     /* Release our reference to req */
     if(H5_daos_req_free_int(udata->req) < 0)
-        D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request")
+        D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
 
     /* Free private data */
     DV_free(udata);
 
 done:
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_tx_open_comp_cb() */
 #endif /* H5_DAOS_USE_TRANSACTIONS */
 
@@ -292,22 +292,22 @@ H5_daos_cont_open(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *req,
 
     /* Create task for container open */
     if(0 != (ret = daos_task_create(DAOS_OPC_CONT_OPEN, &file->sched, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &open_task)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create task to open container: %s", H5_daos_err_to_string(ret))
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create task to open container: %s", H5_daos_err_to_string(ret));
 
     /* Set callback functions for container open */
     if(0 != (ret = tse_task_register_cbs(open_task, H5_daos_generic_prep_cb, NULL, 0, H5_daos_generic_comp_cb, NULL, 0)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't register callbacks for task to open container: %s", H5_daos_err_to_string(ret))
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't register callbacks for task to open container: %s", H5_daos_err_to_string(ret));
 
     /* Set private data for container open */
     if(NULL == (open_udata = (H5_daos_generic_cb_ud_t *)DV_malloc(sizeof(H5_daos_generic_cb_ud_t))))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate user data struct for container open task")
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate user data struct for container open task");
     open_udata->req = req;
     open_udata->task_name = "container open";
     (void)tse_task_set_priv(open_task, open_udata);
 
     /* Set arguments for container open */
     if(NULL == (open_args = daos_task_get_args(open_task)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't get arguments for container open task")
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't get arguments for container open task");
     open_args->poh = H5_daos_poh_g;
     uuid_copy(open_args->uuid, file->uuid);
     open_args->flags = flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO;
@@ -318,7 +318,7 @@ H5_daos_cont_open(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *req,
      * it a reference to req */
     if(*first_task) {
         if(0 != (ret = tse_task_schedule(open_task, false)))
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't schedule task to open container: %s", H5_daos_err_to_string(ret))
+            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't schedule task to open container: %s", H5_daos_err_to_string(ret));
     } /* end if */
     else
         *first_task = open_task;
@@ -329,28 +329,28 @@ H5_daos_cont_open(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *req,
 #ifdef H5_DAOS_USE_TRANSACTIONS
     /* Create task for transaction open */
     if(0 != (ret = daos_task_create(DAOS_OPC_TX_OPEN, &file->sched, 0, NULL, &tx_open_task)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create task to open transaction: %s", H5_daos_err_to_string(ret))
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create task to open transaction: %s", H5_daos_err_to_string(ret));
 
     /* Register dependency for task */
     assert(*dep_task);
     if(0 != (ret = tse_task_register_deps(tx_open_task, 1, dep_task)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create dependencies for task to open transaction: %s", H5_daos_err_to_string(ret))
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create dependencies for task to open transaction: %s", H5_daos_err_to_string(ret));
 
     /* Set private data for transaction open */
     if(NULL == (tx_open_udata = (H5_daos_generic_cb_ud_t *)DV_malloc(sizeof(H5_daos_generic_cb_ud_t))))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate user data struct for transaction open task")
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate user data struct for transaction open task");
     tx_open_udata->req = req;
     tx_open_udata->task_name = "transaction open";
     (void)tse_task_set_priv(tx_open_task, tx_open_udata);
 
     /* Set callback functions for transaction open */
     if(0 != (ret = tse_task_register_cbs(tx_open_task, H5_daos_tx_open_prep_cb, NULL, 0, H5_daos_tx_open_comp_cb, NULL, 0)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't register callbacks for task to open container: %s", H5_daos_err_to_string(ret))
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't register callbacks for task to open container: %s", H5_daos_err_to_string(ret));
 
     /* Schedule transaction open task and give it a reference to req */
     assert(*first_task);
     if(0 != (ret = tse_task_schedule(tx_open_task, false)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't schedule task to open transaction: %s", H5_daos_err_to_string(ret))
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't schedule task to open transaction: %s", H5_daos_err_to_string(ret));
     req->rc++;
     tx_open_udata = NULL;
     *dep_task = tx_open_task;
@@ -381,7 +381,7 @@ done:
     assert(!open_udata);
     assert(!tx_open_udata);
 
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_cont_open() */
 
 
@@ -408,7 +408,7 @@ H5_daos_excl_open_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for generic task")
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for generic task");
 
     assert(udata->req);
     assert(udata->req->file);
@@ -426,7 +426,7 @@ H5_daos_excl_open_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     /* If the open succeeded, return failure (we're verifying that the file
      * doesn't exist) */
     if(task->dt_result == 0)
-        D_DONE_ERROR(H5E_FILE, H5E_FILEEXISTS, -H5_DAOS_FILE_EXISTS, "exclusive open failed: file already exists")
+        D_DONE_ERROR(H5E_FILE, H5E_FILEEXISTS, -H5_DAOS_FILE_EXISTS, "exclusive open failed: file already exists");
 
     /* Handle errors in this function */
     /* Do not place any code that can issue errors after this block, except for
@@ -438,13 +438,13 @@ H5_daos_excl_open_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     /* Release our reference to req */
     if(H5_daos_req_free_int(udata->req) < 0)
-        D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request")
+        D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
 
     /* Free private data */
     DV_free(udata);
 
 done:
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_excl_open_comp_cb() */
 
 
@@ -470,7 +470,7 @@ H5_daos_cont_destroy_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for generic task")
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for generic task");
 
     assert(udata->req);
     assert(udata->req->file);
@@ -487,13 +487,13 @@ H5_daos_cont_destroy_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     /* Release our reference to req */
     if(H5_daos_req_free_int(udata->req) < 0)
-        D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request")
+        D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
 
     /* Free private data */
     DV_free(udata);
 
 done:
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_cont_destroy_comp_cb() */
 
 
@@ -532,22 +532,22 @@ H5_daos_cont_create(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *req,
 
         /* Create task for container open attempt (open should fail) */
         if(0 != (ret = daos_task_create(DAOS_OPC_CONT_OPEN, &file->sched, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &excl_open_task)))
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create task to try to open container: %s", H5_daos_err_to_string(ret))
+            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create task to try to open container: %s", H5_daos_err_to_string(ret));
 
         /* Set callback functions for container open */
         if(0 != (ret = tse_task_register_cbs(excl_open_task, H5_daos_generic_prep_cb, NULL, 0, H5_daos_excl_open_comp_cb, NULL, 0)))
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't register callbacks for task to try to open container: %s", H5_daos_err_to_string(ret))
+            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't register callbacks for task to try to open container: %s", H5_daos_err_to_string(ret));
 
         /* Set private data for container open */
         if(NULL == (excl_open_udata = (H5_daos_generic_cb_ud_t *)DV_malloc(sizeof(H5_daos_generic_cb_ud_t))))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate user data struct for container open attempt task")
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate user data struct for container open attempt task");
         excl_open_udata->req = req;
         excl_open_udata->task_name = "excl container open attempt";
         (void)tse_task_set_priv(excl_open_task, excl_open_udata);
 
         /* Set arguments for container open */
         if(NULL == (excl_open_args = daos_task_get_args(excl_open_task)))
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't get arguments for container open attempt task")
+            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't get arguments for container open attempt task");
         excl_open_args->poh = H5_daos_poh_g;
         uuid_copy(excl_open_args->uuid, file->uuid);
         excl_open_args->flags = DAOS_COO_RO;
@@ -558,7 +558,7 @@ H5_daos_cont_create(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *req,
          * it a reference to req */
         if(*first_task) {
             if(0 != (ret = tse_task_schedule(excl_open_task, false)))
-                D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't schedule task to open container: %s", H5_daos_err_to_string(ret))
+                D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't schedule task to open container: %s", H5_daos_err_to_string(ret));
         } /* end if */
         else
             *first_task = excl_open_task;
@@ -575,22 +575,22 @@ H5_daos_cont_create(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *req,
 
         /* Create task for container destroy */
         if(0 != (ret = daos_task_create(DAOS_OPC_CONT_DESTROY, &file->sched, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &destroy_task)))
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create task to destroy container: %s", H5_daos_err_to_string(ret))
+            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create task to destroy container: %s", H5_daos_err_to_string(ret));
 
         /* Set callback functions for container destroy */
         if(0 != (ret = tse_task_register_cbs(destroy_task, H5_daos_generic_prep_cb, NULL, 0, H5_daos_cont_destroy_comp_cb, NULL, 0)))
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't register callbacks for task to destroy container: %s", H5_daos_err_to_string(ret))
+            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't register callbacks for task to destroy container: %s", H5_daos_err_to_string(ret));
 
         /* Set private data for container destroy */
         if(NULL == (destroy_udata = (H5_daos_generic_cb_ud_t *)DV_malloc(sizeof(H5_daos_generic_cb_ud_t))))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate user data struct for container destroy task")
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate user data struct for container destroy task");
         destroy_udata->req = req;
         destroy_udata->task_name = "container destroy within H5Fcreate";
         (void)tse_task_set_priv(destroy_task, destroy_udata);
 
         /* Set arguments for container destroy */
         if(NULL == (destroy_args = daos_task_get_args(destroy_task)))
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't get arguments for container destroy task")
+            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't get arguments for container destroy task");
         destroy_args->poh = H5_daos_poh_g;
         uuid_copy(destroy_args->uuid, file->uuid);
         destroy_args->force = 1;
@@ -599,7 +599,7 @@ H5_daos_cont_create(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *req,
          * and give it a reference to req */
         if(*first_task) {
             if(0 != (ret = tse_task_schedule(destroy_task, false)))
-                D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't schedule task to destroy container: %s", H5_daos_err_to_string(ret))
+                D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't schedule task to destroy container: %s", H5_daos_err_to_string(ret));
         } /* end if */
         else
             *first_task = destroy_task;
@@ -610,22 +610,22 @@ H5_daos_cont_create(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *req,
 
     /* Create task for container create */
     if(0 != (ret = daos_task_create(DAOS_OPC_CONT_CREATE, &file->sched, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &create_task)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create task to create container: %s", H5_daos_err_to_string(ret))
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create task to create container: %s", H5_daos_err_to_string(ret));
 
     /* Set callback functions for container create */
     if(0 != (ret = tse_task_register_cbs(create_task, H5_daos_generic_prep_cb, NULL, 0, H5_daos_generic_comp_cb, NULL, 0)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't register callbacks for task to create container: %s", H5_daos_err_to_string(ret))
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't register callbacks for task to create container: %s", H5_daos_err_to_string(ret));
 
     /* Set private data for container create */
     if(NULL == (create_udata = (H5_daos_generic_cb_ud_t *)DV_malloc(sizeof(H5_daos_generic_cb_ud_t))))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate user data struct for container create task")
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate user data struct for container create task");
     create_udata->req = req;
     create_udata->task_name = "container create within H5Fcreate";
     (void)tse_task_set_priv(create_task, create_udata);
 
     /* Set arguments for container create */
     if(NULL == (create_args = daos_task_get_args(create_task)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't get arguments for container create task")
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't get arguments for container create task");
     create_args->poh = H5_daos_poh_g;
     uuid_copy(create_args->uuid, file->uuid);
     create_args->prop = NULL;
@@ -634,7 +634,7 @@ H5_daos_cont_create(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *req,
      * give it a reference to req */
     if(*first_task) {
         if(0 != (ret = tse_task_schedule(create_task, false)))
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't schedule task to create container: %s", H5_daos_err_to_string(ret))
+            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't schedule task to create container: %s", H5_daos_err_to_string(ret));
     } /* end if */
     else
         *first_task = create_task;
@@ -644,7 +644,7 @@ H5_daos_cont_create(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *req,
 
     /* Open the container and start the transaction */
     if(H5_daos_cont_open(file, flags, req, first_task, dep_task) < 0)
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't open DAOS container")
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't open DAOS container");
 
 done:
     /* Cleanup on failure */
@@ -659,7 +659,7 @@ done:
     assert(!destroy_udata);
     assert(!create_udata);
 
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_cont_create() */
 
 
@@ -683,7 +683,7 @@ H5_daos_gh_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for global handle broadcast task")
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for global handle broadcast task");
 
     assert(udata->req);
     assert(udata->req->file);
@@ -711,15 +711,15 @@ H5_daos_gh_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
                 /* Create task for second bcast */
                 if(0 !=  (ret = tse_task_create(H5_daos_mpi_ibcast_task, &udata->req->file->sched, udata, &bcast_task)))
-                    D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't create task for second global handle broadcast")
+                    D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't create task for second global handle broadcast");
 
                 /* Set callback functions for second bcast */
                 if(0 != (ret = tse_task_register_cbs(bcast_task, NULL, NULL, 0, H5_daos_gh_bcast_comp_cb, NULL, 0)))
-                    D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't register callbacks for second global handle broadcast: %s", H5_daos_err_to_string(ret))
+                    D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't register callbacks for second global handle broadcast: %s", H5_daos_err_to_string(ret));
 
                 /* Schedule second bcast and transfer ownership of udata */
                 if(0 != (ret = tse_task_schedule(bcast_task, false)))
-                    D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't schedule task for second global handle broadcast: %s", H5_daos_err_to_string(ret))
+                    D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't schedule task for second global handle broadcast: %s", H5_daos_err_to_string(ret));
                 udata = NULL;
             } /* end if */
         } /* end if */
@@ -733,7 +733,7 @@ H5_daos_gh_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
             /* Check for iov_buf_len set to 0 - indicates failure */
             if(gh_len == 0)
-                D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, -H5_DAOS_REMOTE_ERROR, "lead process failed to obtain global handle")
+                D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, -H5_DAOS_REMOTE_ERROR, "lead process failed to obtain global handle");
 
             /* Check if we need another bcast */
             if(gh_len + H5_DAOS_ENCODED_UINT64_T_SIZE > (size_t)udata->count) {
@@ -747,20 +747,20 @@ H5_daos_gh_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
                 udata->buffer_len = (int)gh_len + H5_DAOS_ENCODED_UINT64_T_SIZE;
 
                 if(NULL == (udata->buffer = DV_malloc(udata->buffer_len)))
-                    D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "failed to allocate memory for global handle buffer")
+                    D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "failed to allocate memory for global handle buffer");
                 udata->count = udata->buffer_len;
 
                 /* Create task for second bcast */
                 if(0 !=  (ret = tse_task_create(H5_daos_mpi_ibcast_task, &udata->obj->item.file->sched, udata, &bcast_task)))
-                    D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't create task for second global handle broadcast")
+                    D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't create task for second global handle broadcast");
 
                 /* Set callback functions for second bcast */
                 if(0 != (ret = tse_task_register_cbs(bcast_task, NULL, NULL, 0, H5_daos_gh_bcast_comp_cb, NULL, 0)))
-                    D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't register callbacks for second global handle broadcast: %s", H5_daos_err_to_string(ret))
+                    D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't register callbacks for second global handle broadcast: %s", H5_daos_err_to_string(ret));
 
                 /* Schedule second bcast and transfer ownership of udata */
                 if(0 != (ret = tse_task_schedule(bcast_task, false)))
-                    D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't schedule task for second global handle broadcast: %s", H5_daos_err_to_string(ret))
+                    D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't schedule task for second global handle broadcast: %s", H5_daos_err_to_string(ret));
                 udata = NULL;
             } /* end if */
             else {
@@ -773,7 +773,7 @@ H5_daos_gh_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
                 /* Get container handle */
                 if(0 != (ret = daos_cont_global2local(H5_daos_poh_g, glob, &udata->req->file->coh)))
-                    D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "can't get global container handle: %s", H5_daos_err_to_string(ret))
+                    D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "can't get global container handle: %s", H5_daos_err_to_string(ret));
             } /* end else */
         } /* end else */
     } /* end else */
@@ -792,7 +792,7 @@ done:
 
         /* Release our reference to req */
         if(H5_daos_req_free_int(udata->req) < 0)
-            D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request")
+            D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
 
         /* Complete bcast metatask */
         tse_task_complete(udata->bcast_metatask, ret_value);
@@ -833,7 +833,7 @@ H5_daos_get_gch_task(tse_task_t *task)
 
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data forget global container handle task")
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data forget global container handle task");
 
     assert(udata->req);
     assert(udata->req->file);
@@ -841,19 +841,19 @@ H5_daos_get_gch_task(tse_task_t *task)
     /* Calculate size of global cont handle */
     if(udata->req->status >= -H5_DAOS_INCOMPLETE)
         if(0 != (ret = daos_cont_local2global(udata->req->file->coh, &glob)))
-            D_DONE_ERROR(H5E_VOL, H5E_CANTGET, ret, "can't calculate size of global container handle: %s", H5_daos_err_to_string(ret))
+            D_DONE_ERROR(H5E_VOL, H5E_CANTGET, ret, "can't calculate size of global container handle: %s", H5_daos_err_to_string(ret));
 
     /* Allocate buffer */
     udata->buffer_len = MAX(glob.iov_buf_len + H5_DAOS_ENCODED_UINT64_T_SIZE, H5_DAOS_GH_BUF_SIZE);
     if(NULL == (udata->buffer = (char *)DV_calloc(udata->buffer_len)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate space for global container handle")
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate space for global container handle");
     udata->count = H5_DAOS_GH_BUF_SIZE;
     glob.iov_len = glob.iov_buf_len;
 
     /* Check for previous errors (wait until after allocation because that must
      * always be done) */
     if(udata->req->status < -H5_DAOS_INCOMPLETE)
-        D_GOTO_DONE(H5_DAOS_PRE_ERROR)
+        D_GOTO_DONE(H5_DAOS_PRE_ERROR);
 
     /* Encode global handle length */
     p = udata->buffer;
@@ -862,7 +862,7 @@ H5_daos_get_gch_task(tse_task_t *task)
     /* Get global container handle */
     glob.iov_buf = p;
     if(0 != (ret = daos_cont_local2global(udata->req->file->coh, &glob)))
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, ret, "can't get global container handle: %s", H5_daos_err_to_string(ret))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, ret, "can't get global container handle: %s", H5_daos_err_to_string(ret));
 
 done:
     /* Handle errors in this function */
@@ -875,12 +875,12 @@ done:
 
     /* Release our reference to req */
     if(H5_daos_req_free_int(udata->req) < 0)
-        D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request")
+        D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
 
     /* Complete this task */
     tse_task_complete(task, ret_value);
 
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_get_gch_task() */
 
 
@@ -908,7 +908,7 @@ H5_daos_cont_handle_bcast(H5_daos_file_t *file, H5_daos_req_t *req,
 
     /* Set up broadcast user data */
     if(NULL == (bcast_udata = (H5_daos_mpi_ibcast_ud_t *)DV_malloc(sizeof(H5_daos_mpi_ibcast_ud_t))))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "failed to allocate buffer for MPI broadcast user data")
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "failed to allocate buffer for MPI broadcast user data");
     bcast_udata->req = req;
     bcast_udata->obj = NULL;
     bcast_udata->bcast_metatask = NULL;
@@ -922,11 +922,11 @@ H5_daos_cont_handle_bcast(H5_daos_file_t *file, H5_daos_req_t *req,
 
         /* Create task to get global container handle */
         if(0 != (ret = tse_task_create(H5_daos_get_gch_task, &file->sched, bcast_udata, &get_gch_task)))
-            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create task to get global container handle: %s", H5_daos_err_to_string(ret))
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create task to get global container handle: %s", H5_daos_err_to_string(ret));
 
         /* Register dependency for task */
         if(*dep_task && 0 != (ret = tse_task_register_deps(get_gch_task, 1, dep_task)))
-            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create dependencies for task to get global container handle: %s", H5_daos_err_to_string(ret))
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create dependencies for task to get global container handle: %s", H5_daos_err_to_string(ret));
 
         /* Set private data for task to get global container handle */
         (void)tse_task_set_priv(get_gch_task, bcast_udata);
@@ -938,7 +938,7 @@ H5_daos_cont_handle_bcast(H5_daos_file_t *file, H5_daos_req_t *req,
          * get_gch_task runs). */
         if(*first_task) {
             if(0 != (ret = tse_task_schedule(get_gch_task, false)))
-                D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't schedule task to get global container handle: %s", H5_daos_err_to_string(ret))
+                D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't schedule task to get global container handle: %s", H5_daos_err_to_string(ret));
         } /* end if */
         else
             *first_task = get_gch_task;
@@ -948,7 +948,7 @@ H5_daos_cont_handle_bcast(H5_daos_file_t *file, H5_daos_req_t *req,
     else {
         /* Allocate global handle buffer with default initial size */
         if(NULL == (bcast_udata->buffer = DV_malloc(H5_DAOS_GH_BUF_SIZE)))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for global container handle")
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for global container handle");
         bcast_udata->buffer_len = H5_DAOS_GH_BUF_SIZE;
         bcast_udata->count = H5_DAOS_GH_BUF_SIZE;
     } /* end else */
@@ -963,19 +963,19 @@ done:
          * can't use bcast_task since it may not be completed after the first
          * bcast. */
         if(0 != (ret = tse_task_create(NULL, &file->sched, NULL, &bcast_udata->bcast_metatask)))
-            D_DONE_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create meta task for global handle broadcast: %s", H5_daos_err_to_string(ret))
+            D_DONE_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create meta task for global handle broadcast: %s", H5_daos_err_to_string(ret));
         /* Create task for global handle bcast */
         else if(0 != (ret = tse_task_create(H5_daos_mpi_ibcast_task, &file->sched, bcast_udata, &bcast_task)))
-            D_DONE_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create task to broadcast global handle: %s", H5_daos_err_to_string(ret))
+            D_DONE_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create task to broadcast global handle: %s", H5_daos_err_to_string(ret));
         /* Register dependency on dep_task if present */
         else if(*dep_task && 0 != (ret = tse_task_register_deps(bcast_task, 1, dep_task)))
-            D_DONE_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create dependencies for global handle broadcast task: %s", H5_daos_err_to_string(ret))
+            D_DONE_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create dependencies for global handle broadcast task: %s", H5_daos_err_to_string(ret));
         /* Set callback functions for group info bcast */
         else if(0 != (ret = tse_task_register_cbs(bcast_task, NULL, NULL, 0, H5_daos_gh_bcast_comp_cb, NULL, 0)))
-            D_DONE_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't register callbacks for global handle broadcast: %s", H5_daos_err_to_string(ret))
+            D_DONE_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't register callbacks for global handle broadcast: %s", H5_daos_err_to_string(ret));
         /* Schedule meta task */
         else if(0 != (ret = tse_task_schedule(bcast_udata->bcast_metatask, false)))
-            D_DONE_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't schedule meta task for global handle broadcast: %s", H5_daos_err_to_string(ret))
+            D_DONE_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't schedule meta task for global handle broadcast: %s", H5_daos_err_to_string(ret));
         else {
             /* In case of failure, clear buffer */
             if(ret_value < 0)
@@ -984,7 +984,7 @@ done:
             /* Schedule second bcast and transfer ownership of bcast_udata */
             if(*first_task) {
                 if(0 != (ret = tse_task_schedule(bcast_task, false)))
-                    D_DONE_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't schedule task for global handle broadcast: %s", H5_daos_err_to_string(ret))
+                    D_DONE_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't schedule task for global handle broadcast: %s", H5_daos_err_to_string(ret));
                 else {
                     req->rc++;
                     *dep_task = bcast_udata->bcast_metatask;
@@ -1007,7 +1007,7 @@ done:
         bcast_udata = DV_free(bcast_udata);
     } /* end if */
 
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_cont_handle_bcast() */
 
 
@@ -1050,7 +1050,7 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
             == H5_DAOS_ENCODED_UINT64_T_SIZE + H5_DAOS_ENCODED_UINT64_T_SIZE);
 
     if(!name)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "file name is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "file name is NULL");
 
     /*
      * Adjust bit flags by turning on the creation bit and making sure that
@@ -1063,11 +1063,11 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
 
     /* Get information from the FAPL */
     if(H5_daos_cont_get_fapl_info(fapl_id, &fapl_info) < 0)
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTGET, NULL, "can't get DAOS info struct")
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTGET, NULL, "can't get DAOS info struct");
 
     /* allocate the file object that is returned to the user */
     if(NULL == (file = H5FL_CALLOC(H5_daos_file_t)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, NULL, "can't allocate DAOS file struct")
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, NULL, "can't allocate DAOS file struct");
     file->item.open_req = NULL;
     file->glob_md_oh = DAOS_HDL_INVAL;
     file->root_grp = NULL;
@@ -1079,58 +1079,58 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     file->item.type = H5I_FILE;
     file->item.file = file;
     if(NULL == (file->file_name = strdup(name)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't copy file name")
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't copy file name");
     file->flags = flags;
     if((file->fapl_id = H5Pcopy(fapl_id)) < 0)
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTCOPY, NULL, "failed to copy fapl")
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTCOPY, NULL, "failed to copy fapl");
 
     /* Create CART context */
     if(0 != (ret = crt_context_create(&file->crt_ctx)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create CART context: %s", H5_daos_err_to_string(ret))
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create CART context: %s", H5_daos_err_to_string(ret));
 
     /* Create DAOS task scheduler */
     if(0 != (ret = tse_sched_init(&file->sched, NULL, file->crt_ctx)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create task scheduler: %s", H5_daos_err_to_string(ret))
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create task scheduler: %s", H5_daos_err_to_string(ret));
     sched_init = TRUE;
 
     /* Set MPI container info */
     if(H5_daos_cont_set_mpi_info(file, &fapl_info) < 0)
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTSET, NULL, "can't set MPI container info")
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTSET, NULL, "can't set MPI container info");
 
     /* Hash file name to create uuid */
     H5_daos_hash128(name, &file->uuid);
 
     /* Fill FAPL cache */
     if(H5_daos_fill_fapl_cache(file, fapl_id) < 0)
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "failed to fill FAPL cache")
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "failed to fill FAPL cache");
 
     /* Generate oid for global metadata object */
     if(H5_daos_oid_encode(&file->glob_md_oid, H5_DAOS_OIDX_GMD, H5I_GROUP,
             fcpl_id == H5P_FILE_CREATE_DEFAULT ? H5P_DEFAULT : fcpl_id,
             H5_DAOS_OBJ_CLASS_NAME, file) < 0)
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTENCODE, NULL, "can't encode global metadata object ID")
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTENCODE, NULL, "can't encode global metadata object ID");
 
     /* Start H5 operation */
     if(NULL == (int_req = H5_daos_req_create(file, H5I_INVALID_HID)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, NULL, "can't create DAOS request")
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, NULL, "can't create DAOS request");
 
     /* Create container on rank 0 */
     if((file->my_rank == 0) && H5_daos_cont_create(file, flags, int_req, &first_task, &dep_task) < 0)
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create DAOS container")
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create DAOS container");
 
     /* Broadcast container handle to other procs if any */
     if((file->num_procs > 1) && (H5_daos_cont_handle_bcast(file, int_req, &first_task, &dep_task) < 0))
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTSET, NULL, "can't broadcast DAOS container handle")
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTSET, NULL, "can't broadcast DAOS container handle");
 
     /* Open global metadata object */
     if(H5_daos_obj_open(file, int_req, &file->glob_md_oid, DAOS_OO_RW, &file->glob_md_oh, "global metadata object open", &first_task, &dep_task) < 0)
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENOBJ, NULL, "can't open global metadata object")
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENOBJ, NULL, "can't open global metadata object");
 
     /* Create root group */
     if(NULL == (file->root_grp = (H5_daos_group_t *)H5_daos_group_create_helper(
             file, TRUE, fcpl_id, H5P_GROUP_ACCESS_DEFAULT, int_req, NULL, NULL,
-            0, TRUE, &first_task, &dep_task)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create root group")
+            0, TRUE, &first_task, &dep_task)));
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create root group");
 
     /* Write root group OID to global metadata object */
     /* Only do this if a non-default object class is used DSINC */
@@ -1164,7 +1164,7 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
 
     /* Write root group OID */
     if(0 != (ret = daos_obj_update(file->glob_md_oh, DAOS_TX_NONE, &dkey, 1, &iod, &sgl, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_FILE, H5E_WRITEERROR, NULL, "can't write root group OID to global metadata object: %s", H5_daos_err_to_string(ret))
+        D_GOTO_ERROR(H5E_FILE, H5E_WRITEERROR, NULL, "can't write root group OID to global metadata object: %s", H5_daos_err_to_string(ret));
 #endif
 
     ret_value = (void *)file;
@@ -1175,13 +1175,13 @@ done:
 
         /* Create task to finalize H5 operation */
         if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &file->sched, int_req, &finalize_task)))
-            D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+            D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
         /* Register dependency (if any) */
         else if(dep_task && 0 != (ret = tse_task_register_deps(finalize_task, 1, &dep_task)))
-            D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+            D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
         /* Schedule finalize task */
         else if(0 != (ret = tse_task_schedule(finalize_task, false)))
-            D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+            D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
         else
             /* finalize_task now owns a reference to req */
             int_req->rc++;
@@ -1192,30 +1192,30 @@ done:
 
         /* Schedule first task */
         if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
-            D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret))
+            D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
 
         /* Block until operation completes */
         /* Wait for scheduler to be empty */
         if(sched_init && H5_daos_progress(&file->sched, H5_DAOS_PROGRESS_WAIT) < 0)
-            D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't progress scheduler")
+            D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't progress scheduler");
 
         /* Check for failure */
         if(int_req->status < 0)
-            D_DONE_ERROR(H5E_FILE, H5E_CANTOPERATE, NULL, "file creation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status))
+            D_DONE_ERROR(H5E_FILE, H5E_CANTOPERATE, NULL, "file creation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status));
     
         /* Close internal request */
         if(H5_daos_req_free_int(int_req) < 0)
-            D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, NULL, "can't free request")
+            D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, NULL, "can't free request");
     } /* end if */
 
     /* Cleanup on failure */
     if(NULL == ret_value) {
         /* Close file */
         if(file && H5_daos_file_close_helper(file, dxpl_id, NULL) < 0)
-            D_DONE_ERROR(H5E_FILE, H5E_CANTCLOSEFILE, NULL, "can't close file")
+            D_DONE_ERROR(H5E_FILE, H5E_CANTCLOSEFILE, NULL, "can't close file");
     } /* end if */
 
-    D_FUNC_LEAVE_API
+    D_FUNC_LEAVE_API;
 } /* end H5_daos_file_create() */
 
 
@@ -1249,24 +1249,24 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     void *ret_value = NULL;
 
     if(!name)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "file name is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "file name is NULL");
 
     /* Get information from the FAPL */
     if(H5_daos_cont_get_fapl_info(fapl_id, &fapl_info) < 0)
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTGET, NULL, "can't get DAOS info struct")
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTGET, NULL, "can't get DAOS info struct");
 
 #ifdef DV_HAVE_SNAP_OPEN_ID
     if(H5Pget(fapl_id, H5_DAOS_SNAP_OPEN_ID, &snap_id) < 0)
-        D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, NULL, "can't get property value for snap ID")
+        D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, NULL, "can't get property value for snap ID");
 
     /* Check for opening a snapshot with write access (disallowed) */
     if((snap_id != H5_DAOS_SNAP_ID_INVAL) && (flags & H5F_ACC_RDWR))
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "write access requested to snapshot - disallowed")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "write access requested to snapshot - disallowed");
 #endif
 
     /* Allocate the file object that is returned to the user */
     if(NULL == (file = H5FL_CALLOC(H5_daos_file_t)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, NULL, "can't allocate DAOS file struct")
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, NULL, "can't allocate DAOS file struct");
     file->item.open_req = NULL;
     file->glob_md_oh = DAOS_HDL_INVAL;
     file->root_grp = NULL;
@@ -1278,62 +1278,62 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     file->item.type = H5I_FILE;
     file->item.file = file;
     if(NULL == (file->file_name = strdup(name)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't copy file name")
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't copy file name");
     file->flags = flags;
     if((file->fapl_id = H5Pcopy(fapl_id)) < 0)
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTCOPY, NULL, "failed to copy fapl")
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTCOPY, NULL, "failed to copy fapl");
 
     /* Create CART context */
     if(0 != (ret = crt_context_create(&file->crt_ctx)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create CART context: %s", H5_daos_err_to_string(ret))
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create CART context: %s", H5_daos_err_to_string(ret));
 
     /* Create DAOS task scheduler */
     if(0 != (ret = tse_sched_init(&file->sched, NULL, file->crt_ctx)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create task scheduler: %s", H5_daos_err_to_string(ret))
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create task scheduler: %s", H5_daos_err_to_string(ret));
 
     /* Set MPI container info */
     if(H5_daos_cont_set_mpi_info(file, &fapl_info) < 0)
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTSET, NULL, "can't set MPI container info")
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTSET, NULL, "can't set MPI container info");
 
     /* Hash file name to create uuid */
     H5_daos_hash128(name, &file->uuid);
 
     /* Fill FAPL cache */
     if(H5_daos_fill_fapl_cache(file, fapl_id) < 0)
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "failed to fill FAPL cache")
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "failed to fill FAPL cache");
 
     /* Generate oid for global metadata object */
     if(H5_daos_oid_encode(&file->glob_md_oid, H5_DAOS_OIDX_GMD, H5I_GROUP,
             fapl_id == H5P_FILE_ACCESS_DEFAULT ? H5P_DEFAULT : fapl_id,
             H5_DAOS_ROOT_OPEN_OCLASS_NAME, file) < 0)
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTENCODE, NULL, "can't encode global metadata object ID")
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTENCODE, NULL, "can't encode global metadata object ID");
 
     /* Generate root group oid */
     if(H5_daos_oid_encode(&root_grp_oid, H5_DAOS_OIDX_ROOT, H5I_GROUP,
             fapl_id == H5P_FILE_ACCESS_DEFAULT ? H5P_DEFAULT : fapl_id,
             H5_DAOS_ROOT_OPEN_OCLASS_NAME, file) < 0)
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTENCODE, NULL, "can't encode root group object ID")
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTENCODE, NULL, "can't encode root group object ID");
 
     /* Start H5 operation */
     if(NULL == (int_req = H5_daos_req_create(file, H5I_INVALID_HID)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, NULL, "can't create DAOS request")
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, NULL, "can't create DAOS request");
 
     /* Open container on rank 0 */
     if((file->my_rank == 0) && H5_daos_cont_open(file, flags, int_req, &first_task, &dep_task) < 0)
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't open DAOS container")
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't open DAOS container");
 
     /* Broadcast container handle to other procs if any */
     if((file->num_procs > 1) && (H5_daos_cont_handle_bcast(file, int_req, &first_task, &dep_task) < 0))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTSET, NULL, "can't broadcast DAOS container handle")
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTSET, NULL, "can't broadcast DAOS container handle");
 
     /* Open global metadata object */
     if(H5_daos_obj_open(file, int_req, &file->glob_md_oid, flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &file->glob_md_oh, "global metadata object open", &first_task, &dep_task) < 0)
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENOBJ, NULL, "can't open global metadata object")
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENOBJ, NULL, "can't open global metadata object");
 
     /* Open root group and fill in root group's oid */
     if(NULL == (file->root_grp = H5_daos_group_open_helper(file,
             H5P_GROUP_ACCESS_DEFAULT, int_req, TRUE, &first_task, &dep_task)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENOBJ, NULL, "can't open root group")
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENOBJ, NULL, "can't open root group");
     file->root_grp->obj.oid = root_grp_oid;
 
     ret_value = (void *)file;
@@ -1344,13 +1344,13 @@ done:
 
         /* Create task to finalize H5 operation */
         if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &file->sched, int_req, &finalize_task)))
-            D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+            D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
         /* Register dependency (if any) */
         else if(dep_task && 0 != (ret = tse_task_register_deps(finalize_task, 1, &dep_task)))
-            D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+            D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
         /* Schedule finalize task */
         else if(0 != (ret = tse_task_schedule(finalize_task, false)))
-            D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+            D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
         else
             /* finalize_task now owns a reference to req */
             int_req->rc++;
@@ -1361,30 +1361,30 @@ done:
 
         /* Schedule first task */
         if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
-            D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret))
+            D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
 
         /* Block until operation completes */
         /* Wait for scheduler to be empty */
         if(H5_daos_progress(&file->sched, H5_DAOS_PROGRESS_WAIT) < 0)
-            D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't progress scheduler")
+            D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't progress scheduler");
 
         /* Check for failure */
         if(int_req->status < 0)
-            D_DONE_ERROR(H5E_FILE, H5E_CANTOPERATE, NULL, "file open failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status))
+            D_DONE_ERROR(H5E_FILE, H5E_CANTOPERATE, NULL, "file open failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status));
 
         /* Close internal request */
         if(H5_daos_req_free_int(int_req) < 0)
-            D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, NULL, "can't free request")
+            D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, NULL, "can't free request");
     } /* end if */
 
     /* Cleanup on failure */
     if(NULL == ret_value) {
         /* Close file */
         if(file && H5_daos_file_close_helper(file, dxpl_id, NULL) < 0)
-            D_DONE_ERROR(H5E_FILE, H5E_CANTCLOSEFILE, NULL, "can't close file")
+            D_DONE_ERROR(H5E_FILE, H5E_CANTCLOSEFILE, NULL, "can't close file");
     } /* end if */
 
-    D_FUNC_LEAVE_API
+    D_FUNC_LEAVE_API;
 } /* end H5_daos_file_open() */
 
 
@@ -1409,16 +1409,16 @@ H5_daos_file_get(void *_item, H5VL_file_get_t get_type, hid_t H5VL_DAOS_UNUSED d
     herr_t          ret_value = SUCCEED;
 
     if(!_item)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
     if(get_type == H5VL_FILE_GET_NAME) {
         if(H5I_FILE != file->item.type && H5I_GROUP != file->item.type &&
            H5I_DATATYPE != file->item.type && H5I_DATASET != file->item.type &&
            H5I_ATTR != file->item.type)
-            D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a file, group, datatype, dataset or attribute")
+            D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a file, group, datatype, dataset or attribute");
     }
     else
         if(H5I_FILE != file->item.type)
-            D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a file")
+            D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a file");
 
     switch (get_type) {
         /* "get container info" */
@@ -1428,7 +1428,7 @@ H5_daos_file_get(void *_item, H5VL_file_get_t get_type, hid_t H5VL_DAOS_UNUSED d
 
             /* Verify structure version */
             if(info->version != H5VL_CONTAINER_INFO_VERSION)
-                D_GOTO_ERROR(H5E_FILE, H5E_VERSION, FAIL, "wrong container info version number")
+                D_GOTO_ERROR(H5E_FILE, H5E_VERSION, FAIL, "wrong container info version number");
 
             /* Set the container info fields */
             info->feature_flags = 0;            /* None currently defined */
@@ -1444,7 +1444,7 @@ H5_daos_file_get(void *_item, H5VL_file_get_t get_type, hid_t H5VL_DAOS_UNUSED d
             hid_t *ret_id = va_arg(arguments, hid_t *);
 
             if((*ret_id = H5Pcopy(file->fapl_id)) < 0)
-                D_GOTO_ERROR(H5E_PLIST, H5E_CANTCOPY, FAIL, "can't get file's FAPL")
+                D_GOTO_ERROR(H5E_PLIST, H5E_CANTCOPY, FAIL, "can't get file's FAPL");
 
             break;
         } /* H5VL_FILE_GET_FAPL */
@@ -1456,11 +1456,11 @@ H5_daos_file_get(void *_item, H5VL_file_get_t get_type, hid_t H5VL_DAOS_UNUSED d
 
             /* The file's FCPL is stored as the group's GCPL */
             if((*ret_id = H5Pcopy(file->root_grp->gcpl_id)) < 0)
-                D_GOTO_ERROR(H5E_PLIST, H5E_CANTCOPY, FAIL, "can't get file's FCPL")
+                D_GOTO_ERROR(H5E_PLIST, H5E_CANTCOPY, FAIL, "can't get file's FCPL");
 
             /* Set root group's object class on fcpl */
             if(H5_daos_set_oclass_from_oid(*ret_id, file->root_grp->obj.oid) < 0)
-                D_GOTO_ERROR(H5E_PLIST, H5E_CANTSET, FAIL, "can't set object class property")
+                D_GOTO_ERROR(H5E_PLIST, H5E_CANTSET, FAIL, "can't set object class property");
 
             break;
         } /* H5VL_FILE_GET_FCPL */
@@ -1512,19 +1512,19 @@ H5_daos_file_get(void *_item, H5VL_file_get_t get_type, hid_t H5VL_DAOS_UNUSED d
 
             if(obj_types & H5F_OBJ_FILE)
                 if(H5Iiterate(H5I_FILE, H5_daos_get_obj_count_callback, &udata) < 0)
-                    D_GOTO_ERROR(H5E_FILE, H5E_BADITER, FAIL, "failed to iterate over file's open file IDs")
+                    D_GOTO_ERROR(H5E_FILE, H5E_BADITER, FAIL, "failed to iterate over file's open file IDs");
             if(obj_types & H5F_OBJ_DATASET)
                 if(H5Iiterate(H5I_DATASET, H5_daos_get_obj_count_callback, &udata) < 0)
-                    D_GOTO_ERROR(H5E_FILE, H5E_BADITER, FAIL, "failed to iterate over file's open dataset IDs")
+                    D_GOTO_ERROR(H5E_FILE, H5E_BADITER, FAIL, "failed to iterate over file's open dataset IDs");
             if(obj_types & H5F_OBJ_GROUP)
                 if(H5Iiterate(H5I_GROUP, H5_daos_get_obj_count_callback, &udata) < 0)
-                    D_GOTO_ERROR(H5E_FILE, H5E_BADITER, FAIL, "failed to iterate over file's open group IDs")
+                    D_GOTO_ERROR(H5E_FILE, H5E_BADITER, FAIL, "failed to iterate over file's open group IDs");
             if(obj_types & H5F_OBJ_DATATYPE)
                 if(H5Iiterate(H5I_DATATYPE, H5_daos_get_obj_count_callback, &udata) < 0)
-                    D_GOTO_ERROR(H5E_FILE, H5E_BADITER, FAIL, "failed to iterate over file's open datatype IDs")
+                    D_GOTO_ERROR(H5E_FILE, H5E_BADITER, FAIL, "failed to iterate over file's open datatype IDs");
             if(obj_types & H5F_OBJ_ATTR)
                 if(H5Iiterate(H5I_ATTR, H5_daos_get_obj_count_callback, &udata) < 0)
-                    D_GOTO_ERROR(H5E_FILE, H5E_BADITER, FAIL, "failed to iterate over file's open attribute IDs")
+                    D_GOTO_ERROR(H5E_FILE, H5E_BADITER, FAIL, "failed to iterate over file's open attribute IDs");
 
             *ret_val = udata.obj_count;
 
@@ -1549,19 +1549,19 @@ H5_daos_file_get(void *_item, H5VL_file_get_t get_type, hid_t H5VL_DAOS_UNUSED d
 
                 if(obj_types & H5F_OBJ_FILE)
                     if(H5Iiterate(H5I_FILE, H5_daos_get_obj_ids_callback, &udata) < 0)
-                        D_GOTO_ERROR(H5E_FILE, H5E_BADITER, FAIL, "failed to iterate over file's open file IDs")
+                        D_GOTO_ERROR(H5E_FILE, H5E_BADITER, FAIL, "failed to iterate over file's open file IDs");
                 if(obj_types & H5F_OBJ_DATASET)
                     if(H5Iiterate(H5I_DATASET, H5_daos_get_obj_ids_callback, &udata) < 0)
-                        D_GOTO_ERROR(H5E_FILE, H5E_BADITER, FAIL, "failed to iterate over file's open dataset IDs")
+                        D_GOTO_ERROR(H5E_FILE, H5E_BADITER, FAIL, "failed to iterate over file's open dataset IDs");
                 if(obj_types & H5F_OBJ_GROUP)
                     if(H5Iiterate(H5I_GROUP, H5_daos_get_obj_ids_callback, &udata) < 0)
-                        D_GOTO_ERROR(H5E_FILE, H5E_BADITER, FAIL, "failed to iterate over file's open group IDs")
+                        D_GOTO_ERROR(H5E_FILE, H5E_BADITER, FAIL, "failed to iterate over file's open group IDs");
                 if(obj_types & H5F_OBJ_DATATYPE)
                     if(H5Iiterate(H5I_DATATYPE, H5_daos_get_obj_ids_callback, &udata) < 0)
-                        D_GOTO_ERROR(H5E_FILE, H5E_BADITER, FAIL, "failed to iterate over file's open datatype IDs")
+                        D_GOTO_ERROR(H5E_FILE, H5E_BADITER, FAIL, "failed to iterate over file's open datatype IDs");
                 if(obj_types & H5F_OBJ_ATTR)
                     if(H5Iiterate(H5I_ATTR, H5_daos_get_obj_ids_callback, &udata) < 0)
-                        D_GOTO_ERROR(H5E_FILE, H5E_BADITER, FAIL, "failed to iterate over file's open attribute IDs")
+                        D_GOTO_ERROR(H5E_FILE, H5E_BADITER, FAIL, "failed to iterate over file's open attribute IDs");
             }
 
             *ret_val = udata.obj_count;
@@ -1570,11 +1570,11 @@ H5_daos_file_get(void *_item, H5VL_file_get_t get_type, hid_t H5VL_DAOS_UNUSED d
         } /* H5VL_FILE_GET_OBJ_IDS */
 
         default:
-            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported file get operation")
+            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported file get operation");
     } /* end switch */
 
 done:
-    D_FUNC_LEAVE_API
+    D_FUNC_LEAVE_API;
 } /* end H5_daos_file_get() */
 
 
@@ -1606,7 +1606,7 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
         case H5VL_FILE_FLUSH:
         {
             if(H5_daos_file_flush(file) < 0)
-                D_GOTO_ERROR(H5E_FILE, H5E_WRITEERROR, FAIL, "can't flush file")
+                D_GOTO_ERROR(H5E_FILE, H5E_WRITEERROR, FAIL, "can't flush file");
 
             break;
         } /* H5VL_FILE_FLUSH */
@@ -1617,7 +1617,7 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
             void **ret_file = va_arg(arguments, void **);
 
             if(NULL == (*ret_file = H5_daos_file_open(file->file_name, file->flags, file->fapl_id, dxpl_id, req)))
-                D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENOBJ, FAIL, "can't reopen file")
+                D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENOBJ, FAIL, "can't reopen file");
 
             break;
         } /* H5VL_FILE_REOPEN */
@@ -1626,7 +1626,8 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
         case H5VL_FILE_MOUNT:
         /* H5Fmount */
         case H5VL_FILE_UNMOUNT:
-            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported file specific operation")
+            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported file specific operation");
+            break;
 
         /* H5Fis_accessible */
         case H5VL_FILE_IS_ACCESSIBLE:
@@ -1637,7 +1638,7 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
             void *opened_file = NULL;
 
             if(NULL == filename)
-                D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, FAIL, "filename is NULL")
+                D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, FAIL, "filename is NULL");
 
             H5E_BEGIN_TRY {
                 opened_file = H5_daos_file_open(filename, H5F_ACC_RDONLY, file_fapl, dxpl_id, req);
@@ -1647,7 +1648,7 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
 
             if(opened_file)
                 if(H5_daos_file_close(opened_file, dxpl_id, req) < 0)
-                    D_GOTO_ERROR(H5E_FILE, H5E_CANTCLOSEOBJ, FAIL, "error occurred while closing file")
+                    D_GOTO_ERROR(H5E_FILE, H5E_CANTCLOSEOBJ, FAIL, "error occurred while closing file");
 
             break;
         } /* H5VL_FILE_IS_ACCESSIBLE */
@@ -1668,10 +1669,10 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
 
             /* Get information from the FAPL */
             if(H5_daos_cont_get_fapl_info(fapl_id, &fapl_info) < 0)
-                D_GOTO_ERROR(H5E_FILE, H5E_CANTGET, FAIL, "can't get DAOS info struct")
+                D_GOTO_ERROR(H5E_FILE, H5E_CANTGET, FAIL, "can't get DAOS info struct");
 
             if(MPI_SUCCESS != MPI_Initialized(&mpi_initialized))
-                D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't determine if MPI has been initialized")
+                D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't determine if MPI has been initialized");
             if(mpi_initialized) {
                 MPI_Comm_rank(fapl_info.comm, &mpi_rank);
             } else {
@@ -1683,12 +1684,12 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
                 H5_daos_hash128(filename, &cont_uuid);
 
                 if(0 != (ret = daos_cont_destroy(H5_daos_poh_g, cont_uuid, 1, NULL /*event*/)))
-                    D_GOTO_ERROR(H5E_FILE, H5E_CANTDELETEFILE, FAIL, "can't destroy container: %s", H5_daos_err_to_string(ret))
+                    D_GOTO_ERROR(H5E_FILE, H5E_CANTDELETEFILE, FAIL, "can't destroy container: %s", H5_daos_err_to_string(ret));
             } /* end if */
 
             if(mpi_initialized)
                 if(MPI_SUCCESS != MPI_Barrier(fapl_info.comm))
-                    D_GOTO_ERROR(H5E_FILE, H5E_MPI, FAIL, "MPI_Barrier failed during file deletion")
+                    D_GOTO_ERROR(H5E_FILE, H5E_MPI, FAIL, "MPI_Barrier failed during file deletion");
 
             *delete_ret = SUCCEED;
 
@@ -1709,11 +1710,11 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
         } /* H5VL_FILE_IS_EQUAL */
 
         default:
-            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported file specific operation")
+            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported file specific operation");
     } /* end switch */
 
 done:
-    D_FUNC_LEAVE_API
+    D_FUNC_LEAVE_API;
 } /* end H5_daos_file_specific() */
 
 
@@ -1770,29 +1771,29 @@ H5_daos_file_close_helper(H5_daos_file_t *file, hid_t dxpl_id, void **req)
     /* Free file data structures */
     if(file->item.open_req)
         if(H5_daos_req_free_int(file->item.open_req) < 0)
-            D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, FAIL, "can't free request")
+            D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, FAIL, "can't free request");
     file->item.open_req = NULL;
     if(file->file_name)
         file->file_name = DV_free(file->file_name);
     if(file->comm || file->info)
         if(H5_daos_comm_info_free(&file->comm, &file->info) < 0)
-            D_DONE_ERROR(H5E_INTERNAL, H5E_CANTFREE, FAIL, "failed to free copy of MPI communicator and info")
+            D_DONE_ERROR(H5E_INTERNAL, H5E_CANTFREE, FAIL, "failed to free copy of MPI communicator and info");
     if(file->fapl_id != FAIL && H5Idec_ref(file->fapl_id) < 0)
-        D_DONE_ERROR(H5E_SYM, H5E_CANTDEC, FAIL, "failed to close fapl")
+        D_DONE_ERROR(H5E_SYM, H5E_CANTDEC, FAIL, "failed to close fapl");
     if(!daos_handle_is_inval(file->glob_md_oh))
         if(0 != (ret = daos_obj_close(file->glob_md_oh, NULL /*event*/)))
-            D_DONE_ERROR(H5E_FILE, H5E_CANTCLOSEFILE, FAIL, "can't close global metadata object: %s", H5_daos_err_to_string(ret))
+            D_DONE_ERROR(H5E_FILE, H5E_CANTCLOSEFILE, FAIL, "can't close global metadata object: %s", H5_daos_err_to_string(ret));
     if(file->root_grp)
         if(H5_daos_group_close(file->root_grp, dxpl_id, req) < 0)
-            D_DONE_ERROR(H5E_FILE, H5E_CANTCLOSEFILE, FAIL, "can't close root group")
+            D_DONE_ERROR(H5E_FILE, H5E_CANTCLOSEFILE, FAIL, "can't close root group");
     if(!daos_handle_is_inval(file->coh))
         if(0 != (ret = daos_cont_close(file->coh, NULL /*event*/)))
-            D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, FAIL, "can't close container: %s", H5_daos_err_to_string(ret))
+            D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, FAIL, "can't close container: %s", H5_daos_err_to_string(ret));
     if(file->vol_id >= 0) {
         if(H5VLfree_connector_info(file->vol_id, file->vol_info) < 0)
-            D_DONE_ERROR(H5E_FILE, H5E_CANTFREE, FAIL, "can't free VOL connector info")
+            D_DONE_ERROR(H5E_FILE, H5E_CANTFREE, FAIL, "can't free VOL connector info");
         if(H5Idec_ref(file->vol_id) < 0)
-            D_DONE_ERROR(H5E_FILE, H5E_CANTDEC, FAIL, "can't decrement VOL connector ID")
+            D_DONE_ERROR(H5E_FILE, H5E_CANTDEC, FAIL, "can't decrement VOL connector ID");
     } /* end if */
 
     /* Finish the scheduler *//* Make this cancel tasks?  Only if flush progresses until empty.  Otherwise change to custom progress function DSINC */
@@ -1801,7 +1802,7 @@ H5_daos_file_close_helper(H5_daos_file_t *file, hid_t dxpl_id, void **req)
 
     /* Destroy CART context */
     if(0 != (ret = crt_context_destroy(file->crt_ctx, 1)))
-        D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, FAIL, "can't destroy CART context: %s", H5_daos_err_to_string(ret))
+        D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, FAIL, "can't destroy CART context: %s", H5_daos_err_to_string(ret));
 
     /* File is closed */
     file->closed = TRUE;
@@ -1809,7 +1810,7 @@ H5_daos_file_close_helper(H5_daos_file_t *file, hid_t dxpl_id, void **req)
     /* Decrement ref count on file struct */
     H5_daos_file_decref(file);
 
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_file_close_helper() */
 
 
@@ -1837,16 +1838,16 @@ H5_daos_file_close(void *_file, hid_t dxpl_id, void **req)
     herr_t ret_value = SUCCEED;
 
     if(!_file)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "file object is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "file object is NULL");
 
     /* Flush the file (barrier, commit epoch, slip epoch) *Update comment DSINC */
     if(H5_daos_file_flush(file) < 0)
-        D_GOTO_ERROR(H5E_FILE, H5E_WRITEERROR, FAIL, "can't flush file")
+        D_GOTO_ERROR(H5E_FILE, H5E_WRITEERROR, FAIL, "can't flush file");
 
 #if 0 /* DSINC */
     /* Flush the epoch */
     if(0 != (ret = daos_epoch_flush(file->coh, epoch, NULL /*state*/, NULL /*event*/)))
-        D_DONE_ERROR(H5E_FILE, H5E_CANTFLUSH, FAIL, "can't flush epoch: %s", H5_daos_err_to_string(ret))
+        D_DONE_ERROR(H5E_FILE, H5E_CANTFLUSH, FAIL, "can't flush epoch: %s", H5_daos_err_to_string(ret));
 #endif
 
     /*
@@ -1856,14 +1857,14 @@ H5_daos_file_close(void *_file, hid_t dxpl_id, void **req)
      * ranks are done using it.
      */
     if(file->num_procs > 1 && (MPI_SUCCESS != MPI_Barrier(file->comm)))
-        D_GOTO_ERROR(H5E_FILE, H5E_MPI, FAIL, "MPI_Barrier failed during file close")
+        D_GOTO_ERROR(H5E_FILE, H5E_MPI, FAIL, "MPI_Barrier failed during file close");
 
     /* Close the file */
     if(H5_daos_file_close_helper(file, dxpl_id, req) < 0)
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTCLOSEFILE, FAIL, "can't close file")
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTCLOSEFILE, FAIL, "can't close file");
 
 done:
-    D_FUNC_LEAVE_API
+    D_FUNC_LEAVE_API;
 } /* end H5_daos_file_close() */
 
 
@@ -1893,19 +1894,19 @@ H5_daos_file_flush(H5_daos_file_t *file)
 
     /* Nothing to do if no write intent */
     if(!(file->flags & H5F_ACC_RDWR))
-        D_GOTO_DONE(SUCCEED)
+        D_GOTO_DONE(SUCCEED);
 
     /* Progress scheduler until empty? DSINC */
 
 #if 0
     /* Collectively determine if anyone requested a snapshot of the epoch */
     if(MPI_SUCCESS != MPI_Reduce(file->my_rank == 0 ? MPI_IN_PLACE : &file->snap_epoch, &file->snap_epoch, 1, MPI_INT, MPI_LOR, 0, file->comm))
-        D_GOTO_ERROR(H5E_FILE, H5E_MPI, FAIL, "failed to determine whether to take snapshot (MPI_Reduce)")
+        D_GOTO_ERROR(H5E_FILE, H5E_MPI, FAIL, "failed to determine whether to take snapshot (MPI_Reduce)");
 
     /* Barrier on all ranks so we don't commit before all ranks are
      * finished writing. H5Fflush must be called collectively. */
     if(MPI_SUCCESS != MPI_Barrier(file->comm))
-        D_GOTO_ERROR(H5E_FILE, H5E_MPI, FAIL, "MPI_Barrier failed")
+        D_GOTO_ERROR(H5E_FILE, H5E_MPI, FAIL, "MPI_Barrier failed");
 
     /* Commit the epoch */
     if(file->my_rank == 0) {
@@ -1914,16 +1915,16 @@ H5_daos_file_flush(H5_daos_file_t *file)
 
         if(file->snap_epoch)
             if(0 != (ret = daos_snap_create(file->coh, file->epoch, NULL /*event*/)))
-                D_GOTO_ERROR(H5E_FILE, H5E_WRITEERROR, FAIL, "can't create snapshot: %s", H5_daos_err_to_string(ret))
+                D_GOTO_ERROR(H5E_FILE, H5E_WRITEERROR, FAIL, "can't create snapshot: %s", H5_daos_err_to_string(ret));
 
         /* Commit the epoch.  This should slip previous epochs automatically. */
         if(0 != (ret = daos_epoch_commit(file->coh, file->epoch, NULL /*state*/, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "failed to commit epoch: %s", H5_daos_err_to_string(ret))
+            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "failed to commit epoch: %s", H5_daos_err_to_string(ret));
     } /* end if */
 #endif
 
 done:
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_file_flush() */
 
 
@@ -1951,7 +1952,7 @@ H5_daos_fill_fapl_cache(H5_daos_file_t *file, hid_t fapl_id)
     file->fapl_cache.is_collective_md_read = FALSE;
     if(H5P_FILE_ACCESS_DEFAULT != fapl_id)
         if(H5Pget_all_coll_metadata_ops(fapl_id, &file->fapl_cache.is_collective_md_read) < 0)
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTGET, FAIL, "can't get collective metadata reads property")
+            D_GOTO_ERROR(H5E_FILE, H5E_CANTGET, FAIL, "can't get collective metadata reads property");
 
     /* Check for file default object class set on fapl_id */
     /* Note we do not copy the oclass_str in the property callbacks (there is no
@@ -1959,17 +1960,17 @@ H5_daos_fill_fapl_cache(H5_daos_file_t *file, hid_t fapl_id)
      * free oclass_str as it points directly into the plist value */
     file->fapl_cache.default_object_class = OC_UNKNOWN;
     if((prop_exists = H5Pexist(fapl_id, H5_DAOS_OBJ_CLASS_NAME)) < 0)
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "can't check for object class property")
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "can't check for object class property");
     if(prop_exists) {
         if(H5Pget(fapl_id, H5_DAOS_OBJ_CLASS_NAME, &oclass_str) < 0)
-            D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "can't get object class")
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "can't get object class");
         if(oclass_str && (oclass_str[0] != '\0'))
             if(OC_UNKNOWN == (file->fapl_cache.default_object_class = daos_oclass_name2id(oclass_str)))
-                D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "unknown object class")
+                D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "unknown object class");
     } /* end if */
 
 done:
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_fill_fapl_cache() */
 
 
@@ -2008,14 +2009,14 @@ H5_daos_get_obj_count_callback(hid_t id, void *udata)
 
     if(!strncmp(H5_DAOS_VOL_NAME, connector_name, H5_DAOS_VOL_NAME_LEN)) {
         if(NULL == (cur_obj = (H5_daos_obj_t *) H5VLobject(id)))
-            D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, H5_ITER_ERROR, "can't retrieve VOL object for ID")
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, H5_ITER_ERROR, "can't retrieve VOL object for ID");
 
         if(!uuid_compare(cur_obj->item.file->uuid, count_udata->file_id))
             count_udata->obj_count++;
     } /* end if */
 
 done:
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_get_obj_count_callback() */
 
 
@@ -2053,7 +2054,7 @@ H5_daos_get_obj_ids_callback(hid_t id, void *udata)
 
     if(!strncmp(H5_DAOS_VOL_NAME, connector_name, H5_DAOS_VOL_NAME_LEN)) {
         if(NULL == (cur_obj = (H5_daos_obj_t *) H5VLobject(id)))
-            D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, H5_ITER_ERROR, "can't retrieve VOL object for ID")
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, H5_ITER_ERROR, "can't retrieve VOL object for ID");
 
         if(id_udata->obj_count < id_udata->max_objs) {
             if(!uuid_compare(cur_obj->item.file->uuid, id_udata->file_id))
@@ -2064,6 +2065,6 @@ H5_daos_get_obj_ids_callback(hid_t id, void *udata)
     } /* end if */
 
 done:
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_get_obj_ids_callback() */
 

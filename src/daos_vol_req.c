@@ -38,7 +38,7 @@ H5_daos_req_create(H5_daos_file_t *file, hid_t dxpl_id)
     assert(file);
 
     if(NULL == (ret_value = (H5_daos_req_t *)DV_malloc(sizeof(H5_daos_req_t))))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for request")
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for request");
     ret_value->th = DAOS_TX_NONE;
     ret_value->th_open = FALSE;
     ret_value->file = file;
@@ -47,7 +47,7 @@ H5_daos_req_create(H5_daos_file_t *file, hid_t dxpl_id)
     else
         if((ret_value->dxpl_id = H5Pcopy(dxpl_id)) < 0) {
             DV_free(ret_value);
-            D_GOTO_ERROR(H5E_VOL, H5E_CANTCOPY, NULL, "can't copy data transfer property list")
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTCOPY, NULL, "can't copy data transfer property list");
         } /* end if */
     ret_value->file->item.rc++;
     ret_value->rc = 1;
@@ -55,7 +55,7 @@ H5_daos_req_create(H5_daos_file_t *file, hid_t dxpl_id)
     ret_value->failed_task = "default (probably operation setup)";
 
 done:
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_req_create() */
 
 
@@ -78,13 +78,13 @@ H5_daos_req_free(void *req)
     herr_t     ret_value = SUCCEED;            /* Return value */
 
     if(!req)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "request object is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "request object is NULL");
 
     if(H5_daos_req_free_int(req) < 0)
-        D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, FAIL, "can't free request")
+        D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, FAIL, "can't free request");
 
 done:
-    D_FUNC_LEAVE_API
+    D_FUNC_LEAVE_API;
 } /* end H5_daos_req_free() */
 
 
@@ -120,13 +120,12 @@ H5_daos_req_free_int(H5_daos_req_t *req)
                     req->status = -H5_DAOS_H5_CLOSE_ERROR;
                     req->failed_task = "request free";
                 } /* end if */
-                D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, FAIL, "can't close data transfer property list")
+                D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, FAIL, "can't close data transfer property list");
             } /* end if */
         H5_daos_file_decref(req->file);
         DV_free(req);
     } /* end if */
 
-done:
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_req_free_int() */
 

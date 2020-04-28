@@ -58,7 +58,7 @@ typedef d_sg_list_t daos_sg_list_t;
 #define H5_DAOS_G_INIT(ERR) { \
     if(H5_DAOS_g < 0) \
         if((H5_DAOS_g = H5VLpeek_connector_id_by_value(H5_VOL_DAOS_CLS_VAL)) < 0) \
-            D_GOTO_ERROR(H5E_ATOM, H5E_CANTGET, ERR, "unable to get registered ID for DAOS VOL connector") \
+            D_GOTO_ERROR(H5E_ATOM, H5E_CANTGET, ERR, "unable to get registered ID for DAOS VOL connector"); \
 }
 
 /* Constant keys */
@@ -98,7 +98,7 @@ typedef d_sg_list_t daos_sg_list_t;
 #define H5_DAOS_ENCODED_UINT64_T_SIZE 8
 
 /* Size of buffer for writing link creation order info */
-#define H5_DAOS_CRT_ORDER_TO_LINK_TRGT_BUF_SIZE 9
+#define H5_DAOS_CRT_ORDER_TO_LINK_TRGT_BUF_SIZE (H5_DAOS_ENCODED_CRT_ORDER_SIZE + 1)
 
 /* Definitions for building oids */
 #define H5_DAOS_TYPE_MASK   0x00000000c0000000ull
@@ -230,14 +230,14 @@ do {                                                                            
         /* Allocate larger buffer */                                                                    \
         key_buf_len *= 2;                                                                               \
         if(NULL == (tmp_realloc = (char *)DV_realloc(key_buf, key_buf_len)))                            \
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't reallocate key buffer")              \
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't reallocate key buffer");             \
         key_buf = tmp_realloc;                                                                          \
                                                                                                         \
         /* Update SGL */                                                                                \
         daos_iov_set(&sg_iov, key_buf, (daos_size_t)(key_buf_len - 1));                                 \
     } /* end if */                                                                                      \
     else                                                                                                \
-        D_GOTO_ERROR(maj_err, H5E_CANTGET, FAIL, "can't list keys: %s", H5_daos_err_to_string(ret))     \
+        D_GOTO_ERROR(maj_err, H5E_CANTGET, FAIL, "can't list keys: %s", H5_daos_err_to_string(ret));    \
 } while(1)
 
 /* Macro to initialize all non-specific fields of an H5_daos_iter_data_t struct */

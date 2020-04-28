@@ -46,11 +46,11 @@ H5_daos_blob_put(void *_file, const void *buf, size_t size, void *blob_id,
 
     /* Check parameters */
     if(!buf && size > 0)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "buffer is NULL but size > 0")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "buffer is NULL but size > 0");
     if(!blob_id)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "blob id is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "blob id is NULL");
     if(!file)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "file object is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "file object is NULL");
 
     /* Generate blob ID as a UUID */
     uuid_generate(blob_uuid);
@@ -78,11 +78,11 @@ H5_daos_blob_put(void *_file, const void *buf, size_t size, void *blob_id,
 
         /* Write blob */
         if(0 != (ret = daos_obj_update(file->glob_md_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod, &sgl, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_VOL, H5E_WRITEERROR, FAIL, "can't write blob to object: %s", H5_daos_err_to_string(ret))
+            D_GOTO_ERROR(H5E_VOL, H5E_WRITEERROR, FAIL, "can't write blob to object: %s", H5_daos_err_to_string(ret));
     } /* end if */
 
 done:
-    D_FUNC_LEAVE_API
+    D_FUNC_LEAVE_API;
 } /* end H5_daos_blob_put() */
 
 
@@ -109,11 +109,11 @@ H5_daos_blob_get(void *_file, const void *blob_id, void *buf, size_t size,
 
     /* Check parameters */
     if(!buf)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "buffer is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "buffer is NULL");
     if(!blob_id)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "blob id is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "blob id is NULL");
     if(!file)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "file object is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "file object is NULL");
 
     /* Only read if size > 0 */
     if(size > 0) {
@@ -135,11 +135,11 @@ H5_daos_blob_get(void *_file, const void *blob_id, void *buf, size_t size,
 
         /* Read blob */
         if(0 != (ret = daos_obj_fetch(file->glob_md_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_VOL, H5E_READERROR, FAIL, "can't read blob from object: %s", H5_daos_err_to_string(ret))
+            D_GOTO_ERROR(H5E_VOL, H5E_READERROR, FAIL, "can't read blob from object: %s", H5_daos_err_to_string(ret));
     } /* end if */
 
 done:
-    D_FUNC_LEAVE_API
+    D_FUNC_LEAVE_API;
 } /* end H5_daos_blob_get() */
 
 
@@ -162,9 +162,9 @@ H5_daos_blob_specific(void *_file, void *blob_id,
 
     /* Check parameters */
     if(!blob_id)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "blob id is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "blob id is NULL");
     if(!file)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "file object is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "file object is NULL");
 
     switch(specific_type) {
         case H5VL_BLOB_GETSIZE:
@@ -172,7 +172,7 @@ H5_daos_blob_specific(void *_file, void *blob_id,
                 /* This callback probably doesn't need to exist DSINC */
                 /* If we decide to implement this we must remove the code which
                  * prevents writing 0 size blobs */
-                D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "unsupported blob specific operation")
+                D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "unsupported blob specific operation");
 
                 break;
             }
@@ -184,7 +184,7 @@ H5_daos_blob_specific(void *_file, void *blob_id,
 
                 /* Check parameters */
                 if(!isnull)
-                    D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "isnull output buffer is NULL")
+                    D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "isnull output buffer is NULL");
 
                 /* Initialize comparison buffer */
                 (void)memset(nul_buf, 0, sizeof(nul_buf));
@@ -214,16 +214,16 @@ H5_daos_blob_specific(void *_file, void *blob_id,
                  * the (practical) guarantee of uniqueness of UUIDs, we can
                  * assume we won't delete any unintended akeys. */
                 if(0 != (ret = daos_obj_punch_dkeys(file->glob_md_oh, DAOS_TX_NONE, 0 /*flags*/, 1, &dkey, NULL /*event*/)))
-                    D_GOTO_ERROR(H5E_VOL, H5E_CANTREMOVE, FAIL, "failed to punch blob dkey: %s", H5_daos_err_to_string(ret))
+                    D_GOTO_ERROR(H5E_VOL, H5E_CANTREMOVE, FAIL, "failed to punch blob dkey: %s", H5_daos_err_to_string(ret));
 
                 break;
             }
 
         default:
-            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid unsupported blob specific operation")
+            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid unsupported blob specific operation");
     } /* end switch */
 
 done:
-    D_FUNC_LEAVE_API
+    D_FUNC_LEAVE_API;
 } /* end H5_daos_blob_specific() */
 

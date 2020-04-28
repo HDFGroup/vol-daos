@@ -46,7 +46,7 @@ H5_daos_detect_vl_vlstr_ref(hid_t type_id)
 
     /* Get datatype class */
     if(H5T_NO_CLASS == (tclass = H5Tget_class(type_id)))
-        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't get type class")
+        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't get type class");
 
     switch(tclass) {
         case H5T_INTEGER:
@@ -63,7 +63,7 @@ H5_daos_detect_vl_vlstr_ref(hid_t type_id)
         case H5T_STRING:
             /* Check for vlen string, need conversion if it's vl */
             if((ret_value = H5Tis_variable_str(type_id)) < 0)
-                D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't check for variable length string")
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't check for variable length string");
 
             break;
 
@@ -74,23 +74,23 @@ H5_daos_detect_vl_vlstr_ref(hid_t type_id)
 
                 /* Get number of compound members */
                 if((nmemb = H5Tget_nmembers(type_id)) < 0)
-                    D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't get number of destination compound members")
+                    D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't get number of destination compound members");
 
                 /* Iterate over compound members, checking for a member in
                  * dst_type_id with no match in src_type_id */
                 for(i = 0; i < nmemb; i++) {
                     /* Get member type */
                     if((memb_type_id = H5Tget_member_type(type_id, (unsigned)i)) < 0)
-                        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't get compound member type")
+                        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't get compound member type");
 
                     /* Recursively check member type, this will fill in the
                      * member size */
                     if((ret_value = H5_daos_detect_vl_vlstr_ref(memb_type_id)) < 0)
-                        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't check if background buffer needed")
+                        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't check if background buffer needed");
 
                     /* Close member type */
                     if(H5Tclose(memb_type_id) < 0)
-                        D_GOTO_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, FAIL, "can't close member type")
+                        D_GOTO_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, FAIL, "can't close member type");
                     memb_type_id = -1;
 
                     /* If any member needs conversion the entire compound does
@@ -107,15 +107,15 @@ H5_daos_detect_vl_vlstr_ref(hid_t type_id)
         case H5T_ARRAY:
             /* Get parent type */
             if((memb_type_id = H5Tget_super(type_id)) < 0)
-                D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't get array parent type")
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't get array parent type");
 
             /* Recursively check parent type */
             if((ret_value = H5_daos_detect_vl_vlstr_ref(memb_type_id)) < 0)
-                D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't check if background buffer needed")
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't check if background buffer needed");
 
             /* Close parent type */
             if(H5Tclose(memb_type_id) < 0)
-                D_GOTO_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, FAIL, "can't close array parent type")
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, FAIL, "can't close array parent type");
             memb_type_id = -1;
 
             break;
@@ -130,16 +130,16 @@ H5_daos_detect_vl_vlstr_ref(hid_t type_id)
         case H5T_NO_CLASS:
         case H5T_NCLASSES:
         default:
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_BADVALUE, FAIL, "invalid type class")
+            D_GOTO_ERROR(H5E_DATATYPE, H5E_BADVALUE, FAIL, "invalid type class");
     } /* end switch */
 
 done:
     /* Cleanup on failure */
     if(memb_type_id >= 0)
         if(H5Idec_ref(memb_type_id) < 0)
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTDEC, FAIL, "failed to close member type")
+            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTDEC, FAIL, "failed to close member type");
 
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_detect_vl_vlstr_ref() */
 
 
@@ -161,19 +161,19 @@ H5_daos_need_tconv(hid_t src_type_id, hid_t dst_type_id)
 
     /* Check if the types are equal */
     if((types_equal = H5Tequal(src_type_id, dst_type_id)) < 0)
-        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTCOMPARE, FAIL, "can't check if types are equal")
+        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTCOMPARE, FAIL, "can't check if types are equal");
 
     if(types_equal) {
         /* Check if conversion is needed anyways due to presence of a vlen or
          * reference type */
         if((ret_value = H5_daos_detect_vl_vlstr_ref(src_type_id)) < 0)
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't check for vlen or reference type")
+            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't check for vlen or reference type");
     } /* end if */
     else
         ret_value = TRUE;
 
 done:
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_need_tconv() */
 
 
@@ -206,11 +206,11 @@ H5_daos_need_bkg(hid_t src_type_id, hid_t dst_type_id, hbool_t dst_file,
 
     /* Get destination type size */
     if((*dst_type_size = H5Tget_size(dst_type_id)) == 0)
-        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't get source type size")
+        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't get source type size");
 
     /* Get datatype class */
     if(H5T_NO_CLASS == (tclass = H5Tget_class(dst_type_id)))
-        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't get type class")
+        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't get type class");
 
     switch(tclass) {
         case H5T_INTEGER:
@@ -254,18 +254,18 @@ H5_daos_need_bkg(hid_t src_type_id, hid_t dst_type_id, hbool_t dst_file,
 
                 /* Get number of compound members */
                 if((nmemb = H5Tget_nmembers(dst_type_id)) < 0)
-                    D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't get number of destination compound members")
+                    D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't get number of destination compound members");
 
                 /* Iterate over compound members, checking for a member in
                  * dst_type_id with no match in src_type_id */
                 for(i = 0; i < nmemb; i++) {
                     /* Get member type */
                     if((memb_type_id = H5Tget_member_type(dst_type_id, (unsigned)i)) < 0)
-                        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't get compound member type")
+                        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't get compound member type");
 
                     /* Get member name */
                     if(NULL == (memb_name = H5Tget_member_name(dst_type_id, (unsigned)i)))
-                        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't get compound member name")
+                        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't get compound member name");
 
                     /* Check for matching name in source type */
                     H5E_BEGIN_TRY {
@@ -274,42 +274,42 @@ H5_daos_need_bkg(hid_t src_type_id, hid_t dst_type_id, hbool_t dst_file,
 
                     /* Free memb_name */
                     if(H5free_memory(memb_name) < 0)
-                        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTFREE, FAIL, "can't free member name")
+                        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTFREE, FAIL, "can't free member name");
                     memb_name = NULL;
 
                     /* If no match was found, this type is not being filled in,
                      * so we must fill the background buffer */
                     if(src_i < 0) {
                         if(H5Tclose(memb_type_id) < 0)
-                            D_GOTO_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, FAIL, "can't close member type")
+                            D_GOTO_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, FAIL, "can't close member type");
                         memb_type_id = -1;
                         *fill_bkg = TRUE;
-                        D_GOTO_DONE(TRUE)
+                        D_GOTO_DONE(TRUE);
                     } /* end if */
 
                     /* Open matching source type */
                     if((src_memb_type_id = H5Tget_member_type(src_type_id, (unsigned)src_i)) < 0)
-                        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't get compound member type")
+                        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't get compound member type");
 
                     /* Recursively check member type, this will fill in the
                      * member size */
                     if(H5_daos_need_bkg(src_memb_type_id, memb_type_id, dst_file, &memb_size, fill_bkg) < 0)
-                        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't check if background buffer needed")
+                        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't check if background buffer needed");
 
                     /* Close source member type */
                     if(H5Tclose(src_memb_type_id) < 0)
-                        D_GOTO_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, FAIL, "can't close member type")
+                        D_GOTO_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, FAIL, "can't close member type");
                     src_memb_type_id = -1;
 
                     /* Close member type */
                     if(H5Tclose(memb_type_id) < 0)
-                        D_GOTO_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, FAIL, "can't close member type")
+                        D_GOTO_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, FAIL, "can't close member type");
                     memb_type_id = -1;
 
                     /* If the source member type needs the background filled, so
                      * does the parent */
                     if(*fill_bkg)
-                        D_GOTO_DONE(TRUE)
+                        D_GOTO_DONE(TRUE);
 
                     /* Keep track of the size used in compound */
                     size_used += memb_size;
@@ -329,24 +329,24 @@ H5_daos_need_bkg(hid_t src_type_id, hid_t dst_type_id, hbool_t dst_file,
         case H5T_ARRAY:
             /* Get parent type */
             if((memb_type_id = H5Tget_super(dst_type_id)) < 0)
-                D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't get array parent type")
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't get array parent type");
 
             /* Get source parent type */
             if((src_memb_type_id = H5Tget_super(src_type_id)) < 0)
-                D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't get array parent type")
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't get array parent type");
 
             /* Recursively check parent type */
             if((ret_value = H5_daos_need_bkg(src_memb_type_id, memb_type_id, dst_file, &memb_size, fill_bkg)) < 0)
-                D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't check if background buffer needed")
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't check if background buffer needed");
 
             /* Close source parent type */
             if(H5Tclose(src_memb_type_id) < 0)
-                D_GOTO_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, FAIL, "can't close array parent type")
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, FAIL, "can't close array parent type");
             src_memb_type_id = -1;
 
             /* Close parent type */
             if(H5Tclose(memb_type_id) < 0)
-                D_GOTO_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, FAIL, "can't close array parent type")
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, FAIL, "can't close array parent type");
             memb_type_id = -1;
 
             break;
@@ -354,7 +354,7 @@ H5_daos_need_bkg(hid_t src_type_id, hid_t dst_type_id, hbool_t dst_file,
         case H5T_NO_CLASS:
         case H5T_NCLASSES:
         default:
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_BADVALUE, FAIL, "invalid type class")
+            D_GOTO_ERROR(H5E_DATATYPE, H5E_BADVALUE, FAIL, "invalid type class");
     } /* end switch */
 
 done:
@@ -362,14 +362,14 @@ done:
     if(ret_value < 0) {
         if(memb_type_id >= 0)
             if(H5Idec_ref(memb_type_id) < 0)
-                D_DONE_ERROR(H5E_DATATYPE, H5E_CANTDEC, FAIL, "failed to close member type")
+                D_DONE_ERROR(H5E_DATATYPE, H5E_CANTDEC, FAIL, "failed to close member type");
         if(src_memb_type_id >= 0)
             if(H5Idec_ref(src_memb_type_id) < 0)
-                D_DONE_ERROR(H5E_DATATYPE, H5E_CANTDEC, FAIL, "failed to close source member type")
+                D_DONE_ERROR(H5E_DATATYPE, H5E_CANTDEC, FAIL, "failed to close source member type");
         memb_name = (char *)DV_free(memb_name);
     } /* end if */
 
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_need_bkg() */
 
 
@@ -413,11 +413,11 @@ H5_daos_tconv_init(hid_t src_type_id, size_t *src_type_size,
 
     /* Get source type size */
     if((*src_type_size = H5Tget_size(src_type_id)) == 0)
-        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't get source type size")
+        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't get source type size");
 
     /* Check if we need a background buffer */
     if((need_bkg = H5_daos_need_bkg(src_type_id, dst_type_id, dst_file, dst_type_size, fill_bkg)) < 0)
-        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't check if background buffer needed")
+        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't check if background buffer needed");
 
     /* Check for reusable destination buffer */
     if(reuse) {
@@ -436,19 +436,19 @@ H5_daos_tconv_init(hid_t src_type_id, size_t *src_type_size,
         if(clear_tconv_buf) {
             if(NULL == (*tconv_buf = DV_calloc(num_elem * (*src_type_size
                     > *dst_type_size ? *src_type_size : *dst_type_size))))
-                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate type conversion buffer")
+                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate type conversion buffer");
         } /* end if */
         else
             if(NULL == (*tconv_buf = DV_malloc(num_elem * (*src_type_size
                     > *dst_type_size ? *src_type_size : *dst_type_size))))
-                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate type conversion buffer")
+                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate type conversion buffer");
     } /* end if */
 
     /* Allocate background buffer if one is needed and it is not being
      * reused */
     if(need_bkg && (!reuse || (*reuse != H5_DAOS_TCONV_REUSE_BKG)))
         if(NULL == (*bkg_buf = DV_calloc(num_elem * *dst_type_size)))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate background buffer")
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate background buffer");
 
 done:
     /* Cleanup on failure */
@@ -459,7 +459,7 @@ done:
             *reuse = H5_DAOS_TCONV_REUSE_NONE;
     } /* end if */
 
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_tconv_init() */
 
 
@@ -501,13 +501,13 @@ H5_daos_datatype_commit(void *_item,
     void *ret_value = NULL;
 
     if(!_item)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "datatype parent object is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "datatype parent object is NULL");
     if(!loc_params)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "location parameters object is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "location parameters object is NULL");
 
     /* Check for write access */
     if(!(item->file->flags & H5F_ACC_RDWR))
-        D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, NULL, "no write intent on file")
+        D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, NULL, "no write intent on file");
 
     /*
      * Like HDF5, all metadata writes are collective by default. Once independent
@@ -517,11 +517,11 @@ H5_daos_datatype_commit(void *_item,
 
     /* Start H5 operation */
     if(NULL == (int_req = H5_daos_req_create(item->file, H5I_INVALID_HID)))
-        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTALLOC, NULL, "can't create DAOS request")
+        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTALLOC, NULL, "can't create DAOS request");
 
     /* Allocate the datatype object that is returned to the user */
     if(NULL == (dtype = H5FL_CALLOC(H5_daos_dtype_t)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate DAOS datatype struct")
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate DAOS datatype struct");
     dtype->obj.item.type = H5I_DATATYPE;
     dtype->obj.item.open_req = int_req;
     int_req->rc++;
@@ -535,7 +535,7 @@ H5_daos_datatype_commit(void *_item,
 #ifdef H5_DAOS_USE_TRANSACTIONS
     /* Start transaction */
     if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't start transaction")
+        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't start transaction");
     int_req->th_open = TRUE;
 #endif /* H5_DAOS_USE_TRANSACTIONS */
 
@@ -547,28 +547,28 @@ H5_daos_datatype_commit(void *_item,
         if(NULL == (target_obj = H5_daos_group_traverse(item, name, lcpl_id, int_req,
                 collective, &path_buf, &target_name, &target_name_len, &first_task,
                 &dep_task)))
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_BADITER, NULL, "can't traverse path")
+            D_GOTO_ERROR(H5E_DATATYPE, H5E_BADITER, NULL, "can't traverse path");
 
         /* Check type of target_obj */
         if(target_obj->item.type != H5I_GROUP)
-            D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "target object is not a group")
+            D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "target object is not a group");
 
         /* Reject invalid object names during object creation - if a name is
          * given it must parse to a link name that can be created */
         if(target_name_len == 0)
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_BADVALUE, NULL, "path given does not resolve to a final link name")
+            D_GOTO_ERROR(H5E_DATATYPE, H5E_BADVALUE, NULL, "path given does not resolve to a final link name");
     } /* end if */
 
     /* Generate datatype oid */
     if(H5_daos_oid_generate(&dtype->obj.oid, H5I_DATATYPE,
             (tcpl_id == H5P_DATATYPE_CREATE_DEFAULT ? H5P_DEFAULT : tcpl_id),
             item->file, collective, int_req, &first_task, &dep_task) < 0)
-        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't generate object id")
+        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't generate object id");
 
     /* Open datatype object */
     if(H5_daos_obj_open(item->file, int_req, &dtype->obj.oid, DAOS_OO_RW,
             &dtype->obj.obj_oh, "datatype object open", &first_task, &dep_task) < 0)
-        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTOPENOBJ, NULL, "can't open datatype object")
+        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTOPENOBJ, NULL, "can't open datatype object");
 
     /* Create datatype and write metadata if this process should */
     if(!collective || (item->file->my_rank == 0)) {
@@ -581,23 +581,23 @@ H5_daos_datatype_commit(void *_item,
 
         /* Allocate argument struct */
         if(NULL == (update_cb_ud = (H5_daos_md_rw_cb_ud_t *)DV_calloc(sizeof(H5_daos_md_rw_cb_ud_t))))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for update callback arguments")
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for update callback arguments");
 
         /* Encode datatype */
         if(H5Tencode(type_id, NULL, &type_size) < 0)
-            D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of datatype")
+            D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of datatype");
         if(NULL == (type_buf = DV_malloc(type_size)))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized datatype")
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized datatype");
         if(H5Tencode(type_id, type_buf, &type_size) < 0)
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTENCODE, NULL, "can't serialize datatype")
+            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTENCODE, NULL, "can't serialize datatype");
 
         /* Encode TCPL */
         if(H5Pencode2(tcpl_id, NULL, &tcpl_size, item->file->fapl_id) < 0)
-            D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of tcpl")
+            D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of tcpl");
         if(NULL == (tcpl_buf = DV_malloc(tcpl_size)))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized tcpl")
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized tcpl");
         if(H5Pencode2(tcpl_id, tcpl_buf, &tcpl_size, item->file->fapl_id) < 0)
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTENCODE, NULL, "can't serialize tcpl")
+            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTENCODE, NULL, "can't serialize tcpl");
 
         /* Set up operation to write datatype and TCPL to datatype */
         /* Point to datatype object */
@@ -642,11 +642,11 @@ H5_daos_datatype_commit(void *_item,
         /* Create task for datatype metadata write */
         assert(dep_task);
         if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_UPDATE, &item->file->sched, 1, &dep_task, &update_task)))
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't create task to write datatype medadata: %s", H5_daos_err_to_string(ret))
+            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't create task to write datatype medadata: %s", H5_daos_err_to_string(ret));
 
         /* Set callback functions for datatype metadata write */
         if(0 != (ret = tse_task_register_cbs(update_task, H5_daos_md_rw_prep_cb, NULL, 0, H5_daos_md_update_comp_cb, NULL, 0)))
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't register callbacks for task to write datatype medadata: %s", H5_daos_err_to_string(ret))
+            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't register callbacks for task to write datatype medadata: %s", H5_daos_err_to_string(ret));
 
         /* Set private data for datatype metadata write */
         (void)tse_task_set_priv(update_task, update_cb_ud);
@@ -654,7 +654,7 @@ H5_daos_datatype_commit(void *_item,
         /* Schedule datatype metadata write task and give it a reference to req
          * and the datatype */
         if(0 != (ret = tse_task_schedule(update_task, false)))
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't schedule task to write datatype metadata: %s", H5_daos_err_to_string(ret))
+            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't schedule task to write datatype metadata: %s", H5_daos_err_to_string(ret));
         int_req->rc++;
         dtype->obj.item.rc++;
         update_cb_ud = NULL;
@@ -674,7 +674,7 @@ H5_daos_datatype_commit(void *_item,
             link_val.target_oid_async = &dtype->obj.oid;
             if(H5_daos_link_write((H5_daos_group_t *)target_obj, target_name, target_name_len,
                     &link_val, int_req, &link_write_task, dep_task) < 0)
-                D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't create link to datatype")
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't create link to datatype");
             finalize_deps[finalize_ndeps] = link_write_task;
             finalize_ndeps++;
         } /* end if */
@@ -698,15 +698,15 @@ H5_daos_datatype_commit(void *_item,
 
     /* Finish setting up datatype struct */
     if((dtype->type_id = H5Tcopy(type_id)) < 0)
-        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTCOPY, NULL, "failed to copy datatype")
+        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTCOPY, NULL, "failed to copy datatype");
     if((dtype->tcpl_id = H5Pcopy(tcpl_id)) < 0)
-        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTCOPY, NULL, "failed to copy tcpl")
+        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTCOPY, NULL, "failed to copy tcpl");
     if((dtype->tapl_id = H5Pcopy(tapl_id)) < 0)
-        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTCOPY, NULL, "failed to copy tapl")
+        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTCOPY, NULL, "failed to copy tapl");
 
     /* Fill OCPL cache */
     if(H5_daos_fill_ocpl_cache(&dtype->obj, dtype->tcpl_id) < 0)
-        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "failed to fill OCPL cache")
+        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "failed to fill OCPL cache");
 
     /* Set return value */
     ret_value = (void *)dtype;
@@ -714,24 +714,24 @@ H5_daos_datatype_commit(void *_item,
 done:
     /* Close target object */
     if(target_obj && H5_daos_object_close(target_obj, dxpl_id, NULL) < 0)
-        D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, NULL, "can't close object")
+        D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, NULL, "can't close object");
 
     if(int_req) {
         tse_task_t *finalize_task;
 
         /* Free path_buf if necessary */
         if(path_buf && H5_daos_free_async(item->file, path_buf, &first_task, &dep_task) < 0)
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTFREE, NULL, "can't free path buffer")
+            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTFREE, NULL, "can't free path buffer");
 
         /* Create task to finalize H5 operation */
         if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &item->file->sched, int_req, &finalize_task)))
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
         /* Register dependencies (if any) */
         else if(finalize_ndeps > 0 && 0 != (ret = tse_task_register_deps(finalize_task, finalize_ndeps, finalize_deps)))
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
         /* Schedule finalize task */
         else if(0 != (ret = tse_task_schedule(finalize_task, false)))
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
         else
             /* finalize_task now owns a reference to req */
             int_req->rc++;
@@ -742,20 +742,20 @@ done:
 
         /* Schedule first task */
         if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret))
+            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
 
         /* Block until operation completes */
         /* Wait for scheduler to be empty */
         if(H5_daos_progress(&item->file->sched, H5_DAOS_PROGRESS_WAIT) < 0)
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't progress scheduler")
+            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't progress scheduler");
 
         /* Check for failure */
         if(int_req->status < 0)
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTOPERATE, NULL, "datatype creation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status))
+            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTOPERATE, NULL, "datatype creation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status));
 
         /* Close internal request */
         if(H5_daos_req_free_int(int_req) < 0)
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, NULL, "can't free request")
+            D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, NULL, "can't free request");
     } /* end if */
 
     /* Cleanup on failure */
@@ -763,11 +763,11 @@ done:
     if(NULL == ret_value) {
         /* Close datatype */
         if(dtype && H5_daos_datatype_close(dtype, dxpl_id, NULL) < 0)
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, NULL, "can't close datatype")
+            D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, NULL, "can't close datatype");
 
         /* Free memory */
         if(update_cb_ud && update_cb_ud->obj && H5_daos_object_close(update_cb_ud->obj, dxpl_id, NULL) < 0)
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, NULL, "can't close object")
+            D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, NULL, "can't close object");
         type_buf = DV_free(type_buf);
         tcpl_buf = DV_free(tcpl_buf);
         update_cb_ud = DV_free(update_cb_ud);
@@ -777,7 +777,7 @@ done:
     assert(!type_buf);
     assert(!tcpl_buf);
 
-    D_FUNC_LEAVE_API
+    D_FUNC_LEAVE_API;
 } /* end H5_daos_datatype_commit() */
 
 
@@ -823,9 +823,9 @@ H5_daos_datatype_open(void *_item,
     void *ret_value = NULL;
 
     if(!_item)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "datatype parent object is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "datatype parent object is NULL");
     if(!loc_params)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "location parameters object is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "location parameters object is NULL");
 
     /*
      * Like HDF5, metadata reads are independent by default. If the application has specifically
@@ -834,15 +834,15 @@ H5_daos_datatype_open(void *_item,
     collective = item->file->fapl_cache.is_collective_md_read;
     if(!collective && (H5P_DATATYPE_ACCESS_DEFAULT != tapl_id))
         if(H5Pget_all_coll_metadata_ops(tapl_id, &collective) < 0)
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, NULL, "can't get collective metadata reads property")
+            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, NULL, "can't get collective metadata reads property");
 
     /* Start H5 operation */
     if(NULL == (int_req = H5_daos_req_create(item->file, H5I_INVALID_HID)))
-        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTALLOC, NULL, "can't create DAOS request")
+        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTALLOC, NULL, "can't create DAOS request");
 
     /* Allocate the datatype object that is returned to the user */
     if(NULL == (dtype = H5FL_CALLOC(H5_daos_dtype_t)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate DAOS datatype struct")
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate DAOS datatype struct");
     dtype->obj.item.type = H5I_DATATYPE;
     dtype->obj.item.open_req = NULL;
     dtype->obj.item.file = item->file;
@@ -855,7 +855,7 @@ H5_daos_datatype_open(void *_item,
 #ifdef H5_DAOS_USE_TRANSACTIONS
     /* Start transaction */
     if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't start transaction")
+        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't start transaction");
     int_req->th_open = TRUE;
 #endif /* H5_DAOS_USE_TRANSACTIONS */
 
@@ -869,7 +869,7 @@ H5_daos_datatype_open(void *_item,
         if(H5VL_OBJECT_BY_TOKEN == loc_params->type) {
             /* Generate oid from token */
             if(H5_daos_token_to_oid(loc_params->loc_data.loc_by_token.token, &dtype->obj.oid) < 0)
-                D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't convert object token to OID")
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't convert object token to OID");
         } /* end if */
         else {
             const char *target_name = NULL;
@@ -878,24 +878,24 @@ H5_daos_datatype_open(void *_item,
 
             /* Open using name parameter */
             if(H5VL_OBJECT_BY_SELF != loc_params->type)
-                D_GOTO_ERROR(H5E_ARGS, H5E_UNSUPPORTED, NULL, "unsupported datatype open location parameters type")
+                D_GOTO_ERROR(H5E_ARGS, H5E_UNSUPPORTED, NULL, "unsupported datatype open location parameters type");
             if(!name)
-                D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "datatype name is NULL")
+                D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "datatype name is NULL");
 
             /* Traverse the path */
             if(NULL == (target_grp = (H5_daos_group_t *)H5_daos_group_traverse(item, name, H5P_LINK_CREATE_DEFAULT, int_req,
                     collective, &path_buf, &target_name, &target_name_len, &first_task, &dep_task)))
-                D_GOTO_ERROR(H5E_DATATYPE, H5E_BADITER, NULL, "can't traverse path")
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_BADITER, NULL, "can't traverse path");
 
             /* Reject no target_name, since target_grp is not a committed
              * datatype */
             if(target_name_len == 0)
-                D_GOTO_ERROR(H5E_DATATYPE, H5E_BADVALUE, NULL, "path given does not resolve to a final link name")
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_BADVALUE, NULL, "path given does not resolve to a final link name");
 
             /* Follow link to datatype */
             if(H5_daos_link_follow(target_grp, target_name, target_name_len, FALSE,
                     int_req, &oid_ptr, NULL, &first_task, &dep_task) < 0)
-                D_GOTO_ERROR(H5E_DATATYPE, H5E_TRAVERSE, NULL, "can't follow link to datatype")
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_TRAVERSE, NULL, "can't follow link to datatype");
 
             /* Retarget *oid_ptr so H5_daos_link_follow fills in the datatype's
              * oid */
@@ -904,18 +904,19 @@ H5_daos_datatype_open(void *_item,
             /* Wait until everything is complete then check for errors
              * (temporary code until the rest of this function is async) */
             if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
-                D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret))
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
             if(H5_daos_progress(&item->file->sched, H5_DAOS_PROGRESS_WAIT) < 0)
-                D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't progress scheduler")
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't progress scheduler");
             first_task = NULL;
             dep_task = NULL;
             if(int_req->status < -H5_DAOS_INCOMPLETE)
-                D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "asynchronous task failed")
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "asynchronous task failed");
+
         } /* end else */
 
         /* Open datatype */
         if(0 != (ret = daos_obj_open(item->file->coh, dtype->obj.oid, item->file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &dtype->obj.obj_oh, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTOPENOBJ, NULL, "can't open datatype: %s", H5_daos_err_to_string(ret))
+            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTOPENOBJ, NULL, "can't open datatype: %s", H5_daos_err_to_string(ret));
 
         /* Set up operation to read datatype and TCPL sizes from datatype */
         /* Set up dkey */
@@ -936,11 +937,11 @@ H5_daos_datatype_open(void *_item,
         /* Read internal metadata sizes from datatype */
         if(0 != (ret = daos_obj_fetch(dtype->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 2, iod, NULL,
                       NULL /*maps*/, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTDECODE, NULL, "can't read metadata sizes from datatype: %s", H5_daos_err_to_string(ret))
+            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTDECODE, NULL, "can't read metadata sizes from datatype: %s", H5_daos_err_to_string(ret));
 
         /* Check for metadata not found */
         if((iod[0].iod_size == (uint64_t)0) || (iod[1].iod_size == (uint64_t)0))
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_NOTFOUND, NULL, "internal metadata not found")
+            D_GOTO_ERROR(H5E_DATATYPE, H5E_NOTFOUND, NULL, "internal metadata not found");
 
         /* Compute datatype info buffer size */
         type_len = iod[0].iod_size;
@@ -950,7 +951,7 @@ H5_daos_datatype_open(void *_item,
         /* Allocate datatype info buffer if necessary */
         if((tot_len + (4 * sizeof(uint64_t))) > sizeof(tinfo_buf_static)) {
             if(NULL == (tinfo_buf_dyn = (uint8_t *)DV_malloc(tot_len + (4 * sizeof(uint64_t)))))
-                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate datatype info buffer")
+                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate datatype info buffer");
             tinfo_buf = tinfo_buf_dyn;
         } /* end if */
 
@@ -968,7 +969,7 @@ H5_daos_datatype_open(void *_item,
 
         /* Read internal metadata from datatype */
         if(0 != (ret = daos_obj_fetch(dtype->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 2, iod, sgl, NULL /*maps*/, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTDECODE, NULL, "can't read metadata from datatype: %s", H5_daos_err_to_string(ret))
+            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTDECODE, NULL, "can't read metadata from datatype: %s", H5_daos_err_to_string(ret));
 
         /* Broadcast datatype info if there are other processes that need it */
         if(collective && (item->file->num_procs > 1)) {
@@ -986,13 +987,13 @@ H5_daos_datatype_open(void *_item,
 
             /* MPI_Bcast dinfo_buf */
             if(MPI_SUCCESS != MPI_Bcast((char *)tinfo_buf, sizeof(tinfo_buf_static), MPI_BYTE, 0, item->file->comm))
-                D_GOTO_ERROR(H5E_DATATYPE, H5E_MPI, NULL, "can't broadcast datatype info")
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_MPI, NULL, "can't broadcast datatype info");
 
             /* Need a second bcast if it did not fit in the receivers' static
              * buffer */
             if(tot_len + (4 * sizeof(uint64_t)) > sizeof(tinfo_buf_static))
                 if(MPI_SUCCESS != MPI_Bcast((char *)p, (int)tot_len, MPI_BYTE, 0, item->file->comm))
-                    D_GOTO_ERROR(H5E_DATATYPE, H5E_MPI, NULL, "can't broadcast datatype info (second broadcast)")
+                    D_GOTO_ERROR(H5E_DATATYPE, H5E_MPI, NULL, "can't broadcast datatype info (second broadcast)");
         } /* end if */
         else
             p = tinfo_buf + (4 * sizeof(uint64_t));
@@ -1000,7 +1001,7 @@ H5_daos_datatype_open(void *_item,
     else {
         /* Receive datatype info */
         if(MPI_SUCCESS != MPI_Bcast((char *)tinfo_buf, sizeof(tinfo_buf_static), MPI_BYTE, 0, item->file->comm))
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_MPI, NULL, "can't receive broadcasted datatype info")
+            D_GOTO_ERROR(H5E_DATATYPE, H5E_MPI, NULL, "can't receive broadcasted datatype info");
 
         /* Decode oid */
         p = tinfo_buf_static;
@@ -1014,35 +1015,35 @@ H5_daos_datatype_open(void *_item,
 
         /* Check for type_len set to 0 - indicates failure */
         if(type_len == 0)
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "lead process failed to open datatype")
+            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "lead process failed to open datatype");
 
         /* Check if we need to perform another bcast */
         if(tot_len + (4 * sizeof(uint64_t)) > sizeof(tinfo_buf_static)) {
             /* Allocate a dynamic buffer if necessary */
             if(tot_len > sizeof(tinfo_buf_static)) {
                 if(NULL == (tinfo_buf_dyn = (uint8_t *)DV_malloc(tot_len)))
-                    D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate space for datatype info")
+                    D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate space for datatype info");
                 tinfo_buf = tinfo_buf_dyn;
             } /* end if */
 
             /* Receive datatype info */
             if(MPI_SUCCESS != MPI_Bcast((char *)tinfo_buf, (int)tot_len, MPI_BYTE, 0, item->file->comm))
-                D_GOTO_ERROR(H5E_DATATYPE, H5E_MPI, NULL, "can't receive broadcasted datatype info (second broadcast)")
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_MPI, NULL, "can't receive broadcasted datatype info (second broadcast)");
 
             p = tinfo_buf;
         } /* end if */
 
         /* Open datatype */
         if(0 != (ret = daos_obj_open(item->file->coh, dtype->obj.oid, item->file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &dtype->obj.obj_oh, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTOPENOBJ, NULL, "can't open datatype: %s", H5_daos_err_to_string(ret))
+            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTOPENOBJ, NULL, "can't open datatype: %s", H5_daos_err_to_string(ret));
     } /* end else */
 
     /* Decode datatype and TCPL */
     if((dtype->type_id = H5Tdecode(p)) < 0)
-        D_GOTO_ERROR(H5E_ARGS, H5E_CANTDECODE, NULL, "can't deserialize datatype")
+        D_GOTO_ERROR(H5E_ARGS, H5E_CANTDECODE, NULL, "can't deserialize datatype");
     p += type_len;
     if((dtype->tcpl_id = H5Pdecode(p)) < 0)
-        D_GOTO_ERROR(H5E_ARGS, H5E_CANTDECODE, NULL, "can't deserialize datatype creation property list")
+        D_GOTO_ERROR(H5E_ARGS, H5E_CANTDECODE, NULL, "can't deserialize datatype creation property list");
 
     /* Finish setting up datatype struct */
     if((dtype->tapl_id = H5Pcopy(tapl_id)) < 0)
@@ -1050,7 +1051,7 @@ H5_daos_datatype_open(void *_item,
 
     /* Fill OCPL cache */
     if(H5_daos_fill_ocpl_cache(&dtype->obj, dtype->tcpl_id) < 0)
-        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "failed to fill OCPL cache")
+        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "failed to fill OCPL cache");
 
     /* Set return value */
     ret_value = (void *)dtype;
@@ -1063,12 +1064,12 @@ done:
         if(must_bcast) {
             memset(tinfo_buf_static, 0, sizeof(tinfo_buf_static));
             if(MPI_SUCCESS != MPI_Bcast(tinfo_buf_static, sizeof(tinfo_buf_static), MPI_BYTE, 0, item->file->comm))
-                D_DONE_ERROR(H5E_DATATYPE, H5E_MPI, NULL, "can't broadcast empty datatype info")
+                D_DONE_ERROR(H5E_DATATYPE, H5E_MPI, NULL, "can't broadcast empty datatype info");
         } /* end if */
 
         /* Close datatype */
         if(dtype && H5_daos_datatype_close(dtype, dxpl_id, req) < 0)
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, NULL, "can't close datatype")
+            D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, NULL, "can't close datatype");
     } /* end if */
 
     if(int_req) {
@@ -1076,17 +1077,17 @@ done:
 
         /* Free path_buf if necessary */
         if(path_buf && H5_daos_free_async(item->file, path_buf, &first_task, &dep_task) < 0)
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTFREE, NULL, "can't free path buffer")
+            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTFREE, NULL, "can't free path buffer");
 
         /* Create task to finalize H5 operation */
         if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &item->file->sched, int_req, &finalize_task)))
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
         /* Register dependency (if any) */
         else if(dep_task && 0 != (ret = tse_task_register_deps(finalize_task, 1, &dep_task)))
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
         /* Schedule finalize task */
         else if(0 != (ret = tse_task_schedule(finalize_task, false)))
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret))
+            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
         else
             /* finalize_task now owns a reference to req */
             int_req->rc++;
@@ -1097,30 +1098,30 @@ done:
 
         /* Schedule first task */
         if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret))
+            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
 
         /* Block until operation completes */
         /* Wait for scheduler to be empty */
         if(H5_daos_progress(&item->file->sched, H5_DAOS_PROGRESS_WAIT) < 0)
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't progress scheduler")
+            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't progress scheduler");
 
         /* Check for failure */
         if(int_req->status < 0)
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTOPERATE, NULL, "group open failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status))
+            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTOPERATE, NULL, "group open failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status));
 
         /* Close internal request */
         if(H5_daos_req_free_int(int_req) < 0)
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, NULL, "can't free request")
+            D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, NULL, "can't free request");
     } /* end if */
 
     /* Close target group */
     if(target_grp && H5_daos_group_close(target_grp, dxpl_id, req) < 0)
-        D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, NULL, "can't close group")
+        D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, NULL, "can't close group");
 
     /* Free memory */
     tinfo_buf_dyn = (uint8_t *)DV_free(tinfo_buf_dyn);
 
-    D_FUNC_LEAVE_API
+    D_FUNC_LEAVE_API;
 } /* end H5_daos_datatype_open() */
 
 
@@ -1145,7 +1146,7 @@ H5_daos_datatype_get(void *_dtype, H5VL_datatype_get_t get_type,
     herr_t       ret_value = SUCCEED;    /* Return value */
 
     if(!_dtype)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
 
     switch (get_type) {
         case H5VL_DATATYPE_GET_BINARY:
@@ -1155,7 +1156,7 @@ H5_daos_datatype_get(void *_dtype, H5VL_datatype_get_t get_type,
                 size_t size = va_arg(arguments, size_t);
 
                 if(H5Tencode(dtype->type_id, buf, &size) < 0)
-                    D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "can't determine serialized length of datatype")
+                    D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "can't determine serialized length of datatype");
 
                 *nalloc = (ssize_t)size;
                 break;
@@ -1166,20 +1167,20 @@ H5_daos_datatype_get(void *_dtype, H5VL_datatype_get_t get_type,
 
                 /* Retrieve the datatype's creation property list */
                 if((*plist_id = H5Pcopy(dtype->tcpl_id)) < 0)
-                    D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't get dtype creation property list")
+                    D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't get dtype creation property list");
 
                 /* Set datatype's object class on tcpl */
                 if(H5_daos_set_oclass_from_oid(*plist_id, dtype->obj.oid) < 0)
-                    D_GOTO_ERROR(H5E_PLIST, H5E_CANTSET, FAIL, "can't set object class property")
+                    D_GOTO_ERROR(H5E_PLIST, H5E_CANTSET, FAIL, "can't set object class property");
 
                 break;
             } /* end block */
         default:
-            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "can't get this type of information from datatype")
+            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "can't get this type of information from datatype");
     } /* end switch */
 
 done:
-    D_FUNC_LEAVE_API
+    D_FUNC_LEAVE_API;
 } /* end H5_daos_datatype_get() */
 
 
@@ -1204,15 +1205,15 @@ H5_daos_datatype_specific(void *_item, H5VL_datatype_specific_t specific_type,
     herr_t           ret_value = SUCCEED;
 
     if(!_item)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
     if(H5I_DATATYPE != dtype->obj.item.type)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a datatype")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a datatype");
 
     switch (specific_type) {
         case H5VL_DATATYPE_FLUSH:
         {
             if(H5_daos_datatype_flush(dtype) < 0)
-                D_GOTO_ERROR(H5E_DATATYPE, H5E_WRITEERROR, FAIL, "can't flush datatype")
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_WRITEERROR, FAIL, "can't flush datatype");
 
             break;
         } /* H5VL_DATATYPE_FLUSH */
@@ -1220,16 +1221,16 @@ H5_daos_datatype_specific(void *_item, H5VL_datatype_specific_t specific_type,
         case H5VL_DATATYPE_REFRESH:
         {
             if(H5_daos_datatype_refresh(dtype, dxpl_id, req) < 0)
-                D_GOTO_ERROR(H5E_DATATYPE, H5E_READERROR, FAIL, "failed to refresh datatype")
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_READERROR, FAIL, "failed to refresh datatype");
 
             break;
         } /* H5VL_DATATYPE_REFRESH */
         default:
-            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported datatype specific operation")
+            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported datatype specific operation");
     } /* end switch */
 
 done:
-    D_FUNC_LEAVE_API
+    D_FUNC_LEAVE_API;
 } /* end H5_daos_datatype_specific() */
 
 
@@ -1255,27 +1256,27 @@ H5_daos_datatype_close(void *_dtype, hid_t H5VL_DAOS_UNUSED dxpl_id,
     herr_t ret_value = SUCCEED;
 
     if(!_dtype)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "datatype object is NULL")
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "datatype object is NULL");
 
     if(--dtype->obj.item.rc == 0) {
         /* Free datatype data structures */
         if(dtype->obj.item.open_req)
             if(H5_daos_req_free_int(dtype->obj.item.open_req) < 0)
-                D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, FAIL, "can't free request")
+                D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, FAIL, "can't free request");
         if(!daos_handle_is_inval(dtype->obj.obj_oh))
             if(0 != (ret = daos_obj_close(dtype->obj.obj_oh, NULL /*event*/)))
-                D_DONE_ERROR(H5E_DATATYPE, H5E_CANTCLOSEOBJ, FAIL, "can't close datatype DAOS object: %s", H5_daos_err_to_string(ret))
+                D_DONE_ERROR(H5E_DATATYPE, H5E_CANTCLOSEOBJ, FAIL, "can't close datatype DAOS object: %s", H5_daos_err_to_string(ret));
         if(dtype->type_id != FAIL && H5Idec_ref(dtype->type_id) < 0)
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTDEC, FAIL, "failed to close datatype")
+            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTDEC, FAIL, "failed to close datatype");
         if(dtype->tcpl_id != FAIL && H5Idec_ref(dtype->tcpl_id) < 0)
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTDEC, FAIL, "failed to close tcpl")
+            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTDEC, FAIL, "failed to close tcpl");
         if(dtype->tapl_id != FAIL && H5Idec_ref(dtype->tapl_id) < 0)
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTDEC, FAIL, "failed to close tapl")
+            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTDEC, FAIL, "failed to close tapl");
         dtype = H5FL_FREE(H5_daos_dtype_t, dtype);
     } /* end if */
 
 done:
-    D_FUNC_LEAVE_API
+    D_FUNC_LEAVE_API;
 } /* end H5_daos_datatype_close() */
 
 
@@ -1302,12 +1303,12 @@ H5_daos_datatype_flush(H5_daos_dtype_t *dtype)
 
     /* Nothing to do if no write intent */
     if(!(dtype->obj.item.file->flags & H5F_ACC_RDWR))
-        D_GOTO_DONE(SUCCEED)
+        D_GOTO_DONE(SUCCEED);
 
     /* Progress scheduler until empty? DSINC */
 
 done:
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_datatype_flush() */
 
 
@@ -1332,8 +1333,8 @@ H5_daos_datatype_refresh(H5_daos_dtype_t H5VL_DAOS_UNUSED *dtype, hid_t H5VL_DAO
 
     assert(dtype);
 
-    D_GOTO_DONE(SUCCEED)
+    D_GOTO_DONE(SUCCEED);
 
 done:
-    D_FUNC_LEAVE
+    D_FUNC_LEAVE;
 } /* end H5_daos_datatype_refresh() */

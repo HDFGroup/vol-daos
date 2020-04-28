@@ -247,10 +247,11 @@ H5_daos_tx_open_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         udata->req->status = task->dt_result;
         udata->req->failed_task = udata->task_name;
     } /* end if */
+    else if(task->dt_result == 0)
+        /* Transaction is open */
+        udata->req->th_open = TRUE;
 
-    /* Transaction is open */
-    udata->req->th_open = TRUE;
-
+done:
     /* Release our reference to req */
     if(H5_daos_req_free_int(udata->req) < 0)
         D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
@@ -258,7 +259,6 @@ H5_daos_tx_open_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     /* Free private data */
     DV_free(udata);
 
-done:
     D_FUNC_LEAVE;
 } /* end H5_daos_tx_open_comp_cb() */
 #endif /* H5_DAOS_USE_TRANSACTIONS */
@@ -428,6 +428,7 @@ H5_daos_excl_open_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     if(task->dt_result == 0)
         D_DONE_ERROR(H5E_FILE, H5E_FILEEXISTS, -H5_DAOS_FILE_EXISTS, "exclusive open failed: file already exists");
 
+done:
     /* Handle errors in this function */
     /* Do not place any code that can issue errors after this block, except for
      * H5_daos_req_free_int, which updates req->status if it sees an error */
@@ -443,7 +444,6 @@ H5_daos_excl_open_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     /* Free private data */
     DV_free(udata);
 
-done:
     D_FUNC_LEAVE;
 } /* end H5_daos_excl_open_comp_cb() */
 
@@ -485,6 +485,7 @@ H5_daos_cont_destroy_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         udata->req->failed_task = udata->task_name;
     } /* end if */
 
+done:
     /* Release our reference to req */
     if(H5_daos_req_free_int(udata->req) < 0)
         D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
@@ -492,7 +493,6 @@ H5_daos_cont_destroy_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     /* Free private data */
     DV_free(udata);
 
-done:
     D_FUNC_LEAVE;
 } /* end H5_daos_cont_destroy_comp_cb() */
 
@@ -697,7 +697,7 @@ H5_daos_gh_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         udata->req->status = task->dt_result;
         udata->req->failed_task = "MPI_Ibcast group info";
     } /* end if */
-    else {
+    else if(task->dt_result == 0) {
         if(udata->req->file->my_rank == 0) {
             /* Reissue bcast if necesary */
             if(udata->buffer_len != udata->count) {

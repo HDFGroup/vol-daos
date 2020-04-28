@@ -1872,43 +1872,46 @@ H5_daos_oidx_generate_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         udata->generic_ud.req->status = task->dt_result;
         udata->generic_ud.req->failed_task = udata->generic_ud.task_name;
     } /* end if */
+    else if(task->dt_result == 0) {
+        next_oidx = udata->next_oidx;
+        max_oidx = udata->max_oidx;
 
-    next_oidx = udata->next_oidx;
-    max_oidx = udata->max_oidx;
+        /* If H5_daos_oidx_generate was called independently, it is
+         * safe to update the file's max and next OIDX fields and
+         * allocate the next OIDX. Otherwise, this must be delayed
+         * until after the next OIDX value has been broadcasted to
+         * the other ranks.
+         */
+        if(!udata->collective || (udata->generic_ud.req->file->num_procs == 1)) {
+            /* Adjust the max and next OIDX values for the file on this process */
+            H5_DAOS_ADJUST_MAX_AND_NEXT_OIDX(next_oidx, max_oidx);
 
-    /* If H5_daos_oidx_generate was called independently, it is
-     * safe to update the file's max and next OIDX fields and
-     * allocate the next OIDX. Otherwise, this must be delayed
-     * until after the next OIDX value has been broadcasted to
-     * the other ranks.
-     */
-    if(!udata->collective || (udata->generic_ud.req->file->num_procs == 1)) {
-        /* Adjust the max and next OIDX values for the file on this process */
-        H5_DAOS_ADJUST_MAX_AND_NEXT_OIDX(next_oidx, max_oidx);
-
-        /* Allocate oidx from local allocation */
-        H5_DAOS_ALLOCATE_NEXT_OIDX(udata->oidx_out, next_oidx, max_oidx);
-    }
-
-    /* DSINC - H5_daos_file_close currently always tries to complete the task scheduler */
-    udata->generic_ud.req->file->item.rc--;
-
-    /* Handle errors in this function */
-    /* Do not place any code that can issue errors after this block, except for
-     * H5_daos_req_free_int, which updates req->status if it sees an error */
-    if(ret_value < 0 && udata->generic_ud.req->status >= -H5_DAOS_INCOMPLETE) {
-        udata->generic_ud.req->status = ret_value;
-        udata->generic_ud.req->failed_task = udata->generic_ud.task_name;
+            /* Allocate oidx from local allocation */
+            H5_DAOS_ALLOCATE_NEXT_OIDX(udata->oidx_out, next_oidx, max_oidx);
+        }
     } /* end if */
 
-    /* Release our reference to req */
-    if(H5_daos_req_free_int(udata->generic_ud.req) < 0)
-        D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
-
-    /* Free private data */
-    DV_free(udata);
-
 done:
+    if(udata) {
+        /* Release our reference on the file */
+        H5_daos_file_decref(udata->generic_ud.req->file);
+
+        /* Handle errors in this function */
+        /* Do not place any code that can issue errors after this block, except for
+         * H5_daos_req_free_int, which updates req->status if it sees an error */
+        if(ret_value < 0 && udata->generic_ud.req->status >= -H5_DAOS_INCOMPLETE) {
+            udata->generic_ud.req->status = ret_value;
+            udata->generic_ud.req->failed_task = udata->generic_ud.task_name;
+        } /* end if */
+
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(udata->generic_ud.req) < 0)
+            D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+        /* Free private data */
+        DV_free(udata);
+    } /* end if */
+
     D_FUNC_LEAVE;
 } /* end H5_daos_oidx_generate_comp_cb() */
 
@@ -2922,6 +2925,7 @@ H5_daos_generic_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         udata->req->failed_task = udata->task_name;
     } /* end if */
 
+done:
     /* Release our reference to req */
     if(H5_daos_req_free_int(udata->req) < 0)
         D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
@@ -2929,7 +2933,6 @@ H5_daos_generic_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     /* Free private data */
     DV_free(udata);
 
-done:
     D_FUNC_LEAVE;
 } /* end H5_daos_generic_comp_cb() */
 
@@ -3082,6 +3085,7 @@ H5_daos_md_update_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         udata->req->failed_task = udata->task_name;
     } /* end if */
 
+done:
     /* Close object */
     if(H5_daos_object_close(udata->obj, H5I_INVALID_HID, NULL) < 0)
         D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
@@ -3108,7 +3112,6 @@ H5_daos_md_update_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         DV_free(udata->sg_iov[i].iov_buf);
     DV_free(udata);
 
-done:
     D_FUNC_LEAVE;
 } /* end H5_daos_md_update_comp_cb() */
 

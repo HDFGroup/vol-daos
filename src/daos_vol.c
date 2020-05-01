@@ -1208,7 +1208,7 @@ H5_daos_pool_create(uuid_t uuid, const char **pool_grp, d_rank_list_t **svcl)
     *svcl = &H5_daos_pool_svcl_g;
 
 done:
-    D_FUNC_LEAVE_API;
+    D_FUNC_LEAVE;
 }
 
 
@@ -1237,7 +1237,7 @@ H5_daos_pool_destroy(uuid_t uuid)
     H5_daos_pool_svcl_g.rl_nr = 0;
 
 done:
-    D_FUNC_LEAVE_API;
+    D_FUNC_LEAVE;
 }
 
 
@@ -1310,7 +1310,7 @@ H5_daos_pool_connect(void)
 done:
     if(svcl_str && svcl)
         daos_rank_list_free(svcl);
-    D_FUNC_LEAVE_API;
+    D_FUNC_LEAVE;
 } /* end H5_daos_pool_connect() */
 
 
@@ -1353,7 +1353,7 @@ H5_daos_pool_disconnect(void)
     }
 
 done:
-    D_FUNC_LEAVE_API;
+    D_FUNC_LEAVE;
 } /* end H5_daos_pool_disconnect() */
 
 
@@ -1425,7 +1425,7 @@ H5_daos_pool_handle_bcast(int rank)
 done:
     DV_free(glob.iov_buf);
 
-    D_FUNC_LEAVE_API;
+    D_FUNC_LEAVE;
 } /* end H5_daos_pool_handle_bcast() */
 
 
@@ -1947,18 +1947,12 @@ H5_daos_oidx_bcast(H5_daos_file_t *file, uint64_t *oidx_out,
     oidx_bcast_udata->bcast_udata.req = req;
     oidx_bcast_udata->bcast_udata.obj = NULL;
     oidx_bcast_udata->bcast_udata.bcast_metatask = NULL;
-    oidx_bcast_udata->bcast_udata.buffer = NULL;
-    oidx_bcast_udata->bcast_udata.buffer_len = 0;
-    oidx_bcast_udata->bcast_udata.count = 0;
+    oidx_bcast_udata->bcast_udata.buffer = oidx_bcast_udata->next_oidx_buf;
+    oidx_bcast_udata->bcast_udata.buffer_len = H5_DAOS_ENCODED_UINT64_T_SIZE;
+    oidx_bcast_udata->bcast_udata.count = H5_DAOS_ENCODED_UINT64_T_SIZE;
     oidx_bcast_udata->oidx_out = oidx_out;
     oidx_bcast_udata->next_oidx = &file->next_oidx_collective;
     oidx_bcast_udata->max_oidx = &file->max_oidx_collective;
-
-    /* Allocate oidx buffer */
-    if(NULL == (oidx_bcast_udata->bcast_udata.buffer = DV_malloc(H5_DAOS_ENCODED_UINT64_T_SIZE)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for next object index");
-    oidx_bcast_udata->bcast_udata.buffer_len = H5_DAOS_ENCODED_UINT64_T_SIZE;
-    oidx_bcast_udata->bcast_udata.count = H5_DAOS_ENCODED_UINT64_T_SIZE;
 
     /* Create task for broadcast */
     if(0 != (ret = tse_task_create(H5_daos_mpi_ibcast_task, &file->sched, oidx_bcast_udata, &bcast_task)))
@@ -1994,7 +1988,6 @@ done:
     /* Cleanup on failure */
     if(oidx_bcast_udata) {
         assert(ret_value < 0);
-        DV_free(oidx_bcast_udata->bcast_udata.buffer);
         oidx_bcast_udata = DV_free(oidx_bcast_udata);
     } /* end if */
 
@@ -2095,7 +2088,7 @@ H5_daos_oidx_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         udata->bcast_udata.req->status = task->dt_result;
         udata->bcast_udata.req->failed_task = "MPI_Ibcast next object index";
     } /* end if */
-    else {
+    else if(task->dt_result == 0) {
         next_oidx = udata->next_oidx;
         max_oidx = udata->max_oidx;
 
@@ -2123,15 +2116,11 @@ done:
             udata->bcast_udata.req->failed_task = "MPI_Ibcast next object index completion callback";
         } /* end if */
 
-        /* DSINC - H5_daos_file_close currently always tries to complete the task scheduler */
-        udata->bcast_udata.req->file->item.rc--;
+        H5_daos_file_decref(udata->bcast_udata.req->file);
 
         /* Release our reference to req */
         if(H5_daos_req_free_int(udata->bcast_udata.req) < 0)
             D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
-
-        /* Free buffer */
-        DV_free(udata->bcast_udata.buffer);
 
         /* Free private data */
         DV_free(udata);
@@ -2248,7 +2237,7 @@ H5_daos_oid_encode_task(tse_task_t *task)
 
     /* Check for previous errors */
     if(udata->req->status < -H5_DAOS_INCOMPLETE)
-        D_GOTO_DONE(H5_DAOS_PRE_ERROR);
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
 
     if(H5_daos_oid_encode(udata->oid_out, udata->oidx, udata->obj_type,
             udata->crt_plist_id, udata->oclass_prop_name, udata->req->file) < 0)
@@ -2261,8 +2250,7 @@ done:
             if(H5Idec_ref(udata->crt_plist_id) < 0)
                 D_DONE_ERROR(H5E_PLIST, H5E_CANTDEC, -H5_DAOS_H5_CLOSE_ERROR, "can't decrement ref. count on creation plist");
 
-        /* DSINC - H5_daos_file_close currently always tries to complete the task scheduler */
-        udata->req->file->item.rc--;
+        H5_daos_file_decref(udata->req->file);
 
         /* Handle errors in this function */
         /* Do not place any code that can issue errors after this block, except for
@@ -2879,7 +2867,7 @@ H5_daos_generic_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     if(udata->req->status < -H5_DAOS_INCOMPLETE) {
         tse_task_complete(task, -H5_DAOS_PRE_ERROR);
         udata = NULL;
-        D_GOTO_DONE(H5_DAOS_PRE_ERROR);
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
     } /* end if */
 
 done:
@@ -2975,7 +2963,7 @@ H5_daos_obj_open_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     if(udata->generic_ud.req->status < -H5_DAOS_INCOMPLETE) {
         tse_task_complete(task, -H5_DAOS_PRE_ERROR);
         udata = NULL;
-        D_GOTO_DONE(H5_DAOS_PRE_ERROR);
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
     } /* end if */
 
     /* Set container open handle and oid in args */
@@ -3027,7 +3015,7 @@ H5_daos_md_rw_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     if(udata->req->status < -H5_DAOS_INCOMPLETE) {
         tse_task_complete(task, -H5_DAOS_PRE_ERROR);
         udata = NULL;
-        D_GOTO_DONE(H5_DAOS_PRE_ERROR);
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
     } /* end if */
 
     /* Set update task arguments */
@@ -3259,6 +3247,111 @@ done:
 
     D_FUNC_LEAVE;
 } /* end H5_daos_obj_open() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_mpi_ibcast
+ *
+ * Purpose:     Creates an asynchronous task for broadcasting a buffer.
+ *              `_bcast_udata` may be NULL, in which case this routine will
+ *              allocate a broadcast udata struct and assume an empty
+ *              buffer is to be sent to trigger a failure on other
+ *              processes. If `empty` is TRUE, the buffer will be memset
+ *              with 0.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_mpi_ibcast(H5_daos_mpi_ibcast_ud_t *_bcast_udata, H5_daos_obj_t *obj,
+    size_t buffer_size, hbool_t empty, tse_task_cb_t bcast_prep_cb, tse_task_cb_t bcast_comp_cb,
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
+{
+    H5_daos_mpi_ibcast_ud_t *bcast_udata = _bcast_udata;
+    H5_daos_item_t *item = (H5_daos_item_t *)obj;
+    tse_task_t *bcast_task;
+    int ret;
+    herr_t ret_value = SUCCEED;
+
+    assert(obj);
+    assert(req);
+    assert(first_task);
+    assert(dep_task);
+
+    /* Allocate bcast_udata if necessary */
+    if(!bcast_udata) {
+        if(NULL == (bcast_udata = (H5_daos_mpi_ibcast_ud_t *)DV_calloc(sizeof(H5_daos_mpi_ibcast_ud_t))))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "failed to allocate buffer for MPI broadcast user data");
+        bcast_udata->req = req;
+        bcast_udata->obj = obj;
+    } /* end if */
+
+    /* Allocate bcast_udata's buffer if necessary */
+    if(!bcast_udata->buffer) {
+        if(NULL == (bcast_udata->buffer = DV_calloc(buffer_size)))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "failed to allocate MPI broadcast buffer");
+        bcast_udata->buffer_len = (int)buffer_size;
+        bcast_udata->count = (int)buffer_size;
+    } /* end if */
+    else {
+        assert(bcast_udata->buffer_len == (int)buffer_size);
+        assert(bcast_udata->count == (int)buffer_size);
+        if(empty)
+            memset(bcast_udata->buffer, 0, buffer_size);
+    } /* end else */
+
+    /* Create meta task for bcast.  This empty task will be completed when
+     * the bcast is finished by the completion callback. We can't use
+     * bcast_task since it may not be completed after the first bcast. */
+    if(0 != (ret = tse_task_create(NULL, &item->file->sched, NULL, &bcast_udata->bcast_metatask)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create meta task for empty buffer broadcast: %s", H5_daos_err_to_string(ret));
+
+    /* Create task for bcast */
+    if(0 != (ret = tse_task_create(H5_daos_mpi_ibcast_task, &item->file->sched, bcast_udata, &bcast_task)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create task to broadcast empty buffer: %s", H5_daos_err_to_string(ret));
+
+    /* Register task dependency if present */
+    if(*dep_task && 0 != (ret = tse_task_register_deps(bcast_task, 1, dep_task)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create dependencies for empty buffer broadcast task: %s", H5_daos_err_to_string(ret));
+
+    /* Set callback functions for bcast */
+    if(0 != (ret = tse_task_register_cbs(bcast_task, bcast_prep_cb, NULL, 0, bcast_comp_cb, NULL, 0)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't register callbacks for empty buffer broadcast: %s", H5_daos_err_to_string(ret));
+
+    /* Schedule meta task */
+    if(0 != (ret = tse_task_schedule(bcast_udata->bcast_metatask, false)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't schedule meta task for empty buffer broadcast: %s", H5_daos_err_to_string(ret));
+
+    /* Schedule bcast task and transfer ownership of bcast_udata */
+    if(*first_task) {
+        if(0 != (ret = tse_task_schedule(bcast_task, false)))
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't schedule task for empty buffer broadcast: %s", H5_daos_err_to_string(ret));
+        else {
+            req->rc++;
+            item->rc++;
+            *dep_task = bcast_udata->bcast_metatask;
+            bcast_udata = NULL;
+        } /* end else */
+    } /* end if */
+    else {
+        *first_task = bcast_task;
+        req->rc++;
+        item->rc++;
+        *dep_task = bcast_udata->bcast_metatask;
+        bcast_udata = NULL;
+    } /* end else */
+
+done:
+    /* Cleanup on failure */
+    if(bcast_udata) {
+        DV_free(bcast_udata->buffer);
+        DV_free(bcast_udata);
+    } /* end if */
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_mpi_ibcast() */
 
 
 /*-------------------------------------------------------------------------

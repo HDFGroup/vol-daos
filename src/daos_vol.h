@@ -73,8 +73,9 @@ typedef d_sg_list_t daos_sg_list_t;
 #define H5_DAOS_TYPE_BUF_SIZE 1024
 #define H5_DAOS_SPACE_BUF_SIZE 512
 #define H5_DAOS_DCPL_BUF_SIZE 1024
+#define H5_DAOS_TCPL_BUF_SIZE 1024
+#define H5_DAOS_MCPL_BUF_SIZE 1024
 #define H5_DAOS_FILL_VAL_BUF_SIZE 1024
-#define H5_DAOS_TINFO_BUF_SIZE 1024
 #define H5_DAOS_SEQ_LIST_LEN 128
 #define H5_DAOS_ITER_LEN 128
 #define H5_DAOS_ITER_SIZE_INIT (4 * 1024)
@@ -480,6 +481,7 @@ typedef struct H5_daos_oidx_generate_ud_t {
  */
 typedef struct H5_daos_oidx_bcast_ud_t {
     H5_daos_mpi_ibcast_ud_t bcast_udata; /* Must be first */
+    uint8_t next_oidx_buf[H5_DAOS_ENCODED_UINT64_T_SIZE];
     uint64_t *oidx_out;
     uint64_t *next_oidx;
     uint64_t *max_oidx;
@@ -804,6 +806,8 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_dataset_specific(void *_item, H5VL_dataset_spec
 H5VL_DAOS_PRIVATE herr_t H5_daos_dataset_close(void *_dset, hid_t dxpl_id, void **req);
 
 /* Other dataset routines */
+H5VL_DAOS_PRIVATE H5_daos_dset_t *H5_daos_dataset_open_helper(H5_daos_file_t *file, hid_t dapl_id,
+    hbool_t collective, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE herr_t H5_daos_dataset_refresh(H5_daos_dset_t *dset,
     hid_t dxpl_id, H5_daos_req_t *req, tse_task_t **first_task,
     tse_task_t **dep_task);
@@ -822,6 +826,8 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_datatype_specific(void *_item, H5VL_datatype_sp
 H5VL_DAOS_PRIVATE herr_t H5_daos_datatype_close(void *_dtype, hid_t dxpl_id, void **req);
 
 /* Other datatype routines */
+H5VL_DAOS_PRIVATE H5_daos_dtype_t *H5_daos_datatype_open_helper(H5_daos_file_t *file,
+    hid_t tapl_id, hbool_t collective, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE htri_t H5_daos_detect_vl_vlstr_ref(hid_t type_id);
 H5VL_DAOS_PRIVATE htri_t H5_daos_need_tconv(hid_t src_type_id, hid_t dst_type_id);
 H5VL_DAOS_PRIVATE herr_t H5_daos_tconv_init(hid_t src_type_id, size_t *src_type_size,
@@ -835,8 +841,8 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_datatype_flush(H5_daos_dtype_t *dtype);
 /* Object callbacks */
 H5VL_DAOS_PRIVATE void *H5_daos_object_open(void *_item, const H5VL_loc_params_t *loc_params,
     H5I_type_t *opened_type, hid_t dxpl_id, void **req);
-H5VL_DAOS_PRIVATE herr_t H5_daos_object_copy(void *src_obj, const H5VL_loc_params_t *loc_params1,
-    const char *src_name, void *dst_obj, const H5VL_loc_params_t *loc_params2,
+H5VL_DAOS_PRIVATE herr_t H5_daos_object_copy(void *src_loc_obj, const H5VL_loc_params_t *loc_params1,
+    const char *src_name, void *dst_loc_obj, const H5VL_loc_params_t *loc_params2,
     const char *dst_name, hid_t ocpypl_id, hid_t lcpl_id, hid_t dxpl_id, void **req);
 H5VL_DAOS_PRIVATE herr_t H5_daos_object_get(void *_item, const H5VL_loc_params_t *loc_params,
     H5VL_object_get_t get_type, hid_t dxpl_id, void **req, va_list arguments);
@@ -844,6 +850,9 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_object_specific(void *_item, const H5VL_loc_par
     H5VL_object_specific_t specific_type, hid_t dxpl_id, void **req, va_list arguments);
 
 /* Other object routines */
+H5VL_DAOS_PRIVATE herr_t H5_daos_object_open_helper(void *_item, const H5VL_loc_params_t *loc_params,
+    H5I_type_t *opened_type, hbool_t collective, H5_daos_obj_t **ret_obj,
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE herr_t H5_daos_object_visit(H5_daos_obj_t *target_obj, H5_daos_iter_data_t *obj_iter_data);
 H5VL_DAOS_PRIVATE herr_t H5_daos_object_close(void *_obj, hid_t dxpl_id, void **req);
 H5VL_DAOS_PRIVATE herr_t H5_daos_fill_ocpl_cache(H5_daos_obj_t *obj, hid_t ocpl_id);
@@ -902,6 +911,10 @@ H5PLUGIN_DLL herr_t H5_daos_map_get_count(void *_map, hsize_t *count, void **req
 H5VL_DAOS_PRIVATE herr_t H5_daos_map_close(void *_map, hid_t dxpl_id,
     void **req);
 
+/* Other map routines */
+H5VL_DAOS_PRIVATE H5_daos_map_t *H5_daos_map_open_helper(H5_daos_file_t *file,
+    hid_t mapl_id, hbool_t collective, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
+
 /* Blob callbacks */
 H5VL_DAOS_PRIVATE herr_t H5_daos_blob_put(void *_file, const void *buf,
     size_t size, void *blob_id, void *_ctx);
@@ -921,6 +934,9 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_req_free_int(H5_daos_req_t *req);
 /* Generic Asynchronous routines */
 H5VL_DAOS_PRIVATE herr_t H5_daos_progress(tse_sched_t *sched,
     H5_daos_progress_mode_t mode);
+H5VL_DAOS_PRIVATE herr_t H5_daos_mpi_ibcast(H5_daos_mpi_ibcast_ud_t *_bcast_udata, H5_daos_obj_t *obj,
+    size_t buffer_size, hbool_t empty, tse_task_cb_t bcast_prep_cb, tse_task_cb_t bcast_comp_cb,
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 
 /* Asynchronous task routines */
 H5VL_DAOS_PRIVATE int H5_daos_h5op_finalize(tse_task_t *task);

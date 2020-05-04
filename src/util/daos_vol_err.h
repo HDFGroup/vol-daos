@@ -50,6 +50,7 @@ extern hid_t dv_async_err_g;
 typedef enum {
     H5_DAOS_INCOMPLETE = 1,     /* Operation has not yet completed (should only be in the item struct) (must be first) */
     H5_DAOS_PRE_ERROR,          /* A precursor to this task failed (should only be used as the task return value) (must be second) */
+    H5_DAOS_CANCELED,           /* Operation canceled by application */
     H5_DAOS_H5_CLOSE_ERROR,     /* Failed to close HDF5 object */
     H5_DAOS_H5_ENCODE_ERROR,    /* Failed to encode HDF5 object */
     H5_DAOS_H5_DECODE_ERROR,    /* Failed to decode HDF5 object */
@@ -68,6 +69,7 @@ typedef enum {
     H5_DAOS_NONEXIST_LINK,      /* Link does not exist */
     H5_DAOS_TRAVERSE_ERROR,     /* Failed to traverse path */
     H5_DAOS_FOLLOW_ERROR,       /* Failed to follow link */
+    H5_DAOS_CALLBACK_ERROR,     /* Callback function returned failure */
     H5_DAOS_PROGRESS_ERROR,     /* Failed to progress scheduler */
     H5_DAOS_SETUP_ERROR,        /* Error during operation setup */
     H5_DAOS_FILE_EXISTS,        /* File already exists */

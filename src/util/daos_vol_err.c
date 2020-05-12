@@ -45,6 +45,8 @@ H5_daos_err_to_string(int ret)
             return "failed to decode HDF5 object (H5_DAOS_H5_DECODE_ERROR)";
         case -H5_DAOS_H5_CREATE_ERROR:
             return "failed to create HDF5 object (H5_DAOS_H5_CREATE_ERROR)";
+        case -H5_DAOS_H5_DESTROY_ERROR:
+            return "failed to destroy HDF5 object (H5_DAOS_H5_DESTROY_ERROR)";
         case -H5_DAOS_H5_TCONV_ERROR:
             return "HDF5 type conversion failed (H5_DAOS_H5_TCONV_ERROR)";
         case -H5_DAOS_H5_COPY_ERROR:

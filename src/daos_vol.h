@@ -27,6 +27,7 @@
 #include <daos.h>
 #include <daos_task.h>
 #include <daos/tse.h>
+#include <daos_uns.h>
 
 /* System headers */
 #include <assert.h>
@@ -300,6 +301,7 @@ typedef struct H5_daos_fapl_cache_t {
 typedef struct H5_daos_file_t {
     H5_daos_item_t item; /* Must be first */
     daos_handle_t coh;
+    daos_handle_t container_poh;
     crt_context_t crt_ctx;
     tse_sched_t sched;
     char *file_name;
@@ -680,6 +682,9 @@ extern "C" {
 #endif
 
 /* General routines */
+H5VL_DAOS_PRIVATE herr_t H5_daos_pool_connect(const uuid_t pool_uuid,
+    char *pool_grp, d_rank_list_t *svcl, unsigned int flags,
+    daos_handle_t *poh_out, daos_pool_info_t *pool_info_out);
 H5VL_DAOS_PRIVATE herr_t H5_daos_set_oclass_from_oid(hid_t plist_id,
     daos_obj_id_t oid);
 H5VL_DAOS_PRIVATE herr_t H5_daos_oidx_generate(uint64_t *oidx,

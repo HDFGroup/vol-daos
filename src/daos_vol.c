@@ -86,9 +86,9 @@ static herr_t H5_daos_init(hid_t vipl_id);
 static herr_t H5_daos_term(void);
 static herr_t H5_daos_pool_create(uuid_t uuid, const char **pool_grp, d_rank_list_t **svcl);
 static herr_t H5_daos_pool_destroy(uuid_t uuid);
-static herr_t H5_daos_pool_connect(void);
-static herr_t H5_daos_pool_disconnect(void);
-static herr_t H5_daos_pool_handle_bcast(int rank);
+static herr_t H5_daos_pool_connect_global(void);
+static herr_t H5_daos_pool_disconnect_global(void);
+static herr_t H5_daos_pool_handle_bcast_global(int rank);
 static void *H5_daos_fapl_copy(const void *_old_fa);
 static herr_t H5_daos_fapl_free(void *_fa);
 static herr_t H5_daos_get_conn_cls(void *item, H5VL_get_conn_lvl_t lvl,
@@ -1105,11 +1105,11 @@ H5_daos_init(hid_t H5VL_DAOS_UNUSED vipl_id)
     }
 
     /* First connect to the pool */
-    if((pool_rank == 0) && H5_daos_pool_connect() < 0)
+    if((pool_rank == 0) && H5_daos_pool_connect_global() < 0)
         D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't connect to DAOS pool");
 
     /* Broadcast pool handle to other procs if any */
-    if((pool_num_procs > 1) && (H5_daos_pool_handle_bcast(pool_rank) < 0))
+    if((pool_num_procs > 1) && (H5_daos_pool_handle_bcast_global(pool_rank) < 0))
         D_GOTO_ERROR(H5E_VOL, H5E_CANTSET, FAIL, "can't broadcast DAOS pool handle");
 
     /* Initialized */
@@ -1145,9 +1145,9 @@ H5_daos_term(void)
     if(!H5_daos_initialized_g)
         D_GOTO_DONE(ret_value);
 
-    /* Disconnect from pool */
-    if(H5_daos_pool_disconnect() < 0)
-        D_GOTO_ERROR(H5E_VOL, H5E_CLOSEERROR, FAIL, "can't disconnect from DAOS pool");
+    /* Disconnect from global pool */
+    if(H5_daos_pool_disconnect_global() < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CLOSEERROR, FAIL, "can't disconnect from global DAOS pool");
 
     /* Terminate DAOS */
     if(daos_fini() < 0)
@@ -1244,14 +1244,78 @@ done:
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_pool_connect
  *
- * Purpose:     Connect to the pool.
+ * Purpose:     Connect to the specified pool.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_pool_connect(const uuid_t pool_uuid, char *pool_grp, d_rank_list_t *svcl,
+    unsigned int flags, daos_handle_t *poh_out, daos_pool_info_t *pool_info_out)
+{
+    hbool_t rank_list_parsed = FALSE;
+    int ret;
+    herr_t ret_value = SUCCEED;
+
+    assert(poh_out);
+
+    if(uuid_is_null(pool_uuid))
+        D_GOTO_ERROR(H5E_VOL, H5E_BADVALUE, FAIL, "pool UUID is NULL");
+
+    /* If necessary, set pool group to be used */
+    if(!pool_grp) {
+        if(H5_daos_pool_globals_set_g)
+            pool_grp = H5_daos_pool_grp_g;
+        else
+            pool_grp = DAOS_DEFAULT_GROUP_ID; /* Attempt to use default group */
+    } /* end if */
+
+    /* Set pool service replica rank list */
+    if(!svcl) {
+        char *svcl_str = NULL;
+
+        if(NULL != (svcl_str = getenv("DAOS_SVCL"))) {
+            if(NULL == (svcl = daos_rank_list_parse(svcl_str, ":")))
+                D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "failed to parse SVC list from environment");
+            rank_list_parsed = TRUE;
+        } /* end if */
+        else if(H5_daos_pool_globals_set_g)
+            svcl = &H5_daos_pool_svcl_g;
+    } /* end if */
+
+    if(svcl->rl_nr == 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_BADVALUE, FAIL, "service rank number cannot be 0");
+
+#ifdef DV_PLUGIN_DEBUG
+    H5_DAOS_PRINT_UUID(pool_uuid);
+#endif
+
+    /* Connect to the pool */
+    if(0 != (ret = daos_pool_connect(pool_uuid, pool_grp, svcl, flags,
+            poh_out, pool_info_out, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't connect to pool: %s", H5_daos_err_to_string(ret));
+
+done:
+    if(rank_list_parsed && svcl)
+        daos_rank_list_free(svcl);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_pool_connect() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_pool_connect_global
+ *
+ * Purpose:     Connect to the pool that is globally used within the
+ *              connector.
  *
  * Return:      Non-negative on success/Negative on failure
  *
  *-------------------------------------------------------------------------
  */
 static herr_t
-H5_daos_pool_connect(void)
+H5_daos_pool_connect_global(void)
 {
     char *uuid_str = NULL;
     uuid_t pool_uuid;
@@ -1259,16 +1323,13 @@ H5_daos_pool_connect(void)
     char *svcl_str = NULL;
     d_rank_list_t *svcl = NULL;
     daos_pool_info_t pool_info;
-    int ret;
     herr_t ret_value = SUCCEED;            /* Return value */
 
     /* Retrieve pool UUID */
     if(NULL != (uuid_str = getenv("DAOS_POOL"))) {
         if(uuid_parse(uuid_str, pool_uuid) < 0)
             D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "failed to parse pool UUID from environment");
-#ifdef DV_PLUGIN_DEBUG
-        printf("POOL UUID = %s\n", uuid_str);
-#endif
+
         /* Must also retrieve pool service replica ranks */
         if(NULL == (svcl_str = getenv("DAOS_SVCL")))
             D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "DAOS_SVCL must be set to pool service replica rank list");
@@ -1276,16 +1337,13 @@ H5_daos_pool_connect(void)
         /* Parse rank list */
         if(NULL == (svcl = daos_rank_list_parse(svcl_str, ":")))
             D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "failed to parse SVC list from environment");
-    #ifdef DV_PLUGIN_DEBUG
+#ifdef DV_PLUGIN_DEBUG
         printf("SVC LIST = %s\n", svcl_str);
-    #endif
+#endif
     } else if (H5_daos_pool_globals_set_g) {
         memcpy(pool_uuid, H5_daos_pool_uuid_g, sizeof(uuid_t));
         pool_grp = H5_daos_pool_grp_g;
         svcl = &H5_daos_pool_svcl_g;
-#ifdef DV_PLUGIN_DEBUG
-        H5_DAOS_PRINT_UUID(pool_uuid);
-#endif
     } else {
         /* If neither the pool environment variable nor the pool UUID have been
          * explicitly set, attempt to create a default pool.
@@ -1294,37 +1352,32 @@ H5_daos_pool_connect(void)
             D_GOTO_ERROR(H5E_VOL, H5E_CANTCREATE, FAIL, "failed to create pool");
         H5_daos_pool_is_mine_g = TRUE;
         H5_daos_pool_globals_set_g = TRUE;
-#ifdef DV_PLUGIN_DEBUG
-        H5_DAOS_PRINT_UUID(pool_uuid);
-#endif
     }
-    if(!pool_grp)
-        pool_grp = DAOS_DEFAULT_GROUP_ID; /* Attempt to use default group */
-    if(svcl->rl_nr == 0)
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "service rank number cannot be null");
 
     /* Connect to the pool */
-    if(0 != (ret = daos_pool_connect(pool_uuid, pool_grp, svcl, DAOS_PC_RW, &H5_daos_poh_g, &pool_info, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't connect to pool: %s", H5_daos_err_to_string(ret));
+    if(H5_daos_pool_connect(pool_uuid, pool_grp, svcl,
+            DAOS_PC_RW, &H5_daos_poh_g, &pool_info) < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "failed to connect to global pool");
 
 done:
     if(svcl_str && svcl)
         daos_rank_list_free(svcl);
     D_FUNC_LEAVE_API;
-} /* end H5_daos_pool_connect() */
+} /* end H5_daos_pool_connect_global() */
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_pool_disconnect
+ * Function:    H5_daos_pool_disconnect_global
  *
- * Purpose:     Disconnect from the pool.
+ * Purpose:     Disconnect from the pool that is globally used within the
+ *              connector.
  *
  * Return:      Non-negative on success/Negative on failure
  *
  *-------------------------------------------------------------------------
  */
 static herr_t
-H5_daos_pool_disconnect(void)
+H5_daos_pool_disconnect_global(void)
 {
     hbool_t destroy_pool = FALSE; /* DSINC Do not attempt to destroy pool for now */
     int ret;
@@ -1354,20 +1407,21 @@ H5_daos_pool_disconnect(void)
 
 done:
     D_FUNC_LEAVE_API;
-} /* end H5_daos_pool_disconnect() */
+} /* end H5_daos_pool_disconnect_global() */
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_pool_handle_bcast
+ * Function:    H5_daos_pool_handle_bcast_global
  *
- * Purpose:     Broadcast the pool handle.
+ * Purpose:     Broadcasts the pool handle of the pool that is globally
+ *              used within the connector.
  *
  * Return:      Non-negative on success/Negative on failure
  *
  *-------------------------------------------------------------------------
  */
 static herr_t
-H5_daos_pool_handle_bcast(int rank)
+H5_daos_pool_handle_bcast_global(int rank)
 {
     daos_iov_t glob = {.iov_buf = NULL, .iov_buf_len = 0, .iov_len = 0};
     herr_t ret_value = SUCCEED; /* Return value */
@@ -1426,7 +1480,7 @@ done:
     DV_free(glob.iov_buf);
 
     D_FUNC_LEAVE_API;
-} /* end H5_daos_pool_handle_bcast() */
+} /* end H5_daos_pool_handle_bcast_global() */
 
 
 /*-------------------------------------------------------------------------

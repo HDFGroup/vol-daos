@@ -766,6 +766,10 @@ done:
             D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, NULL, "can't free request");
     } /* end if */
 
+    /* Close temporary DCPL */
+    if(tmp_dcpl_id >= 0 && H5Pclose(tmp_dcpl_id) < 0)
+        D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, NULL, "can't close temporary DCPL");
+
     /* Cleanup on failure */
     /* Destroy DAOS object if created before failure DSINC */
     if(NULL == ret_value) {
@@ -782,10 +786,6 @@ done:
         fill_val_buf = DV_free(fill_val_buf);
         update_cb_ud = DV_free(update_cb_ud);
     } /* end if */
-
-    /* Close temporary DCPL */
-    if(tmp_dcpl_id >= 0 && H5Pclose(tmp_dcpl_id) < 0)
-        D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, NULL, "can't close temporary DCPL");
 
     assert(!update_cb_ud);
     assert(!type_buf);

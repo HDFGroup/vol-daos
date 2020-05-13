@@ -48,30 +48,33 @@ extern hid_t dv_async_err_g;
 
 /* Private error codes for asynchronous operations */
 typedef enum {
-    H5_DAOS_INCOMPLETE = 1,     /* Operation has not yet completed (should only be in the item struct) (must be first) */
-    H5_DAOS_PRE_ERROR,          /* A precursor to this task failed (should only be used as the task return value) (must be second) */
-    H5_DAOS_H5_CLOSE_ERROR,     /* Failed to close HDF5 object */
-    H5_DAOS_H5_ENCODE_ERROR,    /* Failed to encode HDF5 object */
-    H5_DAOS_H5_DECODE_ERROR,    /* Failed to decode HDF5 object */
-    H5_DAOS_H5_CREATE_ERROR,    /* Failed to create HDF5 object */
-    H5_DAOS_H5_DESTROY_ERROR,   /* Failed to destroy HDF5 object */
-    H5_DAOS_H5_TCONV_ERROR,     /* HDF5 type conversion failed */
-    H5_DAOS_H5_COPY_ERROR,      /* HDF5 copy operation failed */
-    H5_DAOS_H5PSET_ERROR,       /* Failed to set info on HDF5 property list */
-    H5_DAOS_H5PGET_ERROR,       /* Failed to get info from HDF5 property list */
-    H5_DAOS_REMOTE_ERROR,       /* An operation failed on another process */
-    H5_DAOS_MPI_ERROR,          /* MPI operation failed */
-    H5_DAOS_DAOS_GET_ERROR,     /* Can't get data from DAOS */
-    H5_DAOS_ALLOC_ERROR,        /* Memory allocation failed */
-    H5_DAOS_FREE_ERROR,         /* Failed to free memory */
-    H5_DAOS_CPL_CACHE_ERROR,    /* Failed to fill creation property list cache */
-    H5_DAOS_BAD_VALUE,          /* Invalid value received */
-    H5_DAOS_NONEXIST_LINK,      /* Link does not exist */
-    H5_DAOS_TRAVERSE_ERROR,     /* Failed to traverse path */
-    H5_DAOS_FOLLOW_ERROR,       /* Failed to follow link */
-    H5_DAOS_PROGRESS_ERROR,     /* Failed to progress scheduler */
-    H5_DAOS_SETUP_ERROR,        /* Error during operation setup */
-    H5_DAOS_FILE_EXISTS,        /* File already exists */
+    H5_DAOS_INCOMPLETE = 1,       /* Operation has not yet completed (should only be in the item struct) (must be first) */
+    H5_DAOS_PRE_ERROR,            /* A precursor to this task failed (should only be used as the task return value) (must be second) */
+    H5_DAOS_H5_OPEN_ERROR,        /* Failed to open HDF5 object */
+    H5_DAOS_H5_CLOSE_ERROR,       /* Failed to close HDF5 object */
+    H5_DAOS_H5_GET_ERROR,         /* Failed to get value */
+    H5_DAOS_H5_ENCODE_ERROR,      /* Failed to encode HDF5 object */
+    H5_DAOS_H5_DECODE_ERROR,      /* Failed to decode HDF5 object */
+    H5_DAOS_H5_CREATE_ERROR,      /* Failed to create HDF5 object */
+    H5_DAOS_H5_DESTROY_ERROR,     /* Failed to destroy HDF5 object */
+    H5_DAOS_H5_TCONV_ERROR,       /* HDF5 type conversion failed */
+    H5_DAOS_H5_COPY_ERROR,        /* HDF5 copy operation failed */
+    H5_DAOS_H5_UNSUPPORTED_ERROR, /* Unsupported HDF5 operation */
+    H5_DAOS_H5PSET_ERROR,         /* Failed to set info on HDF5 property list */
+    H5_DAOS_H5PGET_ERROR,         /* Failed to get info from HDF5 property list */
+    H5_DAOS_REMOTE_ERROR,         /* An operation failed on another process */
+    H5_DAOS_MPI_ERROR,            /* MPI operation failed */
+    H5_DAOS_DAOS_GET_ERROR,       /* Can't get data from DAOS */
+    H5_DAOS_ALLOC_ERROR,          /* Memory allocation failed */
+    H5_DAOS_FREE_ERROR,           /* Failed to free memory */
+    H5_DAOS_CPL_CACHE_ERROR,      /* Failed to fill creation property list cache */
+    H5_DAOS_BAD_VALUE,            /* Invalid value received */
+    H5_DAOS_NONEXIST_LINK,        /* Link does not exist */
+    H5_DAOS_TRAVERSE_ERROR,       /* Failed to traverse path */
+    H5_DAOS_FOLLOW_ERROR,         /* Failed to follow link */
+    H5_DAOS_PROGRESS_ERROR,       /* Failed to progress scheduler */
+    H5_DAOS_SETUP_ERROR,          /* Error during operation setup */
+    H5_DAOS_FILE_EXISTS,          /* File already exists */
 } H5_daos_error_code_t;
 
 /* Use FUNC to safely handle variations of C99 __func__ keyword handling */
@@ -280,12 +283,24 @@ do {                                                                            
     goto done;                                                                     \
 } while(0)
 
+/*
+ * Macro to return from a top-level API function, printing
+ * out the VOL connector's error stack on the way out.
+ * It should be ensured that this macro is only called once
+ * per HDF5 operation. If it is called multiple times per
+ * operation (e.g. due to calling top-level API functions
+ * internally), the VOL connector's error stack will be
+ * inconsistent/incoherent.
+ */
 #define D_FUNC_LEAVE_API                                                           \
 do {                                                                               \
     PRINT_ERROR_STACK;                                                             \
     return ret_value;                                                              \
 } while(0)
 
+/*
+ * Macro to return from internal functions.
+ */
 #define D_FUNC_LEAVE                                                               \
 do {                                                                               \
     return ret_value;                                                              \

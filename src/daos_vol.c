@@ -1279,6 +1279,9 @@ H5_daos_pool_connect(const uuid_t pool_uuid, char *pool_grp, d_rank_list_t *svcl
             if(NULL == (svcl = daos_rank_list_parse(svcl_str, ":")))
                 D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "failed to parse SVC list from environment");
             rank_list_parsed = TRUE;
+#ifdef DV_PLUGIN_DEBUG
+            printf("SVC LIST = %s\n", svcl_str);
+#endif
         } /* end if */
         else if(H5_daos_pool_globals_set_g)
             svcl = &H5_daos_pool_svcl_g;
@@ -1320,7 +1323,6 @@ H5_daos_pool_connect_global(void)
     char *uuid_str = NULL;
     uuid_t pool_uuid;
     const char *pool_grp = NULL;
-    char *svcl_str = NULL;
     d_rank_list_t *svcl = NULL;
     daos_pool_info_t pool_info;
     herr_t ret_value = SUCCEED;            /* Return value */
@@ -1330,16 +1332,8 @@ H5_daos_pool_connect_global(void)
         if(uuid_parse(uuid_str, pool_uuid) < 0)
             D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "failed to parse pool UUID from environment");
 
-        /* Must also retrieve pool service replica ranks */
-        if(NULL == (svcl_str = getenv("DAOS_SVCL")))
-            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "DAOS_SVCL must be set to pool service replica rank list");
-
-        /* Parse rank list */
-        if(NULL == (svcl = daos_rank_list_parse(svcl_str, ":")))
-            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "failed to parse SVC list from environment");
-#ifdef DV_PLUGIN_DEBUG
-        printf("SVC LIST = %s\n", svcl_str);
-#endif
+        /* Let H5_daos_pool_connect retrieve pool service replica ranks */
+        svcl = NULL;
     } else if (H5_daos_pool_globals_set_g) {
         memcpy(pool_uuid, H5_daos_pool_uuid_g, sizeof(uuid_t));
         pool_grp = H5_daos_pool_grp_g;
@@ -1360,8 +1354,6 @@ H5_daos_pool_connect_global(void)
         D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "failed to connect to global pool");
 
 done:
-    if(svcl_str && svcl)
-        daos_rank_list_free(svcl);
     D_FUNC_LEAVE;
 } /* end H5_daos_pool_connect() */
 

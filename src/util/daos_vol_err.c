@@ -41,8 +41,14 @@ H5_daos_err_to_string(int ret)
             return "error in earlier task (should not see this) (H5_DAOS_PRE_ERROR)";
         case -H5_DAOS_CANCELED:
             return "operation canceled by application (H5_DAOS_CANCELED)";
+        case -H5_DAOS_H5_OPEN_ERROR:
+            return "failed to open HDF5 object (H5_DAOS_H5_OPEN_ERROR)";
         case -H5_DAOS_H5_CLOSE_ERROR:
             return "failed to close HDF5 object (H5_DAOS_H5_CLOSE_ERROR)";
+        case -H5_DAOS_H5_GET_ERROR:
+            return "failed to get value (H5_DAOS_H5_GET_ERROR)";
+        case -H5_DAOS_H5_ENCODE_ERROR:
+            return "failed to encode HDF5 object (H5_DAOS_H5_ENCODE_ERROR)";
         case -H5_DAOS_H5_DECODE_ERROR:
             return "failed to decode HDF5 object (H5_DAOS_H5_DECODE_ERROR)";
         case -H5_DAOS_H5_CREATE_ERROR:
@@ -51,6 +57,8 @@ H5_daos_err_to_string(int ret)
             return "HDF5 type conversion failed (H5_DAOS_H5_TCONV_ERROR)";
         case -H5_DAOS_H5_COPY_ERROR:
             return "HDF5 copy operation failed (H5_DAOS_H5_COPY_ERROR)";
+        case -H5_DAOS_H5_UNSUPPORTED_ERROR:
+            return "Unsupported HDF5 operation (H5_DAOS_H5_UNSUPPORTED_ERROR)";
         case -H5_DAOS_H5PSET_ERROR:
             return "failed to set info on HDF5 property list (H5_DAOS_H5PSET_ERROR)";
         case -H5_DAOS_H5PGET_ERROR:

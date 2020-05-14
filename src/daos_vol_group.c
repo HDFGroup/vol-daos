@@ -1167,73 +1167,16 @@ done:
     /* Broadcast group info */
     if(bcast_udata) {
         assert(!ginfo_buf);
-
-        /* Handle failure */
-        if(NULL == ret_value) {
-            /* Allocate buffer for group info if necessary, either way set
-             * buffer to 0 to indicate failure */
-            if(bcast_udata->buffer) {
-                assert(bcast_udata->buffer_len == H5_DAOS_GINFO_BUF_SIZE);
-                assert(bcast_udata->count == H5_DAOS_GINFO_BUF_SIZE);
-                (void)memset(bcast_udata->buffer, 0, H5_DAOS_GINFO_BUF_SIZE);
-            } /* end if */
-            else {
-                if(NULL == (bcast_udata->buffer = DV_calloc(H5_DAOS_GINFO_BUF_SIZE)))
-                    D_DONE_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized gcpl");
-                bcast_udata->buffer_len = H5_DAOS_GINFO_BUF_SIZE;
-                bcast_udata->count = H5_DAOS_GINFO_BUF_SIZE;
-            } /* end else */
-        } /* end if */
-
-        if(bcast_udata->buffer) {
-            tse_task_t *bcast_task;
-
-            /* Create meta task for group info bcast.  This empty task will be
-             * completed when the bcast is finished by the completion callback.
-             * We can't use bcast_task since it may not be completed after the
-             * first bcast. */
-            if(0 != (ret = tse_task_create(NULL, &file->sched, NULL, &bcast_udata->bcast_metatask)))
-                D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't create meta task for group info broadcast: %s", H5_daos_err_to_string(ret));
-            /* Create task for group info bcast */
-            if(0 != (ret = tse_task_create(H5_daos_mpi_ibcast_task, &file->sched, bcast_udata, &bcast_task)))
-                D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't create task to broadcast group info: %s", H5_daos_err_to_string(ret));
-            /* Register task dependency if present */
-            else if(*dep_task && 0 != (ret = tse_task_register_deps(bcast_task, 1, dep_task)))
-                D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't create dependencies for group info broadcast task: %s", H5_daos_err_to_string(ret));
-            /* Set callback functions for group info bcast */
-            else if(0 != (ret = tse_task_register_cbs(bcast_task, NULL, NULL, 0, file->my_rank == 0 ? H5_daos_group_open_bcast_comp_cb : H5_daos_group_open_recv_comp_cb, NULL, 0)))
-                D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't register callbacks for group info broadcast: %s", H5_daos_err_to_string(ret));
-            /* Schedule meta task */
-            else if(0 != (ret = tse_task_schedule(bcast_udata->bcast_metatask, false)))
-                D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't schedule meta task for group info broadcast: %s", H5_daos_err_to_string(ret));
-            /* Schedule bcast and transfer ownership of bcast_udata */
-            else {
-                if(*first_task) {
-                    if(0 != (ret = tse_task_schedule(bcast_task, false)))
-                        D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't schedule task for group info broadcast: %s", H5_daos_err_to_string(ret));
-                    else {
-                        req->rc++;
-                        grp->obj.item.rc++;
-                        *dep_task = bcast_udata->bcast_metatask;
-                        bcast_udata = NULL;
-                    } /* end else */
-                } /* end if */
-                else {
-                    *first_task = bcast_task;
-                    req->rc++;
-                    grp->obj.item.rc++;
-                    *dep_task = bcast_udata->bcast_metatask;
-                    bcast_udata = NULL;
-                } /* end else */
-            } /* end else */
-        } /* end if */
-
-        /* Cleanup on failure */
-        if(bcast_udata) {
-            assert(NULL == ret_value);
+        if(H5_daos_mpi_ibcast(bcast_udata, &grp->obj, H5_DAOS_GINFO_BUF_SIZE,
+                NULL == ret_value ? TRUE : FALSE, NULL,
+                file->my_rank == 0 ? H5_daos_group_open_bcast_comp_cb : H5_daos_group_open_recv_comp_cb,
+                req, first_task, dep_task) < 0) {
             DV_free(bcast_udata->buffer);
-            bcast_udata = DV_free(bcast_udata);
+            DV_free(bcast_udata);
+            D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "failed to broadcast group info buffer");
         } /* end if */
+
+        bcast_udata = NULL;
     } /* end if */
 
     /* Cleanup on failure */
@@ -1383,86 +1326,13 @@ H5_daos_group_open(void *_item, const H5VL_loc_params_t *loc_params,
     ret_value = (void *)grp;
 
 done:
-    /* Cleanup on failure */
-    if(NULL == ret_value) {
-        /* Broadcast group info if needed */
-        if(must_bcast) {
-            H5_daos_mpi_ibcast_ud_t *bcast_udata = NULL;
+    /* Broadcast failure if apprpriate */
+    if(NULL == ret_value && must_bcast && H5_daos_mpi_ibcast(NULL, &grp->obj, H5_DAOS_GINFO_BUF_SIZE,
+            TRUE, NULL, item->file->my_rank == 0 ? H5_daos_group_open_bcast_comp_cb : H5_daos_group_open_recv_comp_cb,
+            int_req, &first_task, &dep_task) < 0)
+        D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "failed to broadcast empty group info buffer to signal failure");
 
-            assert(NULL == ret_value);
-            assert(int_req);
-
-            /* Allocate udata struct for broadcast */
-            if(NULL == (bcast_udata = (H5_daos_mpi_ibcast_ud_t *)DV_malloc(sizeof(H5_daos_mpi_ibcast_ud_t))))
-                D_DONE_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "failed to allocate buffer for MPI broadcast user data");
-            else {
-                bcast_udata->req = int_req;
-                bcast_udata->obj = (H5_daos_obj_t *)grp;
-
-                /* Allocate buffer for group info if necessary, either way set
-                 * buffer to 0 to indicate failure */
-                if(NULL == (bcast_udata->buffer = DV_calloc(H5_DAOS_GINFO_BUF_SIZE)))
-                    D_DONE_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized gcpl");
-                else {
-                    tse_task_t *bcast_task;
-
-                    bcast_udata->buffer_len = H5_DAOS_GINFO_BUF_SIZE;
-                    bcast_udata->count = H5_DAOS_GINFO_BUF_SIZE;
-
-                    /* Create meta task for group info bcast.  This empty task will be
-                     * completed when the bcast is finished by the completion callback.
-                     * We can't use bcast_task since it may not be completed after the
-                     * first bcast. */
-                    if(0 != (ret = tse_task_create(NULL, &item->file->sched, NULL, &bcast_udata->bcast_metatask)))
-                        D_DONE_ERROR(H5E_VOL, H5E_CANTINIT, NULL, "can't create meta task for global handle broadcast: %s", H5_daos_err_to_string(ret));
-                    /* Create task for group info bcast */
-                    else if(0 != (ret = tse_task_create(H5_daos_mpi_ibcast_task, &item->file->sched, bcast_udata, &bcast_task)))
-                        D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
-                    /* Register task dependency if present */
-                    else if(dep_task && 0 != (ret = tse_task_register_deps(bcast_task, 1, &dep_task)))
-                        D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't create dependencies for group info broadcast task: %s", H5_daos_err_to_string(ret));
-                    /* Set callback functions for group info bcast */
-                    else if(0 != (ret = tse_task_register_cbs(bcast_task, NULL, NULL, 0, item->file->my_rank == 0 ? H5_daos_group_open_bcast_comp_cb : H5_daos_group_open_recv_comp_cb, NULL, 0)))
-                        D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't register callbacks for second group info broadcast: %s", H5_daos_err_to_string(ret));
-                    /* Schedule meta task */
-                    else if(0 != (ret = tse_task_schedule(bcast_udata->bcast_metatask, false)))
-                        D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't schedule meta task for group info broadcast: %s", H5_daos_err_to_string(ret));
-                    /* Schedule second bcast and transfer ownership of bcast_udata */
-                    else {
-                        if(first_task) {
-                            if(0 != (ret = tse_task_schedule(bcast_task, false)))
-                                D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't schedule task for second group info broadcast: %s", H5_daos_err_to_string(ret));
-                            else {
-                                int_req->rc++;
-                                grp->obj.item.rc++;
-                                dep_task = bcast_udata->bcast_metatask;
-                                bcast_udata = NULL;
-                            } /* end else */
-                        } /* end if */
-                        else {
-                            first_task = bcast_task;
-                            int_req->rc++;
-                            grp->obj.item.rc++;
-                            dep_task = bcast_udata->bcast_metatask;
-                            bcast_udata = NULL;
-                        } /* end else */
-                    } /* end else */
-                } /* end if */
-
-                /* Cleanup on failure */
-                if(bcast_udata) {
-                    DV_free(bcast_udata->buffer);
-                    DV_free(bcast_udata);
-                } /* end if */
-            } /* end else */
-        } /* end if */
-
-        /* Close group */
-        if(grp && H5_daos_group_close(grp, dxpl_id, NULL) < 0)
-            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, NULL, "can't close group");
-    } /* end if */
-    else
-        assert(!must_bcast);
+    assert(!(ret_value && must_bcast));
 
     if(int_req) {
         /* Free path_buf if necessary */
@@ -1506,6 +1376,10 @@ done:
     /* Close target object */
     if(target_obj && H5_daos_object_close(target_obj, dxpl_id, NULL) < 0)
         D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, NULL, "can't close object");
+
+    /* If we are not returning a group we must close it */
+    if(ret_value == NULL && grp && H5_daos_group_close(grp, dxpl_id, NULL) < 0)
+        D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, NULL, "can't close group");
 
     D_FUNC_LEAVE_API;
 } /* end H5_daos_group_open() */

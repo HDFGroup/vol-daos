@@ -102,6 +102,11 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_attr_t *attr = NULL;
+    H5_daos_req_t *int_req = NULL;
+    tse_task_t *first_task = NULL;
+    tse_task_t *dep_task = NULL;
+    tse_task_t *finalize_deps[2];
+    int finalize_ndeps = 0;
     size_t akey_len;
     daos_key_t dkey;
     char *type_key = NULL;
@@ -151,17 +156,29 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
     if(!(item->file->flags & H5F_ACC_RDWR))
         D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, NULL, "no write intent on file");
 
+    /* Start H5 operation */
+    if(NULL == (int_req = H5_daos_req_create(item->file, H5I_INVALID_HID)))
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTALLOC, NULL, "can't create DAOS request");
+
     /* Allocate the attribute object that is returned to the user */
     if(NULL == (attr = H5FL_CALLOC(H5_daos_attr_t)))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate DAOS dataset struct");
     attr->item.type = H5I_ATTR;
-    attr->item.open_req = NULL;
+    attr->item.open_req = int_req;
+    int_req->rc++;
     attr->item.file = item->file;
     attr->item.rc = 1;
     attr->type_id = FAIL;
     attr->file_type_id = FAIL;
     attr->space_id = FAIL;
     attr->acpl_id = FAIL;
+
+#ifdef H5_DAOS_USE_TRANSACTIONS
+    /* Start transaction */
+    if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't start transaction");
+    int_req->th_open = TRUE;
+#endif /* H5_DAOS_USE_TRANSACTIONS */
 
     /* Determine attribute object */
     if(loc_params->type == H5VL_OBJECT_BY_SELF) {
@@ -174,8 +191,21 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
     } /* end if */
     else if(loc_params->type == H5VL_OBJECT_BY_NAME) {
         /* Open target_obj */
-        if(NULL == (attr->parent = (H5_daos_obj_t *)H5_daos_object_open(item, loc_params, NULL, dxpl_id, req)))
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, NULL, "can't open object for attribute");
+        /* TODO: no logic for 'collective' yet */
+        if(H5_daos_object_open_helper(item, loc_params, NULL, TRUE, &attr->parent,
+                int_req, &first_task, &dep_task) < 0)
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, NULL, "can't open parent object for attribute");
+
+        /* Wait until everything is complete then check for errors
+         * TODO (temporary code until the rest of this function is async) */
+        if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_progress(&item->file->sched, NULL, H5_DAOS_PROGRESS_WAIT) < 0)
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't progress scheduler");
+        first_task = NULL;
+        dep_task = NULL;
+        if(int_req->status < -H5_DAOS_INCOMPLETE)
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "asynchronous task failed");
     } /* end else */
     else
         D_GOTO_ERROR(H5E_ATTR, H5E_UNSUPPORTED, NULL, "unsupported attribute create location parameters type");
@@ -426,6 +456,42 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
     ret_value = (void *)attr;
 
 done:
+    if(int_req) {
+        /* Create task to finalize H5 operation */
+        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &item->file->sched, int_req, &int_req->finalize_task)))
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        /* Register dependencies (if any) */
+        else if(finalize_ndeps > 0 && 0 != (ret = tse_task_register_deps(int_req->finalize_task, finalize_ndeps, finalize_deps)))
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        /* Schedule finalize task */
+        else if(0 != (ret = tse_task_schedule(int_req->finalize_task, false)))
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        else
+            /* finalize_task now owns a reference to req */
+            int_req->rc++;
+
+        /* If there was an error during setup, pass it to the request */
+        if(NULL == ret_value)
+            int_req->status = -H5_DAOS_SETUP_ERROR;
+
+        /* Schedule first task */
+        if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
+
+        /* Block until operation completes */
+        /* Wait for scheduler to be empty */
+        if(H5_daos_progress(&item->file->sched, int_req, H5_DAOS_PROGRESS_WAIT) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't progress scheduler");
+
+        /* Check for failure */
+        if(int_req->status < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTOPERATE, NULL, "attribute creation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status));
+
+        /* Close internal request */
+        if(H5_daos_req_free_int(int_req) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, NULL, "can't free request");
+    } /* end if */
+
     /* Free memory */
     type_buf = DV_free(type_buf);
     space_buf = DV_free(space_buf);
@@ -465,6 +531,11 @@ H5_daos_attribute_open(void *_item, const H5VL_loc_params_t *loc_params,
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_attr_t *attr = NULL;
+    H5_daos_req_t *int_req = NULL;
+    tse_task_t *first_task = NULL;
+    tse_task_t *dep_task = NULL;
+    tse_task_t *finalize_deps[2];
+    int finalize_ndeps = 0;
     size_t akey_len;
     daos_key_t dkey;
     char *type_key = NULL;
@@ -489,6 +560,10 @@ H5_daos_attribute_open(void *_item, const H5VL_loc_params_t *loc_params,
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "location parameters object is NULL");
     if(!name && (H5VL_OBJECT_BY_IDX != loc_params->type))
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "attribute name is NULL");
+
+    /* Start H5 operation */
+    if(NULL == (int_req = H5_daos_req_create(item->file, H5I_INVALID_HID)))
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTALLOC, NULL, "can't create DAOS request");
 
     /* Allocate the attribute object that is returned to the user */
     if(NULL == (attr = H5FL_CALLOC(H5_daos_attr_t)))
@@ -523,8 +598,21 @@ H5_daos_attribute_open(void *_item, const H5VL_loc_params_t *loc_params,
         case H5VL_OBJECT_BY_NAME:
         {
             /* Open target_obj */
-            if(NULL == (attr->parent = (H5_daos_obj_t *)H5_daos_object_open(item, loc_params, NULL, dxpl_id, req)))
-                D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, NULL, "can't open object for attribute");
+            /* TODO: no logic for 'collective' yet */
+            if(H5_daos_object_open_helper(item, loc_params, NULL, TRUE, &attr->parent,
+                    int_req, &first_task, &dep_task) < 0)
+                D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, NULL, "can't open parent object for attribute");
+
+            /* Wait until everything is complete then check for errors
+             * TODO (temporary code until the rest of this function is async) */
+            if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
+                D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
+            if(H5_daos_progress(&item->file->sched, NULL, H5_DAOS_PROGRESS_WAIT) < 0)
+                D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't progress scheduler");
+            first_task = NULL;
+            dep_task = NULL;
+            if(int_req->status < -H5_DAOS_INCOMPLETE)
+                D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "asynchronous task failed");
 
             /* Set attribute's name */
             if(NULL == (attr->name = strdup(name)))
@@ -620,6 +708,42 @@ H5_daos_attribute_open(void *_item, const H5VL_loc_params_t *loc_params,
     ret_value = (void *)attr;
 
 done:
+    if(int_req) {
+        /* Create task to finalize H5 operation */
+        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &item->file->sched, int_req, &int_req->finalize_task)))
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        /* Register dependencies (if any) */
+        else if(finalize_ndeps > 0 && 0 != (ret = tse_task_register_deps(int_req->finalize_task, finalize_ndeps, finalize_deps)))
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        /* Schedule finalize task */
+        else if(0 != (ret = tse_task_schedule(int_req->finalize_task, false)))
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        else
+            /* finalize_task now owns a reference to req */
+            int_req->rc++;
+
+        /* If there was an error during setup, pass it to the request */
+        if(NULL == ret_value)
+            int_req->status = -H5_DAOS_SETUP_ERROR;
+
+        /* Schedule first task */
+        if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
+
+        /* Block until operation completes */
+        /* Wait for scheduler to be empty */
+        if(H5_daos_progress(&item->file->sched, int_req, H5_DAOS_PROGRESS_WAIT) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't progress scheduler");
+
+        /* Check for failure */
+        if(int_req->status < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTOPERATE, NULL, "attribute opening failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status));
+
+        /* Close internal request */
+        if(H5_daos_req_free_int(int_req) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, NULL, "can't free request");
+    } /* end if */
+
     /* Free memory */
     type_buf = DV_free(type_buf);
     space_buf = DV_free(space_buf);

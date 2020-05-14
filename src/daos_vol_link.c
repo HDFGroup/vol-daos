@@ -669,7 +669,7 @@ H5_daos_link_write_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     if(udata->md_rw_cb_ud.req->status < -H5_DAOS_INCOMPLETE) {
         tse_task_complete(task, -H5_DAOS_PRE_ERROR);
         udata = NULL;
-        D_GOTO_DONE(H5_DAOS_PRE_ERROR);
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
     } /* end if */
 
     /* If this is a hard link, encoding of the OID into
@@ -1060,6 +1060,7 @@ H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_obj_t *link_obj = NULL;
     H5_daos_obj_t *target_obj = NULL;
+    H5_daos_obj_t *target_loc_obj_hard = NULL;
     char *path_buf = NULL;
     const char *link_name = NULL;
     size_t link_name_len = 0;
@@ -1078,56 +1079,86 @@ H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
     if(loc_params->type != H5VL_OBJECT_BY_NAME)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "location parameters type is not H5VL_OBJECT_BY_NAME");
 
+    /* Handle usage of the H5L_SAME_LOC macro for H5Lcreate_hard.
+     * Usage of this macro can cause `item` to be NULL; however,
+     * we need a valid object pointer to create an async request.
+     */
+    if(H5VL_LINK_CREATE_HARD == create_type) {
+        target_loc_obj_hard = va_arg(arguments, void *);
+
+        /* Determine the target location object in which to place
+         * the new link. If item is NULL here, H5L_SAME_LOC was
+         * used as the third parameter to H5Lcreate_hard, so the
+         * target location object is actually the object passed
+         * in from the va_arg list.
+         */
+        if(!item)
+            item = (H5_daos_item_t *) target_loc_obj_hard;
+
+        /* Determine the target location object for the object
+         * that the hard link is to point to. If target_loc_obj_hard
+         * is NULL here, H5L_SAME_LOC was used as the first
+         * parameter to H5Lcreate_hard, so the target location
+         * object is actually the VOL object that was passed
+         * into this callback as a function parameter.
+         */
+        if(target_loc_obj_hard == NULL)
+            target_loc_obj_hard = (H5_daos_obj_t *) item;
+    } /* end if */
+
+    /* Now that `item` has been settled for H5Lcreate_hard, we can
+     * safely reject a NULL `item` pointer for H5Lcreate(_soft/_external/_ud)
+     */
+    if(!item)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "link loc. object is NULL");
+
+    /* Start H5 operation */
+    if(NULL == (int_req = H5_daos_req_create(item->file, H5I_INVALID_HID)))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTALLOC, FAIL, "can't create DAOS request");
+
+#ifdef H5_DAOS_USE_TRANSACTIONS
+    /* Start transaction */
+    if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't start transaction");
+    int_req->th_open = TRUE;
+#endif /* H5_DAOS_USE_TRANSACTIONS */
+
     switch(create_type) {
         case H5VL_LINK_CREATE_HARD:
         {
-            H5_daos_obj_t *target_obj_loc = va_arg(arguments, void *);
-            H5VL_loc_params_t *target_obj_loc_params = va_arg(arguments, H5VL_loc_params_t *);
+            H5VL_loc_params_t *target_loc_params_hard = va_arg(arguments, H5VL_loc_params_t *);
 
-            /* Determine the target location object in which to place
-             * the new link. If item is NULL here, H5L_SAME_LOC was
-             * used as the third parameter to H5Lcreate_hard, so the
-             * target location object is actually the object passed
-             * in from the va_arg list. */
-            if(!item)
-                item = (H5_daos_item_t *) target_obj_loc;
-
-            /* Determine the target location object for the object
-             * that the hard link is to point to. If target_obj_loc
-             * is NULL here, H5L_SAME_LOC was used as the first
-             * parameter to H5Lcreate_hard, so the target location
-             * object is actually the VOL object that was passed
-             * into this callback as a function parameter.
-             */
-            if(target_obj_loc == NULL)
-                target_obj_loc = (H5_daos_obj_t *) item;
+            assert(target_loc_obj_hard);
 
             link_val.type = H5L_TYPE_HARD;
 
-            /* Start H5 operation */
-            if(NULL == (int_req = H5_daos_req_create(item->file, H5I_INVALID_HID)))
-                D_GOTO_ERROR(H5E_LINK, H5E_CANTALLOC, FAIL, "can't create DAOS request");
-
-#ifdef H5_DAOS_USE_TRANSACTIONS
-            /* Start transaction */
-            if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, NULL /*event*/)))
-                D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't start transaction");
-            int_req->th_open = TRUE;
-#endif /* H5_DAOS_USE_TRANSACTIONS */
-
-            if(H5VL_OBJECT_BY_NAME == target_obj_loc_params->type) {
+            if(H5VL_OBJECT_BY_NAME == target_loc_params_hard->type) {
                 /* Attempt to open the hard link's target object */
-                if(NULL == (target_obj = H5_daos_object_open((H5_daos_item_t *) target_obj_loc,
-                        target_obj_loc_params, NULL, dxpl_id, req)))
+                /* TODO: no logic for 'collective' yet */
+                if(H5_daos_object_open_helper((H5_daos_item_t *) target_loc_obj_hard, target_loc_params_hard,
+                        NULL, TRUE, &target_obj, int_req, &first_task, &dep_task) < 0)
                     D_GOTO_ERROR(H5E_LINK, H5E_CANTOPENOBJ, FAIL, "couldn't open hard link's target object");
+
+                /* Wait until everything is complete then check for errors
+                 * (temporary code until the rest of this function is async) */
+                /* Need this because link_write doesn't handle async link_val */
+                if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
+                    D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
+                if(H5_daos_progress(&item->file->sched, NULL, H5_DAOS_PROGRESS_WAIT) < 0)
+                    D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't progress scheduler");
+                first_task = NULL;
+                dep_task = NULL;
+                if(int_req->status < -H5_DAOS_INCOMPLETE)
+                    D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "asynchronous task failed");
+
                 link_val.target.hard = target_obj->oid;
             }
             else {
                 /* H5Olink */
-                if(H5VL_OBJECT_BY_SELF != target_obj_loc_params->type)
+                if(H5VL_OBJECT_BY_SELF != target_loc_params_hard->type)
                     D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, FAIL, "invalid loc_params type");
 
-                link_val.target.hard = target_obj_loc->oid;
+                link_val.target.hard = target_loc_obj_hard->oid;
             }
 
             /*
@@ -1139,23 +1170,9 @@ H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
         } /* H5VL_LINK_CREATE_HARD */
 
         case H5VL_LINK_CREATE_SOFT:
-            if(!_item)
-                D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "datatype parent object is NULL");
-
             /* Retrieve target name */
             link_val.type = H5L_TYPE_SOFT;
             link_val.target.soft = (char *)va_arg(arguments, const char *);
-
-            /* Start H5 operation */
-            if(NULL == (int_req = H5_daos_req_create(item->file, H5I_INVALID_HID)))
-                D_GOTO_ERROR(H5E_LINK, H5E_CANTALLOC, FAIL, "can't create DAOS request");
-
-#ifdef H5_DAOS_USE_TRANSACTIONS
-            /* Start transaction */
-            if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, NULL /*event*/)))
-                D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't start transaction");
-            int_req->th_open = TRUE;
-#endif /* H5_DAOS_USE_TRANSACTIONS */
 
             break;
 
@@ -1166,8 +1183,6 @@ H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
         default:
             D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "invalid link creation call");
     } /* end switch */
-
-    assert(int_req);
 
     /* Find target group */
     /* This needs to be made collective DSINC */
@@ -1335,6 +1350,7 @@ H5_daos_link_copy(void *src_item, const H5VL_loc_params_t *loc_params1,
     /* Allocate link value */
     if(NULL == (link_val = (H5_daos_link_val_t *)DV_malloc(sizeof(H5_daos_link_val_t))))
         D_GOTO_ERROR(H5E_LINK, H5E_CANTALLOC, FAIL, "can't allocate space for link value");
+    link_val->type = H5L_TYPE_ERROR;
 
     /* Retrieve the source link's value */
     if(H5_daos_link_read((H5_daos_group_t *)src_obj, src_link_name, src_link_name_len, int_req,
@@ -1514,6 +1530,7 @@ H5_daos_link_move(void *src_item, const H5VL_loc_params_t *loc_params1,
     /* Allocate link value */
     if(NULL == (link_val = (H5_daos_link_val_t *)DV_malloc(sizeof(H5_daos_link_val_t))))
         D_GOTO_ERROR(H5E_LINK, H5E_CANTALLOC, FAIL, "can't allocate space for link value");
+    link_val->type = H5L_TYPE_ERROR;
 
     /* Retrieve the source link's value */
     if(H5_daos_link_read((H5_daos_group_t *)src_obj, src_link_name, src_link_name_len, int_req,
@@ -2074,7 +2091,7 @@ H5_daos_link_follow_task(tse_task_t *task)
     /* Handle errors in previous tasks */
     if(req->status < -H5_DAOS_INCOMPLETE) {
         tse_task_complete(task, -H5_DAOS_PRE_ERROR);
-        D_GOTO_DONE(H5_DAOS_PRE_ERROR);
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
     } /* end if */
 
     /* Check if the link was read */
@@ -2130,6 +2147,7 @@ H5_daos_link_follow_task(tse_task_t *task)
 
             case H5L_TYPE_EXTERNAL:
                 D_GOTO_ERROR(H5E_LINK, H5E_UNSUPPORTED, -H5_DAOS_BAD_VALUE, "following of external links is unsupported");
+                break;
 
             case H5L_TYPE_ERROR:
             case H5L_TYPE_MAX:
@@ -2302,6 +2320,7 @@ H5_daos_link_follow(H5_daos_group_t *grp, const char *name, size_t name_len,
     follow_udata->crt_missing_grp = crt_missing_grp;
     follow_udata->link_exists = link_exists;
     follow_udata->path_buf = NULL;
+    follow_udata->link_val.type = H5L_TYPE_ERROR;
 
     /* Set *oid_ptr so calling function can direct output of link follow task */
     *oid_ptr = &follow_udata->oid;

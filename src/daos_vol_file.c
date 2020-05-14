@@ -194,7 +194,7 @@ H5_daos_tx_open_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     if(udata->req->status < -H5_DAOS_INCOMPLETE) {
         tse_task_complete(task, -H5_DAOS_PRE_ERROR);
         udata = NULL;
-        D_GOTO_DONE(H5_DAOS_PRE_ERROR);
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
     } /* end if */
 
     /* Set arguments for transaction open */
@@ -278,7 +278,9 @@ H5_daos_cont_open(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *req,
     tse_task_t **first_task, tse_task_t **dep_task)
 {
     tse_task_t *open_task;
+#ifdef H5_DAOS_USE_TRANSACTIONS
     tse_task_t *tx_open_task;
+#endif
     H5_daos_generic_cb_ud_t *open_udata = NULL;
     H5_daos_generic_cb_ud_t *tx_open_udata = NULL;
     daos_cont_open_t *open_args;
@@ -853,7 +855,7 @@ H5_daos_get_gch_task(tse_task_t *task)
     /* Check for previous errors (wait until after allocation because that must
      * always be done) */
     if(udata->req->status < -H5_DAOS_INCOMPLETE)
-        D_GOTO_DONE(H5_DAOS_PRE_ERROR);
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
 
     /* Encode global handle length */
     p = udata->buffer;

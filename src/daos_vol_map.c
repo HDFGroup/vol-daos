@@ -18,9 +18,23 @@
 #include "util/daos_vol_err.h"  /* DAOS connector error handling           */
 #include "util/daos_vol_mem.h"  /* DAOS connector memory management        */
 
+/****************/
+/* Local Macros */
+/****************/
+
+#define H5_DAOS_MINFO_BCAST_BUF_SIZE (                                 \
+        (2 * H5_DAOS_TYPE_BUF_SIZE) + H5_DAOS_MCPL_BUF_SIZE            \
+      + H5_DAOS_ENCODED_OID_SIZE + (3 * H5_DAOS_ENCODED_UINT64_T_SIZE))
+
 /********************/
 /* Local Prototypes */
 /********************/
+
+static int H5_daos_minfo_read_comp_cb(tse_task_t *task, void *args);
+static int H5_daos_map_open_bcast_comp_cb(tse_task_t *task, void *args);
+static int H5_daos_map_open_recv_comp_cb(tse_task_t *task, void *args);
+static int H5_daos_map_open_end(H5_daos_map_t *map, uint8_t *p,
+    uint64_t ktype_buf_len, uint64_t vtype_buf_len, hid_t dxpl_id);
 
 static herr_t H5_daos_map_key_conv(hid_t src_type_id, hid_t dst_type_id,
     const void *key, const void **key_buf, size_t *key_size,
@@ -268,10 +282,6 @@ H5_daos_map_create(void *_item,
         if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_UPDATE, &item->file->sched, 1, &dep_task, &update_task)))
             D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create task to write map medadata: %s", H5_daos_err_to_string(ret));
 
-        /* Register dependency for task */
-        if(0 != (ret = tse_task_register_deps(update_task, 1, &dep_task)))
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't create dependencies for dataset metadata write: %s", H5_daos_err_to_string(ret));
-
         /* Set callback functions for map metadata write */
         if(0 != (ret = tse_task_register_cbs(update_task, H5_daos_md_rw_prep_cb, NULL, 0, H5_daos_md_update_comp_cb, NULL, 0)))
             D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't register callbacks for task to write map medadata: %s", H5_daos_err_to_string(ret));
@@ -424,32 +434,19 @@ done:
  */
 void *
 H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
-    const char *name, hid_t mapl_id, hid_t dxpl_id, void **req)
+    const char *name, hid_t mapl_id, hid_t dxpl_id, void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_map_t *map = NULL;
-    H5_daos_group_t *target_grp = NULL;
-    char *path_buf = NULL;
-    H5T_class_t ktype_class;
-    htri_t has_vl_vlstr_ref;
-    hid_t ktype_parent_id = H5I_INVALID_HID;
-    daos_key_t dkey;
-    daos_iod_t iod[3];
-    daos_sg_list_t sgl[3];
-    daos_iov_t sg_iov[3];
-    uint64_t ktype_len = 0;
-    uint64_t vtype_len = 0;
-    uint64_t mcpl_len = 0;
-    uint64_t tot_len;
-    uint8_t minfo_buf_static[H5_DAOS_GINFO_BUF_SIZE];
-    uint8_t *minfo_buf_dyn = NULL;
-    uint8_t *minfo_buf = minfo_buf_static;
-    uint8_t *p;
-    hbool_t collective;
-    hbool_t must_bcast = FALSE;
+    H5_daos_obj_t *target_obj = NULL;
+    daos_obj_id_t oid = {0, 0};
+    daos_obj_id_t **oid_ptr = NULL;
     H5_daos_req_t *int_req = NULL;
     tse_task_t *first_task = NULL;
     tse_task_t *dep_task = NULL;
+    hbool_t collective;
+    hbool_t must_bcast = FALSE;
+    char *path_buf = NULL;
     int ret;
     void *ret_value = NULL;
 
@@ -459,31 +456,18 @@ H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
 
     if(!_item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "map parent object is NULL");
+    if(!loc_params)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "location parameters object is NULL");
 
     /* Check for collective access, if not already set by the file */
     collective = item->file->fapl_cache.is_collective_md_read;
-    if(!collective)
+    if(!collective && (H5P_MAP_ACCESS_DEFAULT != mapl_id))
         if(H5Pget_all_coll_metadata_ops(mapl_id, &collective) < 0)
             D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, NULL, "can't get collective access property");
 
     /* Start H5 operation */
     if(NULL == (int_req = H5_daos_req_create(item->file, H5I_INVALID_HID)))
-        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTALLOC, NULL, "can't create DAOS request");
-
-    /* Allocate the map object that is returned to the user */
-    if(NULL == (map = H5FL_CALLOC(H5_daos_map_t)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate DAOS map struct");
-    map->obj.item.type = H5I_MAP;
-    map->obj.item.open_req = NULL;
-    map->obj.item.file = item->file;
-    map->obj.item.rc = 1;
-    map->obj.obj_oh = DAOS_HDL_INVAL;
-    map->key_type_id = FAIL;
-    map->key_file_type_id = FAIL;
-    map->val_type_id = FAIL;
-    map->val_file_type_id = FAIL;
-    map->mcpl_id = FAIL;
-    map->mapl_id = FAIL;
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTALLOC, NULL, "can't create DAOS request");
 
 #ifdef H5_DAOS_USE_TRANSACTIONS
     /* Start transaction */
@@ -492,242 +476,75 @@ H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
     int_req->th_open = TRUE;
 #endif /* H5_DAOS_USE_TRANSACTIONS */
 
-    /* Check if we're actually opening the group or just receiving the map
-     * info from the leader */
-    if(!collective || (item->file->my_rank == 0)) {
+    /* Check for open by object token */
+    if(H5VL_OBJECT_BY_TOKEN == loc_params->type) {
+        /* Generate oid from token */
+        if(H5_daos_token_to_oid(loc_params->loc_data.loc_by_token.token, &oid) < 0)
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't convert object token to OID");
+    } /* end if */
+    else {
+        const char *target_name = NULL;
+        size_t target_name_len;
+
+        /* Open using name parameter */
+        if(H5VL_OBJECT_BY_SELF != loc_params->type)
+            D_GOTO_ERROR(H5E_ARGS, H5E_UNSUPPORTED, NULL, "unsupported map open location parameters type");
+        if(!name)
+            D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "map name is NULL");
+
+        /* At this point we must broadcast on failure */
         if(collective && (item->file->num_procs > 1))
             must_bcast = TRUE;
 
-        /* Check for open by object token */
-        if(H5VL_OBJECT_BY_TOKEN == loc_params->type) {
-            /* Generate oid from token */
-            if(H5_daos_token_to_oid(loc_params->loc_data.loc_by_token.token, &map->obj.oid) < 0)
-                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't convert object token to OID");
+        /* Traverse the path */
+        if(NULL == (target_obj = H5_daos_group_traverse(item, name, H5P_LINK_CREATE_DEFAULT,
+                int_req, collective, &path_buf, &target_name, &target_name_len, &first_task, &dep_task)))
+            D_GOTO_ERROR(H5E_MAP, H5E_BADITER, NULL, "can't traverse path");
+
+        /* Check for no target_name, in this case just return target_obj */
+        if(target_name_len == 0) {
+            /* Check type of target_obj */
+            if(target_obj->item.type != H5I_MAP)
+                D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "target object is not a map");
+
+            /* Take ownership of target_obj */
+            map = (H5_daos_map_t *)target_obj;
+            target_obj = NULL;
+
+            /* No need to bcast since everyone just opened the already open
+             * map */
+            must_bcast = FALSE;
+
+            D_GOTO_DONE(map);
         } /* end if */
-        else {
-            const char *target_name = NULL;
-            size_t target_name_len;
-            daos_obj_id_t **oid_ptr = NULL;
 
-            /* Open using name parameter */
-            if(H5VL_OBJECT_BY_SELF != loc_params->type)
-                D_GOTO_ERROR(H5E_ARGS, H5E_UNSUPPORTED, NULL, "unsupported map open location parameters type");
-            if(!name)
-                D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "map name is NULL");
+        /* Check type of target_obj */
+        if(target_obj->item.type != H5I_GROUP)
+            D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "target object is not a group");
 
-            /* Traverse the path */
-            if(NULL == (target_grp = (H5_daos_group_t *)H5_daos_group_traverse(item, name, H5P_LINK_CREATE_DEFAULT, int_req,
-                    collective, &path_buf, &target_name, &target_name_len, &first_task, &dep_task)))
-                D_GOTO_ERROR(H5E_MAP, H5E_BADITER, NULL, "can't traverse path");
-
-            /* Reject no target_name, since target_grp is not a map */
-            if(target_name_len == 0)
-                D_GOTO_ERROR(H5E_DATATYPE, H5E_BADVALUE, NULL, "path given does not resolve to a final link name");
-
+        if(!collective || (item->file->my_rank == 0))
             /* Follow link to map */
-            if(H5_daos_link_follow(target_grp, target_name, target_name_len, FALSE,
+            if(H5_daos_link_follow((H5_daos_group_t *)target_obj, target_name, target_name_len, FALSE,
                     int_req, &oid_ptr, NULL, &first_task, &dep_task) < 0)
-                D_GOTO_ERROR(H5E_MAP, H5E_TRAVERSE, NULL, "can't follow link to map");
-
-            /* Retarget *oid_ptr so H5_daos_link_follow fills in the map's oid
-             */
-            *oid_ptr = &map->obj.oid;
-
-            /* Wait until everything is complete then check for errors
-             * (temporary code until the rest of this function is async) */
-            if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
-                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
-            if(H5_daos_progress(&item->file->sched, NULL, H5_DAOS_PROGRESS_WAIT) < 0)
-                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't progress scheduler");
-            first_task = NULL;
-            dep_task = NULL;
-            if(int_req->status < -H5_DAOS_INCOMPLETE)
-                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "asynchronous task failed");
-        } /* end else */
-
-        /* Open map */
-        if(0 != (ret = daos_obj_open(item->file->coh, map->obj.oid, item->file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &map->obj.obj_oh, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, NULL, "can't open map: %s", H5_daos_err_to_string(ret));
-
-        /* Set up operation to read datatype and MCPL sizes from map */
-        /* Set up dkey */
-        daos_iov_set(&dkey, (void *)H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
-
-        /* Set up iod */
-        memset(iod, 0, sizeof(iod));
-        daos_iov_set(&iod[0].iod_name, (void *)H5_daos_ktype_g, H5_daos_ktype_size_g);
-        iod[0].iod_nr = 1u;
-        iod[0].iod_size = DAOS_REC_ANY;
-        iod[0].iod_type = DAOS_IOD_SINGLE;
-
-        daos_iov_set(&iod[1].iod_name, (void *)H5_daos_vtype_g, H5_daos_vtype_size_g);
-        iod[1].iod_nr = 1u;
-        iod[1].iod_size = DAOS_REC_ANY;
-        iod[1].iod_type = DAOS_IOD_SINGLE;
-
-        daos_iov_set(&iod[2].iod_name, (void *)H5_daos_cpl_key_g, H5_daos_cpl_key_size_g);
-        iod[2].iod_nr = 1u;
-        iod[2].iod_size = DAOS_REC_ANY;
-        iod[2].iod_type = DAOS_IOD_SINGLE;
-
-        /* Read internal metadata sizes from map */
-        if(0 != (ret = daos_obj_fetch(map->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 3, iod, NULL,
-                      NULL /*maps*/, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTDECODE, NULL, "can't read metadata sizes from map: %s", H5_daos_err_to_string(ret));
-
-        /* Check for metadata not found */
-        if((iod[0].iod_size == (uint64_t)0) || (iod[1].iod_size == (uint64_t)0)
-                || (iod[2].iod_size == (uint64_t)0))
-            D_GOTO_ERROR(H5E_MAP, H5E_NOTFOUND, NULL, "internal metadata not found");
-
-        /* Compute map info buffer size */
-        ktype_len = iod[0].iod_size;
-        vtype_len = iod[1].iod_size;
-        mcpl_len = iod[2].iod_size;
-        tot_len = ktype_len + vtype_len + mcpl_len;
-
-        /* Allocate map info buffer if necessary */
-        if((tot_len + (5 * sizeof(uint64_t))) > sizeof(minfo_buf_static)) {
-            if(NULL == (minfo_buf_dyn = (uint8_t *)DV_malloc(tot_len + (5 * sizeof(uint64_t)))))
-                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate map info buffer");
-            minfo_buf = minfo_buf_dyn;
-        } /* end if */
-
-        /* Set up sgl */
-        p = minfo_buf + (5 * sizeof(uint64_t));
-        daos_iov_set(&sg_iov[0], p, (daos_size_t)ktype_len);
-        sgl[0].sg_nr = 1;
-        sgl[0].sg_nr_out = 0;
-        sgl[0].sg_iovs = &sg_iov[0];
-        p += ktype_len;
-        daos_iov_set(&sg_iov[1], p, (daos_size_t)vtype_len);
-        sgl[1].sg_nr = 1;
-        sgl[1].sg_nr_out = 0;
-        sgl[1].sg_iovs = &sg_iov[1];
-        p += vtype_len;
-        daos_iov_set(&sg_iov[2], p, (daos_size_t)mcpl_len);
-        sgl[2].sg_nr = 1;
-        sgl[2].sg_nr_out = 0;
-        sgl[2].sg_iovs = &sg_iov[2];
-
-        /* Read internal metadata from map */
-        if(0 != (ret = daos_obj_fetch(map->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 3, iod, sgl, NULL /*maps*/, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTDECODE, NULL, "can't read metadata from map: %s", H5_daos_err_to_string(ret));
-
-        /* Broadcast map info if there are other processes that need it */
-        if(collective && (item->file->num_procs > 1)) {
-            assert(minfo_buf);
-            assert(sizeof(minfo_buf_static) >= 5 * sizeof(uint64_t));
-
-            /* Encode oid */
-            p = minfo_buf;
-            UINT64ENCODE(p, map->obj.oid.lo)
-            UINT64ENCODE(p, map->obj.oid.hi)
-
-            /* Encode serialized info lengths */
-            UINT64ENCODE(p, ktype_len)
-            UINT64ENCODE(p, vtype_len)
-            UINT64ENCODE(p, mcpl_len)
-
-            /* MPI_Bcast minfo_buf */
-            if(MPI_SUCCESS != MPI_Bcast((char *)minfo_buf, sizeof(minfo_buf_static), MPI_BYTE, 0, item->file->comm))
-                D_GOTO_ERROR(H5E_MAP, H5E_MPI, NULL, "can't broadcast map info");
-
-            /* Need a second bcast if it did not fit in the receivers' static
-             * buffer */
-            if(tot_len + (5 * sizeof(uint64_t)) > sizeof(minfo_buf_static))
-                if(MPI_SUCCESS != MPI_Bcast((char *)p, (int)tot_len, MPI_BYTE, 0, item->file->comm))
-                    D_GOTO_ERROR(H5E_MAP, H5E_MPI, NULL, "can't broadcast map info (second broadcast)");
-        } /* end if */
-        else
-            p = minfo_buf + (5 * sizeof(uint64_t));
-    } /* end if */
-    else {
-        /* Receive map info */
-        if(MPI_SUCCESS != MPI_Bcast((char *)minfo_buf, sizeof(minfo_buf_static), MPI_BYTE, 0, item->file->comm))
-            D_GOTO_ERROR(H5E_MAP, H5E_MPI, NULL, "can't receive broadcasted map info");
-
-        /* Decode oid */
-        p = minfo_buf_static;
-        UINT64DECODE(p, map->obj.oid.lo)
-        UINT64DECODE(p, map->obj.oid.hi)
-
-        /* Decode serialized info lengths */
-        UINT64DECODE(p, ktype_len)
-        UINT64DECODE(p, vtype_len)
-        UINT64DECODE(p, mcpl_len)
-        tot_len = ktype_len + vtype_len + mcpl_len;
-
-        /* Check for ktype_len set to 0 - indicates failure */
-        if(ktype_len == 0)
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "lead process failed to open map");
-
-        /* Check if we need to perform another bcast */
-        if(tot_len + (5 * sizeof(uint64_t)) > sizeof(minfo_buf_static)) {
-            /* Allocate a dynamic buffer if necessary */
-            if(tot_len > sizeof(minfo_buf_static)) {
-                if(NULL == (minfo_buf_dyn = (uint8_t *)DV_malloc(tot_len)))
-                    D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate space for map info");
-                minfo_buf = minfo_buf_dyn;
-            } /* end if */
-
-            /* Receive map info */
-            if(MPI_SUCCESS != MPI_Bcast((char *)minfo_buf, (int)tot_len, MPI_BYTE, 0, item->file->comm))
-                D_GOTO_ERROR(H5E_MAP, H5E_MPI, NULL, "can't receive broadcasted map info (second broadcast)");
-
-            p = minfo_buf;
-        } /* end if */
-
-        /* Open map */
-        if(0 != (ret = daos_obj_open(item->file->coh, map->obj.oid, item->file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &map->obj.obj_oh, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, NULL, "can't open map: %s", H5_daos_err_to_string(ret));
+                D_GOTO_ERROR(H5E_DATASET, H5E_TRAVERSE, NULL, "can't follow link to map");
     } /* end else */
 
-    /* Decode datatypes and MCPL */
-    if((map->key_type_id = H5Tdecode(p)) < 0)
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTDECODE, NULL, "can't deserialize datatype");
-    p += ktype_len;
-    if((map->val_type_id = H5Tdecode(p)) < 0)
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTDECODE, NULL, "can't deserialize datatype");
-    p += vtype_len;
-    if((map->mcpl_id = H5Pdecode(p)) < 0)
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTDECODE, NULL, "can't deserialize map creation property list");
+    must_bcast = FALSE;
+    if(NULL == (map = H5_daos_map_open_helper(item->file, mapl_id,
+            collective, int_req, &first_task, &dep_task)))
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, NULL, "can't open map");
 
-    /* Check validity of key type.  Vlens are only allwed at the top level, no
-     * references allowed at all. */
-    if(H5T_NO_CLASS == (ktype_class = H5Tget_class(map->key_type_id)))
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, NULL, "can't get key type class");
-    if(ktype_class == H5T_VLEN) {
-        /* Vlen types must not contain any nested vlens */
-        if((ktype_parent_id = H5Tget_super(map->key_type_id)) < 0)
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, NULL, "can't get key type parent");
-        if((has_vl_vlstr_ref = H5_daos_detect_vl_vlstr_ref(ktype_parent_id)) < 0)
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't check for vlen or reference type");
-        if(has_vl_vlstr_ref)
-            D_GOTO_ERROR(H5E_MAP, H5E_UNSUPPORTED, NULL, "key type contains nested vlen or reference");
-    } /* end if */
-    else if(ktype_class == H5T_REFERENCE)
-        /* References not supported */
-        D_GOTO_ERROR(H5E_ARGS, H5E_UNSUPPORTED, NULL, "key type is a reference type");
-    else if(ktype_class != H5T_STRING) {
-        /* No nested vlens */
-        if((has_vl_vlstr_ref = H5_daos_detect_vl_vlstr_ref(map->key_type_id)) < 0)
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't check for vlen or reference type");
-        if(has_vl_vlstr_ref)
-            D_GOTO_ERROR(H5E_MAP, H5E_UNSUPPORTED, NULL, "key type contains nested vlen or reference");
-    } /* end if */
-
-    /* Finish setting up map struct */
-    if((map->key_file_type_id = H5VLget_file_type(item->file, H5_DAOS_g, map->key_type_id)) < 0)
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "failed to get file datatype");
-    if((map->val_file_type_id = H5VLget_file_type(item->file, H5_DAOS_g, map->val_type_id)) < 0)
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "failed to get file datatype");
-    if((map->mapl_id = H5Pcopy(mapl_id)) < 0)
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTCOPY, NULL, "failed to copy mapl");
-
-    /* Fill OCPL cache */
-    if(H5_daos_fill_ocpl_cache(&map->obj, map->mcpl_id) < 0)
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "failed to fill OCPL cache");
+    /* Set map oid */
+    if(oid_ptr)
+        /* Retarget *oid_ptr to map->obj.oid so H5_daos_link_follow fills in
+         * the map's oid */
+        *oid_ptr = &map->obj.oid;
+    else if(H5VL_OBJECT_BY_TOKEN == loc_params->type)
+        /* Just set the static oid from the token */
+        map->obj.oid = oid;
+    else
+        /* We will receive oid from lead process */
+        assert(collective && item->file->my_rank > 0);
 
     /* Set return value */
     ret_value = (void *)map;
@@ -735,18 +552,18 @@ H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
 done:
     /* Cleanup on failure */
     if(NULL == ret_value) {
-        /* Bcast minfo_buf as '0' if necessary - this will trigger failures in
-         * in other processes so we do not need to do the second bcast. */
-        if(must_bcast) {
-            memset(minfo_buf_static, 0, sizeof(minfo_buf_static));
-            if(MPI_SUCCESS != MPI_Bcast(minfo_buf_static, sizeof(minfo_buf_static), MPI_BYTE, 0, item->file->comm))
-                D_DONE_ERROR(H5E_MAP, H5E_MPI, NULL, "can't broadcast empty map info");
-        } /* end if */
+        /* Broadcast map info if needed */
+        if(must_bcast && H5_daos_mpi_ibcast(NULL, &map->obj, H5_DAOS_MINFO_BCAST_BUF_SIZE,
+                TRUE, NULL, item->file->my_rank == 0 ? H5_daos_map_open_bcast_comp_cb : H5_daos_map_open_recv_comp_cb,
+                int_req, &first_task, &dep_task) < 0)
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "failed to broadcast empty map info buffer to signal failure");
 
         /* Close map */
-        if(map && H5_daos_map_close(map, dxpl_id, req) < 0)
+        if(map && H5_daos_map_close(map, dxpl_id, NULL) < 0)
             D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't close map");
     } /* end if */
+    else
+        assert(!must_bcast);
 
     if(int_req) {
         /* Free path_buf if necessary */
@@ -780,26 +597,745 @@ done:
 
         /* Check for failure */
         if(int_req->status < 0)
-            D_DONE_ERROR(H5E_MAP, H5E_CANTOPERATE, NULL, "group open failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status));
+            D_DONE_ERROR(H5E_MAP, H5E_CANTOPERATE, NULL, "map open failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status));
 
         /* Close internal request */
         if(H5_daos_req_free_int(int_req) < 0)
             D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't free request");
     } /* end if */
 
-    /* Close target group */
-    if(target_grp && H5_daos_group_close(target_grp, dxpl_id, req) < 0)
-        D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't close group");
-
-    /* Close key type parent type */
-    if(ktype_parent_id >= 0 && H5Tclose(ktype_parent_id) < 0)
-        D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't close key type parent type");
-
-    /* Free memory */
-    minfo_buf_dyn = (uint8_t *)DV_free(minfo_buf_dyn);
+    /* Close target object */
+    if(target_obj && H5_daos_object_close(target_obj, dxpl_id, NULL) < 0)
+        D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't close object");
 
     D_FUNC_LEAVE;
 } /* end H5_daos_map_open() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_map_open_helper
+ *
+ * Purpose:     Internal-use helper routine to create an asynchronous task
+ *              for opening a DAOS HDF5 map.
+ *
+ * Return:      Success:        map object.
+ *              Failure:        NULL
+ *
+ *-------------------------------------------------------------------------
+ */
+H5_daos_map_t *
+H5_daos_map_open_helper(H5_daos_file_t *file, hid_t mapl_id, hbool_t collective,
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
+{
+    H5_daos_mpi_ibcast_ud_t *bcast_udata = NULL;
+    H5_daos_omd_fetch_ud_t *fetch_udata = NULL;
+    H5_daos_map_t *map = NULL;
+    uint8_t *minfo_buf = NULL;
+    size_t minfo_buf_size = 0;
+    int ret;
+    H5_daos_map_t *ret_value = NULL;
+
+    assert(file);
+    assert(req);
+    assert(first_task);
+    assert(dep_task);
+
+    /* Allocate the map object that is returned to the user */
+    if(NULL == (map = H5FL_CALLOC(H5_daos_map_t)))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate DAOS map struct");
+    map->obj.item.type = H5I_MAP;
+    map->obj.item.open_req = req;
+    req->rc++;
+    map->obj.item.file = file;
+    map->obj.item.rc = 1;
+    map->obj.obj_oh = DAOS_HDL_INVAL;
+    map->key_type_id = FAIL;
+    map->key_file_type_id = FAIL;
+    map->val_type_id = FAIL;
+    map->val_file_type_id = FAIL;
+    map->mcpl_id = FAIL;
+    map->mapl_id = FAIL;
+    if((map->mapl_id = H5Pcopy(mapl_id)) < 0)
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTCOPY, NULL, "failed to copy mapl");
+
+    /* Set up broadcast user data (if appropriate) and calculate initial map
+     * info buffer size */
+    if(collective && (file->num_procs > 1)) {
+        if(NULL == (bcast_udata = (H5_daos_mpi_ibcast_ud_t *)DV_malloc(sizeof(H5_daos_mpi_ibcast_ud_t))))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "failed to allocate buffer for MPI broadcast user data");
+        bcast_udata->req = req;
+        bcast_udata->obj = &map->obj;
+        bcast_udata->buffer = NULL;
+        bcast_udata->buffer_len = 0;
+        bcast_udata->count = 0;
+
+        minfo_buf_size = H5_DAOS_MINFO_BCAST_BUF_SIZE;
+    } /* end if */
+    else
+        minfo_buf_size = (2 * H5_DAOS_TYPE_BUF_SIZE) + H5_DAOS_MCPL_BUF_SIZE;
+
+    /* Check if we're actually opening the map or just receiving the map
+     * info from the leader */
+    if(!collective || (file->my_rank == 0)) {
+        tse_task_t *fetch_task = NULL;
+        uint8_t *p;
+
+        /* Open map object */
+        if(H5_daos_obj_open(file, req, &map->obj.oid,
+                (file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO),
+                &map->obj.obj_oh, "map object open", first_task, dep_task) < 0)
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, NULL, "can't open map object");
+
+        /* Allocate argument struct for fetch task */
+        if(NULL == (fetch_udata = (H5_daos_omd_fetch_ud_t *)DV_calloc(sizeof(H5_daos_omd_fetch_ud_t))))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for fetch callback arguments");
+
+        /* Set up operation to read key/memory datatypes and MCPL sizes from map */
+
+        /* Set up ud struct */
+        fetch_udata->md_rw_cb_ud.req = req;
+        fetch_udata->md_rw_cb_ud.obj = &map->obj;
+        fetch_udata->bcast_udata = bcast_udata;
+
+        /* Set up dkey.  Point to global name buffer, do not free. */
+        daos_iov_set(&fetch_udata->md_rw_cb_ud.dkey, (void *)H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
+        fetch_udata->md_rw_cb_ud.free_dkey = FALSE;
+
+        /* Set up iod.  Point akey to global name buffer, do not free. */
+        daos_iov_set(&fetch_udata->md_rw_cb_ud.iod[0].iod_name, (void *)H5_daos_ktype_g, H5_daos_ktype_size_g);
+        fetch_udata->md_rw_cb_ud.iod[0].iod_nr = 1u;
+        fetch_udata->md_rw_cb_ud.iod[0].iod_size = DAOS_REC_ANY;
+        fetch_udata->md_rw_cb_ud.iod[0].iod_type = DAOS_IOD_SINGLE;
+
+        daos_iov_set(&fetch_udata->md_rw_cb_ud.iod[1].iod_name, (void *)H5_daos_vtype_g, H5_daos_vtype_size_g);
+        fetch_udata->md_rw_cb_ud.iod[1].iod_nr = 1u;
+        fetch_udata->md_rw_cb_ud.iod[1].iod_size = DAOS_REC_ANY;
+        fetch_udata->md_rw_cb_ud.iod[1].iod_type = DAOS_IOD_SINGLE;
+
+        daos_iov_set(&fetch_udata->md_rw_cb_ud.iod[2].iod_name, (void *)H5_daos_cpl_key_g, H5_daos_cpl_key_size_g);
+        fetch_udata->md_rw_cb_ud.iod[2].iod_nr = 1u;
+        fetch_udata->md_rw_cb_ud.iod[2].iod_size = DAOS_REC_ANY;
+        fetch_udata->md_rw_cb_ud.iod[2].iod_type = DAOS_IOD_SINGLE;
+
+        fetch_udata->md_rw_cb_ud.free_akeys = FALSE;
+
+        /* Allocate initial map info buffer */
+        if(NULL == (minfo_buf = DV_malloc(minfo_buf_size)))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized map info");
+
+        /* Set up buffer */
+        if(bcast_udata) {
+            p = minfo_buf + (5 * sizeof(uint64_t));
+            bcast_udata->buffer = minfo_buf;
+            minfo_buf = NULL;
+            bcast_udata->buffer_len = minfo_buf_size;
+            bcast_udata->count = minfo_buf_size;
+        } /* end if */
+        else
+            p = minfo_buf;
+
+        /* Set up sgl */
+        daos_iov_set(&fetch_udata->md_rw_cb_ud.sg_iov[0], p, (daos_size_t)H5_DAOS_TYPE_BUF_SIZE);
+        fetch_udata->md_rw_cb_ud.sgl[0].sg_nr = 1;
+        fetch_udata->md_rw_cb_ud.sgl[0].sg_nr_out = 0;
+        fetch_udata->md_rw_cb_ud.sgl[0].sg_iovs = &fetch_udata->md_rw_cb_ud.sg_iov[0];
+        p += H5_DAOS_TYPE_BUF_SIZE;
+        daos_iov_set(&fetch_udata->md_rw_cb_ud.sg_iov[1], p, (daos_size_t)H5_DAOS_TYPE_BUF_SIZE);
+        fetch_udata->md_rw_cb_ud.sgl[1].sg_nr = 1;
+        fetch_udata->md_rw_cb_ud.sgl[1].sg_nr_out = 0;
+        fetch_udata->md_rw_cb_ud.sgl[1].sg_iovs = &fetch_udata->md_rw_cb_ud.sg_iov[1];
+        p += H5_DAOS_TYPE_BUF_SIZE;
+        daos_iov_set(&fetch_udata->md_rw_cb_ud.sg_iov[2], p, (daos_size_t)H5_DAOS_MCPL_BUF_SIZE);
+        fetch_udata->md_rw_cb_ud.sgl[2].sg_nr = 1;
+        fetch_udata->md_rw_cb_ud.sgl[2].sg_nr_out = 0;
+        fetch_udata->md_rw_cb_ud.sgl[2].sg_iovs = &fetch_udata->md_rw_cb_ud.sg_iov[2];
+        p += H5_DAOS_MCPL_BUF_SIZE;
+
+        /* Set nr */
+        fetch_udata->md_rw_cb_ud.nr = 3u;
+
+        /* Set task name */
+        fetch_udata->md_rw_cb_ud.task_name = "map metadata read";
+
+        /* Create meta task for map metadata read.  This empty task will be
+         * completed when the read is finished by H5_daos_minfo_read_comp_cb.
+         * We can't use fetch_task since it may not be completed by the first
+         * fetch. */
+        if(0 != (ret = tse_task_create(NULL, &file->sched, NULL, &fetch_udata->fetch_metatask)))
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create meta task for map metadata read: %s", H5_daos_err_to_string(ret));
+
+        /* Create task for map metadata read */
+        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &file->sched, 0, NULL, &fetch_task)))
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create task to read map medadata: %s", H5_daos_err_to_string(ret));
+
+        /* Register dependency for task */
+        assert(*dep_task);
+        if(0 != (ret = tse_task_register_deps(fetch_task, 1, dep_task)))
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create dependencies for map metadata read: %s", H5_daos_err_to_string(ret));
+
+        /* Set callback functions for map metadata read */
+        if(0 != (ret = tse_task_register_cbs(fetch_task, H5_daos_md_rw_prep_cb, NULL, 0, H5_daos_minfo_read_comp_cb, NULL, 0)))
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't register callbacks for task to read map medadata: %s", H5_daos_err_to_string(ret));
+
+        /* Set private data for map metadata read */
+        (void)tse_task_set_priv(fetch_task, fetch_udata);
+
+        /* Schedule meta task */
+        if(0 != (ret = tse_task_schedule(fetch_udata->fetch_metatask, false)))
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't schedule meta task for map metadata read: %s", H5_daos_err_to_string(ret));
+
+        /* Schedule map metadata read task (or save it to be scheduled
+         * later) and give it a reference to req and the map */
+        assert(*first_task);
+        if(0 != (ret = tse_task_schedule(fetch_task, false)))
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't schedule task to read map metadata: %s", H5_daos_err_to_string(ret));
+        *dep_task = fetch_udata->fetch_metatask;
+        req->rc++;
+        map->obj.item.rc++;
+        fetch_udata = NULL;
+        minfo_buf = NULL;
+    } /* end if */
+    else {
+        assert(bcast_udata);
+
+        /* Allocate buffer for map info */
+        minfo_buf_size = H5_DAOS_MINFO_BCAST_BUF_SIZE;
+        if(NULL == (bcast_udata->buffer = DV_malloc(minfo_buf_size)))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized map info");
+        bcast_udata->buffer_len = minfo_buf_size;
+        bcast_udata->count = minfo_buf_size;
+    } /* end else */
+
+    ret_value = map;
+
+done:
+    /* Broadcast map info */
+    if(bcast_udata) {
+        assert(!minfo_buf);
+        assert(minfo_buf_size == H5_DAOS_MINFO_BCAST_BUF_SIZE);
+        if(H5_daos_mpi_ibcast(bcast_udata, &map->obj, minfo_buf_size,
+                NULL == ret_value ? TRUE : FALSE, NULL,
+                file->my_rank == 0 ? H5_daos_map_open_bcast_comp_cb : H5_daos_map_open_recv_comp_cb,
+                req, first_task, dep_task) < 0) {
+            DV_free(bcast_udata->buffer);
+            DV_free(bcast_udata);
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "failed to broadcast map info buffer");
+        } /* end if */
+
+        bcast_udata = NULL;
+    } /* end if */
+
+    /* Cleanup on failure */
+    if(NULL == ret_value) {
+        /* Close map */
+        if(map && H5_daos_map_close(map, req->dxpl_id, NULL) < 0)
+            D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't close map");
+
+        /* Free memory */
+        fetch_udata = DV_free(fetch_udata);
+        minfo_buf = DV_free(minfo_buf);
+    } /* end if */
+
+    /* Make sure we cleaned up */
+    assert(!fetch_udata);
+    assert(!bcast_udata);
+    assert(!minfo_buf);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_map_open_helper() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_map_open_bcast_comp_cb
+ *
+ * Purpose:     Complete callback for asynchronous MPI_ibcast for map
+ *              opens (rank 0).
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_map_open_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_mpi_ibcast_ud_t *udata;
+    int ret;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for map info broadcast task");
+
+    assert(udata->req);
+    assert(udata->obj);
+    assert(udata->obj->item.file);
+    assert(!udata->obj->item.file->closed);
+    assert(udata->obj->item.file->my_rank == 0);
+    assert(udata->obj->item.type == H5I_MAP);
+
+    /* Handle errors in bcast task.  Only record error in udata->req_status if
+     * it does not already contain an error (it could contain an error if
+     * another task this task is not dependent on also failed). */
+    if(task->dt_result < -H5_DAOS_PRE_ERROR
+            && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+        udata->req->status = task->dt_result;
+        udata->req->failed_task = "MPI_Ibcast map info";
+    } /* end if */
+    else if(task->dt_result == 0) {
+        /* Reissue bcast if necesary */
+        if(udata->buffer_len != udata->count) {
+            tse_task_t *bcast_task;
+
+            assert(udata->count == H5_DAOS_MINFO_BCAST_BUF_SIZE);
+            assert(udata->buffer_len > H5_DAOS_MINFO_BCAST_BUF_SIZE);
+
+            /* Use full buffer this time */
+            udata->count = udata->buffer_len;
+
+            /* Create task for second bcast */
+            if(0 !=  (ret = tse_task_create(H5_daos_mpi_ibcast_task, &udata->obj->item.file->sched, udata, &bcast_task)))
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't create task for second map info broadcast");
+
+            /* Set callback functions for second bcast */
+            if(0 != (ret = tse_task_register_cbs(bcast_task, NULL, NULL, 0, H5_daos_map_open_bcast_comp_cb, NULL, 0)))
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't register callbacks for second map info broadcast: %s", H5_daos_err_to_string(ret));
+
+            /* Schedule second bcast and transfer ownership of udata */
+            if(0 != (ret = tse_task_schedule(bcast_task, false)))
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't schedule task for second map info broadcast: %s", H5_daos_err_to_string(ret));
+            udata = NULL;
+        } /* end if */
+    } /* end else */
+
+done:
+    /* Free private data if we haven't released ownership */
+    if(udata) {
+        /* Close map */
+        if(H5_daos_map_close((H5_daos_map_t *)udata->obj, H5I_INVALID_HID, NULL) < 0)
+            D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close map");
+
+        /* Handle errors in this function */
+        /* Do not place any code that can issue errors after this block, except
+         * for H5_daos_req_free_int, which updates req->status if it sees an
+         * error */
+        if(ret_value < 0 && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+            udata->req->status = ret_value;
+            udata->req->failed_task = "MPI_Ibcast map info completion callback";
+        } /* end if */
+
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(udata->req) < 0)
+            D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+        /* Complete bcast metatask */
+        tse_task_complete(udata->bcast_metatask, ret_value);
+
+        /* Free buffer */
+        DV_free(udata->buffer);
+
+        /* Free private data */
+        DV_free(udata);
+    } /* end if */
+    else
+        assert(ret_value >= 0 || ret_value == -H5_DAOS_DAOS_GET_ERROR);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_map_open_bcast_comp_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_map_open_recv_comp_cb
+ *
+ * Purpose:     Complete callback for asynchronous MPI_ibcast for map
+ *              opens (rank 1+).
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_map_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_mpi_ibcast_ud_t *udata;
+    int ret;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for map info receive task");
+
+    assert(udata->req);
+    assert(udata->obj);
+    assert(udata->obj->item.file);
+    assert(!udata->req->file->closed);
+    assert(udata->obj->item.file->my_rank > 0);
+    assert(udata->obj->item.type == H5I_MAP);
+
+    /* Handle errors in bcast task.  Only record error in udata->req_status if
+     * it does not already contain an error (it could contain an error if
+     * another task this task is not dependent on also failed). */
+    if(task->dt_result < -H5_DAOS_PRE_ERROR
+            && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+        udata->req->status = task->dt_result;
+        udata->req->failed_task = "MPI_Ibcast map info";
+    } /* end if */
+    else if(task->dt_result == 0) {
+        uint64_t ktype_buf_len = 0;
+        uint64_t vtype_buf_len = 0;
+        uint64_t mcpl_buf_len = 0;
+        size_t minfo_len;
+        uint8_t *p = udata->buffer;
+
+        /* Decode oid */
+        UINT64DECODE(p, udata->obj->oid.lo)
+        UINT64DECODE(p, udata->obj->oid.hi)
+
+        /* Decode serialized info lengths */
+        UINT64DECODE(p, ktype_buf_len)
+        UINT64DECODE(p, vtype_buf_len)
+        UINT64DECODE(p, mcpl_buf_len)
+
+        /* Check for ktype_buf_len set to 0 - indicates failure */
+        if(ktype_buf_len == 0)
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, -H5_DAOS_REMOTE_ERROR, "lead process failed to open map");
+
+        /* Calculate data length */
+        minfo_len = (size_t)ktype_buf_len + (size_t)vtype_buf_len + (size_t)mcpl_buf_len + H5_DAOS_ENCODED_OID_SIZE + 3 * sizeof(uint64_t);
+
+        /* Reissue bcast if necesary */
+        if(minfo_len > (size_t)udata->count) {
+            tse_task_t *bcast_task;
+
+            assert(udata->buffer_len == H5_DAOS_MINFO_BCAST_BUF_SIZE);
+            assert(udata->count == H5_DAOS_MINFO_BCAST_BUF_SIZE);
+
+            /* Realloc buffer */
+            DV_free(udata->buffer);
+            if(NULL == (udata->buffer = DV_malloc(minfo_len)))
+                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "failed to allocate memory for map info buffer");
+            udata->buffer_len = minfo_len;
+            udata->count = minfo_len;
+
+            /* Create task for second bcast */
+            if(0 !=  (ret = tse_task_create(H5_daos_mpi_ibcast_task, &udata->obj->item.file->sched, udata, &bcast_task)))
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't create task for second map info broadcast");
+
+            /* Set callback functions for second bcast */
+            if(0 != (ret = tse_task_register_cbs(bcast_task, NULL, NULL, 0, H5_daos_map_open_recv_comp_cb, NULL, 0)))
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't register callbacks for second map info broadcast: %s", H5_daos_err_to_string(ret));
+
+            /* Schedule second bcast and transfer ownership of udata */
+            if(0 != (ret = tse_task_schedule(bcast_task, false)))
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't schedule task for second map info broadcast: %s", H5_daos_err_to_string(ret));
+            udata = NULL;
+        } /* end if */
+        else {
+            /* Open map */
+            if(0 != (ret = daos_obj_open(udata->obj->item.file->coh, udata->obj->oid,
+                    (udata->obj->item.file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO),
+                    &udata->obj->obj_oh, NULL /*event*/)))
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, ret, "can't open map: %s", H5_daos_err_to_string(ret));
+
+            /* Finish building map object */
+            if(0 != (ret = H5_daos_map_open_end((H5_daos_map_t *)udata->obj,
+                    p, ktype_buf_len, vtype_buf_len, udata->req->dxpl_id)))
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't finish opening map");
+        } /* end else */
+    } /* end else */
+
+done:
+    /* Free private data if we haven't released ownership */
+    if(udata) {
+        /* Close map */
+        if(H5_daos_map_close((H5_daos_map_t *)udata->obj, H5I_INVALID_HID, NULL) < 0)
+            D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close map");
+
+        /* Handle errors in this function */
+        /* Do not place any code that can issue errors after this block, except
+         * for H5_daos_req_free_int, which updates req->status if it sees an
+         * error */
+        if(ret_value < 0 && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+            udata->req->status = ret_value;
+            udata->req->failed_task = "MPI_Ibcast map info completion callback";
+        } /* end if */
+
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(udata->req) < 0)
+            D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+        /* Complete bcast metatask */
+        tse_task_complete(udata->bcast_metatask, ret_value);
+
+        /* Free buffer */
+        DV_free(udata->buffer);
+
+        /* Free private data */
+        DV_free(udata);
+    } /* end if */
+    else
+        assert(ret_value >= 0 || ret_value == -H5_DAOS_DAOS_GET_ERROR);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_map_open_recv_comp_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_map_open_end
+ *
+ * Purpose:     Decode serialized map info from a buffer and fill caches.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_map_open_end(H5_daos_map_t *map, uint8_t *p,
+    uint64_t ktype_buf_len, uint64_t vtype_buf_len, hid_t H5VL_DAOS_UNUSED dxpl_id)
+{
+    H5T_class_t ktype_class;
+    htri_t has_vl_vlstr_ref;
+    hid_t ktype_parent_id = H5I_INVALID_HID;
+    int ret_value = 0;
+
+    assert(map);
+    assert(p);
+    assert(ktype_buf_len > 0);
+    assert(vtype_buf_len > 0);
+
+    /* Decode datatypes and MCPL */
+    if((map->key_type_id = H5Tdecode(p)) < 0)
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTDECODE, -H5_DAOS_H5_DECODE_ERROR, "can't deserialize datatype");
+    p += ktype_buf_len;
+    if((map->val_type_id = H5Tdecode(p)) < 0)
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTDECODE, -H5_DAOS_H5_DECODE_ERROR, "can't deserialize datatype");
+    p += vtype_buf_len;
+    if((map->mcpl_id = H5Pdecode(p)) < 0)
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTDECODE, -H5_DAOS_H5_DECODE_ERROR, "can't deserialize map creation property list");
+
+    /* Check validity of key type.  Vlens are only allowed at the top level, no
+     * references allowed at all. */
+    if(H5T_NO_CLASS == (ktype_class = H5Tget_class(map->key_type_id)))
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, -H5_DAOS_H5_GET_ERROR, "can't get key type class");
+    if(ktype_class == H5T_VLEN) {
+        /* Vlen types must not contain any nested vlens */
+        if((ktype_parent_id = H5Tget_super(map->key_type_id)) < 0)
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, -H5_DAOS_H5_GET_ERROR, "can't get key type parent");
+        if((has_vl_vlstr_ref = H5_daos_detect_vl_vlstr_ref(ktype_parent_id)) < 0)
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, -H5_DAOS_H5_GET_ERROR, "can't check for vlen or reference type");
+        if(has_vl_vlstr_ref)
+            D_GOTO_ERROR(H5E_MAP, H5E_UNSUPPORTED, -H5_DAOS_H5_UNSUPPORTED_ERROR, "key type contains nested vlen or reference");
+    } /* end if */
+    else if(ktype_class == H5T_REFERENCE)
+        /* References not supported */
+        D_GOTO_ERROR(H5E_ARGS, H5E_UNSUPPORTED, -H5_DAOS_H5_UNSUPPORTED_ERROR, "key type is a reference type");
+    else if(ktype_class != H5T_STRING) {
+        /* No nested vlens */
+        if((has_vl_vlstr_ref = H5_daos_detect_vl_vlstr_ref(map->key_type_id)) < 0)
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, -H5_DAOS_H5_GET_ERROR, "can't check for vlen or reference type");
+        if(has_vl_vlstr_ref)
+            D_GOTO_ERROR(H5E_MAP, H5E_UNSUPPORTED, -H5_DAOS_H5_UNSUPPORTED_ERROR, "key type contains nested vlen or reference");
+    } /* end if */
+
+    /* Finish setting up map struct */
+    if((map->key_file_type_id = H5VLget_file_type(map->obj.item.file, H5_DAOS_g, map->key_type_id)) < 0)
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, -H5_DAOS_H5_TCONV_ERROR, "failed to get file datatype");
+    if((map->val_file_type_id = H5VLget_file_type(map->obj.item.file, H5_DAOS_g, map->val_type_id)) < 0)
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, -H5_DAOS_H5_TCONV_ERROR, "failed to get file datatype");
+
+    /* Fill OCPL cache */
+    if(H5_daos_fill_ocpl_cache(&map->obj, map->mcpl_id) < 0)
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, -H5_DAOS_CPL_CACHE_ERROR, "failed to fill OCPL cache");
+
+done:
+    /* Close key type parent type */
+    if(ktype_parent_id >= 0 && H5Tclose(ktype_parent_id) < 0)
+        D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close key type parent type");
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_map_open_end() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_minfo_read_comp_cb
+ *
+ * Purpose:     Complete callback for asynchronous metadata fetch for
+ *              map opens.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_minfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_omd_fetch_ud_t *udata;
+    uint8_t *p;
+    int ret;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for map info read task");
+
+    assert(udata->md_rw_cb_ud.req);
+    assert(udata->md_rw_cb_ud.req->file);
+    assert(udata->md_rw_cb_ud.obj);
+    assert(udata->fetch_metatask);
+    assert(!udata->md_rw_cb_ud.req->file->closed);
+    assert(udata->md_rw_cb_ud.obj->item.type == H5I_MAP);
+
+    /* Check for buffer not large enough */
+    if(task->dt_result == -DER_REC2BIG) {
+        tse_task_t *fetch_task;
+        size_t daos_info_len = udata->md_rw_cb_ud.iod[0].iod_size
+                + udata->md_rw_cb_ud.iod[1].iod_size
+                + udata->md_rw_cb_ud.iod[2].iod_size;
+
+        /* Verify iod size makes sense */
+        if(udata->md_rw_cb_ud.sg_iov[0].iov_buf_len != H5_DAOS_TYPE_BUF_SIZE
+                || udata->md_rw_cb_ud.sg_iov[1].iov_buf_len != H5_DAOS_TYPE_BUF_SIZE
+                || udata->md_rw_cb_ud.sg_iov[2].iov_buf_len != H5_DAOS_MCPL_BUF_SIZE)
+            D_GOTO_ERROR(H5E_MAP, H5E_BADVALUE, -H5_DAOS_BAD_VALUE, "buffer length does not match expected value");
+
+        if(udata->bcast_udata) {
+            /* Reallocate map info buffer if necessary */
+            if(daos_info_len > (2 * H5_DAOS_TYPE_BUF_SIZE) + H5_DAOS_MCPL_BUF_SIZE) {
+                udata->bcast_udata->buffer = DV_free(udata->bcast_udata->buffer);
+                if(NULL == (udata->bcast_udata->buffer = DV_malloc(daos_info_len + H5_DAOS_ENCODED_OID_SIZE + 3 * H5_DAOS_ENCODED_UINT64_T_SIZE)))
+                    D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate buffer for serialized map info");
+                udata->bcast_udata->buffer_len = daos_info_len + H5_DAOS_ENCODED_OID_SIZE + 3 * H5_DAOS_ENCODED_UINT64_T_SIZE;
+            } /* end if */
+
+            /* Set starting point for fetch sg_iovs */
+            p = (uint8_t *)udata->bcast_udata->buffer + H5_DAOS_ENCODED_OID_SIZE + 3 * H5_DAOS_ENCODED_UINT64_T_SIZE;
+        } /* end if */
+        else {
+            /* Reallocate map info buffer if necessary */
+            if(daos_info_len > (2 * H5_DAOS_TYPE_BUF_SIZE) + H5_DAOS_MCPL_BUF_SIZE) {
+                udata->md_rw_cb_ud.sg_iov[0].iov_buf = DV_free(udata->md_rw_cb_ud.sg_iov[0].iov_buf);
+                if(NULL == (udata->md_rw_cb_ud.sg_iov[0].iov_buf = DV_malloc(daos_info_len)))
+                    D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate buffer for serialized map info");
+            } /* end if */
+
+            /* Set starting point for fetch sg_iovs */
+            p = (uint8_t *)udata->md_rw_cb_ud.sg_iov[0].iov_buf;
+        } /* end else */
+
+        /* Set up sgl */
+        daos_iov_set(&udata->md_rw_cb_ud.sg_iov[0], p, udata->md_rw_cb_ud.iod[0].iod_size);
+        udata->md_rw_cb_ud.sgl[0].sg_nr_out = 0;
+        p += udata->md_rw_cb_ud.iod[0].iod_size;
+        daos_iov_set(&udata->md_rw_cb_ud.sg_iov[1], p, udata->md_rw_cb_ud.iod[1].iod_size);
+        udata->md_rw_cb_ud.sgl[1].sg_nr_out = 0;
+        p += udata->md_rw_cb_ud.iod[1].iod_size;
+        daos_iov_set(&udata->md_rw_cb_ud.sg_iov[2], p, udata->md_rw_cb_ud.iod[2].iod_size);
+        udata->md_rw_cb_ud.sgl[2].sg_nr_out = 0;
+
+        /* Create task for reissued map metadata read */
+        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &udata->md_rw_cb_ud.obj->item.file->sched, 0, NULL, &fetch_task)))
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't create task to read map medadata: %s", H5_daos_err_to_string(ret));
+
+        /* Set callback functions for map metadata read */
+        if(0 != (ret = tse_task_register_cbs(fetch_task, H5_daos_md_rw_prep_cb, NULL, 0, H5_daos_minfo_read_comp_cb, NULL, 0)))
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't register callbacks for task to read map medadata: %s", H5_daos_err_to_string(ret));
+
+        /* Set private data for map metadata read */
+        (void)tse_task_set_priv(fetch_task, udata);
+
+        /* Schedule map metadata read task and give it a reference to req
+         * and the map */
+        if(0 != (ret = tse_task_schedule(fetch_task, false)))
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't schedule task to read map metadata: %s", H5_daos_err_to_string(ret));
+        udata = NULL;
+    } /* end if */
+    else {
+        /* Handle errors in fetch task.  Only record error in udata->req_status
+         * if it does not already contain an error (it could contain an error if
+         * another task this task is not dependent on also failed). */
+        if(task->dt_result < -H5_DAOS_PRE_ERROR
+                && udata->md_rw_cb_ud.req->status >= -H5_DAOS_INCOMPLETE) {
+            udata->md_rw_cb_ud.req->status = task->dt_result;
+            udata->md_rw_cb_ud.req->failed_task = udata->md_rw_cb_ud.task_name;
+        } /* end if */
+        else if(task->dt_result == 0) {
+            uint64_t ktype_buf_len = (uint64_t)(udata->md_rw_cb_ud.sg_iov[1].iov_buf
+                    - udata->md_rw_cb_ud.sg_iov[0].iov_buf);
+            uint64_t vtype_buf_len = (uint64_t)(udata->md_rw_cb_ud.sg_iov[2].iov_buf
+                    - udata->md_rw_cb_ud.sg_iov[1].iov_buf);
+            uint64_t mcpl_buf_len = (uint64_t)(udata->md_rw_cb_ud.iod[2].iod_size);
+
+            /* Check for missing metadata */
+            if(udata->md_rw_cb_ud.iod[0].iod_size == (uint64_t)0
+            || udata->md_rw_cb_ud.iod[1].iod_size == (uint64_t)0
+            || udata->md_rw_cb_ud.iod[2].iod_size == (uint64_t)0)
+                D_GOTO_ERROR(H5E_MAP, H5E_NOTFOUND, -H5_DAOS_DAOS_GET_ERROR, "internal metadata not found");
+
+            if(udata->bcast_udata) {
+                /* Encode oid */
+                p = udata->bcast_udata->buffer;
+                UINT64ENCODE(p, udata->md_rw_cb_ud.obj->oid.lo)
+                UINT64ENCODE(p, udata->md_rw_cb_ud.obj->oid.hi)
+
+                /* Encode serialized info lengths */
+                UINT64ENCODE(p, ktype_buf_len)
+                UINT64ENCODE(p, vtype_buf_len)
+                UINT64ENCODE(p, mcpl_buf_len)
+                assert(p == udata->md_rw_cb_ud.sg_iov[0].iov_buf);
+            } /* end if */
+
+            /* Finish building map object */
+            if(0 != (ret = H5_daos_map_open_end((H5_daos_map_t *)udata->md_rw_cb_ud.obj,
+                    udata->md_rw_cb_ud.sg_iov[0].iov_buf, ktype_buf_len,
+                    vtype_buf_len, udata->md_rw_cb_ud.req->dxpl_id)))
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't finish opening map");
+        } /* end else */
+    } /* end else */
+
+done:
+    /* Clean up if this is the last fetch task */
+    if(udata) {
+        /* Close map */
+        if(H5_daos_map_close((H5_daos_map_t *)udata->md_rw_cb_ud.obj, H5I_INVALID_HID, NULL) < 0)
+            D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close map");
+
+        if(udata->bcast_udata) {
+            /* Clear broadcast buffer if there was an error */
+            if(udata->md_rw_cb_ud.req->status < -H5_DAOS_INCOMPLETE)
+                (void)memset(udata->bcast_udata->buffer, 0, udata->bcast_udata->count);
+        } /* end if */
+        else
+            /* No broadcast, free buffer */
+            DV_free(udata->md_rw_cb_ud.sg_iov[0].iov_buf);
+
+        /* Handle errors in this function */
+        /* Do not place any code that can issue errors after this block, except
+         * for H5_daos_req_free_int, which updates req->status if it sees an
+         * error */
+        if(ret_value < 0 && udata->md_rw_cb_ud.req->status >= -H5_DAOS_INCOMPLETE) {
+            udata->md_rw_cb_ud.req->status = ret_value;
+            udata->md_rw_cb_ud.req->failed_task = udata->md_rw_cb_ud.task_name;
+        } /* end if */
+
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(udata->md_rw_cb_ud.req) < 0)
+            D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+        /* Complete fetch metatask */
+        tse_task_complete(udata->fetch_metatask, ret_value);
+
+        assert(!udata->md_rw_cb_ud.free_dkey);
+        assert(!udata->md_rw_cb_ud.free_akeys);
+
+        /* Free udata */
+        DV_free(udata);
+    } /* end if */
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_minfo_read_comp_cb() */
 
 
 /*-------------------------------------------------------------------------
@@ -1613,7 +2149,7 @@ H5_daos_map_get(void *_map, H5VL_map_get_t get_type,
     } /* end switch */
 
 done:
-    D_FUNC_LEAVE_API;
+    D_FUNC_LEAVE;
 } /* end H5_daos_map_get() */
 
 

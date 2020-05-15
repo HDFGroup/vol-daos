@@ -549,8 +549,11 @@ H5_daos_cont_create_task(tse_task_t *task)
     uuid_copy(udata->duns_attr.da_puuid, pool_info.pi_uuid);
 
     /* Create the DUNS path and the DAOS container */
-    if(0 != (ret = duns_create_path(udata->poh, udata->path, &udata->duns_attr)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTCREATE, ret, "can't create container");
+    if(0 != (ret = duns_create_path(udata->poh, udata->path, &udata->duns_attr))) {
+        /* Fallback to daos_cont_create if duns_create_path failed */
+        if(0 != (ret = daos_cont_create(H5_daos_poh_g, udata->req->file->uuid, NULL, NULL)))
+            D_GOTO_ERROR(H5E_FILE, H5E_CANTCREATE, ret, "can't create container");
+    } /* end if */
 
 done:
     /* Free private data if we haven't released ownership */
@@ -596,6 +599,7 @@ H5_daos_cont_excl_open_task(tse_task_t *task)
 {
     H5_daos_cont_create_ud_t *udata;
     struct duns_attr_t duns_attr;
+    daos_handle_t coh = DAOS_HDL_INVAL;
     int ret_value = 0;
 
     /* Get private data */
@@ -609,11 +613,15 @@ H5_daos_cont_excl_open_task(tse_task_t *task)
     if(udata->req->status < -H5_DAOS_INCOMPLETE)
         D_GOTO_DONE(H5_DAOS_PRE_ERROR);
 
-    /* Attempt to resolve the path */
-    if(0 == duns_resolve_path(udata->path, &duns_attr))
+    /* Attempt to resolve the path. Fallback to daos_cont_open if duns_resolve_path fails. */
+    if((0 == duns_resolve_path(udata->path, &duns_attr))
+            || (0 == daos_cont_open(H5_daos_poh_g, udata->req->file->uuid, DAOS_COO_RO, &coh, NULL, NULL)))
         D_GOTO_ERROR(H5E_FILE, H5E_FILEEXISTS, -H5_DAOS_FILE_EXISTS, "exclusive open failed: file already exists");
 
 done:
+    if(!daos_handle_is_inval(coh) && (0 != daos_cont_close(coh, NULL)))
+        D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close container");
+
     if(udata) {
         /* Handle errors in this function */
         /* Do not place any code that can issue errors after this block, except for
@@ -672,35 +680,46 @@ H5_daos_cont_destroy_task(tse_task_t *task)
 
     /* Attempt to resolve the given filename to a valid HDF5 DAOS file */
     /* DSINC - DER_INVAL and DER_NONEXIST do not need to be checked against with the latest DAOS master. */
-    ret = duns_resolve_path(udata->path, &duns_attr);
-    if(0 != ret) {
+    if(0 != (ret = duns_resolve_path(udata->path, &duns_attr))) {
         if(udata->truncate && ((-DER_NONEXIST == ret) || (-DER_INVAL == ret) || (ENOENT == ret)))
             D_GOTO_DONE(0); /* Short-circuit success for H5F_ACC_TRUNC access when file is missing */
         else if(ENODATA == ret)
             D_GOTO_ERROR(H5E_FILE, H5E_NOTHDF5, ret, "file '%s' is not a valid HDF5 DAOS file", udata->path);
-        else
-            D_GOTO_ERROR(H5E_FILE, H5E_PATH, ret, "can't resolve path to HDF5 DAOS file: %s", H5_daos_err_to_string(ret));
+        else {
+            /* Fallback to using the global pool for duns_destroy_path */
+            container_poh = H5_daos_poh_g;
+        } /* end else */
     } /* end if */
+    else {
+        if(duns_attr.da_type != DAOS_PROP_CO_LAYOUT_HDF5)
+            D_GOTO_ERROR(H5E_FILE, H5E_NOTHDF5, ret, "file '%s' is not a valid HDF5 DAOS file", udata->path);
 
-    if(duns_attr.da_type != DAOS_PROP_CO_LAYOUT_HDF5)
-        D_GOTO_ERROR(H5E_FILE, H5E_NOTHDF5, ret, "file '%s' is not a valid HDF5 DAOS file", udata->path);
-
-    /* Connect to container's pool */
-    if(H5_daos_pool_connect(duns_attr.da_puuid, NULL, NULL,
-            DAOS_PC_RW, &container_poh, NULL) < 0)
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "failed to connect to container's pool");
-    connected = TRUE;
+        /* Connect to container's pool */
+        if(H5_daos_pool_connect(duns_attr.da_puuid, NULL, NULL,
+                DAOS_PC_RW, &container_poh, NULL) < 0)
+            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "failed to connect to container's pool");
+        connected = TRUE;
+    } /* end else */
 
     /* Destroy the DUNS path/DAOS container */
     /* DSINC - DER_INVAL and DER_NONEXIST do not need to be checked against with the latest DAOS master. */
-    ret = duns_destroy_path(container_poh, udata->path);
-    if(0 != ret) {
+    if(0 != (ret = duns_destroy_path(container_poh, udata->path))) {
         if((-DER_NONEXIST == ret) || (-DER_INVAL == ret) || (ENOENT == ret))
             D_GOTO_DONE(0); /* Short-circuit success for H5F_ACC_TRUNC access when file is missing */
         else if(ENODATA == ret)
             D_GOTO_ERROR(H5E_FILE, H5E_NOTHDF5, ret, "file '%s' is not a valid HDF5 DAOS file", udata->path);
-        else
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTDELETEFILE, -H5_DAOS_H5_DESTROY_ERROR, "can't destroy container: %s", H5_daos_err_to_string(ret));
+        else {
+            uuid_t cont_uuid;
+
+            /* Fallback to daos_cont_destroy if duns_destroy_path fails */
+
+            /* Hash file name to create uuid */
+            H5_daos_hash128(udata->path, &cont_uuid);
+
+            ret = daos_cont_destroy(container_poh, cont_uuid, 1, NULL /*event*/);
+            if((0 != ret) && (-DER_NONEXIST != ret))
+                D_GOTO_ERROR(H5E_FILE, H5E_CANTDELETEFILE, -H5_DAOS_H5_DESTROY_ERROR, "can't destroy container: %s", H5_daos_err_to_string(ret));
+        } /* end else */
     } /* end if */
 
 done:
@@ -1320,29 +1339,6 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     if(!name)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "file name is NULL");
 
-    /* Attempt to resolve the given filename to a valid HDF5 DAOS file */
-    ret = duns_resolve_path(name, &duns_attr);
-    if(ENODATA == ret)
-        D_GOTO_ERROR(H5E_FILE, H5E_NOTHDF5, NULL, "file '%s' is not a valid HDF5 DAOS file", name);
-    else if(0 != ret)
-        D_GOTO_ERROR(H5E_FILE, H5E_PATH, NULL, "can't resolve path to HDF5 DAOS file");
-
-    if(duns_attr.da_type != DAOS_PROP_CO_LAYOUT_HDF5)
-        D_GOTO_ERROR(H5E_FILE, H5E_NOTHDF5, NULL, "file '%s' is not a valid HDF5 DAOS file", name);
-
-    /* Get information from the FAPL */
-    if(H5_daos_cont_get_fapl_info(fapl_id, &fapl_info) < 0)
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTGET, NULL, "can't get DAOS info struct");
-
-#ifdef DV_HAVE_SNAP_OPEN_ID
-    if(H5Pget(fapl_id, H5_DAOS_SNAP_OPEN_ID, &snap_id) < 0)
-        D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, NULL, "can't get property value for snap ID");
-
-    /* Check for opening a snapshot with write access (disallowed) */
-    if((snap_id != H5_DAOS_SNAP_ID_INVAL) && (flags & H5F_ACC_RDWR))
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "write access requested to snapshot - disallowed");
-#endif
-
     /* Allocate the file object that is returned to the user */
     if(NULL == (file = H5FL_CALLOC(H5_daos_file_t)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, NULL, "can't allocate DAOS file struct");
@@ -1354,6 +1350,26 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     file->vol_id = FAIL;
     file->item.rc = 1;
 
+    /* Attempt to resolve the given filename to a valid HDF5 DAOS file */
+    if(0 != (ret = duns_resolve_path(name, &duns_attr))) {
+        if(ENODATA == ret)
+            D_GOTO_ERROR(H5E_FILE, H5E_NOTHDF5, NULL, "file '%s' is not a valid HDF5 DAOS file", name);
+        else {
+            /* Fallback to using the global pool for daos_cont_open */
+            file->container_poh = H5_daos_poh_g;
+        } /* end else */
+    } /* end if */
+    else {
+        /* Verify that this is actually an HDF5 DAOS file */
+        if(duns_attr.da_type != DAOS_PROP_CO_LAYOUT_HDF5)
+            D_GOTO_ERROR(H5E_FILE, H5E_NOTHDF5, NULL, "file '%s' is not a valid HDF5 DAOS file", name);
+
+        /* Connect to file's container pool */
+        if(H5_daos_pool_connect(duns_attr.da_puuid, NULL, NULL,
+                flags & H5F_ACC_RDWR ? DAOS_PC_RW : DAOS_PC_RO, &file->container_poh, NULL) < 0)
+            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "failed to connect to container's pool");
+    } /* end else */
+
     /* Fill in fields of file we know */
     file->item.type = H5I_FILE;
     file->item.file = file;
@@ -1363,10 +1379,8 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     if((file->fapl_id = H5Pcopy(fapl_id)) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTCOPY, NULL, "failed to copy fapl");
 
-    /* Connect to file's container pool */
-    if(H5_daos_pool_connect(duns_attr.da_puuid, NULL, NULL,
-            flags & H5F_ACC_RDWR ? DAOS_PC_RW : DAOS_PC_RO, &file->container_poh, NULL) < 0)
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "failed to connect to container's pool");
+    /* Hash file name to create uuid */
+    H5_daos_hash128(name, &file->uuid);
 
     /* Create CART context */
     if(0 != (ret = crt_context_create(&file->crt_ctx)))
@@ -1376,12 +1390,22 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     if(0 != (ret = tse_sched_init(&file->sched, NULL, file->crt_ctx)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create task scheduler: %s", H5_daos_err_to_string(ret));
 
+    /* Get information from the FAPL */
+    if(H5_daos_cont_get_fapl_info(fapl_id, &fapl_info) < 0)
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTGET, NULL, "can't get DAOS info struct");
+
     /* Set MPI container info */
     if(H5_daos_cont_set_mpi_info(file, &fapl_info) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTSET, NULL, "can't set MPI container info");
 
-    /* Hash file name to create uuid */
-    H5_daos_hash128(name, &file->uuid);
+#ifdef DV_HAVE_SNAP_OPEN_ID
+    if(H5Pget(fapl_id, H5_DAOS_SNAP_OPEN_ID, &snap_id) < 0)
+        D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, NULL, "can't get property value for snap ID");
+
+    /* Check for opening a snapshot with write access (disallowed) */
+    if((snap_id != H5_DAOS_SNAP_ID_INVAL) && (flags & H5F_ACC_RDWR))
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "write access requested to snapshot - disallowed");
+#endif
 
     /* Fill FAPL cache */
     if(H5_daos_fill_fapl_cache(file, fapl_id) < 0)
@@ -1723,8 +1747,6 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
             struct duns_attr_t duns_attr;
             int ret;
 
-            (void)file_fapl; /* silence compiler */
-
             /* Initialize returned value in case we fail */
             *ret_is_accessible = FAIL;
 
@@ -1733,27 +1755,32 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
 
             /* Attempt to resolve the given filename to a valid HDF5 DAOS file */
             /* DSINC - DER_INVAL and DER_NONEXIST do not need to be checked against with the latest DAOS master. */
-            ret = duns_resolve_path(filename, &duns_attr);
-            if(0 != ret) {
-                if((-DER_NONEXIST == ret) || (-DER_INVAL == ret) || (ENOENT == ret)) {
+            if(0 != (ret = duns_resolve_path(filename, &duns_attr))) {
+                if((-DER_NONEXIST == ret) || (-DER_INVAL == ret) || (ENOENT == ret) || (ENODATA == ret)) {
+                    /* File is missing, path is otherwise not resolvable, or file is not an HDF5 DAOS file */
                     *ret_is_accessible = FALSE;
-                    D_GOTO_DONE(SUCCEED);
-                }
-                else if(ENODATA == ret)
-                    D_GOTO_ERROR(H5E_FILE, H5E_NOTHDF5, FAIL, "file '%s' is not a valid HDF5 DAOS file", filename);
-                else
-                    D_GOTO_ERROR(H5E_FILE, H5E_PATH, FAIL, "can't resolve path to HDF5 DAOS file");
+                } /* end if */
+                else {
+                    void *opened_file = NULL;
+
+                    /* Fall back to normal file open */
+                    H5E_BEGIN_TRY {
+                        opened_file = H5_daos_file_open(filename, H5F_ACC_RDONLY, file_fapl, dxpl_id, req);
+                    } H5E_END_TRY;
+
+                    *ret_is_accessible = opened_file ? TRUE : FALSE;
+
+                    if(opened_file)
+                        if(H5_daos_file_close(opened_file, dxpl_id, req) < 0)
+                            D_GOTO_ERROR(H5E_FILE, H5E_CANTCLOSEOBJ, FAIL, "error occurred while closing file");
+                } /* end else */
             } /* end if */
-
-            /* Check if the pathname actually resolved to a DAOS HDF5 file,
-             * or to some other type of DAOS-based file.
-             */
-            if(duns_attr.da_type != DAOS_PROP_CO_LAYOUT_HDF5) {
+            else if(duns_attr.da_type != DAOS_PROP_CO_LAYOUT_HDF5) {
+                /* File path resolved to a DAOS-based file, but was not an HDF5 DAOS file */
                 *ret_is_accessible = FALSE;
-                D_GOTO_DONE(SUCCEED);
-            }
-
-            *ret_is_accessible = TRUE;
+            } /* end else */
+            else
+                *ret_is_accessible = TRUE;
 
             break;
         } /* H5VL_FILE_IS_ACCESSIBLE */
@@ -1903,23 +1930,38 @@ H5_daos_file_delete_sync(const char *filename, hid_t fapl_id)
         struct duns_attr_t duns_attr;
 
         /* Attempt to resolve the given filename to a valid HDF5 DAOS file */
-        ret = duns_resolve_path(filename, &duns_attr);
-        if(ENODATA == ret)
-            D_GOTO_ERROR(H5E_FILE, H5E_NOTHDF5, FAIL, "file '%s' is not a valid HDF5 DAOS file", filename);
-        else if(0 != ret)
-            D_GOTO_ERROR(H5E_FILE, H5E_PATH, FAIL, "can't resolve path to HDF5 DAOS file");
+        if(0 != (ret = duns_resolve_path(filename, &duns_attr))) {
+            if(ENODATA == ret)
+                D_GOTO_ERROR(H5E_FILE, H5E_NOTHDF5, FAIL, "file '%s' is not a valid HDF5 DAOS file", filename);
+            else {
+                /* Fallback to using the global pool for duns_destroy_path */
+                container_poh = H5_daos_poh_g;
+            } /* end else */
+        } /* end if */
+        else {
+            /* Verify that this is actually an HDF5 DAOS file */
+            if(duns_attr.da_type != DAOS_PROP_CO_LAYOUT_HDF5)
+                D_GOTO_ERROR(H5E_FILE, H5E_NOTHDF5, FAIL, "file '%s' is not a valid HDF5 DAOS file", filename);
 
-        if(duns_attr.da_type != DAOS_PROP_CO_LAYOUT_HDF5)
-            D_GOTO_ERROR(H5E_FILE, H5E_NOTHDF5, FAIL, "file '%s' is not a valid HDF5 DAOS file", filename);
+            /* Connect to container's pool */
+            if(H5_daos_pool_connect(duns_attr.da_puuid, NULL, NULL,
+                    DAOS_PC_RW, &container_poh, NULL) < 0)
+                D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "failed to connect to container's pool");
+            connected = TRUE;
+        } /* end else */
 
-        /* Connect to container's pool */
-        if(H5_daos_pool_connect(duns_attr.da_puuid, NULL, NULL,
-                DAOS_PC_RW, &container_poh, NULL) < 0)
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "failed to connect to container's pool");
-        connected = TRUE;
+        /* Destroy the DUNS path/DAOS container */
+        if(0 != (ret = duns_destroy_path(container_poh, filename))) {
+            uuid_t cont_uuid;
 
-        if(0 != (ret = duns_destroy_path(container_poh, filename)))
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTDELETEFILE, FAIL, "can't destroy container: %s", H5_daos_err_to_string(ret));
+            /* Fallback to daos_cont_destroy if duns_destroy_path fails */
+
+            /* Hash file name to create uuid */
+            H5_daos_hash128(filename, &cont_uuid);
+
+            if(0 != (ret = daos_cont_destroy(H5_daos_poh_g, cont_uuid, 1, NULL /*event*/)))
+                D_GOTO_ERROR(H5E_FILE, H5E_CANTDELETEFILE, FAIL, "can't destroy container: %s", H5_daos_err_to_string(ret));
+        } /* end if */
     } /* end if */
 
     if(mpi_initialized)

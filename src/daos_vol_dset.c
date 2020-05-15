@@ -1940,6 +1940,8 @@ done:
             DV_free(bcast_udata);
             D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "failed to broadcast dataset info buffer");
         } /* end if */
+
+        bcast_udata = NULL;
     } /* end if */
 
     /* Cleanup on failure */

@@ -2641,10 +2641,21 @@ done:
     req->finalize_task = NULL;
 
     /* Make notify callback */
-    if(req->notify_cb)
-        if(req->notify_cb(req->notify_ctx, ret_value >= 0 && req->status == -H5_DAOS_INCOMPLETE ? H5ES_STATUS_SUCCEED
-                : req->status == -H5_DAOS_CANCELED ? H5ES_STATUS_CANCELED : H5ES_STATUS_FAIL) < 0)
+    if(req->notify_cb) {
+        H5ES_status_t req_status;
+
+        /* Determine request status */
+        if(ret_value >= 0 && req->status == -H5_DAOS_INCOMPLETE)
+            req_status = H5ES_STATUS_SUCCEED;
+        else if(req->status == -H5_DAOS_CANCELED)
+            req_status = H5ES_STATUS_CANCELED;
+        else
+            req_status = H5ES_STATUS_FAIL;
+
+        /* Make callback */
+        if(req->notify_cb(req->notify_ctx, req_status) < 0)
             D_DONE_ERROR(H5E_VOL, H5E_CANTOPERATE, -H5_DAOS_CALLBACK_ERROR, "notify callback returned failure");
+    } /* end if */
 
     /* Mark request as completed */
     if(ret_value >= 0 && req->status == -H5_DAOS_INCOMPLETE)

@@ -124,6 +124,11 @@ typedef d_sg_list_t daos_sg_list_t;
  * finish */
 #define H5_DAOS_ASYNC_POLL_INTERVAL 1000
 
+/* Predefined timeouts for different modes in which to make progress using
+ * H5_daos_progress */
+#define H5_DAOS_PROGRESS_KICK (uint64_t)0
+#define H5_DAOS_PROGRESS_WAIT UINT64_MAX
+
 /* Remove warnings when connector does not use callback arguments */
 #if defined(__cplusplus)
 # define H5VL_DAOS_UNUSED
@@ -424,6 +429,9 @@ typedef struct H5_daos_req_t {
     hbool_t th_open;
     H5_daos_file_t *file;
     hid_t dxpl_id;
+    tse_task_t *finalize_task;
+    H5VL_request_notify_t notify_cb;
+    void *notify_ctx;
     int rc;
     int status;
     const char *failed_task; /* Add more error info? DSINC */
@@ -582,13 +590,6 @@ typedef union {
     hvl_t   vl;
     char *  vls;
 } H5_daos_vl_union_t;
-
-/* An enum listing the different modes in which to make progress using
- * H5_daos_progress */
-typedef enum {
-    H5_DAOS_PROGRESS_KICK,
-    H5_DAOS_PROGRESS_WAIT,
-} H5_daos_progress_mode_t;
 
 
 /*********************/
@@ -924,6 +925,11 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_blob_specific(void *_file, void *blob_id,
     H5VL_blob_specific_t specific_type, va_list arguments);
 
 /* Request callbacks */
+H5VL_DAOS_PRIVATE herr_t H5_daos_req_wait(void *req, uint64_t timeout,
+    H5ES_status_t *status);
+H5VL_DAOS_PRIVATE herr_t H5_daos_req_notify(void *req, H5VL_request_notify_t cb,
+    void *ctx);
+H5VL_DAOS_PRIVATE herr_t H5_daos_req_cancel(void *_req);
 H5VL_DAOS_PRIVATE herr_t H5_daos_req_free(void *req);
 
 /* Other request routines */
@@ -933,14 +939,13 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_req_free_int(H5_daos_req_t *req);
 
 /* Generic Asynchronous routines */
 H5VL_DAOS_PRIVATE herr_t H5_daos_progress(tse_sched_t *sched,
-    H5_daos_progress_mode_t mode);
+    H5_daos_req_t *req, uint64_t timeout);
 H5VL_DAOS_PRIVATE herr_t H5_daos_mpi_ibcast(H5_daos_mpi_ibcast_ud_t *_bcast_udata, H5_daos_obj_t *obj,
     size_t buffer_size, hbool_t empty, tse_task_cb_t bcast_prep_cb, tse_task_cb_t bcast_comp_cb,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 
 /* Asynchronous task routines */
 H5VL_DAOS_PRIVATE int H5_daos_h5op_finalize(tse_task_t *task);
-H5VL_DAOS_PRIVATE int H5_daos_h5op_finalize_helper(H5_daos_req_t *req);
 H5VL_DAOS_PRIVATE int H5_daos_metatask_autocomplete(tse_task_t *task);
 H5VL_DAOS_PRIVATE int H5_daos_mpi_ibcast_task(tse_task_t *task);
 

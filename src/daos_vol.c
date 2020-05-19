@@ -197,9 +197,9 @@ static const H5VL_class_t H5_daos_g = {
         H5_daos_opt_query                    /* Plugin optional callback query */
     },
     {
-        NULL,                                /* Plugin Request wait */
-        NULL,                                /* Plugin Request notify */
-        NULL,                                /* Plugin Request cancel */
+        H5_daos_req_wait,                    /* Plugin Request wait */
+        H5_daos_req_notify,                  /* Plugin Request notify */
+        H5_daos_req_cancel,                  /* Plugin Request cancel */
         NULL,                                /* Plugin Request specific */
         NULL,                                /* Plugin Request optional */
         H5_daos_req_free                     /* Plugin Request free */
@@ -2635,11 +2635,32 @@ H5_daos_tx_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         D_GOTO_ERROR(H5E_IO, H5E_CLOSEERROR, ret, "can't close transaction: %s", H5_daos_err_to_string(ret));
     req->th_open = FALSE;
 
+done:
+    /* Complete finalize task in engine */
+    tse_task_complete(req->finalize_task, ret_value);
+    req->finalize_task = NULL;
+
+    /* Make notify callback */
+    if(req->notify_cb) {
+        H5ES_status_t req_status;
+
+        /* Determine request status */
+        if(ret_value >= 0 && req->status == -H5_DAOS_INCOMPLETE)
+            req_status = H5ES_STATUS_SUCCEED;
+        else if(req->status == -H5_DAOS_CANCELED)
+            req_status = H5ES_STATUS_CANCELED;
+        else
+            req_status = H5ES_STATUS_FAIL;
+
+        /* Make callback */
+        if(req->notify_cb(req->notify_ctx, req_status) < 0)
+            D_DONE_ERROR(H5E_VOL, H5E_CANTOPERATE, -H5_DAOS_CALLBACK_ERROR, "notify callback returned failure");
+    } /* end if */
+
     /* Mark request as completed */
-    if(req->status == -H5_DAOS_INCOMPLETE)
+    if(ret_value >= 0 && req->status == -H5_DAOS_INCOMPLETE)
         req->status = 0;
 
-done:
     /* Handle errors in this function */
     /* Do not place any code that can issue errors after this block, except for
      * H5_daos_req_free_int, which updates req->status if it sees an error */
@@ -2675,62 +2696,14 @@ int
 H5_daos_h5op_finalize(tse_task_t *task)
 {
     H5_daos_req_t *req;
+    hbool_t close_tx = FALSE;
     int ret;
     int ret_value = 0;
 
     /* Get private data */
     if(NULL == (req = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for operation finalize task");
-
-    /* Perform operation */
-    if((ret = H5_daos_h5op_finalize_helper(req)) < 0 && req->status >= -H5_DAOS_INCOMPLETE)
-        D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, ret, "failed to finalize H5 operation");
-
-    /* Report failures in this routine */
-    /* Do not place any code that can issue errors after this block, except for
-     * H5_daos_req_free_int, which updates req->status if it sees an error */
-    if(ret_value < 0 && req->status == -H5_DAOS_INCOMPLETE) {
-        req->status = ret_value;
-        req->failed_task = "h5 op finalize";
-    } /* end if */
-
-    /* Release our reference to req */
-    if(H5_daos_req_free_int(req) < 0)
-        D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
-
-done:
-    /* Complete task in engine */
-    tse_task_complete(task, ret_value);
-
-    D_FUNC_LEAVE;
-} /* end H5_daos_h5op_finalize() */
-
-
-/*-------------------------------------------------------------------------
- * Function:    H5_daos_h5op_finalize_helper
- *
- * Purpose:     Like H5_daos_h5op_finalize but operates directly on a
- *              request, and can be called directly instead of through the
- *              task engine.  Does not release req.
- *
- * Return:      Success:        0
- *              Failure:        Error code
- *
- * Programmer:  Neil Fortner
- *              February, 2020
- *
- *-------------------------------------------------------------------------
- */
-int
-H5_daos_h5op_finalize_helper(H5_daos_req_t *req)
-{
-    hbool_t close_tx = FALSE;
-    int ret;
-    int ret_value = 0;
-
-    assert(req);
-    assert(req->file);
-    assert(!req->file->closed);
+    assert(task == req->finalize_task);
 
     /* Check for error */
     if(req->status < -H5_DAOS_INCOMPLETE) {
@@ -2822,18 +2795,49 @@ H5_daos_h5op_finalize_helper(H5_daos_req_t *req)
     } /* end else */
 
 done:
-    if(close_tx) {
-        if(0 != (ret = daos_tx_close(req->th, NULL /*event*/)))
-            D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, ret, "can't close transaction: %s", H5_daos_err_to_string(ret));
-        req->th_open = FALSE;
+    if(req) {
+        /* Check if we failed to start tx commit/abour task */
+        if(close_tx) {
+            /* Close transaction */
+            if(0 != (ret = daos_tx_close(req->th, NULL /*event*/)))
+                D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, ret, "can't close transaction: %s", H5_daos_err_to_string(ret));
+            req->th_open = FALSE;
+        } /* end if */
+
+        /* Check if we're done */
+        if(!req->th_open) {
+            /* Make notify callback */
+            if(req->notify_cb)
+                if(req->notify_cb(req->notify_ctx, ret_value >= 0 && req->status == -H5_DAOS_INCOMPLETE ? H5ES_STATUS_SUCCEED
+                        : req->status == -H5_DAOS_CANCELED ? H5ES_STATUS_CANCELED : H5ES_STATUS_FAIL) < 0)
+                    D_DONE_ERROR(H5E_VOL, H5E_CANTOPERATE, -H5_DAOS_CALLBACK_ERROR, "notify callback returned failure");
+
+            /* Mark request as completed if there were no errors */
+            if(ret_value >= 0 && req->status == -H5_DAOS_INCOMPLETE)
+                req->status = 0;
+
+            /* Complete task in engine */
+            tse_task_complete(req->finalize_task, ret_value);
+            req->finalize_task = NULL;
+        } /* end if */
+    } /* end if */
+    else
+        assert(ret_value == -H5_DAOS_DAOS_GET_ERROR);
+
+    /* Report failures in this routine */
+    /* Do not place any code that can issue errors after this block, except for
+     * H5_daos_req_free_int, which updates req->status if it sees an error */
+    if(ret_value < 0 && req->status == -H5_DAOS_INCOMPLETE) {
+        req->status = ret_value;
+        req->failed_task = "h5 op finalize";
     } /* end if */
 
-    /* Mark request as completed if we're done and there were no errors */
-    if(!req->th_open && ret_value >= 0 && req->status == -H5_DAOS_INCOMPLETE)
-        req->status = 0;
+    /* Release our reference to req */
+    if(H5_daos_req_free_int(req) < 0)
+        D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
 
     D_FUNC_LEAVE;
-} /* end H5_daos_h5op_finalize_helper() */
+} /* end H5_daos_h5op_finalize() */
 
 
 /*-------------------------------------------------------------------------
@@ -3446,8 +3450,9 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_progress(tse_sched_t *sched, H5_daos_progress_mode_t mode)
+H5_daos_progress(tse_sched_t *sched, H5_daos_req_t *req, uint64_t timeout)
 {
+    int64_t  timeout_rem;
     int      completed;
     bool     is_empty = FALSE;
     tse_task_t *tmp_task;
@@ -3456,10 +3461,11 @@ H5_daos_progress(tse_sched_t *sched, H5_daos_progress_mode_t mode)
 
     assert(sched);
 
-    /* Different loops for kick and wait - do it this way to minimize the amount
-     * of cycles in the wait loop, so we can set the polling interval as tight
-     * as possible without using too much CPU time */
-    if(mode == H5_DAOS_PROGRESS_KICK) {
+    /* Set timeout_rem, being careful to avoid overflow */
+    timeout_rem = timeout > INT64_MAX ? INT64_MAX : (int64_t)timeout;
+
+    /* Loop until the scheduler is empty, the timeout is met, or  */
+    do {
         /* Progress MPI if there is a task in flight */
         if(H5_daos_mpi_task_g) {
             /* Check if task is complete */
@@ -3480,40 +3486,16 @@ H5_daos_progress(tse_sched_t *sched, H5_daos_progress_mode_t mode)
         } /* end if */
 
         /* Progress DAOS */
-        if((0 != (ret = daos_progress(sched, DAOS_EQ_NOWAIT, &is_empty)))
-                && (ret != -DER_TIMEDOUT))
+        if((0 != (ret = daos_progress(sched,
+                timeout_rem > H5_DAOS_ASYNC_POLL_INTERVAL ? H5_DAOS_ASYNC_POLL_INTERVAL : timeout_rem,
+                &is_empty))) && (ret != -DER_TIMEDOUT))
             D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't progress scheduler: %s", H5_daos_err_to_string(ret));
-    } /* end if */
-    else {
-        assert(mode == H5_DAOS_PROGRESS_WAIT);
 
-        /* Loop until the scheduler is finished */
-        do {
-            /* Progress MPI if there is a task in flight */
-            if(H5_daos_mpi_task_g) {
-                /* Check if task is complete */
-                if(MPI_SUCCESS != (ret = MPI_Test(&H5_daos_mpi_req_g, &completed, MPI_STATUS_IGNORE)))
-                    D_DONE_ERROR(H5E_VOL, H5E_MPI, FAIL, "MPI_Test failed: %d", ret);
-
-                /* Complete matching DAOS task if so */
-                if(ret_value < 0) {
-                    tmp_task = H5_daos_mpi_task_g;
-                    H5_daos_mpi_task_g = NULL;
-                    tse_task_complete(tmp_task, -H5_DAOS_MPI_ERROR);
-                } /* end if */
-                else if(completed) {
-                    tmp_task = H5_daos_mpi_task_g;
-                    H5_daos_mpi_task_g = NULL;
-                    tse_task_complete(tmp_task, 0);
-                } /* end if */
-            } /* end if */
-
-            /* Progress DAOS */
-            if((0 != (ret = daos_progress(sched, H5_DAOS_ASYNC_POLL_INTERVAL, &is_empty)))
-                    && (ret != -DER_TIMEDOUT))
-                D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't progress scheduler: %s", H5_daos_err_to_string(ret));
-        } while(!is_empty);
-    } /* end else */
+        /* Advance time */
+        /* Actually check clock here? */
+        timeout_rem -= H5_DAOS_ASYNC_POLL_INTERVAL;
+    } while(!is_empty && timeout_rem > 0
+            && (!req || req->status != H5_DAOS_INCOMPLETE));
 
 done:
     D_FUNC_LEAVE;

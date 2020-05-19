@@ -553,20 +553,13 @@ H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
     ret_value = (void *)map;
 
 done:
-    /* Cleanup on failure */
-    if(NULL == ret_value) {
-        /* Broadcast map info if needed */
-        if(must_bcast && H5_daos_mpi_ibcast(NULL, &map->obj, H5_DAOS_MINFO_BCAST_BUF_SIZE,
-                TRUE, NULL, item->file->my_rank == 0 ? H5_daos_map_open_bcast_comp_cb : H5_daos_map_open_recv_comp_cb,
-                int_req, &first_task, &dep_task) < 0)
-            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "failed to broadcast empty map info buffer to signal failure");
+    /* Broadcast failure if appropriate */
+    if(NULL == ret_value && must_bcast && H5_daos_mpi_ibcast(NULL, &map->obj, H5_DAOS_MINFO_BCAST_BUF_SIZE,
+            TRUE, NULL, item->file->my_rank == 0 ? H5_daos_map_open_bcast_comp_cb : H5_daos_map_open_recv_comp_cb,
+            int_req, &first_task, &dep_task) < 0)
+        D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "failed to broadcast empty map info buffer to signal failure");
 
-        /* Close map */
-        if(map && H5_daos_map_close(map, dxpl_id, NULL) < 0)
-            D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't close map");
-    } /* end if */
-    else
-        assert(!must_bcast);
+    assert(!(ret_value && must_bcast));
 
     if(int_req) {
         tse_task_t *finalize_task;
@@ -613,6 +606,10 @@ done:
     /* Close target object */
     if(target_obj && H5_daos_object_close(target_obj, dxpl_id, NULL) < 0)
         D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't close object");
+
+    /* If we are not returning a map we must close it */
+    if(ret_value == NULL && map && H5_daos_map_close(map, dxpl_id, NULL) < 0)
+        D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't close map");
 
     D_FUNC_LEAVE;
 } /* end H5_daos_map_open() */

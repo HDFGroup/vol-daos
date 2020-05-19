@@ -1368,18 +1368,8 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
     switch (specific_type) {
         /* H5Oincr_refcount/H5Odecr_refcount */
         case H5VL_OBJECT_CHANGE_REF_COUNT:
-        {
-            int mode = va_arg(arguments, int);
-
-            if(mode > 0)
-                target_obj->item.rc++;
-            else if(mode < 0)
-                target_obj->item.rc--;
-            else
-                D_GOTO_ERROR(H5E_VOL, H5E_BADVALUE, FAIL, "invalid reference count change mode");
-
+            D_GOTO_ERROR(H5E_OBJECT, H5E_UNSUPPORTED, FAIL, "H5Oincr_refcount/H5Odecr_refcount are unsupported");
             break;
-        } /* H5VL_OBJECT_CHANGE_REF_COUNT */
 
         /* H5Oexists_by_name */
         case H5VL_OBJECT_EXISTS:

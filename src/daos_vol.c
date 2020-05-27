@@ -63,6 +63,24 @@ do {                                                                  \
 /* Local Type and Struct Definition */
 /************************************/
 
+/* Task user data for pool connect */
+typedef struct H5_daos_pool_connect_ud_t {
+    H5_daos_req_t *req;
+    const uuid_t *puuid;
+    daos_handle_t *poh;
+    daos_pool_info_t *info;
+    const char *grp;
+    d_rank_list_t *svc;
+    unsigned int flags;
+    hbool_t free_rank_list;
+} H5_daos_pool_connect_ud_t;
+
+/* Task user data for pool disconnect */
+typedef struct H5_daos_pool_disconnect_ud_t {
+    H5_daos_req_t *req;
+    daos_handle_t *poh;
+} H5_daos_pool_disconnect_ud_t;
+
 /* Task user data for DAOS object open */
 typedef struct H5_daos_obj_open_ud_t {
     H5_daos_generic_cb_ud_t generic_ud; /* Must be first */
@@ -105,6 +123,10 @@ static int H5_daos_oidx_bcast_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_oidx_generate_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_oid_encode_task(tse_task_t *task);
 static int H5_daos_free_async_task(tse_task_t *task);
+static int H5_daos_pool_connect_prep_cb(tse_task_t *task, void *args);
+static int H5_daos_pool_connect_comp_cb(tse_task_t *task, void *args);
+static int H5_daos_pool_disconnect_prep_cb(tse_task_t *task, void *args);
+static int H5_daos_pool_disconnect_comp_cb(tse_task_t *task, void *args);
 
 /*******************/
 /* Local Variables */
@@ -258,6 +280,11 @@ static const unsigned int   H5_daos_pool_default_mode_g          = 0731;        
 static const daos_size_t    H5_daos_pool_default_scm_size_g      = (1ULL << 31); /*   2GB */
 static const daos_size_t    H5_daos_pool_default_nvme_size_g     = (1ULL << 33); /*   8GB */
 static const unsigned int   H5_daos_pool_default_svc_nreplicas_g = 1;            /* Number of replicas */
+
+/* Global variable used to bypass the DUNS in favor of standard DAOS
+ * container operations if requested.
+ */
+hbool_t H5_daos_bypass_duns_g = FALSE;
 
 /* DAOS task and MPI request for current in-flight MPI operation */
 tse_task_t *H5_daos_mpi_task_g = NULL;
@@ -1104,6 +1131,10 @@ H5_daos_init(hid_t H5VL_DAOS_UNUSED vipl_id)
         pool_num_procs = 1;
     }
 
+    /* Determine if bypassing of the DUNS has been requested */
+    if(NULL != getenv("H5_DAOS_BYPASS_DUNS"))
+        H5_daos_bypass_duns_g = TRUE;
+
     /* First connect to the pool */
     if((pool_rank == 0) && H5_daos_pool_connect_global() < 0)
         D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't connect to DAOS pool");
@@ -1244,6 +1275,231 @@ done:
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_pool_connect
  *
+ * Purpose:     Creates an asynchronous task for connecting to the
+ *              specified pool.
+ *
+ *              DSINC - This routine should eventually be modified to serve
+ *                      pool handles from a cache of open handles so that
+ *                      we don't re-connect to pools which are already
+ *                      connected to when doing multiple file creates/opens
+ *                      within the same pool.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_pool_connect(const uuid_t *pool_uuid, char *pool_grp, d_rank_list_t *svcl,
+    unsigned int flags, daos_handle_t *poh_out, daos_pool_info_t *pool_info_out,
+    tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
+{
+    H5_daos_pool_connect_ud_t *connect_udata = NULL;
+    tse_task_t *connect_task = NULL;
+    int ret;
+    herr_t ret_value = SUCCEED;
+
+    assert(pool_uuid);
+    assert(poh_out);
+    assert(sched);
+    assert(req);
+    assert(first_task);
+    assert(dep_task);
+
+    if(NULL == (connect_udata = (H5_daos_pool_connect_ud_t *)DV_malloc(sizeof(H5_daos_pool_connect_ud_t))))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate user data struct for pool connect task");
+    connect_udata->req = req;
+    connect_udata->puuid = pool_uuid;
+    connect_udata->poh = poh_out;
+    connect_udata->grp = pool_grp;
+    connect_udata->svc = svcl;
+    connect_udata->flags = flags;
+    connect_udata->info = pool_info_out;
+    connect_udata->free_rank_list = FALSE;
+
+    /* If necessary, set pool group to be used */
+    if(!connect_udata->grp) {
+        if(H5_daos_pool_globals_set_g)
+            connect_udata->grp = H5_daos_pool_grp_g;
+        else
+            connect_udata->grp = DAOS_DEFAULT_GROUP_ID; /* Attempt to use default group */
+    } /* end if */
+
+    /* If necessary, set pool service replica rank list */
+    if(!connect_udata->svc) {
+        char *svcl_str = NULL;
+
+        if(NULL != (svcl_str = getenv("DAOS_SVCL"))) {
+            if(NULL == (connect_udata->svc = daos_rank_list_parse(svcl_str, ":")))
+                D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "failed to parse SVC list from environment");
+            connect_udata->free_rank_list = TRUE;
+        } /* end if */
+        else if(H5_daos_pool_globals_set_g)
+            connect_udata->svc = &H5_daos_pool_svcl_g;
+    } /* end if */
+
+    if(connect_udata->svc->rl_nr == 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_BADVALUE, FAIL, "service rank number cannot be 0");
+
+    /* Create task for pool connect */
+    if(0 != (ret = daos_task_create(DAOS_OPC_POOL_CONNECT, sched,
+            *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &connect_task)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create task to connect to DAOS pool: %s", H5_daos_err_to_string(ret));
+
+    /* Set callback functions for DAOS pool connect task */
+    if(0 != (ret = tse_task_register_cbs(connect_task, H5_daos_pool_connect_prep_cb, NULL, 0, H5_daos_pool_connect_comp_cb, NULL, 0)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't register callbacks for DAOS pool connect task: %s", H5_daos_err_to_string(ret));
+
+    /* Set private data for pool connect task */
+    (void)tse_task_set_priv(connect_task, connect_udata);
+
+    /* Schedule DAOS pool connect task (or save it to be scheduled later) and
+     * give it a reference to req */
+    if(*first_task) {
+        if(0 != (ret = tse_task_schedule(connect_task, false)))
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't schedule task to connect to DAOS pool: %s", H5_daos_err_to_string(ret));
+    } /* end if */
+    else
+        *first_task = connect_task;
+    req->rc++;
+
+    /* Relinquish control of the pool connect udata to the
+     * task's function body */
+    connect_udata = NULL;
+
+    *dep_task = connect_task;
+
+done:
+    /* Cleanup on failure */
+    if(ret_value < 0) {
+        connect_udata = DV_free(connect_udata);
+    } /* end if */
+
+    assert(!connect_udata);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_pool_connect() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_pool_connect_prep_cb
+ *
+ * Purpose:     Prepare callback for asynchronous daos_pool_connect.
+ *              Currently checks for errors from previous tasks then sets
+ *              arguments for daos_pool_connect.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_pool_connect_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_pool_connect_ud_t *udata;
+    daos_pool_connect_t *connect_args;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for pool connect task");
+
+    assert(udata->req);
+    assert(udata->puuid);
+
+    /* Handle errors */
+    if(udata->req->status < -H5_DAOS_INCOMPLETE) {
+        tse_task_complete(task, -H5_DAOS_PRE_ERROR);
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    } /* end if */
+
+    if(uuid_is_null(*udata->puuid))
+        D_GOTO_ERROR(H5E_VOL, H5E_BADVALUE, -H5_DAOS_BAD_VALUE, "pool UUID is invalid");
+
+    /* Set daos_pool_connect task args */
+    if(NULL == (connect_args = daos_task_get_args(task))) {
+        tse_task_complete(task, -H5_DAOS_DAOS_GET_ERROR);
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for pool connect task");
+    } /* end if */
+    connect_args->poh = udata->poh;
+    connect_args->grp = udata->grp;
+    connect_args->svc = udata->svc;
+    connect_args->flags = udata->flags;
+    connect_args->info = udata->info;
+    uuid_copy(connect_args->uuid, *udata->puuid);
+
+done:
+    D_FUNC_LEAVE;
+} /* end H5_daos_pool_connect_prep_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_pool_connect_comp_cb
+ *
+ * Purpose:     Completion callback for asynchronous daos_pool_connect.
+ *              Currently checks for a failed task then frees private data.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_pool_connect_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_pool_connect_ud_t *udata;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for DAOS pool connect task");
+
+    assert(udata->req);
+
+    /* Handle errors in daos_pool_connect task.  Only record error in udata->req_status
+     * if it does not already contain an error (it could contain an error if
+     * another task this task is not dependent on also failed). */
+    if(task->dt_result < -H5_DAOS_PRE_ERROR
+            && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+        udata->req->status = task->dt_result;
+        udata->req->failed_task = "DAOS pool connect";
+    } /* end if */
+    else if(task->dt_result == 0)
+        if(daos_handle_is_inval(udata->req->file->container_poh))
+            udata->req->file->container_poh = *udata->poh;
+
+done:
+    /* Free private data if we haven't released ownership */
+    if(udata) {
+        if(udata->free_rank_list && udata->svc)
+            daos_rank_list_free(udata->svc);
+
+        /* Handle errors in this function */
+        /* Do not place any code that can issue errors after this block, except
+         * for H5_daos_req_free_int, which updates req->status if it sees an
+         * error */
+        if(ret_value < 0 && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+            udata->req->status = ret_value;
+            udata->req->failed_task = "DAOS pool connect completion callback";
+        } /* end if */
+
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(udata->req) < 0)
+            D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+        /* Free private data */
+        DV_free(udata);
+    } /* end if */
+    else
+        assert(ret_value == -H5_DAOS_DAOS_GET_ERROR);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_pool_connect_comp_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_pool_connect_sync
+ *
  * Purpose:     Connect to the specified pool.
  *
  * Return:      Non-negative on success/Negative on failure
@@ -1251,7 +1507,7 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_pool_connect(const uuid_t pool_uuid, char *pool_grp, d_rank_list_t *svcl,
+H5_daos_pool_connect_sync(const uuid_t pool_uuid, char *pool_grp, d_rank_list_t *svcl,
     unsigned int flags, daos_handle_t *poh_out, daos_pool_info_t *pool_info_out)
 {
     hbool_t rank_list_parsed = FALSE;
@@ -1304,7 +1560,7 @@ done:
         daos_rank_list_free(svcl);
 
     D_FUNC_LEAVE;
-} /* end H5_daos_pool_connect() */
+} /* end H5_daos_pool_connect_sync() */
 
 
 /*-------------------------------------------------------------------------
@@ -1349,13 +1605,190 @@ H5_daos_pool_connect_global(void)
     }
 
     /* Connect to the pool */
-    if(H5_daos_pool_connect(pool_uuid, pool_grp, svcl,
+    pool_info.pi_bits = 0;
+    if(H5_daos_pool_connect_sync(pool_uuid, pool_grp, svcl,
             DAOS_PC_RW, &H5_daos_poh_g, &pool_info) < 0)
         D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "failed to connect to global pool");
 
 done:
     D_FUNC_LEAVE;
-} /* end H5_daos_pool_connect() */
+} /* end H5_daos_pool_connect_global() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_pool_disconnect
+ *
+ * Purpose:     Creates an asynchronous task for disconnecting from the
+ *              specified pool.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_pool_disconnect(daos_handle_t *poh, tse_sched_t *sched,
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
+{
+    H5_daos_pool_disconnect_ud_t *disconnect_udata = NULL;
+    tse_task_t *disconnect_task = NULL;
+    int ret;
+    herr_t ret_value = SUCCEED;
+
+    assert(poh);
+    assert(sched);
+    assert(req);
+    assert(first_task);
+    assert(dep_task);
+
+    if(NULL == (disconnect_udata = (H5_daos_pool_disconnect_ud_t *)DV_malloc(sizeof(H5_daos_pool_disconnect_ud_t))))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate user data struct for pool disconnect task");
+    disconnect_udata->req = req;
+    disconnect_udata->poh = poh;
+
+    /* Create task for pool disconnect */
+    if(0 != (ret = daos_task_create(DAOS_OPC_POOL_DISCONNECT, sched,
+            *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &disconnect_task)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create task to disconnect from DAOS pool: %s", H5_daos_err_to_string(ret));
+
+    /* Set callback functions for DAOS pool disconnect task */
+    if(0 != (ret = tse_task_register_cbs(disconnect_task, H5_daos_pool_disconnect_prep_cb, NULL, 0, H5_daos_pool_disconnect_comp_cb, NULL, 0)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't register callbacks for DAOS pool disconnect task: %s", H5_daos_err_to_string(ret));
+
+    /* Set private data for pool disconnect task */
+    (void)tse_task_set_priv(disconnect_task, disconnect_udata);
+
+    /* Schedule DAOS pool disconnect task (or save it to be scheduled later) and
+     * give it a reference to req */
+    if(*first_task) {
+        if(0 != (ret = tse_task_schedule(disconnect_task, false)))
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't schedule task to disconnect from DAOS pool: %s", H5_daos_err_to_string(ret));
+    } /* end if */
+    else
+        *first_task = disconnect_task;
+    req->rc++;
+
+    /* Relinquish control of the pool disconnect udata to the
+     * task's function body */
+    disconnect_udata = NULL;
+
+    *dep_task = disconnect_task;
+
+done:
+    /* Cleanup on failure */
+    if(ret_value < 0) {
+        disconnect_udata = DV_free(disconnect_udata);
+    } /* end if */
+
+    assert(!disconnect_udata);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_pool_disconnect() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_pool_disconnect_prep_cb
+ *
+ * Purpose:     Prepare callback for asynchronous daos_pool_disconnect.
+ *              Currently checks for errors from previous tasks then sets
+ *              arguments for daos_pool_disconnect.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_pool_disconnect_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_pool_disconnect_ud_t *udata;
+    daos_pool_disconnect_t *disconnect_args;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for pool disconnect task");
+
+    assert(udata->req);
+    assert(udata->poh);
+
+    /* Handle errors */
+    if(udata->req->status < -H5_DAOS_INCOMPLETE) {
+        tse_task_complete(task, -H5_DAOS_PRE_ERROR);
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    } /* end if */
+
+    if(daos_handle_is_inval(*udata->poh))
+        D_GOTO_ERROR(H5E_VOL, H5E_BADVALUE, -H5_DAOS_BAD_VALUE, "pool handle is invalid");
+
+    /* Set daos_pool_disconnect task args */
+    if(NULL == (disconnect_args = daos_task_get_args(task))) {
+        tse_task_complete(task, -H5_DAOS_DAOS_GET_ERROR);
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for pool disconnect task");
+    } /* end if */
+    disconnect_args->poh = *udata->poh;
+
+done:
+    D_FUNC_LEAVE;
+} /* end H5_daos_pool_disconnect_prep_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_pool_disconnect_comp_cb
+ *
+ * Purpose:     Completion callback for asynchronous daos_pool_disconnect.
+ *              Currently checks for a failed task then frees private data.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_pool_disconnect_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_pool_disconnect_ud_t *udata;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for DAOS pool disconnect task");
+
+    assert(udata->req);
+
+    /* Handle errors in daos_pool_disconnect task.  Only record error in udata->req_status
+     * if it does not already contain an error (it could contain an error if
+     * another task this task is not dependent on also failed). */
+    if(task->dt_result < -H5_DAOS_PRE_ERROR
+            && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+        udata->req->status = task->dt_result;
+        udata->req->failed_task = "DAOS pool disconnect";
+    } /* end if */
+
+done:
+    /* Free private data if we haven't released ownership */
+    if(udata) {
+        /* Handle errors in this function */
+        /* Do not place any code that can issue errors after this block, except
+         * for H5_daos_req_free_int, which updates req->status if it sees an
+         * error */
+        if(ret_value < 0 && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+            udata->req->status = ret_value;
+            udata->req->failed_task = "DAOS pool disconnect completion callback";
+        } /* end if */
+
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(udata->req) < 0)
+            D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+        /* Free private data */
+        DV_free(udata);
+    } /* end if */
+    else
+        assert(ret_value == -H5_DAOS_DAOS_GET_ERROR);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_pool_disconnect_comp_cb() */
 
 
 /*-------------------------------------------------------------------------
@@ -1399,7 +1832,7 @@ H5_daos_pool_disconnect_global(void)
 
 done:
     D_FUNC_LEAVE;
-} /* end H5_daos_pool_disconnect() */
+} /* end H5_daos_pool_disconnect_global() */
 
 
 /*-------------------------------------------------------------------------
@@ -1472,7 +1905,82 @@ done:
     DV_free(glob.iov_buf);
 
     D_FUNC_LEAVE;
-} /* end H5_daos_pool_handle_bcast() */
+} /* end H5_daos_pool_handle_bcast_global() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_pool_query
+ *
+ * Purpose:     Creates an asynchronous task for querying information from
+ *              a DAOS pool.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_pool_query(daos_handle_t poh, daos_pool_info_t *pool_info,
+    d_rank_list_t *tgts, daos_prop_t *prop, tse_sched_t *sched,
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
+{
+    H5_daos_generic_cb_ud_t *query_udata = NULL;
+    daos_pool_query_t *query_args = NULL;
+    tse_task_t *query_task = NULL;
+    int ret;
+    herr_t ret_value = SUCCEED;
+
+    assert(sched);
+    assert(req);
+    assert(first_task);
+    assert(dep_task);
+
+    /* Create task for pool query operation */
+    if(0 != (ret = daos_task_create(DAOS_OPC_POOL_QUERY, sched,
+            *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &query_task)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create task to query pool: %s", H5_daos_err_to_string(ret));
+
+    /* Set callback functions for pool query */
+    if(0 != (ret = tse_task_register_cbs(query_task, H5_daos_generic_prep_cb, NULL, 0, H5_daos_generic_comp_cb, NULL, 0)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't register callbacks for task to query pool: %s", H5_daos_err_to_string(ret));
+
+    /* Set private data for pool query */
+    if(NULL == (query_udata = (H5_daos_generic_cb_ud_t *)DV_malloc(sizeof(H5_daos_generic_cb_ud_t))))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate user data struct for pool query task");
+    query_udata->req = req;
+    query_udata->task_name = "pool query";
+    (void)tse_task_set_priv(query_task, query_udata);
+
+    /* Set query task's arguments */
+    if(NULL == (query_args = daos_task_get_args(query_task)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't get arguments for pool query task");
+    query_args->poh = poh;
+    query_args->info = pool_info;
+    query_args->tgts = tgts;
+    query_args->prop = prop;
+
+    /* Schedule pool query task (or save it to be scheduled later)
+     * and give it a reference to req */
+    if(*first_task) {
+        if(0 != (ret = tse_task_schedule(query_task, false)))
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't schedule task to query pool: %s", H5_daos_err_to_string(ret));
+    } /* end if */
+    else
+        *first_task = query_task;
+    req->rc++;
+    query_udata = NULL;
+    *dep_task = query_task;
+
+done:
+    /* Cleanup on failure */
+    if(ret_value < 0) {
+        query_udata = DV_free(query_udata);
+    } /* end if */
+
+    /* Make sure we cleaned up */
+    assert(!query_udata);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_pool_query() */
 
 
 /*-------------------------------------------------------------------------
@@ -3311,7 +3819,7 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_mpi_ibcast(H5_daos_mpi_ibcast_ud_t *_bcast_udata, H5_daos_obj_t *obj,
+H5_daos_mpi_ibcast(H5_daos_mpi_ibcast_ud_t *_bcast_udata, tse_sched_t *sched, H5_daos_obj_t *obj,
     size_t buffer_size, hbool_t empty, tse_task_cb_t bcast_prep_cb, tse_task_cb_t bcast_comp_cb,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
@@ -3321,7 +3829,7 @@ H5_daos_mpi_ibcast(H5_daos_mpi_ibcast_ud_t *_bcast_udata, H5_daos_obj_t *obj,
     int ret;
     herr_t ret_value = SUCCEED;
 
-    assert(obj);
+    assert(sched);
     assert(req);
     assert(first_task);
     assert(dep_task);
@@ -3351,11 +3859,11 @@ H5_daos_mpi_ibcast(H5_daos_mpi_ibcast_ud_t *_bcast_udata, H5_daos_obj_t *obj,
     /* Create meta task for bcast.  This empty task will be completed when
      * the bcast is finished by the completion callback. We can't use
      * bcast_task since it may not be completed after the first bcast. */
-    if(0 != (ret = tse_task_create(NULL, &item->file->sched, NULL, &bcast_udata->bcast_metatask)))
+    if(0 != (ret = tse_task_create(NULL, sched, NULL, &bcast_udata->bcast_metatask)))
         D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create meta task for empty buffer broadcast: %s", H5_daos_err_to_string(ret));
 
     /* Create task for bcast */
-    if(0 != (ret = tse_task_create(H5_daos_mpi_ibcast_task, &item->file->sched, bcast_udata, &bcast_task)))
+    if(0 != (ret = tse_task_create(H5_daos_mpi_ibcast_task, sched, bcast_udata, &bcast_task)))
         D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create task to broadcast empty buffer: %s", H5_daos_err_to_string(ret));
 
     /* Register task dependency if present */
@@ -3376,7 +3884,7 @@ H5_daos_mpi_ibcast(H5_daos_mpi_ibcast_ud_t *_bcast_udata, H5_daos_obj_t *obj,
             D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't schedule task for empty buffer broadcast: %s", H5_daos_err_to_string(ret));
         else {
             req->rc++;
-            item->rc++;
+            if(item) item->rc++;
             *dep_task = bcast_udata->bcast_metatask;
             bcast_udata = NULL;
         } /* end else */
@@ -3384,7 +3892,7 @@ H5_daos_mpi_ibcast(H5_daos_mpi_ibcast_ud_t *_bcast_udata, H5_daos_obj_t *obj,
     else {
         *first_task = bcast_task;
         req->rc++;
-        item->rc++;
+        if(item) item->rc++;
         *dep_task = bcast_udata->bcast_metatask;
         bcast_udata = NULL;
     } /* end else */

@@ -1669,8 +1669,9 @@ done:
     /* Cleanup on failure */
     if(NULL == ret_value) {
         /* Broadcast dataset info if needed */
-        if(must_bcast && H5_daos_mpi_ibcast(NULL, &dset->obj, H5_DAOS_DINFO_BCAST_BUF_SIZE,
-                TRUE, NULL, item->file->my_rank == 0 ? H5_daos_dset_open_bcast_comp_cb : H5_daos_dset_open_recv_comp_cb,
+        if(must_bcast && H5_daos_mpi_ibcast(NULL, &item->file->sched, &dset->obj,
+                H5_DAOS_DINFO_BCAST_BUF_SIZE, TRUE, NULL,
+                item->file->my_rank == 0 ? H5_daos_dset_open_bcast_comp_cb : H5_daos_dset_open_recv_comp_cb,
                 int_req, &first_task, &dep_task) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "failed to broadcast empty dataset info buffer to signal failure");
 
@@ -1937,7 +1938,7 @@ done:
     /* Broadcast dataset info */
     if(bcast_udata) {
         assert(!dinfo_buf);
-        if(H5_daos_mpi_ibcast(bcast_udata, &dset->obj, dinfo_buf_size,
+        if(H5_daos_mpi_ibcast(bcast_udata, &file->sched, &dset->obj, dinfo_buf_size,
                 NULL == ret_value ? TRUE : FALSE, NULL,
                 file->my_rank == 0 ? H5_daos_dset_open_bcast_comp_cb : H5_daos_dset_open_recv_comp_cb,
                 req, first_task, dep_task) < 0) {
@@ -2363,11 +2364,6 @@ H5_daos_dataset_io_types_equal(H5_daos_dset_t *dset, daos_key_t *dkey, hssize_t 
 
     /* Set private data for raw data write */
     (void)tse_task_set_priv(io_task, chunk_io_ud);
-
-    /* Register task dependency if present */
-    if(*dep_task)
-        if(0 != (ret = tse_task_register_deps(io_task, 1, dep_task)))
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create dependency for dataset I/O task: %s", H5_daos_err_to_string(ret));
 
     /* Set first_task and dep_task pointers.  first_task should have been NULL
      * when calling this function.  Do not schedule task. */

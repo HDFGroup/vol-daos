@@ -39,6 +39,8 @@ H5_daos_err_to_string(int ret)
             return "object open incomplete (should not see this) (H5_DAOS_INCOMPLETE)";
         case -H5_DAOS_PRE_ERROR:
             return "error in earlier task (should not see this) (H5_DAOS_PRE_ERROR)";
+        case -H5_DAOS_CANCELED:
+            return "operation canceled by application (H5_DAOS_CANCELED)";
         case -H5_DAOS_H5_OPEN_ERROR:
             return "failed to open HDF5 object (H5_DAOS_H5_OPEN_ERROR)";
         case -H5_DAOS_H5_CLOSE_ERROR:
@@ -83,6 +85,8 @@ H5_daos_err_to_string(int ret)
             return "failed to traverse path (H5_DAOS_TRAVERSE_ERROR)";
         case -H5_DAOS_FOLLOW_ERROR:
             return "failed to follow link (H5_DAOS_FOLLOW_ERROR)";
+        case -H5_DAOS_CALLBACK_ERROR:
+            return "callback function returned failure (H5_DAOS_CALLBACK_ERROR)";
         case -H5_DAOS_PROGRESS_ERROR:
             return "failed to progress scheduler (H5_DAOS_PROGRESS_ERROR)";
         case -H5_DAOS_SETUP_ERROR:

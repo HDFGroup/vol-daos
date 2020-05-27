@@ -1070,16 +1070,14 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
 
 done:
     if(int_req) {
-        tse_task_t *finalize_task;
-
         /* Create task to finalize H5 operation */
-        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &file->sched, int_req, &finalize_task)))
+        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &file->sched, int_req, &int_req->finalize_task)))
             D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
         /* Register dependency (if any) */
-        else if(dep_task && 0 != (ret = tse_task_register_deps(finalize_task, 1, &dep_task)))
+        else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
             D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
         /* Schedule finalize task */
-        else if(0 != (ret = tse_task_schedule(finalize_task, false)))
+        else if(0 != (ret = tse_task_schedule(int_req->finalize_task, false)))
             D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
         else
             /* finalize_task now owns a reference to req */
@@ -1094,8 +1092,7 @@ done:
             D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
 
         /* Block until operation completes */
-        /* Wait for scheduler to be empty */
-        if(sched_init && H5_daos_progress(&file->sched, H5_DAOS_PROGRESS_WAIT) < 0)
+        if(sched_init && H5_daos_progress(&file->sched, int_req, H5_DAOS_PROGRESS_WAIT) < 0)
             D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't progress scheduler");
 
         /* Check for failure */
@@ -1751,16 +1748,14 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
 
 done:
     if(int_req) {
-        tse_task_t *finalize_task;
-
         /* Create task to finalize H5 operation */
-        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &file->sched, int_req, &finalize_task)))
+        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &file->sched, int_req, &int_req->finalize_task)))
             D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
         /* Register dependency (if any) */
-        else if(dep_task && 0 != (ret = tse_task_register_deps(finalize_task, 1, &dep_task)))
+        else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
             D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
         /* Schedule finalize task */
-        else if(0 != (ret = tse_task_schedule(finalize_task, false)))
+        else if(0 != (ret = tse_task_schedule(int_req->finalize_task, false)))
             D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
         else
             /* finalize_task now owns a reference to req */
@@ -1775,8 +1770,7 @@ done:
             D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
 
         /* Block until operation completes */
-        /* Wait for scheduler to be empty */
-        if(H5_daos_progress(&file->sched, H5_DAOS_PROGRESS_WAIT) < 0)
+        if(H5_daos_progress(&file->sched, int_req, H5_DAOS_PROGRESS_WAIT) < 0)
             D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't progress scheduler");
 
         /* Check for failure */

@@ -122,6 +122,8 @@ static int H5_daos_oidx_bcast_prep_cb(tse_task_t *task, void *args);
 static int H5_daos_oidx_bcast_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_oidx_generate_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_oid_encode_task(tse_task_t *task);
+static int H5_daos_list_key_prep_cb(tse_task_t *task, void *args);
+static int H5_daos_list_key_finish(tse_task_t *task);
 static int H5_daos_free_async_task(tse_task_t *task);
 static int H5_daos_pool_connect_prep_cb(tse_task_t *task, void *args);
 static int H5_daos_pool_connect_comp_cb(tse_task_t *task, void *args);
@@ -1407,9 +1409,13 @@ H5_daos_pool_connect_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     assert(udata->puuid);
 
     /* Handle errors */
-    if(udata->req->status < -H5_DAOS_INCOMPLETE) {
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
         udata = NULL;
         D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    } /* end if */
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT) {
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
     } /* end if */
 
     if(uuid_is_null(*udata->puuid))
@@ -1460,7 +1466,7 @@ H5_daos_pool_connect_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
      * if it does not already contain an error (it could contain an error if
      * another task this task is not dependent on also failed). */
     if(task->dt_result < -H5_DAOS_PRE_ERROR
-            && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+            && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
         udata->req->status = task->dt_result;
         udata->req->failed_task = "DAOS pool connect";
     } /* end if */
@@ -1485,7 +1491,7 @@ done:
         /* Do not place any code that can issue errors after this block, except
          * for H5_daos_req_free_int, which updates req->status if it sees an
          * error */
-        if(ret_value < 0 && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
             udata->req->status = ret_value;
             udata->req->failed_task = "DAOS pool connect completion callback";
         } /* end if */
@@ -1719,9 +1725,13 @@ H5_daos_pool_disconnect_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     assert(udata->poh);
 
     /* Handle errors */
-    if(udata->req->status < -H5_DAOS_INCOMPLETE) {
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
         udata = NULL;
         D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    } /* end if */
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT) {
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
     } /* end if */
 
     if(daos_handle_is_inval(*udata->poh))
@@ -1767,7 +1777,7 @@ H5_daos_pool_disconnect_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
      * if it does not already contain an error (it could contain an error if
      * another task this task is not dependent on also failed). */
     if(task->dt_result < -H5_DAOS_PRE_ERROR
-            && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+            && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
         udata->req->status = task->dt_result;
         udata->req->failed_task = "DAOS pool disconnect";
     } /* end if */
@@ -1779,7 +1789,7 @@ done:
         /* Do not place any code that can issue errors after this block, except
          * for H5_daos_req_free_int, which updates req->status if it sees an
          * error */
-        if(ret_value < 0 && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
             udata->req->status = ret_value;
             udata->req->failed_task = "DAOS pool disconnect completion callback";
         } /* end if */
@@ -2429,7 +2439,7 @@ H5_daos_oidx_generate_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
      * it does not already contain an error (it could contain an error if
      * another task this task is not dependent on also failed). */
     if(task->dt_result < -H5_DAOS_PRE_ERROR
-            && udata->generic_ud.req->status >= -H5_DAOS_INCOMPLETE) {
+            && udata->generic_ud.req->status >= -H5_DAOS_SHORT_CIRCUIT) {
         udata->generic_ud.req->status = task->dt_result;
         udata->generic_ud.req->failed_task = udata->generic_ud.task_name;
     } /* end if */
@@ -2460,7 +2470,7 @@ done:
         /* Handle errors in this function */
         /* Do not place any code that can issue errors after this block, except for
          * H5_daos_req_free_int, which updates req->status if it sees an error */
-        if(ret_value < 0 && udata->generic_ud.req->status >= -H5_DAOS_INCOMPLETE) {
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->generic_ud.req->status >= -H5_DAOS_SHORT_CIRCUIT) {
             udata->generic_ud.req->status = ret_value;
             udata->generic_ud.req->failed_task = udata->generic_ud.task_name;
         } /* end if */
@@ -2645,7 +2655,7 @@ H5_daos_oidx_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
      * contain an error if another task this task is not dependent on also
      * failed). */
     if(task->dt_result < -H5_DAOS_PRE_ERROR
-            && udata->bcast_udata.req->status >= -H5_DAOS_INCOMPLETE) {
+            && udata->bcast_udata.req->status >= -H5_DAOS_SHORT_CIRCUIT) {
         udata->bcast_udata.req->status = task->dt_result;
         udata->bcast_udata.req->failed_task = "MPI_Ibcast next object index";
     } /* end if */
@@ -2672,7 +2682,7 @@ done:
         /* Do not place any code that can issue errors after this block, except
          * for H5_daos_req_free_int, which updates req->status if it sees an
          * error */
-        if(ret_value < 0 && udata->bcast_udata.req->status >= -H5_DAOS_INCOMPLETE) {
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->bcast_udata.req->status >= -H5_DAOS_SHORT_CIRCUIT) {
             udata->bcast_udata.req->status = ret_value;
             udata->bcast_udata.req->failed_task = "MPI_Ibcast next object index completion callback";
         } /* end if */
@@ -2797,8 +2807,10 @@ H5_daos_oid_encode_task(tse_task_t *task)
     assert(udata->oid_out);
 
     /* Check for previous errors */
-    if(udata->req->status < -H5_DAOS_INCOMPLETE)
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT)
         D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT)
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
 
     if(H5_daos_oid_encode(udata->oid_out, udata->oidx, udata->obj_type,
             udata->crt_plist_id, udata->oclass_prop_name, udata->req->file) < 0)
@@ -2816,7 +2828,7 @@ done:
         /* Handle errors in this function */
         /* Do not place any code that can issue errors after this block, except for
          * H5_daos_req_free_int, which updates req->status if it sees an error */
-        if(ret_value < 0 && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
             udata->req->status = ret_value;
             udata->req->failed_task = "OID encoding task";
         } /* end if */
@@ -3186,7 +3198,7 @@ H5_daos_tx_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
      * contain an error if another task this task is not dependent on also
      * failed). */
     if(task->dt_result < -H5_DAOS_PRE_ERROR
-            && req->status >= -H5_DAOS_INCOMPLETE) {
+            && req->status >= -H5_DAOS_SHORT_CIRCUIT) {
         req->status = task->dt_result;
         req->failed_task = "transaction commit/abort";
     } /* end if */
@@ -3206,7 +3218,8 @@ done:
         H5ES_status_t req_status;
 
         /* Determine request status */
-        if(ret_value >= 0 && req->status == -H5_DAOS_INCOMPLETE)
+        if(ret_value >= 0 && (req->status == -H5_DAOS_INCOMPLETE
+                || req->status == -H5_DAOS_SHORT_CIRCUIT))
             req_status = H5ES_STATUS_SUCCEED;
         else if(req->status == -H5_DAOS_CANCELED)
             req_status = H5ES_STATUS_CANCELED;
@@ -3219,13 +3232,14 @@ done:
     } /* end if */
 
     /* Mark request as completed */
-    if(ret_value >= 0 && req->status == -H5_DAOS_INCOMPLETE)
+    if(ret_value >= 0 && (req->status == -H5_DAOS_INCOMPLETE
+            || req->status == -H5_DAOS_SHORT_CIRCUIT))
         req->status = 0;
 
     /* Handle errors in this function */
     /* Do not place any code that can issue errors after this block, except for
      * H5_daos_req_free_int, which updates req->status if it sees an error */
-    if(ret_value < 0 && req->status >= -H5_DAOS_INCOMPLETE) {
+    if(ret_value < -H5_DAOS_SHORT_CIRCUIT && req->status >= -H5_DAOS_SHORT_CIRCUIT) {
         req->status = ret_value;
         req->failed_task = "transaction commit/abort completion callback";
     } /* end if */
@@ -3267,7 +3281,7 @@ H5_daos_h5op_finalize(tse_task_t *task)
     assert(task == req->finalize_task);
 
     /* Check for error */
-    if(req->status < -H5_DAOS_INCOMPLETE) {
+    if(req->status < -H5_DAOS_SHORT_CIRCUIT) {
         /* Print error message */
         D_DONE_ERROR(H5E_IO, H5E_CANTINIT, req->status, "operation failed in task \"%s\": %s", req->failed_task, H5_daos_err_to_string(req->status));
 
@@ -3369,12 +3383,14 @@ done:
         if(!req->th_open) {
             /* Make notify callback */
             if(req->notify_cb)
-                if(req->notify_cb(req->notify_ctx, ret_value >= 0 && req->status == -H5_DAOS_INCOMPLETE ? H5ES_STATUS_SUCCEED
+                if(req->notify_cb(req->notify_ctx, ret_value >= 0 && (req->status == -H5_DAOS_INCOMPLETE
+                        || req->status == -H5_DAOS_SHORT_CIRCUIT) ? H5ES_STATUS_SUCCEED
                         : req->status == -H5_DAOS_CANCELED ? H5ES_STATUS_CANCELED : H5ES_STATUS_FAIL) < 0)
                     D_DONE_ERROR(H5E_VOL, H5E_CANTOPERATE, -H5_DAOS_CALLBACK_ERROR, "notify callback returned failure");
 
             /* Mark request as completed if there were no errors */
-            if(ret_value >= 0 && req->status == -H5_DAOS_INCOMPLETE)
+            if(ret_value >= 0 && (req->status == -H5_DAOS_INCOMPLETE
+                    || req->status == -H5_DAOS_SHORT_CIRCUIT))
                 req->status = 0;
 
             /* Complete task in engine */
@@ -3388,7 +3404,7 @@ done:
     /* Report failures in this routine */
     /* Do not place any code that can issue errors after this block, except for
      * H5_daos_req_free_int, which updates req->status if it sees an error */
-    if(ret_value < 0 && req->status == -H5_DAOS_INCOMPLETE) {
+    if(ret_value < -H5_DAOS_SHORT_CIRCUIT && req->status >= -H5_DAOS_SHORT_CIRCUIT) {
         req->status = ret_value;
         req->failed_task = "h5 op finalize";
     } /* end if */
@@ -3429,10 +3445,15 @@ H5_daos_generic_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     assert(udata->req->file);
 
     /* Handle errors */
-    if(udata->req->status < -H5_DAOS_INCOMPLETE) {
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
         tse_task_complete(task, -H5_DAOS_PRE_ERROR);
         udata = NULL;
         D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    } /* end if */
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT) {
+        tse_task_complete(task, -H5_DAOS_SHORT_CIRCUIT);
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
     } /* end if */
 
 done:
@@ -3473,7 +3494,7 @@ H5_daos_generic_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     /* Do not place any code that can issue errors after this block, except for
      * H5_daos_req_free_int, which updates req->status if it sees an error */
     if(task->dt_result < -H5_DAOS_PRE_ERROR
-            && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+            && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
         udata->req->status = task->dt_result;
         udata->req->failed_task = udata->task_name;
     } /* end if */
@@ -3525,10 +3546,15 @@ H5_daos_obj_open_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     assert(udata->generic_ud.req->file);
 
     /* Handle errors */
-    if(udata->generic_ud.req->status < -H5_DAOS_INCOMPLETE) {
+    if(udata->generic_ud.req->status < -H5_DAOS_SHORT_CIRCUIT) {
         tse_task_complete(task, -H5_DAOS_PRE_ERROR);
         udata = NULL;
         D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    } /* end if */
+    else if(udata->generic_ud.req->status == -H5_DAOS_SHORT_CIRCUIT) {
+        tse_task_complete(task, -H5_DAOS_SHORT_CIRCUIT);
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
     } /* end if */
 
     /* Set container open handle and oid in args */
@@ -3577,10 +3603,15 @@ H5_daos_md_rw_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     assert(!udata->req->file->closed);
 
     /* Handle errors */
-    if(udata->req->status < -H5_DAOS_INCOMPLETE) {
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
         tse_task_complete(task, -H5_DAOS_PRE_ERROR);
         udata = NULL;
         D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    } /* end if */
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT) {
+        tse_task_complete(task, -H5_DAOS_SHORT_CIRCUIT);
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
     } /* end if */
 
     /* Set update task arguments */
@@ -3589,7 +3620,7 @@ H5_daos_md_rw_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for metadata I/O task");
     } /* end if */
     update_args->oh = udata->obj->obj_oh;
-    update_args->th = DAOS_TX_NONE;
+    update_args->th = udata->req->th;
     update_args->flags = 0;
     update_args->dkey = &udata->dkey;
     update_args->nr = udata->nr;
@@ -3626,19 +3657,17 @@ H5_daos_md_update_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for metadata I/O task");
-
     assert(!udata->req->file->closed);
 
     /* Handle errors in update task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if
      * another task this task is not dependent on also failed). */
     if(task->dt_result < -H5_DAOS_PRE_ERROR
-            && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+            && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
         udata->req->status = task->dt_result;
         udata->req->failed_task = udata->task_name;
     } /* end if */
 
-done:
     /* Close object */
     if(H5_daos_object_close(udata->obj, H5I_INVALID_HID, NULL) < 0)
         D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
@@ -3646,7 +3675,7 @@ done:
     /* Handle errors in this function */
     /* Do not place any code that can issue errors after this block, except for
      * H5_daos_req_free_int, which updates req->status if it sees an error */
-    if(ret_value < 0 && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+    if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
         udata->req->status = ret_value;
         udata->req->failed_task = udata->task_name;
     } /* end if */
@@ -3665,6 +3694,7 @@ done:
         DV_free(udata->sg_iov[i].iov_buf);
     DV_free(udata);
 
+done:
     D_FUNC_LEAVE;
 } /* end H5_daos_md_update_comp_cb() */
 
@@ -3715,6 +3745,40 @@ done:
 
 
 /*-------------------------------------------------------------------------
+ * Function:    H5_daos_metatask_autocomp_other
+ *
+ * Purpose:     Body function for a metatask that needs to complete
+ *              itself and another task.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ * Programmer:  Neil Fortner
+ *              March, 2020
+ *
+ *-------------------------------------------------------------------------
+ */
+int
+H5_daos_metatask_autocomp_other(tse_task_t *task)
+{
+    tse_task_t *other_task = NULL;
+    int ret_value = 0;
+
+    /* Get other task */
+    if(NULL == (other_task = (tse_task_t *)tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for autocomplete other metatask");
+
+    /* Complete other task */
+    tse_task_complete(other_task, ret_value);
+
+done:
+    tse_task_complete(task, ret_value);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_metatask_autocomp_other() */
+
+
+/*-------------------------------------------------------------------------
  * Function:    H5_daos_metatask_autocomplete
  *
  * Purpose:     Body function for a metatask that needs to complete
@@ -3735,6 +3799,385 @@ H5_daos_metatask_autocomplete(tse_task_t *task)
 
     return 0;
 } /* end H5_daos_metatask_autocomplete() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_list_key_prep_cb
+ *
+ * Purpose:     Prepare callback for asynchronous daos key list
+ *              operations.  Currently checks for errors from previous
+ *              tasks then sets arguments for the DAOS operation.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ * Programmer:  Neil Fortner
+ *              January, 2019
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_list_key_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_iter_ud_t *udata;
+    daos_obj_list_t *list_args;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for key list task");
+
+    assert(udata->target_obj);
+    assert(udata->iter_data->req);
+    assert(udata->iter_data->req->file);
+    assert(!udata->iter_data->req->file->closed);
+
+    /* Handle errors */
+    if(udata->iter_data->req->status < -H5_DAOS_SHORT_CIRCUIT) {
+        tse_task_complete(task, -H5_DAOS_PRE_ERROR);
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    } /* end if */
+    else if(udata->iter_data->req->status == -H5_DAOS_SHORT_CIRCUIT) {
+        tse_task_complete(task, -H5_DAOS_SHORT_CIRCUIT);
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
+    } /* end if */
+
+    /* Set oh argument */
+    if(NULL == (list_args = daos_task_get_args(task))) {
+        tse_task_complete(task, -H5_DAOS_DAOS_GET_ERROR);
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for key list task");
+    } /* end if */
+    list_args->oh = udata->target_obj->obj_oh;
+
+done:
+    D_FUNC_LEAVE;
+} /* end H5_daos_md_rw_prep_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_list_key_finish
+ *
+ * Purpose:     Frees key list udata and, if this is the base level of
+ *              iteration, iter data.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ * Programmer:  Neil Fortner
+ *              January, 2020
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_list_key_finish(tse_task_t *task)
+{
+    H5_daos_iter_ud_t *udata;
+    H5_daos_req_t *req = NULL;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for iteration task");
+
+    assert(task == udata->iter_metatask);
+
+    /* Assign req convenience pointer.  We do this so we can still handle errors
+     * after freeing.  This should be safe since we don't decrease the ref count
+     * on req until we're done with it. */
+    req = udata->iter_data->req;
+
+    assert(req);
+    assert(req->file);
+
+    /* Finalize iter_data if this is the base of iteration */
+    if(!udata->iter_data->is_recursive || udata->base_iter) {
+        /* Iteration is compelte, we are no longer short-circuiting (if this
+         * iteration caused the short circuit) */
+        if(udata->iter_data->short_circuit_init) {
+            if(udata->iter_data->req->status == -H5_DAOS_SHORT_CIRCUIT)
+                udata->iter_data->req->status = -H5_DAOS_INCOMPLETE;
+            udata->iter_data->short_circuit_init = FALSE;
+        } /* end if */
+
+        /* Decrement reference count on root obj id */
+        if(H5Idec_ref(udata->iter_data->iter_root_obj) < 0)
+            D_GOTO_ERROR(H5E_LINK, H5E_CANTDEC, -H5_DAOS_H5_CLOSE_ERROR, "can't decrement reference count on iteration base object");
+        udata->iter_data->iter_root_obj = H5I_INVALID_HID;
+
+        /* Set *op_ret_p if present */
+        if(udata->iter_data->op_ret_p)
+            *udata->iter_data->op_ret_p = udata->iter_data->op_ret;
+
+        /* Free hash table */
+        if(udata->iter_data->iter_type == H5_DAOS_ITER_TYPE_LINK) {
+            udata->iter_data->u.link_iter_data.recursive_link_path = DV_free(udata->iter_data->u.link_iter_data.recursive_link_path);
+
+            if(udata->iter_data->u.link_iter_data.visited_link_table) {
+                dv_hash_table_free(udata->iter_data->u.link_iter_data.visited_link_table);
+                udata->iter_data->u.link_iter_data.visited_link_table = NULL;
+            } /* end if */
+        } /* end if */
+
+        /* Free iter data */
+        udata->iter_data = DV_free(udata->iter_data);
+    } /* end if */
+    
+    /* Close target_obj */
+    if(H5_daos_object_close(udata->target_obj, H5I_INVALID_HID, NULL) < 0)
+        D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
+
+    /* Free buffer */
+    if(udata->sg_iov.iov_buf)
+        DV_free(udata->sg_iov.iov_buf);
+
+    /* Free udata */
+    udata = DV_free(udata);
+
+    /* Handle errors */
+    /* Do not place any code that can issue errors after this block, except for
+     * H5_daos_req_free_int, which updates req->status if it sees an error */
+    if(ret_value < -H5_DAOS_SHORT_CIRCUIT && req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+        req->status = ret_value;
+        req->failed_task = "key list finish";
+    } /* end if */
+
+    /* Release req */
+    if(H5_daos_req_free_int(req) < 0)
+        D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+done:
+    /* Mark task as complete */
+    tse_task_complete(task, ret_value);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_list_key_finish() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_list_key_start
+ *
+ * Purpose:     Begins listing keys (akeys or dkeys depending on opc)
+ *              asynchronously, calling comp_cb when finished.  iter_udata
+ *              must already be exist and be filled in with valid info.
+ *              Can be used to continue iteration if the first call did
+ *              not return all the keys.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+int
+H5_daos_list_key_start(H5_daos_iter_ud_t *iter_udata, daos_opc_t opc,
+    tse_task_cb_t comp_cb, tse_task_t **first_task, tse_task_t **dep_task)
+{
+    daos_obj_list_t *list_args;
+    tse_task_t *list_task = NULL;
+    int ret;
+    int ret_value = 0;
+
+    assert(iter_udata);
+    assert(iter_udata->iter_metatask);
+    assert(first_task);
+    assert(dep_task);
+
+    /* Create task for key list */
+    if(0 != (ret = daos_task_create(opc, &iter_udata->target_obj->item.file->sched, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &list_task)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't create task to list keys: %s", H5_daos_err_to_string(ret));
+
+    /* Set callback functions for key list */
+    if(0 != (ret = tse_task_register_cbs(list_task, H5_daos_list_key_prep_cb, NULL, 0, comp_cb, NULL, 0)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't register callbacks for task to list keys: %s", H5_daos_err_to_string(ret));
+
+    /* Set private data for key list */
+    (void)tse_task_set_priv(list_task, iter_udata);
+
+    /* Get arguments for list operation */
+    if(NULL == (list_args = daos_task_get_args(list_task)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for key list task");
+
+    /* Set arguments */
+    list_args->th = iter_udata->iter_data->req->th;
+    iter_udata->nr = H5_DAOS_ITER_LEN;
+    list_args->nr = &iter_udata->nr;
+    list_args->kds = iter_udata->kds;
+    list_args->sgl = &iter_udata->sgl;
+    if(opc == DAOS_OPC_OBJ_LIST_DKEY)
+        list_args->dkey_anchor = &iter_udata->anchor;
+    else {
+        assert(opc == DAOS_OPC_OBJ_LIST_AKEY);
+        list_args->dkey = &iter_udata->dkey;
+        list_args->akey_anchor = &iter_udata->anchor;
+    } /* end if */
+
+    /* Schedule list task (or save it to be scheduled later) and give it a
+     * reference to req and target_obj */
+    if(*first_task) {
+        if(0 != (ret = tse_task_schedule(list_task, false)))
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't schedule task to list keys: %s", H5_daos_err_to_string(ret));
+    }
+    else
+        *first_task = list_task;
+    *dep_task = iter_udata->iter_metatask;
+    iter_udata = NULL;
+
+done:
+    /* Cleanup */
+    if(iter_udata) {
+        assert(ret_value < 0);
+        assert(iter_udata->iter_metatask);
+        assert(iter_udata->sg_iov.iov_buf);
+
+        if(*dep_task && 0 != (ret = tse_task_register_deps(iter_udata->iter_metatask, 1, dep_task)))
+            D_DONE_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't create dependencies for iteration metatask: %s", H5_daos_err_to_string(ret));
+
+        if(*first_task) {
+            if(0 != (ret = tse_task_schedule(iter_udata->iter_metatask, false)))
+                D_DONE_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't schedule iteration metatask: %s", H5_daos_err_to_string(ret));
+        } /* end if */
+        else
+            *first_task = iter_udata->iter_metatask;
+        *dep_task = iter_udata->iter_metatask;
+    } /* end if */
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_list_key_start() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_list_key_init
+ *
+ * Purpose:     Begins listing keys (akeys or dkeys depending on opc)
+ *              asynchronously, calling comp_cb when finished.  Creates a
+ *              metatask in the udata struct's "iter_metatask" field but
+ *              does not schedule it.  It is the responsibility of comp_cb
+ *              to make sure iter_metatask is scheduled such that it
+ *              executes when everything is complete a this level of
+ *              iteration.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+int
+H5_daos_list_key_init(H5_daos_iter_data_t *iter_data, H5_daos_obj_t *target_obj,
+    daos_key_t *dkey, daos_opc_t opc, tse_task_cb_t comp_cb, hbool_t base_iter,
+    tse_task_t **first_task, tse_task_t **dep_task)
+{
+    H5_daos_iter_ud_t *iter_udata = NULL;
+    char *tmp_alloc = NULL;
+    int ret;
+    int ret_value = 0;
+
+    assert(iter_data);
+    assert(target_obj);
+    assert(comp_cb);
+    assert(first_task);
+    assert(dep_task);
+
+    /* Allocate iter udata */
+    if(NULL == (iter_udata = (H5_daos_iter_ud_t *)DV_calloc(sizeof(H5_daos_iter_ud_t))))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate iteration user data");
+
+    /* Fill in user data fields */
+    iter_udata->target_obj = target_obj;
+    if(dkey)
+        iter_udata->dkey = *dkey;
+    else
+        assert(opc == DAOS_OPC_OBJ_LIST_DKEY);
+    iter_udata->base_iter = base_iter;
+    memset(&iter_udata->anchor, 0, sizeof(iter_udata->anchor));
+
+    /* Copy iter_data if this is the base of iteration, otherwise point to
+     * existing iter_data */
+    if(base_iter) {
+        if(NULL == (iter_udata->iter_data = (H5_daos_iter_data_t *)DV_malloc(sizeof(H5_daos_iter_data_t))))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate iteration data");
+        memcpy(iter_udata->iter_data, iter_data, sizeof(*iter_data));
+    } /* end if */
+    else
+        iter_udata->iter_data = iter_data;
+
+    /* Allocate key_buf */
+    if(NULL == (tmp_alloc = (char *)DV_malloc(H5_DAOS_ITER_SIZE_INIT)))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate buffer for keys");
+
+    /* Set up sg_iov.  Report size as 1 less than buffer size so we always have
+     * room for a null terminator. */
+    daos_iov_set(&iter_udata->sg_iov, tmp_alloc, (daos_size_t)(H5_DAOS_ITER_SIZE_INIT - 1));
+
+    /* Set up sgl */
+    iter_udata->sgl.sg_nr = 1;
+    iter_udata->sgl.sg_nr_out = 0;
+    iter_udata->sgl.sg_iovs = &iter_udata->sg_iov;
+
+    /* Create meta task for iteration.  This empty task will be completed when
+     * the iteration is finished by comp_cb.  We can't use list_task since it
+     * may not be completed by the first list.  Only free iter_data at the end
+     * if this is the base of iteration. */
+    if(0 != (ret = tse_task_create(H5_daos_list_key_finish,
+            &target_obj->item.file->sched, iter_udata, &iter_udata->iter_metatask)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't create meta task for iteration: %s", H5_daos_err_to_string(ret));
+
+    /* Start list (create tasks) give it a reference to req and target obj, and
+     * transfer ownership of iter_udata */
+    if(0 != (ret = H5_daos_list_key_start(iter_udata, opc, comp_cb, first_task, dep_task)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't start iteration");
+    iter_udata->iter_data->req->rc++;
+    iter_udata->target_obj->item.rc++;
+    iter_udata = NULL;
+
+done:
+    /* Cleanup */
+    if(iter_udata) {
+        assert(ret_value < 0);
+
+        if(iter_udata->iter_metatask) {
+            /* The metatask should clean everything up */
+            if(iter_udata->iter_metatask != *dep_task) {
+                /* Queue up the metatask */
+                if(*dep_task && 0 != (ret = tse_task_register_deps(iter_udata->iter_metatask, 1, dep_task)))
+                    D_DONE_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't create dependencies for iteration metatask: %s", H5_daos_err_to_string(ret));
+
+                if(*first_task) {
+                    if(0 != (ret = tse_task_schedule(iter_udata->iter_metatask, false)))
+                        D_DONE_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't schedule iteration metatask: %s", H5_daos_err_to_string(ret));
+                } /* end if */
+                else
+                    *first_task = iter_udata->iter_metatask;
+                *dep_task = iter_udata->iter_metatask;
+            } /* end if */
+        } /* end if */
+        else {
+            /* No metatask, clean up directly here */
+            /* Free iter_data if this is the base of iteration */
+            if(iter_data->is_recursive && iter_udata->base_iter) {
+                /* Free hash table */
+                if(iter_data->iter_type == H5_DAOS_ITER_TYPE_LINK) {
+                    iter_data->u.link_iter_data.recursive_link_path = DV_free(iter_data->u.link_iter_data.recursive_link_path);
+
+                    if(iter_data->u.link_iter_data.visited_link_table) {
+                        dv_hash_table_free(iter_data->u.link_iter_data.visited_link_table);
+                        iter_data->u.link_iter_data.visited_link_table = NULL;
+                    } /* end if */
+                } /* end if */
+
+                /* Free iter data */
+                iter_udata->iter_data = iter_udata->iter_data;
+            } /* end if */
+
+            /* Free key buffer */
+            if(iter_udata->sg_iov.iov_buf)
+                DV_free(iter_udata->sg_iov.iov_buf);
+
+            /* Free udata */
+            iter_udata = DV_free(iter_udata);
+        } /* end else */
+    } /* end if */
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_list_key_init() */
 
 
 /*-------------------------------------------------------------------------
@@ -3990,7 +4433,9 @@ H5_daos_free_async(H5_daos_file_t *file, void *buf, tse_task_t **first_task,
     } /* end if */
     else
         *first_task = free_task;
-    *dep_task = free_task;
+
+    /* Do not update *dep_task since nothing depends on this buffer being freed
+     */
 
 done:
     D_FUNC_LEAVE;
@@ -4055,8 +4500,8 @@ H5_daos_progress(tse_sched_t *sched, H5_daos_req_t *req, uint64_t timeout)
         /* Advance time */
         /* Actually check clock here? */
         timeout_rem -= H5_DAOS_ASYNC_POLL_INTERVAL;
-    } while(!is_empty && timeout_rem > 0
-            && (!req || req->status != H5_DAOS_INCOMPLETE));
+    } while((req ? (req->status == -H5_DAOS_INCOMPLETE || req->status == -H5_DAOS_SHORT_CIRCUIT)
+            : !is_empty) && timeout_rem > 0);
 
 done:
     D_FUNC_LEAVE;

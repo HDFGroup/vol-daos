@@ -224,12 +224,11 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_object_open_helper(void *_item, const H5VL_loc_params_t *loc_params,
+H5_daos_object_open_helper(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
     H5I_type_t *opened_type, hbool_t collective, H5_daos_obj_t **ret_obj,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_object_open_ud_t *open_udata = NULL;
-    H5_daos_item_t *item = (H5_daos_item_t *)_item;
     tse_task_t *open_task = NULL;
     hbool_t open_task_scheduled = FALSE;
     int ret;
@@ -379,8 +378,10 @@ H5_daos_object_open_task(tse_task_t *task)
     assert(udata->obj_out);
 
     /* Check for previous errors */
-    if(udata->req->status < -H5_DAOS_INCOMPLETE)
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT)
         D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT)
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
 
     if(H5I_BADID == (obj_type = H5_daos_oid_to_type(udata->oid)))
         D_GOTO_ERROR(H5E_OBJECT, H5E_CANTGET, -H5_DAOS_DAOS_GET_ERROR, "can't get object type");
@@ -453,7 +454,7 @@ done:
             /* Handle errors in this function */
             /* Do not place any code that can issue errors after this block, except for
              * H5_daos_req_free_int, which updates req->status if it sees an error */
-            if(udata->req->status >= -H5_DAOS_INCOMPLETE) {
+            if(ret_value != -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
                 udata->req->status = ret_value;
                 udata->req->failed_task = "object open";
             } /* end if */
@@ -610,7 +611,7 @@ H5_daos_object_get_oid_by_idx(H5_daos_obj_t *loc_obj, const H5VL_loc_params_t *l
     H5VL_loc_params_t sub_loc_params;
     H5_daos_group_t *container_group = NULL;
     daos_obj_id_t **oid_ptr;
-    ssize_t link_name_size;
+    size_t link_name_size;
     char *path_buf = NULL;
     char *link_name = NULL;
     char *link_name_buf_dyn = NULL;
@@ -632,10 +633,21 @@ H5_daos_object_get_oid_by_idx(H5_daos_obj_t *loc_obj, const H5VL_loc_params_t *l
 
     /* Retrieve the name of the link at the given index */
     link_name = link_name_buf_static;
-    if((link_name_size = H5_daos_link_get_name_by_idx(container_group, loc_params->loc_data.loc_by_idx.idx_type,
+    if(H5_daos_link_get_name_by_idx(container_group, loc_params->loc_data.loc_by_idx.idx_type,
             loc_params->loc_data.loc_by_idx.order, (uint64_t)loc_params->loc_data.loc_by_idx.n,
-            link_name, H5_DAOS_LINK_NAME_BUF_SIZE, req, first_task, dep_task)) < 0)
+            &link_name_size, link_name, H5_DAOS_LINK_NAME_BUF_SIZE, req, first_task, dep_task) < 0)
         D_GOTO_ERROR(H5E_OBJECT, H5E_CANTGET, FAIL, "can't get link name");
+
+    /* Wait until everything is complete then check for errors
+     * (temporary code until the rest of this function is async) */
+    if(*first_task && (0 != (ret = tse_task_schedule(*first_task, false))))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
+    if(H5_daos_progress(&loc_obj->item.file->sched, NULL, H5_DAOS_PROGRESS_WAIT) < 0)
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't progress scheduler");
+    *first_task = NULL;
+    *dep_task = NULL;
+    if(req->status < -H5_DAOS_INCOMPLETE)
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "asynchronous task failed: %s: %s", req->failed_task, H5_daos_err_to_string(req->status));
 
     /* Check that buffer was large enough to fit link name */
     if(link_name_size > H5_DAOS_LINK_NAME_BUF_SIZE - 1) {
@@ -646,8 +658,19 @@ H5_daos_object_get_oid_by_idx(H5_daos_obj_t *loc_obj, const H5VL_loc_params_t *l
         /* Re-issue the call with a larger buffer */
         if(H5_daos_link_get_name_by_idx(container_group, loc_params->loc_data.loc_by_idx.idx_type,
                 loc_params->loc_data.loc_by_idx.order, (uint64_t)loc_params->loc_data.loc_by_idx.n,
-                link_name, (size_t)link_name_size + 1, req, first_task, dep_task) < 0)
+                &link_name_size, link_name, (size_t)link_name_size + 1, req, first_task, dep_task) < 0)
             D_GOTO_ERROR(H5E_OBJECT, H5E_CANTGET, FAIL, "can't get link name");
+
+        /* Wait until everything is complete then check for errors
+         * (temporary code until the rest of this function is async) */
+        if(*first_task && (0 != (ret = tse_task_schedule(*first_task, false))))
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_progress(&loc_obj->item.file->sched, NULL, H5_DAOS_PROGRESS_WAIT) < 0)
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't progress scheduler");
+        *first_task = NULL;
+        *dep_task = NULL;
+        if(req->status < -H5_DAOS_INCOMPLETE)
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "asynchronous task failed: %s", H5_daos_err_to_string(req->status));
     } /* end if */
 
     /* Attempt to follow the link */
@@ -667,7 +690,7 @@ H5_daos_object_get_oid_by_idx(H5_daos_obj_t *loc_obj, const H5VL_loc_params_t *l
     *first_task = NULL;
     *dep_task = NULL;
     if(req->status < -H5_DAOS_INCOMPLETE)
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "asynchronous task failed");
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "asynchronous task failed: %s", H5_daos_err_to_string(req->status));
 
 done:
     if(link_name_buf_dyn)
@@ -873,7 +896,7 @@ H5_daos_object_oid_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
      * contain an error if another task this task is not dependent on also
      * failed). */
     if(task->dt_result < -H5_DAOS_PRE_ERROR
-            && udata->bcast_udata.req->status >= -H5_DAOS_INCOMPLETE) {
+            && udata->bcast_udata.req->status >= -H5_DAOS_SHORT_CIRCUIT) {
         udata->bcast_udata.req->status = task->dt_result;
         udata->bcast_udata.req->failed_task = "MPI_Ibcast OID";
     } /* end if */
@@ -896,7 +919,7 @@ done:
         /* Do not place any code that can issue errors after this block, except
          * for H5_daos_req_free_int, which updates req->status if it sees an
          * error */
-        if(ret_value < 0 && udata->bcast_udata.req->status >= -H5_DAOS_INCOMPLETE) {
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->bcast_udata.req->status >= -H5_DAOS_SHORT_CIRCUIT) {
             udata->bcast_udata.req->status = ret_value;
             udata->bcast_udata.req->failed_task = "MPI_Ibcast OID completion callback";
         } /* end if */
@@ -990,7 +1013,7 @@ H5_daos_object_copy(void *src_loc_obj, const H5VL_loc_params_t *loc_params1,
     first_task = NULL;
     dep_task = NULL;
     if(int_req->status < -H5_DAOS_INCOMPLETE)
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "asynchronous task failed");
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "asynchronous task failed: %s", H5_daos_err_to_string(int_req->status));
 
     /* Retrieve the object copy options. The following flags are
      * currently supported:
@@ -1394,7 +1417,7 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
             first_task = NULL;
             dep_task = NULL;
             if(int_req->status < -H5_DAOS_INCOMPLETE)
-                D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "asynchronous task failed");
+                D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "asynchronous task failed: %s", H5_daos_err_to_string(int_req->status));
 
             /* Set return value */
             *oexists_ret = (htri_t)link_exists;
@@ -1686,9 +1709,9 @@ H5_daos_object_visit(H5_daos_obj_t *target_obj, H5_daos_iter_data_t *iter_data)
         H5_DAOS_ITER_DATA_INIT(sub_iter_data, H5_DAOS_ITER_TYPE_LINK, iter_data->index_type, iter_data->iter_order,
                 FALSE, iter_data->idx_p, iter_data->iter_root_obj, iter_data, iter_data->dxpl_id, iter_data->req,
                 iter_data->first_task, iter_data->dep_task);
-        sub_iter_data.u.link_iter_data.link_iter_op = H5_daos_object_visit_link_iter_cb;
+        sub_iter_data.u.link_iter_data.u.link_iter_op = H5_daos_object_visit_link_iter_cb;
 
-        if(H5_daos_link_iterate((H5_daos_group_t *) target_obj, &sub_iter_data) < 0)
+        if(H5_daos_link_iterate((H5_daos_group_t *) target_obj, &sub_iter_data, iter_data->first_task, iter_data->dep_task) < 0)
             D_GOTO_ERROR(H5E_SYM, H5E_BADITER, FAIL, "failed to iterate through group's links");
     } /* end if */
 
@@ -2250,11 +2273,11 @@ H5_daos_group_copy(H5_daos_group_t *src_obj, H5_daos_group_t *dst_obj, const cha
     /* Initialize iteration data */
     H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_LINK, iter_index_type, H5_ITER_INC,
             FALSE, NULL, target_group_id, &copy_op_data, req->dxpl_id, req, first_task, dep_task);
-    iter_data.u.link_iter_data.link_iter_op = H5_daos_group_copy_cb;
+    iter_data.u.link_iter_data.u.link_iter_op = H5_daos_group_copy_cb;
 
     /* Copy the immediate members of the group. If the H5O_COPY_SHALLOW_HIERARCHY_FLAG wasn't
      * specified, this will also recursively copy the members of any groups found. */
-    if(H5_daos_link_iterate(src_obj, &iter_data) < 0)
+    if(H5_daos_link_iterate(src_obj, &iter_data, first_task, dep_task) < 0)
         D_GOTO_ERROR(H5E_SYM, H5E_BADITER, FAIL, "failed to iterate over group's links");
 
 done:

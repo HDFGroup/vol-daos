@@ -194,7 +194,6 @@ H5_daos_map_create(void *_item,
         size_t ktype_size = 0;
         size_t vtype_size = 0;
         tse_task_t *update_task;
-        tse_task_t *link_write_task;
 
         /* Create map */
         /* Allocate argument struct */
@@ -291,6 +290,7 @@ H5_daos_map_create(void *_item,
 
         /* Schedule map metadata write task and give it a reference to req and
          * the map */
+        assert(first_task);
         if(0 != (ret = tse_task_schedule(update_task, false)))
             D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't schedule task to write map metadata: %s", H5_daos_err_to_string(ret));
         int_req->rc++;
@@ -311,10 +311,10 @@ H5_daos_map_create(void *_item,
             link_val.type = H5L_TYPE_HARD;
             link_val.target.hard = map->obj.oid;
             link_val.target_oid_async = &map->obj.oid;
+            finalize_deps[finalize_ndeps] = dep_task;
             if(H5_daos_link_write((H5_daos_group_t *)target_obj, target_name, target_name_len,
-                    &link_val, int_req, &link_write_task, dep_task) < 0)
+                    &link_val, int_req, &first_task, &finalize_deps[finalize_ndeps]) < 0)
                 D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create link to map");
-            finalize_deps[finalize_ndeps] = link_write_task;
             finalize_ndeps++;
         } /* end if */
     } /* end if */
@@ -875,7 +875,7 @@ H5_daos_map_open_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
      * it does not already contain an error (it could contain an error if
      * another task this task is not dependent on also failed). */
     if(task->dt_result < -H5_DAOS_PRE_ERROR
-            && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+            && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
         udata->req->status = task->dt_result;
         udata->req->failed_task = "MPI_Ibcast map info";
     } /* end if */
@@ -892,7 +892,7 @@ H5_daos_map_open_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
             /* Create task for second bcast */
             if(0 !=  (ret = tse_task_create(H5_daos_mpi_ibcast_task, &udata->obj->item.file->sched, udata, &bcast_task)))
-                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't create task for second map info broadcast");
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't create task for second map info broadcast: %s", H5_daos_err_to_string(ret));
 
             /* Set callback functions for second bcast */
             if(0 != (ret = tse_task_register_cbs(bcast_task, NULL, NULL, 0, H5_daos_map_open_bcast_comp_cb, NULL, 0)))
@@ -916,7 +916,7 @@ done:
         /* Do not place any code that can issue errors after this block, except
          * for H5_daos_req_free_int, which updates req->status if it sees an
          * error */
-        if(ret_value < 0 && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
             udata->req->status = ret_value;
             udata->req->failed_task = "MPI_Ibcast map info completion callback";
         } /* end if */
@@ -974,7 +974,7 @@ H5_daos_map_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
      * it does not already contain an error (it could contain an error if
      * another task this task is not dependent on also failed). */
     if(task->dt_result < -H5_DAOS_PRE_ERROR
-            && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+            && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
         udata->req->status = task->dt_result;
         udata->req->failed_task = "MPI_Ibcast map info";
     } /* end if */
@@ -1017,7 +1017,7 @@ H5_daos_map_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
             /* Create task for second bcast */
             if(0 !=  (ret = tse_task_create(H5_daos_mpi_ibcast_task, &udata->obj->item.file->sched, udata, &bcast_task)))
-                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't create task for second map info broadcast");
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't create task for second map info broadcast: %s", H5_daos_err_to_string(ret));
 
             /* Set callback functions for second bcast */
             if(0 != (ret = tse_task_register_cbs(bcast_task, NULL, NULL, 0, H5_daos_map_open_recv_comp_cb, NULL, 0)))
@@ -1053,7 +1053,7 @@ done:
         /* Do not place any code that can issue errors after this block, except
          * for H5_daos_req_free_int, which updates req->status if it sees an
          * error */
-        if(ret_value < 0 && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
             udata->req->status = ret_value;
             udata->req->failed_task = "MPI_Ibcast map info completion callback";
         } /* end if */
@@ -1254,7 +1254,7 @@ H5_daos_minfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
          * if it does not already contain an error (it could contain an error if
          * another task this task is not dependent on also failed). */
         if(task->dt_result < -H5_DAOS_PRE_ERROR
-                && udata->md_rw_cb_ud.req->status >= -H5_DAOS_INCOMPLETE) {
+                && udata->md_rw_cb_ud.req->status >= -H5_DAOS_SHORT_CIRCUIT) {
             udata->md_rw_cb_ud.req->status = task->dt_result;
             udata->md_rw_cb_ud.req->failed_task = udata->md_rw_cb_ud.task_name;
         } /* end if */
@@ -1312,7 +1312,7 @@ done:
         /* Do not place any code that can issue errors after this block, except
          * for H5_daos_req_free_int, which updates req->status if it sees an
          * error */
-        if(ret_value < 0 && udata->md_rw_cb_ud.req->status >= -H5_DAOS_INCOMPLETE) {
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->md_rw_cb_ud.req->status >= -H5_DAOS_SHORT_CIRCUIT) {
             udata->md_rw_cb_ud.req->status = ret_value;
             udata->md_rw_cb_ud.req->failed_task = udata->md_rw_cb_ud.task_name;
         } /* end if */

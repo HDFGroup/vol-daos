@@ -339,14 +339,9 @@ H5_daos_object_open_helper(void *_item, const H5VL_loc_params_t *loc_params,
 done:
     /* Cleanup on failure */
     if(ret_value < 0) {
-        if(open_udata && open_udata->open_metatask)
-            tse_task_complete(open_udata->open_metatask, -H5_DAOS_SETUP_ERROR);
-
         if(!open_task_scheduled) {
             open_udata = DV_free(open_udata);
         } /* end if */
-
-        *dep_task = NULL;
     } /* end if */
 
     D_FUNC_LEAVE;

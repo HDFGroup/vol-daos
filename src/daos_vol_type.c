@@ -928,7 +928,7 @@ done:
     /* Cleanup on failure */
     if(NULL == ret_value) {
         /* Broadcast datatype info if needed */
-        if(must_bcast && H5_daos_mpi_ibcast(NULL, &dtype->obj, H5_DAOS_TINFO_BCAST_BUF_SIZE,
+        if(must_bcast && H5_daos_mpi_ibcast(NULL, &item->file->sched, &dtype->obj, H5_DAOS_TINFO_BCAST_BUF_SIZE,
                 TRUE, NULL, item->file->my_rank == 0 ? H5_daos_datatype_open_bcast_comp_cb : H5_daos_datatype_open_recv_comp_cb,
                 int_req, &first_task, &dep_task) < 0)
             D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "failed to broadcast empty datatype info buffer to signal failure");
@@ -1171,7 +1171,7 @@ done:
     if(bcast_udata) {
         assert(!tinfo_buf);
         assert(tinfo_buf_size == H5_DAOS_TINFO_BCAST_BUF_SIZE);
-        if(H5_daos_mpi_ibcast(bcast_udata, &dtype->obj, tinfo_buf_size,
+        if(H5_daos_mpi_ibcast(bcast_udata, &file->sched, &dtype->obj, tinfo_buf_size,
                 NULL == ret_value ? TRUE : FALSE, NULL,
                 file->my_rank == 0 ? H5_daos_datatype_open_bcast_comp_cb : H5_daos_datatype_open_recv_comp_cb,
                 req, first_task, dep_task) < 0) {

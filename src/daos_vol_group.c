@@ -1167,7 +1167,7 @@ done:
     /* Broadcast group info */
     if(bcast_udata) {
         assert(!ginfo_buf);
-        if(H5_daos_mpi_ibcast(bcast_udata, &grp->obj, H5_DAOS_GINFO_BUF_SIZE,
+        if(H5_daos_mpi_ibcast(bcast_udata, &file->sched, &grp->obj, H5_DAOS_GINFO_BUF_SIZE,
                 NULL == ret_value ? TRUE : FALSE, NULL,
                 file->my_rank == 0 ? H5_daos_group_open_bcast_comp_cb : H5_daos_group_open_recv_comp_cb,
                 req, first_task, dep_task) < 0) {
@@ -1327,7 +1327,7 @@ H5_daos_group_open(void *_item, const H5VL_loc_params_t *loc_params,
 
 done:
     /* Broadcast failure if appropriate */
-    if(NULL == ret_value && must_bcast && H5_daos_mpi_ibcast(NULL, &grp->obj, H5_DAOS_GINFO_BUF_SIZE,
+    if(NULL == ret_value && must_bcast && H5_daos_mpi_ibcast(NULL, &item->file->sched, &grp->obj, H5_DAOS_GINFO_BUF_SIZE,
             TRUE, NULL, item->file->my_rank == 0 ? H5_daos_group_open_bcast_comp_cb : H5_daos_group_open_recv_comp_cb,
             int_req, &first_task, &dep_task) < 0)
         D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "failed to broadcast empty group info buffer to signal failure");

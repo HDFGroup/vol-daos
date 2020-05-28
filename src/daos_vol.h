@@ -27,6 +27,7 @@
 #include <daos.h>
 #include <daos_task.h>
 #include <daos/tse.h>
+#include <daos_uns.h>
 
 /* System headers */
 #include <assert.h>
@@ -306,6 +307,7 @@ typedef struct H5_daos_fapl_cache_t {
 typedef struct H5_daos_file_t {
     H5_daos_item_t item; /* Must be first */
     daos_handle_t coh;
+    daos_handle_t container_poh;
     crt_context_t crt_ctx;
     tse_sched_t sched;
     char *file_name;
@@ -627,6 +629,9 @@ extern H5VL_DAOS_PRIVATE daos_handle_t H5_daos_poh_g;
 /* Global variables used to open the pool */
 extern H5VL_DAOS_PRIVATE MPI_Comm H5_daos_pool_comm_g;
 
+/* Global variable used for bypassing the DUNS when requested. */
+extern H5VL_DAOS_PRIVATE hbool_t H5_daos_bypass_duns_g;
+
 /* DAOS task and MPI request for current in-flight MPI operation.  Only allow
  * one at a time for now since:
  * - All MPI operations must be in the same order across all ranks, therefore
@@ -683,6 +688,17 @@ extern "C" {
 #endif
 
 /* General routines */
+H5VL_DAOS_PRIVATE herr_t H5_daos_pool_connect(const uuid_t *pool_uuid, char *pool_grp,
+    d_rank_list_t *svcl, unsigned int flags, daos_handle_t *poh_out, daos_pool_info_t *pool_info_out,
+    tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
+H5VL_DAOS_PRIVATE herr_t H5_daos_pool_connect_sync(const uuid_t pool_uuid,
+    char *pool_grp, d_rank_list_t *svcl, unsigned int flags,
+    daos_handle_t *poh_out, daos_pool_info_t *pool_info_out);
+H5VL_DAOS_PRIVATE herr_t H5_daos_pool_disconnect(daos_handle_t *poh,
+    tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
+H5VL_DAOS_PRIVATE herr_t H5_daos_pool_query(daos_handle_t poh,
+    daos_pool_info_t *pool_info, d_rank_list_t *tgts, daos_prop_t *prop,
+    tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE herr_t H5_daos_set_oclass_from_oid(hid_t plist_id,
     daos_obj_id_t oid);
 H5VL_DAOS_PRIVATE herr_t H5_daos_oidx_generate(uint64_t *oidx,
@@ -939,9 +955,9 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_req_free_int(H5_daos_req_t *req);
 
 /* Generic Asynchronous routines */
 H5VL_DAOS_PRIVATE herr_t H5_daos_progress(tse_sched_t *sched,
-    H5_daos_req_t *req, uint64_t timeout);
-H5VL_DAOS_PRIVATE herr_t H5_daos_mpi_ibcast(H5_daos_mpi_ibcast_ud_t *_bcast_udata, H5_daos_obj_t *obj,
-    size_t buffer_size, hbool_t empty, tse_task_cb_t bcast_prep_cb, tse_task_cb_t bcast_comp_cb,
+        H5_daos_req_t *req, uint64_t timeout);
+H5VL_DAOS_PRIVATE herr_t H5_daos_mpi_ibcast(H5_daos_mpi_ibcast_ud_t *_bcast_udata, tse_sched_t *sched,
+    H5_daos_obj_t *obj, size_t buffer_size, hbool_t empty, tse_task_cb_t bcast_prep_cb, tse_task_cb_t bcast_comp_cb,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 
 /* Asynchronous task routines */

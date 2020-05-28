@@ -551,7 +551,7 @@ H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
 
 done:
     /* Broadcast failure if appropriate */
-    if(NULL == ret_value && must_bcast && H5_daos_mpi_ibcast(NULL, &map->obj, H5_DAOS_MINFO_BCAST_BUF_SIZE,
+    if(NULL == ret_value && must_bcast && H5_daos_mpi_ibcast(NULL, &item->file->sched, &map->obj, H5_DAOS_MINFO_BCAST_BUF_SIZE,
             TRUE, NULL, item->file->my_rank == 0 ? H5_daos_map_open_bcast_comp_cb : H5_daos_map_open_recv_comp_cb,
             int_req, &first_task, &dep_task) < 0)
         D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "failed to broadcast empty map info buffer to signal failure");
@@ -810,7 +810,7 @@ done:
     if(bcast_udata) {
         assert(!minfo_buf);
         assert(minfo_buf_size == H5_DAOS_MINFO_BCAST_BUF_SIZE);
-        if(H5_daos_mpi_ibcast(bcast_udata, &map->obj, minfo_buf_size,
+        if(H5_daos_mpi_ibcast(bcast_udata, &file->sched, &map->obj, minfo_buf_size,
                 NULL == ret_value ? TRUE : FALSE, NULL,
                 file->my_rank == 0 ? H5_daos_map_open_bcast_comp_cb : H5_daos_map_open_recv_comp_cb,
                 req, first_task, dep_task) < 0) {

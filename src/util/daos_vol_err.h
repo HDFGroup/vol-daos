@@ -57,6 +57,7 @@ typedef enum {
     H5_DAOS_H5_ENCODE_ERROR,      /* Failed to encode HDF5 object */
     H5_DAOS_H5_DECODE_ERROR,      /* Failed to decode HDF5 object */
     H5_DAOS_H5_CREATE_ERROR,      /* Failed to create HDF5 object */
+    H5_DAOS_H5_DESTROY_ERROR,     /* Failed to destroy HDF5 object */
     H5_DAOS_H5_TCONV_ERROR,       /* HDF5 type conversion failed */
     H5_DAOS_H5_COPY_ERROR,        /* HDF5 copy operation failed */
     H5_DAOS_H5_UNSUPPORTED_ERROR, /* Unsupported HDF5 operation */

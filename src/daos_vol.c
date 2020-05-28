@@ -1408,7 +1408,6 @@ H5_daos_pool_connect_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     /* Handle errors */
     if(udata->req->status < -H5_DAOS_INCOMPLETE) {
-        tse_task_complete(task, -H5_DAOS_PRE_ERROR);
         udata = NULL;
         D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
     } /* end if */
@@ -1417,10 +1416,8 @@ H5_daos_pool_connect_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         D_GOTO_ERROR(H5E_VOL, H5E_BADVALUE, -H5_DAOS_BAD_VALUE, "pool UUID is invalid");
 
     /* Set daos_pool_connect task args */
-    if(NULL == (connect_args = daos_task_get_args(task))) {
-        tse_task_complete(task, -H5_DAOS_DAOS_GET_ERROR);
+    if(NULL == (connect_args = daos_task_get_args(task)))
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for pool connect task");
-    } /* end if */
     connect_args->poh = udata->poh;
     connect_args->grp = udata->grp;
     connect_args->svc = udata->svc;
@@ -1429,6 +1426,9 @@ H5_daos_pool_connect_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     uuid_copy(connect_args->uuid, *udata->puuid);
 
 done:
+    if(ret_value < 0)
+        tse_task_complete(task, ret_value);
+
     D_FUNC_LEAVE;
 } /* end H5_daos_pool_connect_prep_cb() */
 
@@ -1464,9 +1464,16 @@ H5_daos_pool_connect_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         udata->req->status = task->dt_result;
         udata->req->failed_task = "DAOS pool connect";
     } /* end if */
-    else if(task->dt_result == 0)
+    else if(task->dt_result == 0) {
+        /* After connecting to a pool, check if the file object's container_poh
+         * field has been set yet. If not, make sure it gets updated with the
+         * handle of the pool that we just connected to. This will most often
+         * happen during file opens, where the file object's container_poh
+         * field is initially invalid.
+         */
         if(daos_handle_is_inval(udata->req->file->container_poh))
             udata->req->file->container_poh = *udata->poh;
+    } /* end else */
 
 done:
     /* Free private data if we haven't released ownership */
@@ -1713,7 +1720,6 @@ H5_daos_pool_disconnect_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     /* Handle errors */
     if(udata->req->status < -H5_DAOS_INCOMPLETE) {
-        tse_task_complete(task, -H5_DAOS_PRE_ERROR);
         udata = NULL;
         D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
     } /* end if */
@@ -1722,13 +1728,14 @@ H5_daos_pool_disconnect_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         D_GOTO_ERROR(H5E_VOL, H5E_BADVALUE, -H5_DAOS_BAD_VALUE, "pool handle is invalid");
 
     /* Set daos_pool_disconnect task args */
-    if(NULL == (disconnect_args = daos_task_get_args(task))) {
-        tse_task_complete(task, -H5_DAOS_DAOS_GET_ERROR);
+    if(NULL == (disconnect_args = daos_task_get_args(task)))
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for pool disconnect task");
-    } /* end if */
     disconnect_args->poh = *udata->poh;
 
 done:
+    if(ret_value < 0)
+        tse_task_complete(task, ret_value);
+
     D_FUNC_LEAVE;
 } /* end H5_daos_pool_disconnect_prep_cb() */
 

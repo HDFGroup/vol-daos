@@ -1676,9 +1676,6 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     if((file->fapl_id = H5Pcopy(fapl_id)) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTCOPY, NULL, "failed to copy fapl");
 
-    /* Hash file name to create uuid */
-    H5_daos_hash128(name, &file->uuid);
-
     /* Create CART context */
     if(0 != (ret = crt_context_create(&file->crt_ctx)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create CART context: %s", H5_daos_err_to_string(ret));
@@ -2207,6 +2204,9 @@ H5_daos_cont_open_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         udata = NULL;
         D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
     } /* end if */
+
+    /* Set file's UUID */
+    uuid_copy(udata->req->file->uuid, udata->duns_attr.da_cuuid);
 
     /* Set daos_cont_open task args */
     if(NULL == (open_args = daos_task_get_args(task))) {

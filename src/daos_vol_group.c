@@ -101,7 +101,7 @@ H5_daos_group_traverse(H5_daos_item_t *item, const char *path,
     /* Traverse path if this process should */
     if((!collective || (item->file->my_rank == 0)) && (*obj_name_len > 0)) {
         const char *next_obj;
-        unsigned crt_intermed_grp;
+        unsigned crt_intermed_grp = 0;
 
         /* Make sure obj is a group */
         if(obj->item.type != H5I_GROUP)

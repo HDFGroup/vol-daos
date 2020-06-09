@@ -2116,12 +2116,15 @@ H5_daos_duns_resolve_path_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
                 ((-DER_NONEXIST == task->dt_result) || (-DER_INVAL == task->dt_result) || (ENOENT == task->dt_result))) {
             D_GOTO_DONE(0); /* Short-circuit success when file is expected to potentially be missing */
         } /* end if */
-        else if(ENODATA == task->dt_result)
-            D_GOTO_ERROR(H5E_FILE, H5E_NOTHDF5, -H5_DAOS_BAD_VALUE, "file '%s' is not a valid HDF5 DAOS file", udata->path);
-        else if(task->dt_result < -H5_DAOS_PRE_ERROR
+        else if(task->dt_result != -H5_DAOS_PRE_ERROR
                 && udata->req->status >= -H5_DAOS_INCOMPLETE) {
-            udata->req->status = task->dt_result;
+            /* Set result ot -H5_DAOS_BAD_VALUE instead of task->dt_result
+             * because DUNS functions return positive error codes and that would
+             * trip up the error handling in this connector. */
+            udata->req->status = -H5_DAOS_BAD_VALUE;
             udata->req->failed_task = "DUNS path resolve";
+            if(ENODATA == task->dt_result)
+                D_DONE_ERROR(H5E_FILE, H5E_NOTHDF5, -H5_DAOS_BAD_VALUE, "file '%s' is not a valid HDF5 DAOS file", udata->path);
         } /* end if */
     } /* end if */
     else {

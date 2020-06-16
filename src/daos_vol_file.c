@@ -239,10 +239,15 @@ H5_daos_tx_open_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     assert(udata->req->file);
 
     /* Handle errors */
-    if(udata->req->status < -H5_DAOS_INCOMPLETE) {
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
         tse_task_complete(task, -H5_DAOS_PRE_ERROR);
         udata = NULL;
         D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    } /* end if */
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT) {
+        tse_task_complete(task, -H5_DAOS_SHORT_CIRCUIT);
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
     } /* end if */
 
     /* Set arguments for transaction open */
@@ -291,7 +296,7 @@ H5_daos_tx_open_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
      * contain an error if another task this task is not dependent on also
      * failed). */
     if(task->dt_result < -H5_DAOS_PRE_ERROR
-            && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+            && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
         udata->req->status = task->dt_result;
         udata->req->failed_task = udata->task_name;
     } /* end if */
@@ -342,7 +347,7 @@ H5_daos_gch_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
      * it does not already contain an error (it could contain an error if
      * another task this task is not dependent on also failed). */
     if(task->dt_result < -H5_DAOS_PRE_ERROR
-            && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+            && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
         udata->req->status = task->dt_result;
         udata->req->failed_task = "MPI_Ibcast global container handle";
     } /* end if */
@@ -360,7 +365,7 @@ H5_daos_gch_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
                 /* Create task for second bcast */
                 if(0 !=  (ret = tse_task_create(H5_daos_mpi_ibcast_task, &udata->req->file->sched, udata, &bcast_task)))
-                    D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't create task for second global handle broadcast");
+                    D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't create task for second global handle broadcast: %s", H5_daos_err_to_string(ret));
 
                 /* Set callback functions for second bcast */
                 if(0 != (ret = tse_task_register_cbs(bcast_task, NULL, NULL, 0, H5_daos_gch_bcast_comp_cb, NULL, 0)))
@@ -401,7 +406,7 @@ H5_daos_gch_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
                 /* Create task for second bcast */
                 if(0 !=  (ret = tse_task_create(H5_daos_mpi_ibcast_task, &udata->obj->item.file->sched, udata, &bcast_task)))
-                    D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't create task for second global handle broadcast");
+                    D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't create task for second global handle broadcast: %s", H5_daos_err_to_string(ret));
 
                 /* Set callback functions for second bcast */
                 if(0 != (ret = tse_task_register_cbs(bcast_task, NULL, NULL, 0, H5_daos_gch_bcast_comp_cb, NULL, 0)))
@@ -434,7 +439,7 @@ done:
         /* Do not place any code that can issue errors after this block, except
          * for H5_daos_req_free_int, which updates req->status if it sees an
          * error */
-        if(ret_value < 0 && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
             udata->req->status = ret_value;
             udata->req->failed_task = "MPI_Ibcast global container handle completion callback";
         } /* end if */
@@ -489,7 +494,7 @@ H5_daos_handles_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
      * it does not already contain an error (it could contain an error if
      * another task this task is not dependent on also failed). */
     if(task->dt_result < -H5_DAOS_PRE_ERROR
-            && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+            && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
         udata->req->status = task->dt_result;
         udata->req->failed_task = "MPI_Ibcast global container handles";
     } /* end if */
@@ -507,7 +512,7 @@ H5_daos_handles_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
                 /* Create task for second bcast */
                 if(0 !=  (ret = tse_task_create(H5_daos_mpi_ibcast_task, &udata->req->file->sched, udata, &bcast_task)))
-                    D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't create task for second global handles broadcast");
+                    D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't create task for second global handles broadcast: %s", H5_daos_err_to_string(ret));
 
                 /* Set callback functions for second bcast */
                 if(0 != (ret = tse_task_register_cbs(bcast_task, NULL, NULL, 0, H5_daos_handles_bcast_comp_cb, NULL, 0)))
@@ -555,7 +560,7 @@ H5_daos_handles_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
                 /* Create task for second bcast */
                 if(0 !=  (ret = tse_task_create(H5_daos_mpi_ibcast_task, &udata->obj->item.file->sched, udata, &bcast_task)))
-                    D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't create task for second global handles broadcast");
+                    D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't create task for second global handles broadcast: %s", H5_daos_err_to_string(ret));
 
                 /* Set callback functions for second bcast */
                 if(0 != (ret = tse_task_register_cbs(bcast_task, NULL, NULL, 0, H5_daos_handles_bcast_comp_cb, NULL, 0)))
@@ -599,7 +604,7 @@ done:
         /* Do not place any code that can issue errors after this block, except
          * for H5_daos_req_free_int, which updates req->status if it sees an
          * error */
-        if(ret_value < 0 && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
             udata->req->status = ret_value;
             udata->req->failed_task = "MPI_Ibcast global container handles completion callback";
         } /* end if */
@@ -676,6 +681,8 @@ H5_daos_get_gch_task(tse_task_t *task)
      * always be done) */
     if(udata->req->status < -H5_DAOS_INCOMPLETE)
         D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT)
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
 
     /* Encode global handle length */
     p = udata->buffer;
@@ -690,7 +697,7 @@ done:
     /* Handle errors in this function */
     /* Do not place any code that can issue errors after this block, except for
      * H5_daos_req_free_int, which updates req->status if it sees an error */
-    if(ret_value < 0 && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+    if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
         udata->req->status = ret_value;
         udata->req->failed_task = "get global container handle";
     } /* end if */
@@ -762,8 +769,10 @@ H5_daos_get_container_handles_task(tse_task_t *task)
 
     /* Check for previous errors (wait until after allocation because that must
      * always be done) */
-    if(udata->req->status < -H5_DAOS_INCOMPLETE)
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT)
         D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT)
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
 
     /* Encode container's global pool handle length */
     p = udata->buffer;
@@ -788,7 +797,7 @@ done:
     /* Handle errors in this function */
     /* Do not place any code that can issue errors after this block, except for
      * H5_daos_req_free_int, which updates req->status if it sees an error */
-    if(ret_value < 0 && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+    if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
         udata->req->status = ret_value;
         udata->req->failed_task = "get global container handles";
     } /* end if */
@@ -1346,8 +1355,10 @@ H5_daos_duns_create_path_task(tse_task_t *task)
     assert(udata->path);
 
     /* Check for previous errors */
-    if(udata->req->status < -H5_DAOS_INCOMPLETE)
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT)
         D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT)
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
 
     /* Create the DUNS path and the DAOS container - allow for failure */
     ret_value = duns_create_path(udata->poh, udata->path, &udata->duns_attr);
@@ -1386,10 +1397,15 @@ H5_daos_duns_create_path_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     assert(udata->req);
 
     /* Handle errors */
-    if(udata->req->status < -H5_DAOS_INCOMPLETE) {
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
         tse_task_complete(task, -H5_DAOS_PRE_ERROR);
         udata = NULL;
         D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    } /* end if */
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT) {
+        tse_task_complete(task, -H5_DAOS_SHORT_CIRCUIT);
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
     } /* end if */
 
     /* Set the pool UUID so that duns_create_path will store
@@ -1429,7 +1445,7 @@ H5_daos_duns_create_path_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
      * if it does not already contain an error (it could contain an error if
      * another task this task is not dependent on also failed). */
     if(task->dt_result < -H5_DAOS_PRE_ERROR
-            && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+            && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
         udata->req->status = task->dt_result;
         udata->req->failed_task = "DUNS path creation";
     } /* end if */
@@ -1441,7 +1457,7 @@ done:
         /* Do not place any code that can issue errors after this block, except
          * for H5_daos_req_free_int, which updates req->status if it sees an
          * error */
-        if(ret_value < 0 && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
             udata->req->status = ret_value;
             udata->req->failed_task = "DUNS path creation completion callback";
         } /* end if */
@@ -1486,10 +1502,15 @@ H5_daos_cont_create_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     assert(!udata->req->file->closed);
 
     /* Handle errors */
-    if(udata->req->status < -H5_DAOS_INCOMPLETE) {
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
         tse_task_complete(task, -H5_DAOS_PRE_ERROR);
         udata = NULL;
         D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    } /* end if */
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT) {
+        tse_task_complete(task, -H5_DAOS_SHORT_CIRCUIT);
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
     } /* end if */
 
     /* Set daos_cont_create task args */
@@ -1533,7 +1554,7 @@ H5_daos_cont_create_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
      * if it does not already contain an error (it could contain an error if
      * another task this task is not dependent on also failed). */
     if(task->dt_result < -H5_DAOS_PRE_ERROR
-            && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+            && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
         udata->req->status = task->dt_result;
         udata->req->failed_task = "DAOS container create";
     } /* end if */
@@ -1545,7 +1566,7 @@ done:
         /* Do not place any code that can issue errors after this block, except
          * for H5_daos_req_free_int, which updates req->status if it sees an
          * error */
-        if(ret_value < 0 && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
             udata->req->status = ret_value;
             udata->req->failed_task = "DAOS container create completion callback";
         } /* end if */
@@ -1597,7 +1618,7 @@ H5_daos_excl_open_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
      * this task is not dependent on also failed). */
     if(task->dt_result < -H5_DAOS_PRE_ERROR
             && task->dt_result != -DER_NONEXIST
-            && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+            && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
         udata->req->status = task->dt_result;
         udata->req->failed_task = "excl. container open";
     } /* end if */
@@ -1611,7 +1632,7 @@ done:
     /* Handle errors in this function */
     /* Do not place any code that can issue errors after this block, except for
      * H5_daos_req_free_int, which updates req->status if it sees an error */
-    if(ret_value < 0 && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+    if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
         udata->req->status = ret_value;
         udata->req->failed_task = "excl. container open completion callback";
     } /* end if */
@@ -2067,8 +2088,10 @@ H5_daos_duns_resolve_path_task(tse_task_t *task)
     assert(udata->path);
 
     /* Check for previous errors */
-    if(udata->req->status < -H5_DAOS_INCOMPLETE)
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT)
         D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT)
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
 
     /* Resolve the DUNS path - allow for failure */
     ret_value = duns_resolve_path(udata->path, &udata->duns_attr);
@@ -2117,8 +2140,9 @@ H5_daos_duns_resolve_path_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
             D_GOTO_DONE(0); /* Short-circuit success when file is expected to potentially be missing */
         } /* end if */
         else if(task->dt_result != -H5_DAOS_PRE_ERROR
-                && udata->req->status >= -H5_DAOS_INCOMPLETE) {
-            /* Set result ot -H5_DAOS_BAD_VALUE instead of task->dt_result
+                && task->dt_result != -H5_DAOS_SHORT_CIRCUIT
+                && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+            /* Set result to -H5_DAOS_BAD_VALUE instead of task->dt_result
              * because DUNS functions return positive error codes and that would
              * trip up the error handling in this connector. */
             udata->req->status = -H5_DAOS_BAD_VALUE;
@@ -2160,7 +2184,7 @@ done:
         /* Do not place any code that can issue errors after this block, except
          * for H5_daos_req_free_int, which updates req->status if it sees an
          * error */
-        if(ret_value < 0 && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
             udata->req->status = ret_value;
             udata->req->failed_task = "DUNS path resolve completion callback";
         } /* end if */
@@ -2202,10 +2226,15 @@ H5_daos_cont_open_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     assert(!udata->req->file->closed);
 
     /* Handle errors */
-    if(udata->req->status < -H5_DAOS_INCOMPLETE) {
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
         tse_task_complete(task, -H5_DAOS_PRE_ERROR);
         udata = NULL;
         D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    } /* end if */
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT) {
+        tse_task_complete(task, -H5_DAOS_SHORT_CIRCUIT);
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
     } /* end if */
 
     /* Set file's UUID */
@@ -2257,7 +2286,7 @@ H5_daos_cont_open_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
      * if it does not already contain an error (it could contain an error if
      * another task this task is not dependent on also failed). */
     if(task->dt_result < -H5_DAOS_PRE_ERROR
-            && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+            && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
         udata->req->status = task->dt_result;
         udata->req->failed_task = "DAOS container open";
     } /* end if */
@@ -2269,7 +2298,7 @@ done:
         /* Do not place any code that can issue errors after this block, except
          * for H5_daos_req_free_int, which updates req->status if it sees an
          * error */
-        if(ret_value < 0 && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
             udata->req->status = ret_value;
             udata->req->failed_task = "DAOS container open completion callback";
         } /* end if */
@@ -2812,8 +2841,10 @@ H5_daos_duns_destroy_path_task(tse_task_t *task)
     assert(udata->path);
 
     /* Check for previous errors */
-    if(udata->req->status < -H5_DAOS_INCOMPLETE)
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT)
         D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT)
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
 
     /* Destroy the DUNS path - allow for failure */
     ret_value = duns_destroy_path(udata->poh, udata->path);
@@ -2849,7 +2880,7 @@ H5_daos_duns_destroy_path_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     assert(udata->req);
 
-    if(task->dt_result != 0) {
+    if(task->dt_result != 0 && task->dt_result != -H5_DAOS_SHORT_CIRCUIT) {
         /* DSINC - DER_INVAL and DER_NONEXIST do not need to be checked against with the latest DAOS master. */
         if(udata->ignore_missing_path &&
                 ((-DER_NONEXIST == task->dt_result) || (-DER_INVAL == task->dt_result) || (ENOENT == task->dt_result)))
@@ -2857,7 +2888,7 @@ H5_daos_duns_destroy_path_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         else if(ENODATA == task->dt_result)
             D_GOTO_ERROR(H5E_FILE, H5E_NOTHDF5, -H5_DAOS_BAD_VALUE, "file '%s' is not a valid HDF5 DAOS file", udata->path);
         else if(task->dt_result < -H5_DAOS_PRE_ERROR
-                && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+                && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
             udata->req->status = task->dt_result;
             udata->req->failed_task = "DUNS path destroy";
         } /* end else */
@@ -2870,7 +2901,7 @@ done:
         /* Do not place any code that can issue errors after this block, except
          * for H5_daos_req_free_int, which updates req->status if it sees an
          * error */
-        if(ret_value < 0 && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
             udata->req->status = ret_value;
             udata->req->failed_task = "DUNS path destroy completion callback";
         } /* end if */
@@ -2912,10 +2943,15 @@ H5_daos_cont_destroy_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     assert(!udata->req->file->closed);
 
     /* Handle errors */
-    if(udata->req->status < -H5_DAOS_INCOMPLETE) {
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
         tse_task_complete(task, -H5_DAOS_PRE_ERROR);
         udata = NULL;
         D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    } /* end if */
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT) {
+        tse_task_complete(task, -H5_DAOS_SHORT_CIRCUIT);
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
     } /* end if */
 
     /* Set daos_cont_destroy task args */
@@ -2959,7 +2995,7 @@ H5_daos_cont_destroy_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
      * if it does not already contain an error (it could contain an error if
      * another task this task is not dependent on also failed). */
     if(task->dt_result < -H5_DAOS_PRE_ERROR
-            && udata->req->status >= -H5_DAOS_INCOMPLETE
+            && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT
             && !(udata->ignore_missing_path && task->dt_result == -DER_NONEXIST)) {
         udata->req->status = task->dt_result;
         udata->req->failed_task = "DAOS container destroy";
@@ -2972,7 +3008,7 @@ done:
         /* Do not place any code that can issue errors after this block, except
          * for H5_daos_req_free_int, which updates req->status if it sees an
          * error */
-        if(ret_value < 0 && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
             udata->req->status = ret_value;
             udata->req->failed_task = "DAOS container destroy completion callback";
         } /* end if */
@@ -3156,7 +3192,8 @@ H5_daos_file_close_helper(H5_daos_file_t *file, hid_t dxpl_id, void **req)
     } /* end if */
 
     /* Finish the scheduler *//* Make this cancel tasks?  Only if flush progresses until empty.  Otherwise change to custom progress function DSINC */
-    tse_sched_complete(&file->sched, 0, FALSE);
+    if(H5_daos_progress(&file->sched, NULL, H5_DAOS_PROGRESS_WAIT) < 0)
+        D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't progress scheduler");
     tse_sched_fini(&file->sched);
 
     /* Destroy CART context */

@@ -507,36 +507,6 @@ typedef struct H5_daos_oid_encode_ud_t {
     const char *oclass_prop_name;
 } H5_daos_oid_encode_ud_t;
 
-/* Task user data for reading a link from a group */
-typedef struct H5_daos_link_read_ud_t {
-    H5_daos_md_rw_cb_ud_t md_rw_cb_ud; /* Must be first */
-    H5_daos_link_val_t *link_val;
-    hbool_t *link_read; /* Whether the link exists */
-    tse_task_t *read_metatask;
-} H5_daos_link_read_ud_t;
-
-/* Task user data for writing a link to a group */
-typedef struct H5_daos_link_write_ud_t {
-    H5_daos_md_rw_cb_ud_t md_rw_cb_ud; /* Must be first */
-    H5_daos_link_val_t link_val;
-    hbool_t shared;
-    char *link_name_buf;
-    size_t link_name_buf_size;
-    uint8_t *link_val_buf;
-    size_t link_val_buf_size;
-    uint8_t prev_max_corder_buf[H5_DAOS_ENCODED_CRT_ORDER_SIZE];
-} H5_daos_link_write_ud_t;
-
-/* Task user data for writing link creation order info to a group */
-typedef struct H5_daos_link_write_corder_ud_t {
-    H5_daos_md_rw_cb_ud_t md_rw_cb_ud; /* Must be first */
-    H5_daos_link_write_ud_t *link_write_ud;
-    uint8_t nlinks_old_buf[H5_DAOS_ENCODED_NUM_LINKS_SIZE];
-    uint8_t nlinks_new_buf[H5_DAOS_ENCODED_NUM_LINKS_SIZE];
-    uint8_t max_corder_new_buf[H5_DAOS_ENCODED_CRT_ORDER_SIZE];
-    uint8_t corder_target_buf[H5_DAOS_CRT_ORDER_TO_LINK_TRGT_BUF_SIZE];
-} H5_daos_link_write_corder_ud_t;
-
 /*
  * Enum values for determining the type of iteration
  * being done with a given H5_daos_iter_data_t.
@@ -547,6 +517,11 @@ typedef enum {
     H5_DAOS_ITER_TYPE_OBJ,
 } H5_daos_iter_data_type_t;
 
+/* Function type for asynchronous link iterate callbacks */
+/* Could have an option to disable name and/or linfo here for performance -NAF */
+typedef herr_t (*H5_daos_link_iterate_async_t)(hid_t group, const char *name, const H5L_info2_t *info,
+    void *op_data, herr_t *op_ret, tse_task_t **first_task, tse_task_t **dep_task);
+
 /*
  * A struct which is filled out and used when performing
  * link, attribute and object iteration/visiting.
@@ -555,14 +530,18 @@ typedef struct H5_daos_iter_data_t {
     H5_iter_order_t   iter_order;
     H5_index_t        index_type;
     hbool_t           is_recursive;
+    hbool_t           async_op;
     hsize_t          *idx_p;
     hid_t             iter_root_obj;
     void             *op_data;
+    herr_t            op_ret;
+    herr_t           *op_ret_p;
 
-    hid_t             dxpl_id;
+    hid_t             dxpl_id; /* TODO: remove this from this struct, switch code to use req->dxpl_id */
+    hbool_t           short_circuit_init;
     H5_daos_req_t    *req;
-    tse_task_t      **first_task;
-    tse_task_t      **dep_task;
+    tse_task_t      **first_task; /* TODO: remove this and dep_task from this struct. */
+    tse_task_t      **dep_task; /* Do not write new code that uses these fields. */
 
     H5_daos_iter_data_type_t iter_type;
     union {
@@ -571,11 +550,14 @@ typedef struct H5_daos_iter_data_t {
         } attr_iter_data;
 
         struct {
-            H5L_iterate2_t   link_iter_op;
+            union {
+                H5L_iterate2_t   link_iter_op;
+                H5_daos_link_iterate_async_t link_iter_op_async;
+            } u;
             dv_hash_table_t *visited_link_table;
             char            *recursive_link_path;
             size_t           recursive_link_path_nalloc;
-            unsigned         recurse_depth;
+            unsigned         recurse_depth; /* TODO: remove this from this struct */
         } link_iter_data;
 
         struct {
@@ -585,6 +567,20 @@ typedef struct H5_daos_iter_data_t {
         } obj_iter_data;
     } u;
 } H5_daos_iter_data_t;
+
+/* A struct to track async iteration at a single level of recursion */
+typedef struct H5_daos_iter_ud_t {
+    H5_daos_iter_data_t *iter_data;
+    H5_daos_obj_t    *target_obj;
+    uint32_t          nr;
+    daos_key_t        dkey;
+    daos_key_desc_t   kds[H5_DAOS_ITER_LEN];
+    daos_sg_list_t    sgl;
+    daos_iov_t        sg_iov;
+    daos_anchor_t      anchor;
+    hbool_t           base_iter;
+    tse_task_t       *iter_metatask;
+} H5_daos_iter_ud_t;
 
 /* A union to contain either an hvl_t or a char *, for vlen conversions that
  * need to be handled explicitly (like for map keys) */
@@ -756,7 +752,8 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_link_specific(void *_item, const H5VL_loc_param
 
 /* Other link routines */
 H5VL_DAOS_PRIVATE herr_t H5_daos_link_write(H5_daos_group_t *grp, const char *name,
-    size_t name_len, H5_daos_link_val_t *val, H5_daos_req_t *req, tse_task_t **taskp, tse_task_t *dep_task);
+    size_t name_len, H5_daos_link_val_t *val, H5_daos_req_t *req,
+    tse_task_t **first_task, tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE htri_t H5_daos_link_exists(H5_daos_item_t *item,
     const char *link_path, H5_daos_req_t *req, tse_task_t **first_task,
     tse_task_t **dep_task);
@@ -764,12 +761,20 @@ H5VL_DAOS_PRIVATE htri_t H5_daos_link_follow(H5_daos_group_t *grp,
     const char *name, size_t name_len, hbool_t crt_missing_grp,
     H5_daos_req_t *req, daos_obj_id_t ***oid_ptr, hbool_t *link_exists,
     tse_task_t **first_task, tse_task_t **dep_task);
-H5VL_DAOS_PRIVATE herr_t H5_daos_link_iterate(H5_daos_group_t *target_grp, H5_daos_iter_data_t *link_iter_data);
-H5VL_DAOS_PRIVATE ssize_t H5_daos_link_get_name_by_idx(H5_daos_group_t *target_grp, H5_index_t index_type,
-    H5_iter_order_t iter_order, uint64_t idx, char *link_name_out, size_t link_name_out_size,
-    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
+H5VL_DAOS_PRIVATE herr_t H5_daos_link_iterate(H5_daos_group_t *target_grp, H5_daos_iter_data_t *link_iter_data,
+    tse_task_t **first_task, tse_task_t **dep_task);
+H5VL_DAOS_PRIVATE herr_t H5_daos_link_get_name_by_idx(
+    H5_daos_group_t *target_grp, H5_index_t index_type,
+    H5_iter_order_t iter_order, uint64_t idx, size_t *link_name_size,
+    char *link_name_out, size_t link_name_out_size, H5_daos_req_t *req,
+    tse_task_t **first_task, tse_task_t **dep_task);
+H5VL_DAOS_PRIVATE herr_t H5_daos_link_get_name_by_idx_alloc(
+    H5_daos_group_t *target_grp, H5_index_t index_type,
+    H5_iter_order_t iter_order, uint64_t idx, const char **link_name,
+    size_t *link_name_size, char **link_name_buf, H5_daos_req_t *req,
+    tse_task_t **first_task, tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE herr_t H5_daos_link_get_crt_order_by_name(H5_daos_group_t *target_grp, const char *link_name,
-    uint64_t *crt_order);
+    uint64_t *crt_order, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 
 /* Link iterate callbacks */
 H5VL_DAOS_PRIVATE herr_t H5_daos_link_iterate_count_links_callback(hid_t group, const char *name,
@@ -797,10 +802,15 @@ H5VL_DAOS_PRIVATE void *H5_daos_group_create_helper(H5_daos_file_t *file, hbool_
 H5VL_DAOS_PRIVATE H5_daos_group_t *H5_daos_group_open_helper(
     H5_daos_file_t *file, hid_t gapl_id, H5_daos_req_t *req, hbool_t collective,
     tse_task_t **first_task, tse_task_t **dep_task);
-H5VL_DAOS_PRIVATE ssize_t H5_daos_group_get_num_links(H5_daos_group_t *target_grp,
-    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
+H5VL_DAOS_PRIVATE H5_daos_group_t *H5_daos_group_open_int(H5_daos_item_t *item,
+    const H5VL_loc_params_t *loc_params, const char *name, hid_t gapl_id,
+    H5_daos_req_t *req, hbool_t collective, tse_task_t **first_task,
+    tse_task_t **dep_task);
+H5VL_DAOS_PRIVATE herr_t H5_daos_group_get_num_links(H5_daos_group_t *target_grp,
+    hsize_t *nlinks, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE herr_t H5_daos_group_update_num_links_key(H5_daos_group_t *target_grp, uint64_t new_nlinks);
-H5VL_DAOS_PRIVATE herr_t H5_daos_group_get_max_crt_order(H5_daos_group_t *target_grp, uint64_t *max_corder);
+H5VL_DAOS_PRIVATE herr_t H5_daos_group_get_max_crt_order(H5_daos_group_t *target_grp,
+    uint64_t *max_corder, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE herr_t H5_daos_group_update_max_crt_order_key(H5_daos_group_t *target_grp, uint64_t new_max_corder);
 H5VL_DAOS_PRIVATE herr_t H5_daos_group_refresh(H5_daos_group_t *grp,
     hid_t dxpl_id, void **req);
@@ -867,7 +877,7 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_object_specific(void *_item, const H5VL_loc_par
     H5VL_object_specific_t specific_type, hid_t dxpl_id, void **req, va_list arguments);
 
 /* Other object routines */
-H5VL_DAOS_PRIVATE herr_t H5_daos_object_open_helper(void *_item, const H5VL_loc_params_t *loc_params,
+H5VL_DAOS_PRIVATE herr_t H5_daos_object_open_helper(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
     H5I_type_t *opened_type, hbool_t collective, H5_daos_obj_t **ret_obj,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE herr_t H5_daos_object_visit(H5_daos_obj_t *target_obj, H5_daos_iter_data_t *obj_iter_data);
@@ -956,6 +966,13 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_req_free_int(H5_daos_req_t *req);
 /* Generic Asynchronous routines */
 H5VL_DAOS_PRIVATE herr_t H5_daos_progress(tse_sched_t *sched,
         H5_daos_req_t *req, uint64_t timeout);
+H5VL_DAOS_PRIVATE int H5_daos_list_key_start(H5_daos_iter_ud_t *iter_udata,
+    daos_opc_t opc, tse_task_cb_t comp_cb, tse_task_t **first_task,
+    tse_task_t **dep_task);
+H5VL_DAOS_PRIVATE int H5_daos_list_key_init(H5_daos_iter_data_t *iter_data,
+    H5_daos_obj_t *target_obj, daos_key_t *dkey, daos_opc_t opc,
+    tse_task_cb_t comp_cb, hbool_t base_iter, tse_task_t **first_task,
+    tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE herr_t H5_daos_mpi_ibcast(H5_daos_mpi_ibcast_ud_t *_bcast_udata, tse_sched_t *sched,
     H5_daos_obj_t *obj, size_t buffer_size, hbool_t empty, tse_task_cb_t bcast_prep_cb, tse_task_cb_t bcast_comp_cb,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
@@ -963,6 +980,7 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_mpi_ibcast(H5_daos_mpi_ibcast_ud_t *_bcast_udat
 /* Asynchronous task routines */
 H5VL_DAOS_PRIVATE int H5_daos_h5op_finalize(tse_task_t *task);
 H5VL_DAOS_PRIVATE int H5_daos_metatask_autocomplete(tse_task_t *task);
+H5VL_DAOS_PRIVATE int H5_daos_metatask_autocomp_other(tse_task_t *task);
 H5VL_DAOS_PRIVATE int H5_daos_mpi_ibcast_task(tse_task_t *task);
 
 /* Asynchronous prep/complete callbacks */

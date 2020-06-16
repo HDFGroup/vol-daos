@@ -37,6 +37,8 @@ H5_daos_err_to_string(int ret)
          */
         case -H5_DAOS_INCOMPLETE:
             return "object open incomplete (should not see this) (H5_DAOS_INCOMPLETE)";
+        case -H5_DAOS_SHORT_CIRCUIT:
+            return "operation completed successfully earlier than expected (should not see this) (H5_DAOS_SHORT_CIRCUIT)";
         case -H5_DAOS_PRE_ERROR:
             return "error in earlier task (should not see this) (H5_DAOS_PRE_ERROR)";
         case -H5_DAOS_CANCELED:

@@ -101,7 +101,7 @@ typedef struct H5_daos_chunk_io_ud_t {
 static herr_t H5_daos_dset_fill_dcpl_cache(H5_daos_dset_t *dset);
 static int H5_daos_fill_val_bcast_comp_cb(tse_task_t *task, void *args);
 static herr_t H5_daos_bcast_fill_val(H5_daos_dset_t *dset, H5_daos_req_t *req,
-    size_t fill_val_size, tse_task_t **taskp, tse_task_t *dep_task);
+    size_t fill_val_size, tse_task_t **first_task, tse_task_t **dep_task);
 static int H5_daos_dset_open_end(H5_daos_dset_t *dset, uint8_t *p,
     uint64_t type_buf_len, uint64_t space_buf_len, uint64_t dcpl_buf_len,
     uint64_t fill_val_len, hid_t dxpl_id);
@@ -240,7 +240,7 @@ H5_daos_fill_val_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
      * it does not already contain an error (it could contain an error if
      * another task this task is not dependent on also failed). */
     if(task->dt_result < -H5_DAOS_PRE_ERROR
-            && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+            && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
         udata->req->status = task->dt_result;
         udata->req->failed_task = "MPI_Ibcast fill value";
     } /* end if */
@@ -255,7 +255,7 @@ done:
         /* Handle errors in this function */
         /* Do not place any code that can issue errors after this block, except for
          * H5_daos_req_free_int, which updates req->status if it sees an error */
-        if(ret_value < 0 && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
             udata->req->status = ret_value;
             udata->req->failed_task = "MPI_Ibcast fill value completion callback";
         } /* end if */
@@ -291,7 +291,7 @@ done:
  */
 static herr_t
 H5_daos_bcast_fill_val(H5_daos_dset_t *dset, H5_daos_req_t *req,
-    size_t fill_val_size, tse_task_t **taskp, tse_task_t *dep_task)
+    size_t fill_val_size, tse_task_t **first_task, tse_task_t **dep_task)
 {
     tse_task_t *bcast_task;
     H5_daos_mpi_ibcast_ud_t *bcast_udata = NULL;
@@ -319,25 +319,32 @@ H5_daos_bcast_fill_val(H5_daos_dset_t *dset, H5_daos_req_t *req,
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create task to broadcast fill value: %s", H5_daos_err_to_string(ret));
 
     /* Register task dependency */
-    if(0 != (ret = tse_task_register_deps(bcast_task, 1, &dep_task)))
+    if(0 != (ret = tse_task_register_deps(bcast_task, 1, dep_task)))
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create dependencies for fill value broadcast task: %s", H5_daos_err_to_string(ret));
 
     /* Set callback functions for fill value bcast */
     if(0 != (ret = tse_task_register_cbs(bcast_task, NULL, NULL, 0, H5_daos_fill_val_bcast_comp_cb, NULL, 0)))
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't register callbacks for fill value broadcast: %s", H5_daos_err_to_string(ret));
 
-    /* Schedule bcast task and give it a reference to req and dset */
-    if(0 != (ret = tse_task_schedule(bcast_task, false)))
-        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't schedule task for fill value broadcast: %s", H5_daos_err_to_string(ret));
+    /* Schedule bcast task (or save it to be scheduled later) and give it a
+     * reference to req and dset */
+    if(*first_task) {
+        if(0 != (ret = tse_task_schedule(bcast_task, false)))
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't schedule task for fill value broadcast: %s", H5_daos_err_to_string(ret));
+    } /* end if */
+    else
+        *first_task = bcast_task;
+    *dep_task = bcast_task;
     req->rc++;
     dset->obj.item.rc++;
     bcast_udata = NULL;
 
-    /* Return bcast_task */
-    *taskp = bcast_task;
-
 done:
-    bcast_udata = DV_free(bcast_udata);
+    /* Cleanup on failure */
+    if(bcast_udata) {
+        assert(ret_value < 0);
+        bcast_udata = DV_free(bcast_udata);
+    } /* end if */
 
     D_FUNC_LEAVE;
 } /* end H5_daos_bcast_fill_val() */
@@ -486,7 +493,6 @@ H5_daos_dataset_create(void *_item,
         size_t space_size = 0;
         size_t dcpl_size = 0;
         tse_task_t *update_task;
-        tse_task_t *link_write_task;
 
         /* Create dataset */
         /* Allocate argument struct */
@@ -623,7 +629,8 @@ H5_daos_dataset_create(void *_item,
              * reference types because calling H5Pget_fill_value on each process
              * would write a separate vl sequence on each process. */
             if(is_vl_ref && collective && (item->file->num_procs > 1)) {
-                if(H5_daos_bcast_fill_val(dset, int_req, fill_val_size, &finalize_deps[finalize_ndeps], dep_task) < 0)
+                finalize_deps[finalize_ndeps] = dep_task;
+                if(H5_daos_bcast_fill_val(dset, int_req, fill_val_size, &first_task, &finalize_deps[finalize_ndeps]) < 0)
                     D_GOTO_ERROR(H5E_DATASET, H5E_MPI, NULL, "can't broadcast fill value");
                 finalize_ndeps++;
             } /* end if */
@@ -646,6 +653,7 @@ H5_daos_dataset_create(void *_item,
 
         /* Schedule dataset metadata write task and give it a reference to req
          * and the dataset */
+        assert(first_task);
         if(0 != (ret = tse_task_schedule(update_task, false)))
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't schedule task to write dataset metadata: %s", H5_daos_err_to_string(ret));
         int_req->rc++;
@@ -667,10 +675,10 @@ H5_daos_dataset_create(void *_item,
             link_val.type = H5L_TYPE_HARD;
             link_val.target.hard = dset->obj.oid;
             link_val.target_oid_async = &dset->obj.oid;
+            finalize_deps[finalize_ndeps] = dep_task;
             if(H5_daos_link_write((H5_daos_group_t *)target_obj, target_name, target_name_len,
-                    &link_val, int_req, &link_write_task, dep_task) < 0)
+                    &link_val, int_req, &first_task, &finalize_deps[finalize_ndeps]) < 0)
                 D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't create link to dataset");
-            finalize_deps[finalize_ndeps] = link_write_task;
             finalize_ndeps++;
         } /* end if */
     } /* end if */
@@ -695,7 +703,8 @@ H5_daos_dataset_create(void *_item,
             if((is_vl_ref = H5_daos_detect_vl_vlstr_ref(type_id)) < 0)
                 D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, NULL, "can't check for vl or reference type");
             if(is_vl_ref) {
-                if(H5_daos_bcast_fill_val(dset, int_req, fill_val_size, &finalize_deps[finalize_ndeps], dep_task) < 0)
+                finalize_deps[finalize_ndeps] = dep_task;
+                if(H5_daos_bcast_fill_val(dset, int_req, fill_val_size, &first_task, &finalize_deps[finalize_ndeps]) < 0)
                     D_GOTO_ERROR(H5E_DATASET, H5E_CANTRECV, NULL, "can't broadcast fill value");
                 finalize_ndeps++;
             } /* end if */
@@ -966,7 +975,7 @@ H5_daos_dset_open_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
      * it does not already contain an error (it could contain an error if
      * another task this task is not dependent on also failed). */
     if(task->dt_result < -H5_DAOS_PRE_ERROR
-            && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+            && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
         udata->req->status = task->dt_result;
         udata->req->failed_task = "MPI_Ibcast dataset info";
     } /* end if */
@@ -983,7 +992,7 @@ H5_daos_dset_open_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
             /* Create task for second bcast */
             if(0 !=  (ret = tse_task_create(H5_daos_mpi_ibcast_task, &udata->obj->item.file->sched, udata, &bcast_task)))
-                D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, ret, "can't create task for second dataset info broadcast");
+                D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, ret, "can't create task for second dataset info broadcast: %s", H5_daos_err_to_string(ret));
 
             /* Set callback functions for second bcast */
             if(0 != (ret = tse_task_register_cbs(bcast_task, NULL, NULL, 0, H5_daos_dset_open_bcast_comp_cb, NULL, 0)))
@@ -1006,7 +1015,7 @@ done:
         /* Do not place any code that can issue errors after this block, except
          * for H5_daos_req_free_int, which updates req->status if it sees an
          * error */
-        if(ret_value < 0 && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
             udata->req->status = ret_value;
             udata->req->failed_task = "MPI_Ibcast dataset info completion callback";
         } /* end if */
@@ -1067,7 +1076,7 @@ H5_daos_dset_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
      * it does not already contain an error (it could contain an error if
      * another task this task is not dependent on also failed). */
     if(task->dt_result < -H5_DAOS_PRE_ERROR
-            && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+            && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
         udata->req->status = task->dt_result;
         udata->req->failed_task = "MPI_Ibcast dataset info";
     } /* end if */
@@ -1112,7 +1121,7 @@ H5_daos_dset_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
             /* Create task for second bcast */
             if(0 !=  (ret = tse_task_create(H5_daos_mpi_ibcast_task, &udata->obj->item.file->sched, udata, &bcast_task)))
-                D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, ret, "can't create task for second dataset info broadcast");
+                D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, ret, "can't create task for second dataset info broadcast: %s", H5_daos_err_to_string(ret));
 
             /* Set callback functions for second bcast */
             if(0 != (ret = tse_task_register_cbs(bcast_task, NULL, NULL, 0, H5_daos_dset_open_recv_comp_cb, NULL, 0)))
@@ -1147,7 +1156,7 @@ done:
         /* Do not place any code that can issue errors after this block, except
          * for H5_daos_req_free_int, which updates req->status if it sees an
          * error */
-        if(ret_value < 0 && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
             udata->req->status = ret_value;
             udata->req->failed_task = "MPI_Ibcast dataset info completion callback";
         } /* end if */
@@ -1285,7 +1294,7 @@ H5_daos_dinfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
          * if it does not already contain an error (it could contain an error if
          * another task this task is not dependent on also failed). */
         if(task->dt_result < -H5_DAOS_PRE_ERROR
-                && udata->md_rw_cb_ud.req->status >= -H5_DAOS_INCOMPLETE) {
+                && udata->md_rw_cb_ud.req->status >= -H5_DAOS_SHORT_CIRCUIT) {
             udata->md_rw_cb_ud.req->status = task->dt_result;
             udata->md_rw_cb_ud.req->failed_task = udata->md_rw_cb_ud.task_name;
         } /* end if */
@@ -1343,7 +1352,7 @@ done:
         /* Do not place any code that can issue errors after this block, except
          * for H5_daos_req_free_int, which updates req->status if it sees an
          * error */
-        if(ret_value < 0 && udata->md_rw_cb_ud.req->status >= -H5_DAOS_INCOMPLETE) {
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->md_rw_cb_ud.req->status >= -H5_DAOS_SHORT_CIRCUIT) {
             udata->md_rw_cb_ud.req->status = ret_value;
             udata->md_rw_cb_ud.req->failed_task = udata->md_rw_cb_ud.task_name;
         } /* end if */
@@ -1456,7 +1465,7 @@ H5_daos_dataset_refresh_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
          * if it does not already contain an error (it could contain an error if
          * another task this task is not dependent on also failed). */
         if(task->dt_result < -H5_DAOS_PRE_ERROR
-                && udata->md_rw_cb_ud.req->status >= -H5_DAOS_INCOMPLETE) {
+                && udata->md_rw_cb_ud.req->status >= -H5_DAOS_SHORT_CIRCUIT) {
             udata->md_rw_cb_ud.req->status = task->dt_result;
             udata->md_rw_cb_ud.req->failed_task = udata->md_rw_cb_ud.task_name;
         } /* end if */
@@ -1505,7 +1514,7 @@ done:
         /* Do not place any code that can issue errors after this block, except
          * for H5_daos_req_free_int, which updates req->status if it sees an
          * error */
-        if(ret_value < 0 && udata->md_rw_cb_ud.req->status >= -H5_DAOS_INCOMPLETE) {
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->md_rw_cb_ud.req->status >= -H5_DAOS_SHORT_CIRCUIT) {
             udata->md_rw_cb_ud.req->status = ret_value;
             udata->md_rw_cb_ud.req->failed_task = udata->md_rw_cb_ud.task_name;
         } /* end if */
@@ -1579,7 +1588,7 @@ H5_daos_dataset_open(void *_item,
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, NULL, "can't get collective metadata reads property");
 
     /* Start H5 operation */
-    if(NULL == (int_req = H5_daos_req_create(item->file, dxpl_id)))
+    if(NULL == (int_req = H5_daos_req_create(item->file, H5I_INVALID_HID)))
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, NULL, "can't create DAOS request");
 
 #ifdef H5_DAOS_USE_TRANSACTIONS
@@ -2130,10 +2139,15 @@ H5_daos_chunk_io_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     assert(!udata->req->file->closed);
 
     /* Handle errors */
-    if(udata->req->status < -H5_DAOS_INCOMPLETE) {
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
         tse_task_complete(task, -H5_DAOS_PRE_ERROR);
         udata = NULL;
         D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    } /* end if */
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT) {
+        tse_task_complete(task, -H5_DAOS_SHORT_CIRCUIT);
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
     } /* end if */
 
     /* Set I/O task arguments */
@@ -2142,7 +2156,7 @@ H5_daos_chunk_io_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for chunk I/O task");
     } /* end if */
     update_args->oh = udata->dset->obj.obj_oh;
-    update_args->th = DAOS_TX_NONE;
+    update_args->th = udata->req->th;
     update_args->flags = 0;
     update_args->dkey = &udata->dkey;
     update_args->nr = 1;
@@ -2186,7 +2200,7 @@ H5_daos_chunk_io_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
      * it does not already contain an error (it could contain an error if
      * another task this task is not dependent on also failed). */
     if(task->dt_result < -H5_DAOS_PRE_ERROR
-            && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+            && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
         udata->req->status = task->dt_result;
         udata->req->failed_task = "raw data I/O";
     } /* end if */
@@ -2200,7 +2214,7 @@ done:
         /* Handle errors in this function */
         /* Do not place any code that can issue errors after this block, except for
          * H5_daos_req_free_int, which updates req->status if it sees an error */
-        if(ret_value < 0 && udata->req->status >= -H5_DAOS_INCOMPLETE) {
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
             udata->req->status = ret_value;
             udata->req->failed_task = "raw data I/O completion callback";
         } /* end if */

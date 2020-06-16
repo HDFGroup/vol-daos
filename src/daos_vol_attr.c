@@ -205,7 +205,7 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
         first_task = NULL;
         dep_task = NULL;
         if(int_req->status < -H5_DAOS_INCOMPLETE)
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "asynchronous task failed");
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "asynchronous task failed: %s", H5_daos_err_to_string(int_req->status));
     } /* end else */
     else
         D_GOTO_ERROR(H5E_ATTR, H5E_UNSUPPORTED, NULL, "unsupported attribute create location parameters type");
@@ -612,7 +612,7 @@ H5_daos_attribute_open(void *_item, const H5VL_loc_params_t *loc_params,
             first_task = NULL;
             dep_task = NULL;
             if(int_req->status < -H5_DAOS_INCOMPLETE)
-                D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "asynchronous task failed");
+                D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "asynchronous task failed: %s", H5_daos_err_to_string(int_req->status));
 
             /* Set attribute's name */
             if(NULL == (attr->name = strdup(name)))

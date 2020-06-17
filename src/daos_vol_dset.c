@@ -31,6 +31,12 @@
 #define H5_DAOS_DEFAULT_NUM_SEL_CHUNKS   64
 #define H5O_LAYOUT_NDIMS                 (H5S_MAX_RANK+1)
 
+/* Definitions for automatic chunking */
+/* Maximum size for contiguous datasets (target size * sqrt(2)) */
+#define H5_DAOS_MAX_CONTIG_SIZE (((uint64_t)H5_DAOS_CHUNK_TARGET_SIZE * (uint64_t)14142) / (uint64_t)10000)
+/* Minimum chunk size (target size * sqrt(2)/2) */
+#define H5_DAOS_MIN_CHUNK_SIZE (((uint64_t)H5_DAOS_CHUNK_TARGET_SIZE * (uint64_t)14142) / (uint64_t)20000)
+
 /************************************/
 /* Local Type and Struct Definition */
 /************************************/
@@ -448,6 +454,83 @@ H5_daos_dataset_create(void *_item,
     /* Fill DCPL cache */
     if(H5_daos_dset_fill_dcpl_cache(dset) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "failed to fill DCPL cache");
+
+    /* If the layout is contiguous try to automatically change to chunked */
+    if(dset->dcpl_cache.layout == H5D_CONTIGUOUS) {
+        int ndims;
+        size_t type_size;
+        uint64_t extent_size;
+        hsize_t extent_dims[H5S_MAX_RANK];
+        int i;
+
+        /* Get dataspace ranks */
+        if((ndims = H5Sget_simple_extent_ndims(space_id)) < 0)
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, NULL, "can't get dataspace dimensionality");
+
+        /* Get type size */
+        if(0 == (type_size = H5Tget_size(dset->file_type_id)))
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, NULL, "can't get file type size");
+
+        /* Get dataspace extent */
+        if(H5Sget_simple_extent_dims(space_id, extent_dims, NULL) < 0)
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, NULL, "can't get dataspace dimensions");
+
+        /* Calculate dataset size */
+        extent_size = (uint64_t)type_size;
+        for(i = 0; i < ndims; i++)
+            extent_size *= (uint64_t)extent_dims[i];
+
+        /* If the dataset is larger than the max contig size calculate auto
+         * chunk size */
+        if(extent_size > H5_DAOS_MAX_CONTIG_SIZE) {
+            extent_size = (uint64_t)type_size;
+
+            /* Loop over dimensions */
+            i = ndims;
+            do {
+                i--;
+                extent_size *= (uint64_t)extent_dims[i];
+
+                /* Check if a chunk spanning the full extent in this dimension
+                 * is still too small, in this case we need to move up a
+                 * dimension */
+                if(extent_size < H5_DAOS_MIN_CHUNK_SIZE) {
+                    dset->dcpl_cache.chunk_dims[i] = extent_dims[i];
+                    assert(i < ndims - 1);
+                } /* end if */
+                else {
+                    /* Calculate number of chunks using approximately rounded
+                     * division */
+                    uint64_t nchunks = ((((uint64_t)10000 * extent_size)
+                            / ((uint64_t)H5_DAOS_CHUNK_TARGET_SIZE))
+                            + (uint64_t)5000) / (uint64_t)10000;
+
+                    /* nchunks should be greater than 0 and no greater than the
+                     * extent size.  It should not be possible for nchunks to be
+                     * 0 at this point since otherwise it would have went into
+                     * the other branch above */
+                    assert(nchunks > 0);
+                    if(nchunks > extent_dims[i])
+                        nchunks = extent_dims[i];
+
+                    /* Calculate chunk dimension (rounded up) */
+                    dset->dcpl_cache.chunk_dims[i] = ((uint64_t)extent_dims[i] + nchunks - (uint64_t)1)
+                            / nchunks;
+
+                    /* Set remaining chunk dims */
+                    while(i > 0) {
+                        i--;
+                        dset->dcpl_cache.chunk_dims[i] = 1;
+                    } /* end while */
+                } /* end else */
+            } while(i > 0);
+
+            /* Set chunk info in DCPL cache and DCPL */
+            dset->dcpl_cache.layout = H5D_CHUNKED;
+            if(H5Pset_chunk(dset->dcpl_id, ndims, dset->dcpl_cache.chunk_dims) < 0)
+                D_GOTO_ERROR(H5E_DATASET, H5E_CANTSET, NULL, "can't set chunk dimensions");
+        } /* end if */
+    } /* end if */
 
     /* Traverse the path */
     /* Call this on every rank for now so errors are handled correctly.  If/when

@@ -65,6 +65,9 @@ typedef d_sg_list_t daos_sg_list_t;
 /* Constant keys */
 #define H5_DAOS_CHUNK_KEY 0u
 
+/* Target chunk size for automatic chunking */
+#define H5_DAOS_CHUNK_TARGET_SIZE ((uint64_t)(1024 * 1024))
+
 /* Initial allocation sizes */
 #define H5_DAOS_GH_BUF_SIZE 1024
 #define H5_DAOS_FOI_BUF_SIZE 1024

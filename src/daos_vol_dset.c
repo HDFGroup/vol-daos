@@ -33,9 +33,9 @@
 
 /* Definitions for automatic chunking */
 /* Maximum size for contiguous datasets (target size * sqrt(2)) */
-#define H5_DAOS_MAX_CONTIG_SIZE (((uint64_t)H5_DAOS_CHUNK_TARGET_SIZE * (uint64_t)14142) / (uint64_t)10000)
+#define H5_DAOS_MAX_CONTIG_SIZE ((uint64_t)((double)H5_DAOS_CHUNK_TARGET_SIZE * 1.41421356237))
 /* Minimum chunk size (target size * sqrt(2)/2) */
-#define H5_DAOS_MIN_CHUNK_SIZE (((uint64_t)H5_DAOS_CHUNK_TARGET_SIZE * (uint64_t)14142) / (uint64_t)20000)
+#define H5_DAOS_MIN_CHUNK_SIZE ((uint64_t)((double)H5_DAOS_CHUNK_TARGET_SIZE * 1.41421356237 / 2.))
 
 /************************************/
 /* Local Type and Struct Definition */
@@ -501,9 +501,8 @@ H5_daos_dataset_create(void *_item,
                 else {
                     /* Calculate number of chunks using approximately rounded
                      * division */
-                    uint64_t nchunks = ((((uint64_t)10000 * extent_size)
-                            / ((uint64_t)H5_DAOS_CHUNK_TARGET_SIZE))
-                            + (uint64_t)5000) / (uint64_t)10000;
+                    uint64_t nchunks = (uint64_t)(((double)extent_size
+                            / (double)H5_DAOS_CHUNK_TARGET_SIZE) + 0.5);
 
                     /* nchunks should be greater than 0 and no greater than the
                      * extent size.  It should not be possible for nchunks to be
@@ -554,7 +553,7 @@ H5_daos_dataset_create(void *_item,
 
     /* Generate dataset oid */
     if(H5_daos_oid_generate(&dset->obj.oid, H5I_DATASET,
-            (dcpl_id == H5P_DATASET_CREATE_DEFAULT ? H5P_DEFAULT : dcpl_id),
+            (dcpl_id == H5P_DATASET_CREATE_DEFAULT ? H5P_DEFAULT : dset->dcpl_id),
             item->file, collective, int_req, &first_task, &dep_task) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't generate object id");
 
@@ -603,7 +602,7 @@ H5_daos_dataset_create(void *_item,
             if((is_vl_ref = H5_daos_detect_vl_vlstr_ref(type_id)) < 0)
                 D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, NULL, "can't check for vl or reference type");
             if(is_vl_ref) {
-                if((tmp_dcpl_id = H5Pcopy(dcpl_id)) < 0)
+                if((tmp_dcpl_id = H5Pcopy(dset->dcpl_id)) < 0)
                     D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, NULL, "failed to copy dcpl");
                 if(H5Pset_fill_value(tmp_dcpl_id, dset->type_id, NULL) < 0)
                     D_GOTO_ERROR(H5E_DATASET, H5E_CANTSET, NULL, "can't unset fill value");
@@ -611,11 +610,11 @@ H5_daos_dataset_create(void *_item,
         } /* end if */
 
         /* Encode DCPL */
-        if(H5Pencode2(tmp_dcpl_id >= 0 ? tmp_dcpl_id : dcpl_id, NULL, &dcpl_size, item->file->fapl_id) < 0)
+        if(H5Pencode2(tmp_dcpl_id >= 0 ? tmp_dcpl_id : dset->dcpl_id, NULL, &dcpl_size, item->file->fapl_id) < 0)
             D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of dcpl");
         if(NULL == (dcpl_buf = DV_malloc(dcpl_size)))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized dcpl");
-        if(H5Pencode2(tmp_dcpl_id >= 0 ? tmp_dcpl_id : dcpl_id, dcpl_buf, &dcpl_size, item->file->fapl_id) < 0)
+        if(H5Pencode2(tmp_dcpl_id >= 0 ? tmp_dcpl_id : dset->dcpl_id, dcpl_buf, &dcpl_size, item->file->fapl_id) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTENCODE, NULL, "can't serialize dcpl");
 
         /* Set up operation to write datatype, dataspace, and DCPL to dataset */
@@ -676,7 +675,7 @@ H5_daos_dataset_create(void *_item,
                 D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, NULL, "can't get file type size");
             if(NULL == (dset->fill_val = DV_calloc(fill_val_size)))
                 D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for fill value");
-            if(H5Pget_fill_value(dcpl_id, dset->file_type_id, dset->fill_val) < 0)
+            if(H5Pget_fill_value(dset->dcpl_id, dset->file_type_id, dset->fill_val) < 0)
                 D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, NULL, "can't get fill value");
 
             /* Copy fill value buffer - only needed because the generic
@@ -783,7 +782,7 @@ H5_daos_dataset_create(void *_item,
                 finalize_ndeps++;
             } /* end if */
             else
-                if(H5Pget_fill_value(dcpl_id, dset->file_type_id, dset->fill_val) < 0)
+                if(H5Pget_fill_value(dset->dcpl_id, dset->file_type_id, dset->fill_val) < 0)
                     D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, NULL, "can't get fill value");
         } /* end if */
 

@@ -501,8 +501,9 @@ H5_daos_dataset_create(void *_item,
                 else {
                     /* Calculate number of chunks using approximately rounded
                      * division */
-                    uint64_t nchunks = (uint64_t)(((double)extent_size
-                            / (double)H5_DAOS_CHUNK_TARGET_SIZE) + 0.5);
+                    uint64_t nchunks = extent_size / H5_DAOS_CHUNK_TARGET_SIZE
+                            + (extent_size % H5_DAOS_CHUNK_TARGET_SIZE >
+                            H5_DAOS_CHUNK_TARGET_SIZE / 2 ? 1 : 0);
 
                     /* nchunks should be greater than 0 and no greater than the
                      * extent size.  It should not be possible for nchunks to be

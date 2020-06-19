@@ -503,7 +503,7 @@ H5_daos_dataset_create(void *_item,
                      * division */
                     uint64_t nchunks = extent_size / H5_DAOS_CHUNK_TARGET_SIZE
                             + (extent_size % H5_DAOS_CHUNK_TARGET_SIZE >
-                            H5_DAOS_CHUNK_TARGET_SIZE / 2 ? 1 : 0);
+                            H5_DAOS_CHUNK_TARGET_SIZE / 3 ? 1 : 0);
 
                     /* nchunks should be greater than 0 and no greater than the
                      * extent size.  It should not be possible for nchunks to be

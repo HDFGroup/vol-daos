@@ -33,9 +33,9 @@
 
 /* Definitions for automatic chunking */
 /* Maximum size for contiguous datasets (target size * sqrt(2)) */
-#define H5_DAOS_MAX_CONTIG_SIZE ((uint64_t)((double)H5_DAOS_CHUNK_TARGET_SIZE * 1.41421356237))
+#define H5_DAOS_MAX_CONTIG_SIZE ((uint64_t)((double)H5_daos_chunk_target_size_g * 1.41421356237))
 /* Minimum chunk size (target size * sqrt(2)/2) */
-#define H5_DAOS_MIN_CHUNK_SIZE ((uint64_t)((double)H5_DAOS_CHUNK_TARGET_SIZE * 1.41421356237 / 2.))
+#define H5_DAOS_MIN_CHUNK_SIZE ((uint64_t)((double)H5_daos_chunk_target_size_g * 1.41421356237 / 2.))
 
 /************************************/
 /* Local Type and Struct Definition */
@@ -501,9 +501,9 @@ H5_daos_dataset_create(void *_item,
                 else {
                     /* Calculate number of chunks using approximately rounded
                      * division */
-                    uint64_t nchunks = extent_size / H5_DAOS_CHUNK_TARGET_SIZE
-                            + (extent_size % H5_DAOS_CHUNK_TARGET_SIZE >
-                            H5_DAOS_CHUNK_TARGET_SIZE / 3 ? 1 : 0);
+                    uint64_t nchunks = extent_size / H5_daos_chunk_target_size_g
+                            + (extent_size % H5_daos_chunk_target_size_g >
+                            H5_daos_chunk_target_size_g / 3 ? 1 : 0);
 
                     /* nchunks should be greater than 0 and no greater than the
                      * extent size.  It should not be possible for nchunks to be

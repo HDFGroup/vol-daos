@@ -286,6 +286,9 @@ static const unsigned int   H5_daos_pool_default_svc_nreplicas_g = 1;           
  */
 hbool_t H5_daos_bypass_duns_g = FALSE;
 
+/* Target chunk size for automatic chunking */
+uint64_t H5_daos_chunk_target_size_g = H5_DAOS_CHUNK_TARGET_SIZE_DEF;
+
 /* DAOS task and MPI request for current in-flight MPI operation */
 tse_task_t *H5_daos_mpi_task_g = NULL;
 MPI_Request H5_daos_mpi_req_g;
@@ -1060,6 +1063,7 @@ H5_daos_init(hid_t H5VL_DAOS_UNUSED vipl_id)
 #endif
     int pool_rank, pool_num_procs;
     int mpi_initialized;
+    char *auto_chunk_str = NULL;
     int ret;
     herr_t ret_value = SUCCEED;            /* Return value */
 
@@ -1134,6 +1138,11 @@ H5_daos_init(hid_t H5VL_DAOS_UNUSED vipl_id)
     /* Determine if bypassing of the DUNS has been requested */
     if(NULL != getenv("H5_DAOS_BYPASS_DUNS"))
         H5_daos_bypass_duns_g = TRUE;
+
+    /* Determine automatic chunking target size */
+    if(NULL != (auto_chunk_str = getenv("H5_DAOS_CHUNK_TARGET_SIZE")))
+        if(0 == (H5_daos_chunk_target_size_g = (uint64_t)strtoll(auto_chunk_str, NULL, 10)))
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "failed to parse automatic chunking target size from environment (H5_DAOS_CHUNK_TARGET_SIZE)");
 
     /* First connect to the pool */
     if((pool_rank == 0) && H5_daos_pool_connect_global() < 0)

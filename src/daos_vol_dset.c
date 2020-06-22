@@ -676,9 +676,9 @@ H5_daos_dataset_create(void *_item,
             link_val.target.hard = dset->obj.oid;
             link_val.target_oid_async = &dset->obj.oid;
             finalize_deps[finalize_ndeps] = dep_task;
-            if(H5_daos_link_write((H5_daos_group_t *)target_obj, target_name, target_name_len,
-                    &link_val, int_req, &first_task, &finalize_deps[finalize_ndeps]) < 0)
-                D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't create link to dataset");
+            if(0 != (ret = H5_daos_link_write((H5_daos_group_t *)target_obj, target_name, target_name_len,
+                    &link_val, int_req, &first_task, &finalize_deps[finalize_ndeps])))
+                D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't create link to dataset: %s", H5_daos_err_to_string(ret));
             finalize_ndeps++;
         } /* end if */
     } /* end if */

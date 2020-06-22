@@ -687,9 +687,9 @@ H5_daos_datatype_commit(void *_item,
             link_val.target.hard = dtype->obj.oid;
             link_val.target_oid_async = &dtype->obj.oid;
             finalize_deps[finalize_ndeps] = dep_task;
-            if(H5_daos_link_write((H5_daos_group_t *)target_obj, target_name, target_name_len,
-                    &link_val, int_req, &first_task, &finalize_deps[finalize_ndeps]) < 0)
-                D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't create link to datatype");
+            if(0 != (ret = H5_daos_link_write((H5_daos_group_t *)target_obj, target_name, target_name_len,
+                    &link_val, int_req, &first_task, &finalize_deps[finalize_ndeps])))
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't create link to datatype: %s", H5_daos_err_to_string(ret));
             finalize_ndeps++;
         } /* end if */
     } /* end if */

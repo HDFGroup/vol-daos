@@ -387,9 +387,9 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hbool_t is_root,
             link_val.target.hard = grp->obj.oid;
             link_val.target_oid_async = &grp->obj.oid;
             gmt_deps[gmt_ndeps] = *dep_task;
-            if(H5_daos_link_write(parent_grp, name, name_len,
-                    &link_val, req, first_task, &gmt_deps[gmt_ndeps]) < 0)
-                D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't create link to group");
+            if(0 != (ret = H5_daos_link_write(parent_grp, name, name_len,
+                    &link_val, req, first_task, &gmt_deps[gmt_ndeps])))
+                D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't create link to group: %s", H5_daos_err_to_string(ret));
             gmt_ndeps++;
         } /* end if */
     } /* end if */

@@ -5589,34 +5589,27 @@ H5_daos_link_gnbc_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for link get name by creation order task");
 
-    /* Check for buffer not large enough */
-    if(task->dt_result == -DER_REC2BIG) {
-        /* Set *link_name_size */
-        *udata->link_name_size = (size_t)udata->md_rw_cb_ud.iod[0].iod_size;
+    /* Handle errors in fetch task.  Only record error in udata->req_status if
+     * it does not already contain an error (it could contain an error if
+     * another task this task is not dependent on also failed). */
+    if(task->dt_result < -H5_DAOS_PRE_ERROR && task->dt_result != -DER_REC2BIG
+            && udata->md_rw_cb_ud.req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+        udata->md_rw_cb_ud.req->status = task->dt_result;
+        udata->md_rw_cb_ud.req->failed_task = udata->md_rw_cb_ud.task_name;
     } /* end if */
-    else {
-        /* Handle errors in fetch task.  Only record error in udata->req_status if
-         * it does not already contain an error (it could contain an error if
-         * another task this task is not dependent on also failed). */
-        if(task->dt_result < -H5_DAOS_PRE_ERROR
-                && udata->md_rw_cb_ud.req->status >= -H5_DAOS_SHORT_CIRCUIT) {
-            udata->md_rw_cb_ud.req->status = task->dt_result;
-            udata->md_rw_cb_ud.req->failed_task = udata->md_rw_cb_ud.task_name;
-        } /* end if */
-        else if(task->dt_result == 0) {
-            /* Check for link not found */
-            if(udata->md_rw_cb_ud.iod[0].iod_size == (daos_size_t)0)
-                D_DONE_ERROR(H5E_LINK, H5E_NOTFOUND, -H5_DAOS_DAOS_GET_ERROR, "link name record not found");
-            else {
-                /* Add null terminator */
-                if(udata->link_name_out && udata->link_name_out_size > 0)
-                    udata->link_name_out[MIN(udata->md_rw_cb_ud.iod[0].iod_size, udata->link_name_out_size - 1)] = '\0';
+    else if(task->dt_result == 0 || task->dt_result == -DER_REC2BIG) {
+        /* Check for link not found */
+        if(udata->md_rw_cb_ud.iod[0].iod_size == (daos_size_t)0)
+            D_DONE_ERROR(H5E_LINK, H5E_NOTFOUND, -H5_DAOS_DAOS_GET_ERROR, "link name record not found");
+        else {
+            /* Add null terminator */
+            if(udata->link_name_out && udata->link_name_out_size > 0)
+                udata->link_name_out[MIN(udata->md_rw_cb_ud.iod[0].iod_size, udata->link_name_out_size - 1)] = '\0';
 
-                /* Set *link_name_size */
-                *udata->link_name_size = (size_t)udata->md_rw_cb_ud.iod[0].iod_size;
-            } /* end else */
-        } /* end if */
-    } /* end else */
+            /* Set *link_name_size */
+            *udata->link_name_size = (size_t)udata->md_rw_cb_ud.iod[0].iod_size;
+        } /* end else */
+    } /* end if */
 
     /* Complete main task */
     tse_task_complete(udata->gnbc_task, ret_value);
@@ -5985,8 +5978,15 @@ H5_daos_link_get_name_by_name_order_cb(hid_t H5VL_DAOS_UNUSED group, const char 
     if(cb_ud->cur_link_idx == cb_ud->target_link_idx) {
         size_t name_len = strlen(name);
 
-        if(cb_ud->link_name_out && cb_ud->link_name_out_size > name_len)
-            memcpy(cb_ud->link_name_out, name, name_len + 1);
+        /* Copy name to output buffer if present */
+        if(cb_ud->link_name_out && cb_ud->link_name_out_size > 0) {
+            size_t copy_len = MIN(name_len, cb_ud->link_name_out_size - 1);
+
+            memcpy(cb_ud->link_name_out, name, copy_len);
+            cb_ud->link_name_out[copy_len] = '\0';
+        } /* end if */
+
+        /* Return name length */
         cb_ud->link_name_out_size = name_len;
 
         return 1;
@@ -5998,10 +5998,10 @@ H5_daos_link_get_name_by_name_order_cb(hid_t H5VL_DAOS_UNUSED group, const char 
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_link_gcbn_comp_cbH
+ * Function:    H5_daos_link_gcbn_comp_cb
  *
  * Purpose:     Completion callback for creation order fetch for
- *              5_daos_link_get_crt_order_by_name().
+ *              H5_daos_link_get_crt_order_by_name().
  *
  * Return:      Non-negative on success/Negative on failure
  *

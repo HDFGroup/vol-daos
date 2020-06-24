@@ -2981,16 +2981,16 @@ H5_daos_oid_to_token(daos_obj_id_t oid, H5O_token_t *obj_token)
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_token_to_oid(H5O_token_t *obj_token, daos_obj_id_t *oid)
+H5_daos_token_to_oid(const H5O_token_t *obj_token, daos_obj_id_t *oid)
 {
-    uint8_t *p;
+    const uint8_t *p;
     herr_t ret_value = SUCCEED;
 
     assert(obj_token);
     assert(oid);
     H5daos_compile_assert(H5_DAOS_ENCODED_OID_SIZE <= H5O_MAX_TOKEN_SIZE);
 
-    p = (uint8_t *) obj_token;
+    p = (const uint8_t *) obj_token;
 
     UINT64DECODE(p, oid->lo);
     UINT64DECODE(p, oid->hi);
@@ -4166,7 +4166,7 @@ done:
                 } /* end if */
 
                 /* Free iter data */
-                iter_udata->iter_data = iter_udata->iter_data;
+                iter_udata->iter_data = DV_free(iter_udata->iter_data);
             } /* end if */
 
             /* Decrement reference count on root obj id */

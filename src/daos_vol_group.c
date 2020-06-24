@@ -256,9 +256,9 @@ done:
  */
 void *
 H5_daos_group_create_helper(H5_daos_file_t *file, hbool_t is_root,
-    hid_t gcpl_id, hid_t gapl_id, H5_daos_req_t *req,
-    H5_daos_group_t *parent_grp, const char *name, size_t name_len,
-    hbool_t collective, tse_task_t **first_task, tse_task_t **dep_task)
+    hid_t gcpl_id, hid_t gapl_id, H5_daos_group_t *parent_grp, const char *name,
+    size_t name_len, hbool_t collective, H5_daos_req_t *req,
+    tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_group_t *grp = NULL;
     void *gcpl_buf = NULL;
@@ -283,8 +283,8 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hbool_t is_root,
     grp->obj.item.file = file;
     grp->obj.item.rc = 1;
     grp->obj.obj_oh = DAOS_HDL_INVAL;
-    grp->gcpl_id = FAIL;
-    grp->gapl_id = FAIL;
+    grp->gcpl_id = H5I_INVALID_HID;
+    grp->gapl_id = H5I_INVALID_HID;
 
     if(is_root) {
         /* Encode root group oid */
@@ -302,7 +302,8 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hbool_t is_root,
     }
 
     /* Open group object */
-    if(H5_daos_obj_open(file, req, &grp->obj.oid, DAOS_OO_RW, &grp->obj.obj_oh, "group object open", first_task, dep_task) < 0)
+    if(H5_daos_obj_open(file, req, &grp->obj.oid, DAOS_OO_RW,
+            &grp->obj.obj_oh, "group object open", first_task, dep_task) < 0)
         D_GOTO_ERROR(H5E_SYM, H5E_CANTOPENOBJ, NULL, "can't open group object");
 
     /* Create group and write metadata if this process should */
@@ -549,8 +550,8 @@ H5_daos_group_create(void *_item,
 
     /* Create group and link to group */
     if(NULL == (grp = (H5_daos_group_t *)H5_daos_group_create_helper(item->file, FALSE,
-            gcpl_id, gapl_id, int_req, (H5_daos_group_t *)target_obj, target_name,
-            target_name_len, collective, &first_task, &dep_task)))
+            gcpl_id, gapl_id, (H5_daos_group_t *)target_obj, target_name,
+            target_name_len, collective, int_req, &first_task, &dep_task)))
         D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't create group");
 
     /* Set return value */
@@ -1063,7 +1064,7 @@ H5_daos_group_open_helper(H5_daos_file_t *file, hid_t gapl_id,
     grp->obj.item.file = file;
     grp->obj.item.rc = 1;
     grp->obj.obj_oh = DAOS_HDL_INVAL;
-    grp->gcpl_id = FAIL;
+    grp->gcpl_id = H5I_INVALID_HID;
     if((grp->gapl_id = H5Pcopy(gapl_id)) < 0)
         D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, NULL, "failed to copy gapl");
 
@@ -1640,9 +1641,9 @@ H5_daos_group_close(void *_grp, hid_t H5VL_DAOS_UNUSED dxpl_id,
         if(!daos_handle_is_inval(grp->obj.obj_oh))
             if(0 != (ret = daos_obj_close(grp->obj.obj_oh, NULL /*event*/)))
                 D_DONE_ERROR(H5E_SYM, H5E_CANTCLOSEOBJ, FAIL, "can't close group DAOS object: %s", H5_daos_err_to_string(ret));
-        if(grp->gcpl_id != FAIL && H5Idec_ref(grp->gcpl_id) < 0)
+        if(grp->gcpl_id != H5I_INVALID_HID && H5Idec_ref(grp->gcpl_id) < 0)
             D_DONE_ERROR(H5E_SYM, H5E_CANTDEC, FAIL, "failed to close gcpl");
-        if(grp->gapl_id != FAIL && H5Idec_ref(grp->gapl_id) < 0)
+        if(grp->gapl_id != H5I_INVALID_HID && H5Idec_ref(grp->gapl_id) < 0)
             D_DONE_ERROR(H5E_SYM, H5E_CANTDEC, FAIL, "failed to close gapl");
         grp = H5FL_FREE(H5_daos_group_t, grp);
     } /* end if */
@@ -1953,7 +1954,8 @@ H5_daos_group_gnl_task(tse_task_t *task)
 
         /* Initialize iteration data */
         H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_LINK, H5_INDEX_NAME, H5_ITER_NATIVE,
-                FALSE, NULL, target_grp_id, udata->nlinks, H5P_DATASET_XFER_DEFAULT, udata->md_rw_cb_ud.req, &first_task, &dep_task);
+                FALSE, NULL, target_grp_id, udata->nlinks, NULL, H5P_DATASET_XFER_DEFAULT,
+                udata->md_rw_cb_ud.req, &first_task, &dep_task);
         iter_data.u.link_iter_data.u.link_iter_op = H5_daos_link_iterate_count_links_callback;
 
         /* Retrieve the number of links in the group. */

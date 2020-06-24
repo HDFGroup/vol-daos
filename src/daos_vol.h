@@ -775,8 +775,8 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_link_get_name_by_idx(
 H5VL_DAOS_PRIVATE herr_t H5_daos_link_get_name_by_idx_alloc(
     H5_daos_group_t *target_grp, H5_index_t index_type,
     H5_iter_order_t iter_order, uint64_t idx, const char **link_name,
-    size_t *link_name_size, char **link_name_buf, H5_daos_req_t *req,
-    tse_task_t **first_task, tse_task_t **dep_task);
+    size_t *link_name_size, char **link_name_buf, size_t *link_name_buf_size,
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE herr_t H5_daos_link_get_crt_order_by_name(H5_daos_group_t *target_grp, const char *link_name,
     uint64_t *crt_order, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 

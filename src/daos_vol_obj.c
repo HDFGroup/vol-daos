@@ -1706,6 +1706,12 @@ H5_daos_dataset_copy(H5_daos_dset_t *src_obj, H5_daos_group_t *dst_obj, const ch
 {
     H5VL_loc_params_t dest_loc_params;
     H5_daos_dset_t *new_dset = NULL;
+
+    size_t      buf_size = 0;
+    hssize_t    nelements = 0;
+    size_t      dtype_size = 0;
+    void        *buf = NULL;
+
     herr_t ret_value = SUCCEED;
 
     assert(src_obj);
@@ -1719,7 +1725,27 @@ H5_daos_dataset_copy(H5_daos_dset_t *src_obj, H5_daos_group_t *dst_obj, const ch
     dest_loc_params.obj_type = H5I_GROUP;
     if(NULL == (new_dset = H5_daos_dataset_create(dst_obj, &dest_loc_params, dst_name, lcpl_id,
             src_obj->type_id, src_obj->space_id, src_obj->dcpl_id, src_obj->dapl_id, dxpl_id, req)))
-        D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, FAIL, "failed to create new dataset")
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, FAIL, "failed to create new dataset");
+
+    /*
+     * Copy the dataset's data.
+     *
+     * NOTE: This assumes all the data fit in memory and will need a smarter algorithm soon.
+     * NOTE: Will fail if the dataset's in-memory size is too big to fit into a size_t
+     */
+    if((nelements = H5Sget_simple_extent_npoints(src_obj->space_id)) < 0)
+        D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, FAIL, "can't get number of elements in source dataset's dataspace");
+    if(0 == (dtype_size = H5Tget_size(src_obj->type_id)))
+        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't get source dataset's type size");
+    buf_size = (size_t)(nelements * dtype_size);
+
+    if(NULL == (buf = DV_malloc(buf_size)))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate data buffer for copy");
+
+    if(H5_daos_dataset_read(src_obj, src_obj->type_id, H5S_ALL, H5S_ALL, dxpl_id, buf, NULL) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_READERROR, FAIL, "can't read data from source dataset");
+    if(H5_daos_dataset_write(new_dset, src_obj->type_id, H5S_ALL, H5S_ALL, dxpl_id, buf, NULL) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_WRITEERROR, FAIL, "can't write data to copied dataset");
 
     /*
      * If the "without attribute copying" flag hasn't been specified,
@@ -1727,12 +1753,12 @@ H5_daos_dataset_copy(H5_daos_dset_t *src_obj, H5_daos_group_t *dst_obj, const ch
      */
     if((obj_copy_options & H5O_COPY_WITHOUT_ATTR_FLAG) == 0)
         if(H5_daos_object_copy_attributes((H5_daos_obj_t *) src_obj, (H5_daos_obj_t *) new_dset, dxpl_id, req) < 0)
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, FAIL, "failed to copy dataset's attributes")
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, FAIL, "failed to copy dataset's attributes");
 
 done:
     if(new_dset) {
         if(H5_daos_dataset_close(new_dset, dxpl_id, req) < 0)
-            D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, FAIL, "can't close dataset")
+            D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, FAIL, "can't close dataset");
         new_dset = NULL;
     } /* end if */
 

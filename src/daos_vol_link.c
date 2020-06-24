@@ -4685,7 +4685,7 @@ done:
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_link_ibco_helper
+ * Function:    H5_daos_link_ibco_task2
  *
  * Purpose:     Second asynchronous task routine for
  *              H5_daos_link_iterate_by_crt_order().  Starts a task to get
@@ -4801,7 +4801,7 @@ done:
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_link_ibco_helper
+ * Function:    H5_daos_link_ibco_task
  *
  * Purpose:     First asynchronous task routine for
  *              H5_daos_link_iterate_by_crt_order().  Performs some
@@ -4873,6 +4873,9 @@ H5_daos_link_ibco_task(tse_task_t *task)
              * setting, meaning that we fall back to name order if link creation order
              * is not tracked for the target group.
              */
+            /* Initiate iteration by name order.  No need to change the
+             * index_type field in iter_data since the internal functions for
+             * iteration by name order don't check this field */
             if(0 != (ret = H5_daos_list_key_init(udata->iter_data, &udata->target_grp->obj,
                     NULL, DAOS_OPC_OBJ_LIST_DKEY, H5_daos_link_iterate_list_comp_cb, TRUE,
                     &first_task, &dep_task)))

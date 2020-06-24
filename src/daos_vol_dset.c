@@ -31,6 +31,12 @@
 #define H5_DAOS_DEFAULT_NUM_SEL_CHUNKS   64
 #define H5O_LAYOUT_NDIMS                 (H5S_MAX_RANK+1)
 
+/* Definitions for automatic chunking */
+/* Maximum size for contiguous datasets (target size * sqrt(2)) */
+#define H5_DAOS_MAX_CONTIG_SIZE ((uint64_t)((double)H5_daos_chunk_target_size_g * 1.41421356237))
+/* Minimum chunk size (target size * sqrt(2)/2) */
+#define H5_DAOS_MIN_CHUNK_SIZE ((uint64_t)((double)H5_daos_chunk_target_size_g * 1.41421356237 / 2.))
+
 /************************************/
 /* Local Type and Struct Definition */
 /************************************/
@@ -449,6 +455,83 @@ H5_daos_dataset_create(void *_item,
     if(H5_daos_dset_fill_dcpl_cache(dset) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "failed to fill DCPL cache");
 
+    /* If the layout is contiguous try to automatically change to chunked */
+    if(dset->dcpl_cache.layout == H5D_CONTIGUOUS) {
+        int ndims;
+        size_t type_size;
+        uint64_t extent_size;
+        hsize_t extent_dims[H5S_MAX_RANK];
+        int i;
+
+        /* Get dataspace ranks */
+        if((ndims = H5Sget_simple_extent_ndims(space_id)) < 0)
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, NULL, "can't get dataspace dimensionality");
+
+        /* Get type size */
+        if(0 == (type_size = H5Tget_size(dset->file_type_id)))
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, NULL, "can't get file type size");
+
+        /* Get dataspace extent */
+        if(H5Sget_simple_extent_dims(space_id, extent_dims, NULL) < 0)
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, NULL, "can't get dataspace dimensions");
+
+        /* Calculate dataset size */
+        extent_size = (uint64_t)type_size;
+        for(i = 0; i < ndims; i++)
+            extent_size *= (uint64_t)extent_dims[i];
+
+        /* If the dataset is larger than the max contig size calculate auto
+         * chunk size */
+        if(extent_size > H5_DAOS_MAX_CONTIG_SIZE) {
+            extent_size = (uint64_t)type_size;
+
+            /* Loop over dimensions */
+            i = ndims;
+            do {
+                i--;
+                extent_size *= (uint64_t)extent_dims[i];
+
+                /* Check if a chunk spanning the full extent in this dimension
+                 * is still too small, in this case we need to move up a
+                 * dimension */
+                if(extent_size < H5_DAOS_MIN_CHUNK_SIZE) {
+                    dset->dcpl_cache.chunk_dims[i] = extent_dims[i];
+                    assert(i < ndims - 1);
+                } /* end if */
+                else {
+                    /* Calculate number of chunks using approximately rounded
+                     * division */
+                    uint64_t nchunks = extent_size / H5_daos_chunk_target_size_g
+                            + (extent_size % H5_daos_chunk_target_size_g >
+                            H5_daos_chunk_target_size_g / 3 ? 1 : 0);
+
+                    /* nchunks should be greater than 0 and no greater than the
+                     * extent size.  It should not be possible for nchunks to be
+                     * 0 at this point since otherwise it would have went into
+                     * the other branch above */
+                    assert(nchunks > 0);
+                    if(nchunks > extent_dims[i])
+                        nchunks = extent_dims[i];
+
+                    /* Calculate chunk dimension (rounded up) */
+                    dset->dcpl_cache.chunk_dims[i] = ((uint64_t)extent_dims[i] + nchunks - (uint64_t)1)
+                            / nchunks;
+
+                    /* Set remaining chunk dims */
+                    while(i > 0) {
+                        i--;
+                        dset->dcpl_cache.chunk_dims[i] = 1;
+                    } /* end while */
+                } /* end else */
+            } while(i > 0);
+
+            /* Set chunk info in DCPL cache and DCPL */
+            dset->dcpl_cache.layout = H5D_CHUNKED;
+            if(H5Pset_chunk(dset->dcpl_id, ndims, dset->dcpl_cache.chunk_dims) < 0)
+                D_GOTO_ERROR(H5E_DATASET, H5E_CANTSET, NULL, "can't set chunk dimensions");
+        } /* end if */
+    } /* end if */
+
     /* Traverse the path */
     /* Call this on every rank for now so errors are handled correctly.  If/when
      * we add a bcast to check for failure we could only call this on the lead
@@ -471,7 +554,7 @@ H5_daos_dataset_create(void *_item,
 
     /* Generate dataset oid */
     if(H5_daos_oid_generate(&dset->obj.oid, H5I_DATASET,
-            (dcpl_id == H5P_DATASET_CREATE_DEFAULT ? H5P_DEFAULT : dcpl_id),
+            (dcpl_id == H5P_DATASET_CREATE_DEFAULT ? H5P_DEFAULT : dset->dcpl_id),
             item->file, collective, int_req, &first_task, &dep_task) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't generate object id");
 
@@ -520,7 +603,7 @@ H5_daos_dataset_create(void *_item,
             if((is_vl_ref = H5_daos_detect_vl_vlstr_ref(type_id)) < 0)
                 D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, NULL, "can't check for vl or reference type");
             if(is_vl_ref) {
-                if((tmp_dcpl_id = H5Pcopy(dcpl_id)) < 0)
+                if((tmp_dcpl_id = H5Pcopy(dset->dcpl_id)) < 0)
                     D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, NULL, "failed to copy dcpl");
                 if(H5Pset_fill_value(tmp_dcpl_id, dset->type_id, NULL) < 0)
                     D_GOTO_ERROR(H5E_DATASET, H5E_CANTSET, NULL, "can't unset fill value");
@@ -528,11 +611,11 @@ H5_daos_dataset_create(void *_item,
         } /* end if */
 
         /* Encode DCPL */
-        if(H5Pencode2(tmp_dcpl_id >= 0 ? tmp_dcpl_id : dcpl_id, NULL, &dcpl_size, item->file->fapl_id) < 0)
+        if(H5Pencode2(tmp_dcpl_id >= 0 ? tmp_dcpl_id : dset->dcpl_id, NULL, &dcpl_size, item->file->fapl_id) < 0)
             D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of dcpl");
         if(NULL == (dcpl_buf = DV_malloc(dcpl_size)))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized dcpl");
-        if(H5Pencode2(tmp_dcpl_id >= 0 ? tmp_dcpl_id : dcpl_id, dcpl_buf, &dcpl_size, item->file->fapl_id) < 0)
+        if(H5Pencode2(tmp_dcpl_id >= 0 ? tmp_dcpl_id : dset->dcpl_id, dcpl_buf, &dcpl_size, item->file->fapl_id) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTENCODE, NULL, "can't serialize dcpl");
 
         /* Set up operation to write datatype, dataspace, and DCPL to dataset */
@@ -593,7 +676,7 @@ H5_daos_dataset_create(void *_item,
                 D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, NULL, "can't get file type size");
             if(NULL == (dset->fill_val = DV_calloc(fill_val_size)))
                 D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for fill value");
-            if(H5Pget_fill_value(dcpl_id, dset->file_type_id, dset->fill_val) < 0)
+            if(H5Pget_fill_value(dset->dcpl_id, dset->file_type_id, dset->fill_val) < 0)
                 D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, NULL, "can't get fill value");
 
             /* Copy fill value buffer - only needed because the generic
@@ -700,7 +783,7 @@ H5_daos_dataset_create(void *_item,
                 finalize_ndeps++;
             } /* end if */
             else
-                if(H5Pget_fill_value(dcpl_id, dset->file_type_id, dset->fill_val) < 0)
+                if(H5Pget_fill_value(dset->dcpl_id, dset->file_type_id, dset->fill_val) < 0)
                     D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, NULL, "can't get fill value");
         } /* end if */
 

@@ -3892,8 +3892,8 @@ H5_daos_list_key_finish(tse_task_t *task)
     assert(req->file);
 
     /* Finalize iter_data if this is the base of iteration */
-    if(!udata->iter_data->is_recursive || udata->base_iter) {
-        /* Iteration is compelte, we are no longer short-circuiting (if this
+    if(udata->base_iter) {
+        /* Iteration is complete, we are no longer short-circuiting (if this
          * iteration caused the short circuit) */
         if(udata->iter_data->short_circuit_init) {
             if(udata->iter_data->req->status == -H5_DAOS_SHORT_CIRCUIT)
@@ -3903,7 +3903,7 @@ H5_daos_list_key_finish(tse_task_t *task)
 
         /* Decrement reference count on root obj id */
         if(H5Idec_ref(udata->iter_data->iter_root_obj) < 0)
-            D_GOTO_ERROR(H5E_LINK, H5E_CANTDEC, -H5_DAOS_H5_CLOSE_ERROR, "can't decrement reference count on iteration base object");
+            D_DONE_ERROR(H5E_LINK, H5E_CANTDEC, -H5_DAOS_H5_CLOSE_ERROR, "can't decrement reference count on iteration base object");
         udata->iter_data->iter_root_obj = H5I_INVALID_HID;
 
         /* Set *op_ret_p if present */
@@ -3923,6 +3923,8 @@ H5_daos_list_key_finish(tse_task_t *task)
         /* Free iter data */
         udata->iter_data = DV_free(udata->iter_data);
     } /* end if */
+    else
+        assert(udata->iter_data->is_recursive);
     
     /* Close target_obj */
     if(H5_daos_object_close(udata->target_obj, H5I_INVALID_HID, NULL) < 0)
@@ -4166,6 +4168,11 @@ done:
                 /* Free iter data */
                 iter_udata->iter_data = iter_udata->iter_data;
             } /* end if */
+
+            /* Decrement reference count on root obj id */
+            if(iter_udata->base_iter)
+                if(H5Idec_ref(iter_data->iter_root_obj) < 0)
+                    D_DONE_ERROR(H5E_VOL, H5E_CANTDEC, -H5_DAOS_H5_CLOSE_ERROR, "can't decrement reference count on iteration base object");
 
             /* Free key buffer */
             if(iter_udata->sg_iov.iov_buf)

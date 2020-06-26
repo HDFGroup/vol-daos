@@ -317,6 +317,13 @@ H5_daos_map_create(void *_item,
                 D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create link to map: %s", H5_daos_err_to_string(ret));
             finalize_ndeps++;
         } /* end if */
+        else {
+            /* No link to map, write a ref count of 0 */
+             finalize_deps[finalize_ndeps] = dep_task;
+            if(H5_daos_obj_write_rc(NULL, &map->obj, NULL, 0, int_req, &first_task, &finalize_deps[finalize_ndeps]) < 0)
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't write object ref count");
+            finalize_ndeps++;
+        } /* end if */
     } /* end if */
     else {
         /* Only dep_task created, register it as the finalize dependency */

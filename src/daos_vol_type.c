@@ -692,6 +692,13 @@ H5_daos_datatype_commit(void *_item,
                 D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't create link to datatype: %s", H5_daos_err_to_string(ret));
             finalize_ndeps++;
         } /* end if */
+        else {
+            /* No link to datatype, write a ref count of 0 */
+             finalize_deps[finalize_ndeps] = dep_task;
+            if(H5_daos_obj_write_rc(NULL, &dtype->obj, NULL, 0, int_req, &first_task, &finalize_deps[finalize_ndeps]) < 0)
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't write object ref count");
+            finalize_ndeps++;
+        } /* end if */
     } /* end if */
     else {
         /* Note no barrier is currently needed here, daos_obj_open is a local

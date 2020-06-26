@@ -92,6 +92,7 @@ typedef d_sg_list_t daos_sg_list_t;
 #define H5_DAOS_ENCODED_CRT_ORDER_SIZE 8
 #define H5_DAOS_ENCODED_NUM_ATTRS_SIZE 8
 #define H5_DAOS_ENCODED_NUM_LINKS_SIZE 8
+#define H5_DAOS_ENCODED_RC_SIZE        8
 
 /* Size of encoded OID */
 #define H5_DAOS_ENCODED_OID_SIZE 16
@@ -641,6 +642,7 @@ extern MPI_Request H5_daos_mpi_req_g;
 /* Constant Keys */
 extern H5VL_DAOS_PRIVATE const char H5_daos_int_md_key_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_root_grp_oid_key_g[];
+extern H5VL_DAOS_PRIVATE const char H5_daos_rc_key_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_cpl_key_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_link_key_g[];
 extern H5VL_DAOS_PRIVATE const char H5_daos_link_corder_key_g[];
@@ -660,6 +662,7 @@ extern H5VL_DAOS_PRIVATE const char H5_daos_fillval_key_g[];
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_int_md_key_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_root_grp_oid_key_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_cpl_key_size_g;
+extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_rc_key_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_link_key_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_link_corder_key_size_g;
 extern H5VL_DAOS_PRIVATE const daos_size_t H5_daos_nlinks_key_size_g;
@@ -889,6 +892,12 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_object_close(void *_obj, hid_t dxpl_id, void **
 H5VL_DAOS_PRIVATE herr_t H5_daos_fill_ocpl_cache(H5_daos_obj_t *obj, hid_t ocpl_id);
 H5VL_DAOS_PRIVATE hssize_t H5_daos_object_get_num_attrs(H5_daos_obj_t *target_obj);
 H5VL_DAOS_PRIVATE herr_t H5_daos_object_update_num_attrs_key(H5_daos_obj_t *target_obj, uint64_t new_nattrs);
+H5VL_DAOS_PRIVATE herr_t H5_daos_obj_read_rc(H5_daos_obj_t **obj_p,
+    uint64_t *rc, H5_daos_req_t *req, tse_task_t **first_task,
+    tse_task_t **dep_task);
+H5VL_DAOS_PRIVATE herr_t H5_daos_obj_write_rc(H5_daos_obj_t **obj_p,
+    H5_daos_obj_t *obj, uint64_t *rc, int64_t adjust, H5_daos_req_t *req,
+    tse_task_t **first_task, tse_task_t **dep_task);
 
 /* Attribute callbacks */
 H5VL_DAOS_PRIVATE void *H5_daos_attribute_create(void *_obj, const H5VL_loc_params_t *loc_params,

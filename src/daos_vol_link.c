@@ -168,6 +168,16 @@ typedef struct H5_daos_link_get_val_ud_t {
     H5_daos_link_val_t local_link_val;
 } H5_daos_link_get_val_ud_t;
 
+/* User data struct for link exists */
+typedef struct H5_daos_link_exists_ud_t {
+    H5_daos_req_t *req;
+    H5_daos_obj_t *target_obj;
+    htri_t *exists;
+    daos_key_t dkey;
+    daos_iod_t iod;
+    char *path_buf;
+} H5_daos_link_exists_ud_t;
+
 /* A struct used to operate on a single link during link iteration */
 typedef struct H5_daos_link_iter_op_ud_t {
     H5_daos_iter_ud_t *iter_ud;
@@ -306,9 +316,13 @@ static int H5_daos_link_get_info(H5_daos_item_t *item, const H5VL_loc_params_t *
     H5L_info2_t *link_info_out, H5_daos_link_val_t *link_val_out, H5_daos_req_t *req,
     tse_task_t **first_task, tse_task_t **dep_task);
 
+static int H5_daos_link_get_val_end_task(tse_task_t *task);
 static herr_t H5_daos_link_get_val(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
     void *out_buf, size_t out_buf_size, H5_daos_req_t *req, tse_task_t **first_task,
     tse_task_t **dep_task);
+
+static int H5_daos_link_exists_prep_cb(tse_task_t *task, void *args);
+static int H5_daos_link_exists_comp_cb(tse_task_t *task, void *args);
 
 static int H5_daos_link_iterate_list_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_link_iterate_op_task(tse_task_t *task);
@@ -901,7 +915,7 @@ H5_daos_link_write_task(tse_task_t *task)
     else {
         /* Save link write update task to be scheduled later and transfer
          * ownership of udata */
-        assert(first_task);
+        assert(!first_task);
         first_task = udata->update_task;
         dep_task = udata->update_task;
         udata = NULL;
@@ -1665,7 +1679,6 @@ H5_daos_link_write_corder_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     assert(!udata->md_rw_cb_ud.req->file->closed);
     assert(udata->link_write_ud);
-    assert(udata->link_write_ud->shared);
 
     /* Handle errors in update task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if
@@ -2506,7 +2519,7 @@ H5_daos_link_get(void *_item, const H5VL_loc_params_t *loc_params,
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "location parameters object is NULL");
 
     /* Start H5 operation */
-    if(NULL == (int_req = H5_daos_req_create(item->file, H5I_INVALID_HID)))
+    if(NULL == (int_req = H5_daos_req_create(item->file, dxpl_id)))
         D_GOTO_ERROR(H5E_LINK, H5E_CANTALLOC, FAIL, "can't create DAOS request");
 
 #ifdef H5_DAOS_USE_TRANSACTIONS
@@ -2666,6 +2679,7 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
     hid_t target_grp_id = -1;
     H5_daos_req_t      *int_req = NULL;
     herr_t              iter_ret = 0;
+    htri_t             *lexists_ret;
     tse_task_t         *first_task = NULL;
     tse_task_t         *dep_task = NULL;
     int                 ret;
@@ -2691,11 +2705,12 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
         /* H5Lexists */
         case H5VL_LINK_EXISTS:
             {
-                htri_t *lexists_ret = va_arg(arguments, htri_t *);
+                lexists_ret = va_arg(arguments, htri_t *);
 
                 assert(H5VL_OBJECT_BY_NAME == loc_params->type);
+                assert(lexists_ret);
 
-                if((*lexists_ret = H5_daos_link_exists(item, loc_params->loc_data.loc_by_name.name, int_req, &first_task, &dep_task)) < 0)
+                if(H5_daos_link_exists(item, loc_params->loc_data.loc_by_name.name, lexists_ret, int_req, &first_task, &dep_task) < 0)
                     D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't determine if link exists");
 
                 break;
@@ -3572,7 +3587,7 @@ H5_daos_link_get_val(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
 
     assert(item);
     assert(loc_params);
-    assert(link_val_out);
+    assert(out_buf);
     assert(H5VL_OBJECT_BY_NAME == loc_params->type || H5VL_OBJECT_BY_IDX == loc_params->type);
 
     /* Allocate task udata struct */
@@ -3670,6 +3685,133 @@ done:
 
 
 /*-------------------------------------------------------------------------
+ * Function:    H5_daos_link_exists_prep_cb
+ *
+ * Purpose:     Prepare callback for asynchronous check for link
+ *              existence.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ * Programmer:  Neil Fortner
+ *              June, 2020
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_link_exists_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_link_exists_ud_t *udata;
+    daos_obj_rw_t *rw_args;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for metadata I/O task");
+
+    assert(udata->target_obj);
+    assert(udata->req);
+    assert(udata->req->file);
+    assert(!udata->req->file->closed);
+
+    /* Handle errors */
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
+        tse_task_complete(task, -H5_DAOS_PRE_ERROR);
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    } /* end if */
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT) {
+        tse_task_complete(task, -H5_DAOS_SHORT_CIRCUIT);
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
+    } /* end if */
+
+    /* Set update task arguments */
+    if(NULL == (rw_args = daos_task_get_args(task))) {
+        tse_task_complete(task, -H5_DAOS_DAOS_GET_ERROR);
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for link exists task");
+    } /* end if */
+    rw_args->oh = udata->target_obj->obj_oh;
+    rw_args->th = udata->req->th;
+    rw_args->flags = 0;
+    rw_args->dkey = &udata->dkey;
+    rw_args->nr = 1;
+    rw_args->iods = &udata->iod;
+    rw_args->sgls = NULL;
+
+done:
+    D_FUNC_LEAVE;
+} /* end H5_daos_link_exists_prep_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_link_exists_comp_cb
+ *
+ * Purpose:     Complete callback for asynchronous check for link
+ *              existence.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ * Programmer:  Neil Fortner
+ *              June, 2020
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_link_exists_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_link_exists_ud_t *udata;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for metadata I/O task");
+    assert(!udata->req->file->closed);
+
+    /* Handle errors in fetch task.  Only record error in udata->req_status if
+     * it does not already contain an error (it could contain an error if
+     * another task this task is not dependent on also failed). */
+    if(task->dt_result < -H5_DAOS_PRE_ERROR
+            && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+        udata->req->status = task->dt_result;
+        udata->req->failed_task = "link exists fetch";
+    } /* end if */
+    else if(task->dt_result == 0)
+        /* Set output */
+        *udata->exists = (udata->iod.iod_size != 0);
+
+done:
+    /* Clean up */
+    if(udata) {
+        /* Close object */
+        if(udata->target_obj && H5_daos_object_close(udata->target_obj, udata->req->dxpl_id, NULL) < 0)
+            D_DONE_ERROR(H5E_LINK, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
+
+        /* Handle errors in this function */
+        /* Do not place any code that can issue errors after this block, except for
+         * H5_daos_req_free_int, which updates req->status if it sees an error */
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+            udata->req->status = ret_value;
+            udata->req->failed_task = "link exists completion callback";
+        } /* end if */
+
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(udata->req) < 0)
+            D_DONE_ERROR(H5E_LINK, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+        /* Free path_buf */
+        DV_free(udata->path_buf);
+
+        /* Free udata */
+        udata = DV_free(udata);
+    } /* end if */
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_link_exists_comp_cb() */
+
+
+/*-------------------------------------------------------------------------
  * Function:    H5_daos_link_exists
  *
  * Purpose:     Helper routine to determine if a link exists by the given
@@ -3681,68 +3823,84 @@ done:
  *
  *-------------------------------------------------------------------------
  */
-htri_t
-H5_daos_link_exists(H5_daos_item_t *item, const char *link_path,
+herr_t
+H5_daos_link_exists(H5_daos_item_t *item, const char *link_path, htri_t *exists,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
+    H5_daos_link_exists_ud_t *fetch_udata = NULL;
     H5_daos_obj_t *target_obj = NULL;
-    char *path_buf = NULL;
+    tse_task_t *fetch_task = NULL;
     const char *target_name = NULL;
     size_t target_name_len = 0;
-    daos_key_t dkey;
-    daos_iod_t iod;
     int ret;
-    htri_t ret_value = FALSE;
+    herr_t ret_value = SUCCEED;
 
     assert(item);
     assert(link_path);
 
+    /* Allocate task udata struct */
+    if(NULL == (fetch_udata = (H5_daos_link_exists_ud_t *)DV_calloc(sizeof(H5_daos_link_exists_ud_t))))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate link exists user data");
+    fetch_udata->req = req;
+    fetch_udata->exists = exists;
+
     /* Traverse the path */
-    if(NULL == (target_obj = H5_daos_group_traverse(item, link_path, H5P_LINK_CREATE_DEFAULT,
-            req, FALSE, &path_buf, &target_name, &target_name_len, first_task, dep_task)))
-        D_GOTO_ERROR(H5E_SYM, H5E_TRAVERSE, FAIL, "can't traverse path");
+    if(NULL == (fetch_udata->target_obj = H5_daos_group_traverse(item, link_path, H5P_LINK_CREATE_DEFAULT,
+            req, FALSE, &fetch_udata->path_buf, &target_name, &target_name_len, first_task, dep_task)))
+        D_GOTO_ERROR(H5E_LINK, H5E_TRAVERSE, FAIL, "can't traverse path");
 
     /* Check type of target_obj */
-    if(target_obj->item.type != H5I_GROUP)
+    if(fetch_udata->target_obj->item.type != H5I_GROUP)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "target object is not a group");
 
-    /* Wait until everything is complete then check for errors
-     * (temporary code until the rest of this function is async) */
-    if(*first_task && (0 != (ret = tse_task_schedule(*first_task, false))))
-        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
-    if(H5_daos_progress(&item->file->sched, NULL, H5_DAOS_PROGRESS_WAIT) < 0)
-        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't progress scheduler");
-    *first_task = NULL;
-    *dep_task = NULL;
-    if(req->status < -H5_DAOS_INCOMPLETE)
-        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "asynchronous task failed: %s", H5_daos_err_to_string(req->status));
-
     /* Set up dkey */
-    daos_iov_set(&dkey, (void *)target_name, strlen(target_name));
+    daos_iov_set(&fetch_udata->dkey, (void *)target_name, target_name_len);
 
     /* Set up iod */
-    memset(&iod, 0, sizeof(iod));
-    daos_iov_set(&iod.iod_name, (void *)H5_daos_link_key_g, H5_daos_link_key_size_g);
-    iod.iod_nr = 1u;
-    iod.iod_size = DAOS_REC_ANY;
-    iod.iod_type = DAOS_IOD_SINGLE;
+    memset(&fetch_udata->iod, 0, sizeof(fetch_udata->iod));
+    daos_iov_set(&fetch_udata->iod.iod_name, (void *)H5_daos_link_key_g, H5_daos_link_key_size_g);
+    fetch_udata->iod.iod_nr = 1u;
+    fetch_udata->iod.iod_size = DAOS_REC_ANY;
+    fetch_udata->iod.iod_type = DAOS_IOD_SINGLE;
 
-    /* Read link */
-    if(0 != (ret = daos_obj_fetch(target_obj->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod, NULL /*sgl*/, NULL /*maps*/, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't read link: %s", H5_daos_err_to_string(ret));
+    /* Create task for fetch */
+    if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &item->file->sched, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &fetch_task)))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create link exists task: %s", H5_daos_err_to_string(ret));
 
-    /* Set return value */
-    ret_value = iod.iod_size != (uint64_t)0;
+    /* Set callback functions for fetch */
+    if(0 != (ret = tse_task_register_cbs(fetch_task, H5_daos_link_exists_prep_cb, NULL, 0, H5_daos_link_exists_comp_cb, NULL, 0)))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't register callbacks for link exists task: %s", H5_daos_err_to_string(ret));
+
+    /* Set private data for fetch */
+    (void)tse_task_set_priv(fetch_task, fetch_udata);
+
+    /* Schedule fetch task (or save it to be scheduled later) and give it a
+     * reference to req and udata (transfer ownership of target_obj) */
+    if(*first_task) {
+        if(0 != (ret = tse_task_schedule(fetch_task, false)))
+            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't schedule link exists task: %s", H5_daos_err_to_string(ret));
+    } /* end if */
+    else
+        *first_task = fetch_task;
+    *dep_task = fetch_task;
+    req->rc++;
+    fetch_udata = NULL;
 
 done:
-    /* Free path_buf if necessary */
-    if(path_buf && H5_daos_free_async(item->file, path_buf, first_task, dep_task) < 0)
-        D_DONE_ERROR(H5E_LINK, H5E_CANTFREE, FAIL, "can't free path buffer");
+    /* Cleanup on error */
+    if(fetch_udata) {
+        assert(ret_value < 0);
 
-    if(target_obj) {
-        if(H5_daos_object_close(target_obj, req->dxpl_id, NULL) < 0)
+        /* Free path_buf if necessary */
+        if(fetch_udata->path_buf && H5_daos_free_async(item->file, fetch_udata->path_buf, first_task, dep_task) < 0)
+            D_DONE_ERROR(H5E_LINK, H5E_CANTFREE, FAIL, "can't free path buffer");
+
+        /* Close target_obj */
+        if(fetch_udata->target_obj && H5_daos_object_close(target_obj, req->dxpl_id, NULL) < 0)
             D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close object");
-        target_obj = NULL;
+
+        /* Free udata */
+        fetch_udata = DV_free(fetch_udata);
     } /* end if */
 
     D_FUNC_LEAVE;

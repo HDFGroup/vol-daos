@@ -106,7 +106,7 @@ static herr_t H5_daos_object_copy_attributes(H5_daos_obj_t *src_obj, H5_daos_obj
  */
 void *
 H5_daos_object_open(void *_item, const H5VL_loc_params_t *loc_params,
-    H5I_type_t *opened_type, hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req)
+    H5I_type_t *opened_type, hid_t dxpl_id, void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_req_t *int_req = NULL;
@@ -143,7 +143,7 @@ H5_daos_object_open(void *_item, const H5VL_loc_params_t *loc_params,
     } /* end if */
 
     /* Start H5 operation */
-    if(NULL == (int_req = H5_daos_req_create(item->file, H5I_INVALID_HID)))
+    if(NULL == (int_req = H5_daos_req_create(item->file, dxpl_id)))
         D_GOTO_ERROR(H5E_OBJECT, H5E_CANTALLOC, NULL, "can't create DAOS request");
 
 #ifdef H5_DAOS_USE_TRANSACTIONS
@@ -998,10 +998,8 @@ H5_daos_object_copy(void *src_loc_obj, const H5VL_loc_params_t *loc_params1,
      * First, ensure that the object doesn't currently exist at the specified destination
      * location object/destination name pair.
      */
-    if((link_exists = H5_daos_link_exists((H5_daos_item_t *) dst_loc_obj, dst_name, int_req, &first_task, &dep_task)) < 0)
+    if(H5_daos_link_exists((H5_daos_item_t *) dst_loc_obj, dst_name, &link_exists, int_req, &first_task, &dep_task) < 0)
         D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "couldn't determine if link exists");
-    if(link_exists)
-        D_GOTO_ERROR(H5E_OBJECT, H5E_ALREADYEXISTS, FAIL, "source object already exists at specified destination location object/destination name pair");
 
     /* Wait until everything is complete then check for errors
      * (temporary code until the rest of this function is async) */
@@ -1014,6 +1012,9 @@ H5_daos_object_copy(void *src_loc_obj, const H5VL_loc_params_t *loc_params1,
     dep_task = NULL;
     if(int_req->status < -H5_DAOS_INCOMPLETE)
         D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "asynchronous task failed: %s", H5_daos_err_to_string(int_req->status));
+
+    if(link_exists)
+        D_GOTO_ERROR(H5E_OBJECT, H5E_ALREADYEXISTS, FAIL, "source object already exists at specified destination location object/destination name pair");
 
     /* Retrieve the object copy options. The following flags are
      * currently supported:

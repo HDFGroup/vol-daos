@@ -301,7 +301,7 @@ H5_daos_bcast_fill_val(H5_daos_dset_t *dset, H5_daos_req_t *req,
     assert(dset);
     assert(dset->fill_val);
     assert(req);
-    assert(taskp);
+    assert(first_task);
     assert(dep_task);
 
     /* Set up broadcast user data */

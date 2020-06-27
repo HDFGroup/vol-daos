@@ -2601,7 +2601,7 @@ H5_daos_obj_read_rc_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
-        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for metadata I/O task");
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for metadata I/O task");
 
     assert(udata->obj_p);
     assert(udata->req);
@@ -2623,7 +2623,7 @@ H5_daos_obj_read_rc_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     /* Set update task arguments */
     if(NULL == (rw_args = daos_task_get_args(task))) {
         tse_task_complete(task, -H5_DAOS_DAOS_GET_ERROR);
-        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for object ref count read task");
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for object ref count read task");
     } /* end if */
     rw_args->oh = (*udata->obj_p)->obj_oh;
     rw_args->th = udata->req->th;
@@ -2665,7 +2665,7 @@ done:
  *              Failure:        Error code
  *
  * Programmer:  Neil Fortner
- *              July, 2020
+ *              June, 2020
  *
  *-------------------------------------------------------------------------
  */
@@ -2756,7 +2756,7 @@ H5_daos_obj_read_rc(H5_daos_obj_t **obj_p, uint64_t *rc, H5_daos_req_t *req,
     H5daos_compile_assert(H5_DAOS_ENCODED_RC_SIZE == H5_DAOS_ENCODED_UINT64_T_SIZE);
 
     /* Allocate task udata struct */
-     if(NULL == (fetch_udata = (H5_daos_obj_rw_rc_ud_t *)DV_calloc(sizeof(H5_daos_obj_rw_rc_ud_t))))
+    if(NULL == (fetch_udata = (H5_daos_obj_rw_rc_ud_t *)DV_calloc(sizeof(H5_daos_obj_rw_rc_ud_t))))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate read ref count user data");
     fetch_udata->req = req;
     fetch_udata->obj_p = obj_p;
@@ -2821,7 +2821,7 @@ H5_daos_obj_write_rc_task(tse_task_t *task)
 
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
-        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for metadata I/O task");
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for object ref count write task");
 
     assert(udata->obj_p);
     assert(*udata->obj_p);
@@ -2869,7 +2869,7 @@ H5_daos_obj_write_rc_task(tse_task_t *task)
 
         /* Set punch task arguments */
         if(NULL == (punch_args = daos_task_get_args(punch_task)))
-            D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for object ref count write task");
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for object ref count write task");
         punch_args->oh = (*udata->obj_p)->obj_oh;
         punch_args->th = udata->req->th;
         punch_args->flags = 0;
@@ -2978,7 +2978,7 @@ done:
  *              Failure:        Error code
  *
  * Programmer:  Neil Fortner
- *              July, 2020
+ *              June, 2020
  *
  *-------------------------------------------------------------------------
  */
@@ -3007,7 +3007,7 @@ done:
     if(udata) {
         /* Close object if a direct pointer was provided */
         if(udata->obj && H5_daos_object_close(udata->obj, udata->req->dxpl_id, NULL) < 0)
-            D_DONE_ERROR(H5E_LINK, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
+            D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
 
         /* Handle errors in this function */
         /* Do not place any code that can issue errors after this block, except for
@@ -3069,7 +3069,7 @@ H5_daos_obj_write_rc(H5_daos_obj_t **obj_p, H5_daos_obj_t *obj, uint64_t *rc,
     H5daos_compile_assert(H5_DAOS_ENCODED_RC_SIZE == H5_DAOS_ENCODED_UINT64_T_SIZE);
 
     /* Allocate task udata struct */
-     if(NULL == (task_udata = (H5_daos_obj_rw_rc_ud_t *)DV_calloc(sizeof(H5_daos_obj_rw_rc_ud_t))))
+    if(NULL == (task_udata = (H5_daos_obj_rw_rc_ud_t *)DV_calloc(sizeof(H5_daos_obj_rw_rc_ud_t))))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate write ref count user data");
     task_udata->req = req;
     if(obj_p)

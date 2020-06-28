@@ -1089,16 +1089,17 @@ H5_daos_object_copy(void *src_loc_obj, const H5VL_loc_params_t *src_loc_params,
      * First, ensure that the object doesn't currently exist at the specified destination
      * location object/destination name pair.
      */
-    if((link_exists = H5_daos_link_exists((H5_daos_item_t *) dst_loc_obj, dst_name, int_req, &first_task, &dep_task)) < 0)
+    if(H5_daos_link_exists((H5_daos_item_t *) dst_loc_obj, dst_name, &link_exists, int_req, &first_task, &dep_task) < 0)
         D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "couldn't determine if link exists");
-    if(link_exists)
-        D_GOTO_ERROR(H5E_OBJECT, H5E_ALREADYEXISTS, FAIL, "source object already exists at specified destination location object/destination name pair");
 
     /* Wait until everything is complete then check for errors
      * (temporary code until the rest of this function is async) */
     /* Needed because swapping between src and dst files causes issues */
     H5_DAOS_WAIT_ON_ASYNC_CHAIN(&item->file->sched, int_req, first_task, dep_task,
             H5E_OBJECT, H5E_CANTINIT, FAIL);
+
+    if(link_exists)
+        D_GOTO_ERROR(H5E_OBJECT, H5E_ALREADYEXISTS, FAIL, "source object already exists at specified destination location object/destination name pair");
 
     /* Perform the object copy */
     if(H5_daos_object_copy_helper(src_loc_obj, src_loc_params, src_name,

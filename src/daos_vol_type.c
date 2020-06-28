@@ -1708,6 +1708,8 @@ done:
         /* Free udata */
         DV_free(udata);
     } /* end if */
+    else
+        assert(ret_value == 0 || ret_value == -H5_DAOS_DAOS_GET_ERROR);
 
     D_FUNC_LEAVE;
 } /* end H5_daos_tinfo_read_comp_cb() */

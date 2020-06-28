@@ -684,8 +684,8 @@ H5_daos_dataset_create(void *_item,
         else {
             /* No link to dataset, write a ref count of 0 to dset */
              finalize_deps[finalize_ndeps] = dep_task;
-            if(H5_daos_obj_write_rc(NULL, &dset->obj, NULL, 0, int_req, &first_task, &finalize_deps[finalize_ndeps]) < 0)
-                D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't write object ref count");
+            if(0 != (ret = H5_daos_obj_write_rc(NULL, &dset->obj, NULL, 0, int_req, &first_task, &finalize_deps[finalize_ndeps])))
+                D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't write object ref count: %s", H5_daos_err_to_string(ret));
             finalize_ndeps++;
         } /* end if */
     } /* end if */

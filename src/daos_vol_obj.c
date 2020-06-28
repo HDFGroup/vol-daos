@@ -2734,18 +2734,18 @@ done:
  *              need to point to a valid H5_daos_obj_t * until after
  *              dep_task (as passed to this function) completes.
  *
- * Return:      Non-negative on success/Negative on failure
+ * Return:      0 on success/Negative error code on failure
  *
  *-------------------------------------------------------------------------
  */
-herr_t
+int
 H5_daos_obj_read_rc(H5_daos_obj_t **obj_p, uint64_t *rc, H5_daos_req_t *req,
     tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_obj_rw_rc_ud_t *fetch_udata = NULL;
     tse_task_t *fetch_task = NULL;
     int ret;
-    herr_t ret_value = SUCCEED;
+    int ret_value = 0;
 
     assert(obj_p);
     assert(rc);
@@ -2757,18 +2757,18 @@ H5_daos_obj_read_rc(H5_daos_obj_t **obj_p, uint64_t *rc, H5_daos_req_t *req,
 
     /* Allocate task udata struct */
     if(NULL == (fetch_udata = (H5_daos_obj_rw_rc_ud_t *)DV_calloc(sizeof(H5_daos_obj_rw_rc_ud_t))))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate read ref count user data");
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate read ref count user data");
     fetch_udata->req = req;
     fetch_udata->obj_p = obj_p;
     fetch_udata->rc = rc;
 
     /* Create task for rc fetch */
     if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &req->file->sched, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &fetch_task)))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to read object ref count: %s", H5_daos_err_to_string(ret));
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't create task to read object ref count: %s", H5_daos_err_to_string(ret));
 
     /* Set callback functions for rc fetch */
     if(0 != (ret = tse_task_register_cbs(fetch_task, H5_daos_obj_read_rc_prep_cb, NULL, 0, H5_daos_obj_read_rc_comp_cb, NULL, 0)))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't register callbacks for task to read object ref count: %s", H5_daos_err_to_string(ret));
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't register callbacks for task to read object ref count: %s", H5_daos_err_to_string(ret));
 
     /* Set private data for rc fetch */
     (void)tse_task_set_priv(fetch_task, fetch_udata);
@@ -2777,7 +2777,7 @@ H5_daos_obj_read_rc(H5_daos_obj_t **obj_p, uint64_t *rc, H5_daos_req_t *req,
      * reference to req and udata */
     if(*first_task) {
         if(0 != (ret = tse_task_schedule(fetch_task, false)))
-            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't schedule task for object read ref count: %s", H5_daos_err_to_string(ret));
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't schedule task for object read ref count: %s", H5_daos_err_to_string(ret));
     } /* end if */
     else
         *first_task = fetch_task;
@@ -3047,18 +3047,18 @@ done:
  *              adjust are both 0 the object will not be deleted (this is
  *              used for anonymous object creation).
  *
- * Return:      Non-negative on success/Negative on failure
+ * Return:      0 on success/Negative error code on failure
  *
  *-------------------------------------------------------------------------
  */
-herr_t
+int
 H5_daos_obj_write_rc(H5_daos_obj_t **obj_p, H5_daos_obj_t *obj, uint64_t *rc,
     int64_t adjust, H5_daos_req_t *req, tse_task_t **first_task,
     tse_task_t **dep_task)
 {
     H5_daos_obj_rw_rc_ud_t *task_udata = NULL;
     int ret;
-    herr_t ret_value = SUCCEED;
+    int ret_value = 0;
 
     assert(obj_p || obj);
     assert(!(obj_p && obj));
@@ -3070,7 +3070,7 @@ H5_daos_obj_write_rc(H5_daos_obj_t **obj_p, H5_daos_obj_t *obj, uint64_t *rc,
 
     /* Allocate task udata struct */
     if(NULL == (task_udata = (H5_daos_obj_rw_rc_ud_t *)DV_calloc(sizeof(H5_daos_obj_rw_rc_ud_t))))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate write ref count user data");
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate write ref count user data");
     task_udata->req = req;
     if(obj_p)
         task_udata->obj_p = obj_p;
@@ -3084,17 +3084,17 @@ H5_daos_obj_write_rc(H5_daos_obj_t **obj_p, H5_daos_obj_t *obj, uint64_t *rc,
 
     /* Create task to finish this operation */
     if(0 !=  (ret = tse_task_create(H5_daos_obj_write_rc_task, &req->file->sched, task_udata, &task_udata->op_task)))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task for object write ref count: %s", H5_daos_err_to_string(ret));
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't create task for object write ref count: %s", H5_daos_err_to_string(ret));
 
     /* Register task dependency */
     if(*dep_task && 0 != (ret = tse_task_register_deps(task_udata->op_task, 1, dep_task)))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create dependencies for object write ref count task: %s", H5_daos_err_to_string(ret));
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't create dependencies for object write ref count task: %s", H5_daos_err_to_string(ret));
 
     /* Schedule task (or save it to be scheduled later) and give it a
      * reference to req and udata */
     if(*first_task) {
         if(0 != (ret = tse_task_schedule(task_udata->op_task, false)))
-            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't schedule task for object write ref count: %s", H5_daos_err_to_string(ret));
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't schedule task for object write ref count: %s", H5_daos_err_to_string(ret));
     } /* end if */
     else
         *first_task = task_udata->op_task;

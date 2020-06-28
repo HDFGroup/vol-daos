@@ -1400,15 +1400,10 @@ done:
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_link_write_corder_info
+ * Function:    H5_daos_link_wr_corder_info_task
  *
- * Purpose:     Creates an asynchronous task for writing link creation
- *              order information to the given target group. This task
- *              doesn't necessarily depend on the main link write task
- *              having completed, but it does share some common buffers
- *              with the main link write task. Therefore, this task cannot
- *              be scheduled until the main link write task has been
- *              prepped.
+ * Purpose:     Asynchronous task for H5_daos_link_write_corder_info().
+ *              Creates DAOS task to update creation order values.
  *
  * Return:      Success:        SUCCEED
  *              Failure:        FAIL
@@ -1582,6 +1577,23 @@ done:
     D_FUNC_LEAVE;
 } /* end H5_daos_link_wr_corder_info_task() */
 
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_link_write_corder_info
+ *
+ * Purpose:     Creates an asynchronous task for writing link creation
+ *              order information to the given target group. This task
+ *              doesn't necessarily depend on the main link write task
+ *              having completed, but it does share some common buffers
+ *              with the main link write task. Therefore, this task cannot
+ *              be scheduled until the main link write task has been
+ *              prepped.
+ *
+ * Return:      Success:        SUCCEED
+ *              Failure:        FAIL
+ *
+ *-------------------------------------------------------------------------
+ */
 static herr_t
 H5_daos_link_write_corder_info(H5_daos_group_t *target_grp, uint64_t new_max_corder,
     H5_daos_link_write_ud_t *link_write_ud, H5_daos_req_t *req,

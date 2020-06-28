@@ -815,7 +815,6 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_group_get_num_links(H5_daos_group_t *target_grp
 H5VL_DAOS_PRIVATE herr_t H5_daos_group_update_num_links_key(H5_daos_group_t *target_grp, uint64_t new_nlinks);
 H5VL_DAOS_PRIVATE herr_t H5_daos_group_get_max_crt_order(H5_daos_group_t *target_grp,
     uint64_t *max_corder, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
-H5VL_DAOS_PRIVATE herr_t H5_daos_group_update_max_crt_order_key(H5_daos_group_t *target_grp, uint64_t new_max_corder);
 H5VL_DAOS_PRIVATE herr_t H5_daos_group_refresh(H5_daos_group_t *grp,
     hid_t dxpl_id, void **req);
 H5VL_DAOS_PRIVATE herr_t H5_daos_group_flush(H5_daos_group_t *grp);

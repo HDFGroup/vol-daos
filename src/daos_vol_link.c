@@ -1400,15 +1400,10 @@ done:
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_link_write_corder_info
+ * Function:    H5_daos_link_wr_corder_info_task
  *
- * Purpose:     Creates an asynchronous task for writing link creation
- *              order information to the given target group. This task
- *              doesn't necessarily depend on the main link write task
- *              having completed, but it does share some common buffers
- *              with the main link write task. Therefore, this task cannot
- *              be scheduled until the main link write task has been
- *              prepped.
+ * Purpose:     Asynchronous task for H5_daos_link_write_corder_info().
+ *              Creates DAOS task to update creation order values.
  *
  * Return:      Success:        SUCCEED
  *              Failure:        FAIL
@@ -1582,6 +1577,23 @@ done:
     D_FUNC_LEAVE;
 } /* end H5_daos_link_wr_corder_info_task() */
 
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_link_write_corder_info
+ *
+ * Purpose:     Creates an asynchronous task for writing link creation
+ *              order information to the given target group. This task
+ *              doesn't necessarily depend on the main link write task
+ *              having completed, but it does share some common buffers
+ *              with the main link write task. Therefore, this task cannot
+ *              be scheduled until the main link write task has been
+ *              prepped.
+ *
+ * Return:      Success:        SUCCEED
+ *              Failure:        FAIL
+ *
+ *-------------------------------------------------------------------------
+ */
 static herr_t
 H5_daos_link_write_corder_info(H5_daos_group_t *target_grp, uint64_t new_max_corder,
     H5_daos_link_write_ud_t *link_write_ud, H5_daos_req_t *req,
@@ -3297,12 +3309,12 @@ done:
             /* Create metatask */
             if(0 != (ret = tse_task_create(H5_daos_metatask_autocomp_other, &udata->target_obj->item.file->sched, task, &metatask))) {
                 D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, ret, "can't create metatask for link get info end: %s", H5_daos_err_to_string(ret));
-                tse_task_complete(task, ret_value);
+                metatask = NULL;
             } /* end if */
             else {
                 /* Register task dependency */
                 if(0 != (ret = tse_task_register_deps(metatask, 1, &dep_task)))
-                    D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, ret, "can't create dependencies for link get info end metatask: %s", H5_daos_err_to_string(ret));
+                    D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, ret, "can't create dependencies for link get info end metatask: %s", H5_daos_err_to_string(ret));
 
                 /* Schedule metatask */
                 assert(first_task);
@@ -3337,13 +3349,13 @@ done:
         if(H5_daos_req_free_int(udata->req) < 0)
             D_DONE_ERROR(H5E_LINK, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
 
-        /* Complete task if necessary */
-        if(!metatask)
-            tse_task_complete(task, ret_value);
-
         /* Free udata */
         udata = DV_free(udata);
     } /* end if */
+
+    /* Complete task if necessary */
+    if(!metatask)
+        tse_task_complete(task, ret_value);
 
     D_FUNC_LEAVE;
 } /* end H5_daos_link_get_info_end_task() */

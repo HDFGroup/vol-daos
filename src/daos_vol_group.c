@@ -164,7 +164,7 @@ H5_daos_group_traverse(H5_daos_item_t *item, const char *path,
 
                 /* Open next group in path */
                 if(NULL == (obj = (H5_daos_obj_t *)H5_daos_group_open_helper(item->file,
-                        H5P_GROUP_ACCESS_DEFAULT, req, FALSE, first_task, dep_task)))
+                        H5P_GROUP_ACCESS_DEFAULT, FALSE, req, first_task, dep_task)))
                     D_GOTO_ERROR(H5E_SYM, H5E_CANTOPENOBJ, NULL, "can't open group");
 
                 /* Retarget oid_ptr to grp->obj.oid so H5_daos_link_follow fills in
@@ -1043,7 +1043,7 @@ done:
  */
 H5_daos_group_t *
 H5_daos_group_open_helper(H5_daos_file_t *file, hid_t gapl_id,
-    H5_daos_req_t *req, hbool_t collective, tse_task_t **first_task,
+    hbool_t collective, H5_daos_req_t *req, tse_task_t **first_task,
     tse_task_t **dep_task)
 {
     H5_daos_group_t *grp = NULL;
@@ -1301,7 +1301,7 @@ H5_daos_group_open_int(H5_daos_item_t *item,
     if(!grp) {
         must_bcast = FALSE;     /* Helper function will handle bcast */
         if(NULL == (grp = H5_daos_group_open_helper(item->file, gapl_id,
-                req, collective, first_task, dep_task)))
+                collective, req, first_task, dep_task)))
             D_GOTO_ERROR(H5E_SYM, H5E_CANTOPENOBJ, NULL, "can't open group");
 
         /* Set group oid */
@@ -1956,8 +1956,7 @@ H5_daos_group_gnl_task(tse_task_t *task)
 
         /* Initialize iteration data */
         H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_LINK, H5_INDEX_NAME, H5_ITER_NATIVE,
-                FALSE, NULL, target_grp_id, udata->nlinks, NULL, H5P_DATASET_XFER_DEFAULT,
-                udata->md_rw_cb_ud.req, &first_task, &dep_task);
+                FALSE, NULL, target_grp_id, udata->nlinks, NULL, udata->md_rw_cb_ud.req);
         iter_data.u.link_iter_data.u.link_iter_op = H5_daos_link_iterate_count_links_callback;
 
         /* Retrieve the number of links in the group. */

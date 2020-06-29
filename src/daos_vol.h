@@ -249,24 +249,20 @@ do {                                                                            
 } while(1)
 
 /* Macro to initialize all non-specific fields of an H5_daos_iter_data_t struct */
-#define H5_DAOS_ITER_DATA_INIT(_iter_data, _iter_type, _idx_type, _iter_order,  \
-    _is_recursive, _idx_p, _iter_root_obj, _op_data, _op_ret_p, _dxpl_id, _req, \
-    _first_task, _dep_task)                                                     \
-do {                                                                            \
-    memset(&_iter_data, 0, sizeof(H5_daos_iter_data_t));                        \
-    _iter_data.iter_type = _iter_type;                                          \
-    _iter_data.index_type = _idx_type;                                          \
-    _iter_data.iter_order = _iter_order;                                        \
-    _iter_data.is_recursive = _is_recursive;                                    \
-    _iter_data.idx_p = _idx_p;                                                  \
-    _iter_data.iter_root_obj = _iter_root_obj;                                  \
-    _iter_data.op_data = _op_data;                                              \
-    _iter_data.op_ret = H5_ITER_CONT;                                           \
-    _iter_data.op_ret_p = _op_ret_p;                                            \
-    _iter_data.dxpl_id = _dxpl_id;                                              \
-    _iter_data.req = _req;                                                      \
-    _iter_data.first_task = _first_task;                                        \
-    _iter_data.dep_task = _dep_task;                                            \
+#define H5_DAOS_ITER_DATA_INIT(_iter_data, _iter_type, _idx_type, _iter_order, \
+    _is_recursive, _idx_p, _iter_root_obj, _op_data, _op_ret_p, _req)          \
+do {                                                                           \
+    memset(&_iter_data, 0, sizeof(H5_daos_iter_data_t));                       \
+    _iter_data.iter_type = _iter_type;                                         \
+    _iter_data.index_type = _idx_type;                                         \
+    _iter_data.iter_order = _iter_order;                                       \
+    _iter_data.is_recursive = _is_recursive;                                   \
+    _iter_data.idx_p = _idx_p;                                                 \
+    _iter_data.iter_root_obj = _iter_root_obj;                                 \
+    _iter_data.op_data = _op_data;                                             \
+    _iter_data.op_ret = H5_ITER_CONT;                                          \
+    _iter_data.op_ret_p = _op_ret_p;                                           \
+    _iter_data.req = _req;                                                     \
 } while(0)
 
 /* Temporary macro to wait until an async chain is complete when async
@@ -567,11 +563,8 @@ typedef struct H5_daos_iter_data_t {
     herr_t            op_ret;
     herr_t           *op_ret_p;
 
-    hid_t             dxpl_id; /* TODO: remove this from this struct, switch code to use req->dxpl_id */
     hbool_t           short_circuit_init;
     H5_daos_req_t    *req;
-    tse_task_t      **first_task; /* TODO: remove this and dep_task from this struct. */
-    tse_task_t      **dep_task; /* Do not write new code that uses these fields. */
 
     H5_daos_iter_data_type_t iter_type;
     union {
@@ -840,7 +833,7 @@ H5VL_DAOS_PRIVATE void *H5_daos_group_create_helper(H5_daos_file_t *file, hbool_
     hid_t gcpl_id, hid_t gapl_id, H5_daos_group_t *parent_grp, const char *name, size_t name_len,
     hbool_t collective, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE H5_daos_group_t *H5_daos_group_open_helper(
-    H5_daos_file_t *file, hid_t gapl_id, H5_daos_req_t *req, hbool_t collective,
+    H5_daos_file_t *file, hid_t gapl_id, hbool_t collective, H5_daos_req_t *req,
     tse_task_t **first_task, tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE H5_daos_group_t *H5_daos_group_open_int(H5_daos_item_t *item,
     const H5VL_loc_params_t *loc_params, const char *name, hid_t gapl_id,

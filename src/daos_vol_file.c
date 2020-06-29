@@ -1758,7 +1758,7 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
 
     /* Open root group and fill in root group's oid */
     if(NULL == (file->root_grp = H5_daos_group_open_helper(file,
-            H5P_GROUP_ACCESS_DEFAULT, int_req, TRUE, &first_task, &dep_task)))
+            H5P_GROUP_ACCESS_DEFAULT, TRUE, int_req, &first_task, &dep_task)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENOBJ, NULL, "can't open root group");
     file->root_grp->obj.oid = root_grp_oid;
 

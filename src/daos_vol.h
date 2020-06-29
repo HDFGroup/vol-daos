@@ -757,10 +757,10 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_link_specific(void *_item, const H5VL_loc_param
 H5VL_DAOS_PRIVATE int H5_daos_link_write(H5_daos_group_t *grp, const char *name,
     size_t name_len, H5_daos_link_val_t *val, H5_daos_req_t *req,
     tse_task_t **first_task, tse_task_t **dep_task);
-H5VL_DAOS_PRIVATE herr_t H5_daos_link_copy_int(H5_daos_item_t *src_item,
+H5VL_DAOS_PRIVATE herr_t H5_daos_link_copy_move_int(H5_daos_item_t *src_item,
     const H5VL_loc_params_t *loc_params1, H5_daos_item_t *dst_item,
-    const H5VL_loc_params_t *loc_params2, hid_t lcpl, H5_daos_req_t *req,
-    tse_task_t **first_task, tse_task_t **dep_task);
+    const H5VL_loc_params_t *loc_params2, hid_t lcpl, hbool_t move,
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE htri_t H5_daos_link_exists(H5_daos_item_t *item,
     const char *link_path, H5_daos_req_t *req, tse_task_t **first_task,
     tse_task_t **dep_task);

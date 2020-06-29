@@ -63,6 +63,8 @@ H5_daos_err_to_string(int ret)
             return "HDF5 copy operation failed (H5_DAOS_H5_COPY_ERROR)";
         case -H5_DAOS_H5_UNSUPPORTED_ERROR:
             return "Unsupported HDF5 operation (H5_DAOS_H5_UNSUPPORTED_ERROR)";
+        case -H5_DAOS_H5_ITER_ERROR:
+            return "Error occured during iteration (H5_DAOS_H5_ITER_ERROR)";
         case -H5_DAOS_H5PSET_ERROR:
             return "failed to set info on HDF5 property list (H5_DAOS_H5PSET_ERROR)";
         case -H5_DAOS_H5PGET_ERROR:

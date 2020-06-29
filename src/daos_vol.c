@@ -295,6 +295,7 @@ MPI_Request H5_daos_mpi_req_g;
 /* Constant Keys */
 const char H5_daos_int_md_key_g[]          = "/Internal Metadata";
 const char H5_daos_root_grp_oid_key_g[]    = "Root Group OID";
+const char H5_daos_rc_key_g[]              = "Ref Count";
 const char H5_daos_cpl_key_g[]             = "Creation Property List";
 const char H5_daos_link_key_g[]            = "Link";
 const char H5_daos_link_corder_key_g[]     = "/Link Creation Order";
@@ -313,6 +314,7 @@ const char H5_daos_fillval_key_g[]         = "Fill Value";
 
 const daos_size_t H5_daos_int_md_key_size_g          = (daos_size_t)(sizeof(H5_daos_int_md_key_g) - 1);
 const daos_size_t H5_daos_root_grp_oid_key_size_g    = (daos_size_t)(sizeof(H5_daos_root_grp_oid_key_g) - 1);
+const daos_size_t H5_daos_rc_key_size_g              = (daos_size_t)(sizeof(H5_daos_rc_key_g) - 1);
 const daos_size_t H5_daos_cpl_key_size_g             = (daos_size_t)(sizeof(H5_daos_cpl_key_g) - 1);
 const daos_size_t H5_daos_link_key_size_g            = (daos_size_t)(sizeof(H5_daos_link_key_g) - 1);
 const daos_size_t H5_daos_link_corder_key_size_g     = (daos_size_t)(sizeof(H5_daos_link_corder_key_g) - 1);
@@ -327,7 +329,7 @@ const daos_size_t H5_daos_ktype_size_g               = (daos_size_t)(sizeof(H5_d
 const daos_size_t H5_daos_vtype_size_g               = (daos_size_t)(sizeof(H5_daos_vtype_g) - 1);
 const daos_size_t H5_daos_map_key_size_g             = (daos_size_t)(sizeof(H5_daos_map_key_g) - 1);
 const daos_size_t H5_daos_blob_key_size_g            = (daos_size_t)(sizeof(H5_daos_blob_key_g) - 1);
-const daos_size_t H5_daos_fillval_key_size_g            = (daos_size_t)(sizeof(H5_daos_fillval_key_g) - 1);
+const daos_size_t H5_daos_fillval_key_size_g         = (daos_size_t)(sizeof(H5_daos_fillval_key_g) - 1);
 
 
 /*-------------------------------------------------------------------------
@@ -3853,7 +3855,7 @@ H5_daos_list_key_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
 done:
     D_FUNC_LEAVE;
-} /* end H5_daos_md_rw_prep_cb() */
+} /* end H5_daos_list_key_prep_cb() */
 
 
 /*-------------------------------------------------------------------------

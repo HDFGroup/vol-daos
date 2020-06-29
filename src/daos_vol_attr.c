@@ -1142,7 +1142,7 @@ done:
  *
  * Purpose:     Sends a request to DAOS to open an attribute
  *
- * Return:      Success:        attribute object. 
+ * Return:      Success:        attribute object.
  *              Failure:        NULL
  *
  * Programmer:  Neil Fortner

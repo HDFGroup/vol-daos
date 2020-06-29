@@ -158,6 +158,22 @@ typedef struct H5_daos_object_update_num_attrs_key_ud_t {
     uint8_t nattrs_new_buf[H5_DAOS_ENCODED_NUM_ATTRS_SIZE];
 } H5_daos_object_update_num_attrs_key_ud_t;
 
+/* User data struct for object reference count operations */
+typedef struct H5_daos_obj_rw_rc_ud_t {
+    H5_daos_req_t *req;
+    H5_daos_obj_t **obj_p;
+    H5_daos_obj_t *obj;
+    uint64_t *rc;
+    int64_t adjust;
+    daos_key_t dkey;
+    daos_iod_t iod;
+    daos_sg_list_t sgl;
+    daos_iov_t sg_iov;
+    uint8_t rc_buf[H5_DAOS_ENCODED_RC_SIZE];
+    tse_task_t *op_task;
+    char *task_name;
+} H5_daos_obj_rw_rc_ud_t;
+
 /********************/
 /* Local Prototypes */
 /********************/
@@ -229,6 +245,10 @@ static herr_t H5_daos_object_visit_soft(H5_daos_group_t *target_grp, const char 
     tse_task_t **first_task, tse_task_t **dep_task);
 static int H5_daos_object_visit_soft_task(tse_task_t *task);
 static int H5_daos_object_visit_finish(tse_task_t *task);
+static int H5_daos_obj_read_rc_prep_cb(tse_task_t *task, void *args);
+static int H5_daos_obj_read_rc_comp_cb(tse_task_t *task, void *args);
+static int H5_daos_obj_write_rc_task(tse_task_t *task);
+static int H5_daos_obj_write_rc_comp_cb(tse_task_t *task, void *args);
 
 
 
@@ -4493,3 +4513,539 @@ done:
 
     D_FUNC_LEAVE;
 } /* end H5_daos_object_update_num_attrs_key_comp_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_obj_read_rc_prep_cb
+ *
+ * Purpose:     Prepare callback for asynchronous fetch of object
+ *              reference count.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ * Programmer:  Neil Fortner
+ *              June, 2020
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_obj_read_rc_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_obj_rw_rc_ud_t *udata;
+    daos_obj_rw_t *rw_args;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for metadata I/O task");
+
+    assert(udata->obj_p);
+    assert(udata->req);
+    assert(udata->req->file);
+    assert(!udata->req->file->closed);
+
+    /* Handle errors */
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
+        tse_task_complete(task, -H5_DAOS_PRE_ERROR);
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    } /* end if */
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT) {
+        tse_task_complete(task, -H5_DAOS_SHORT_CIRCUIT);
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
+    } /* end if */
+
+    /* Set update task arguments */
+    if(NULL == (rw_args = daos_task_get_args(task))) {
+        tse_task_complete(task, -H5_DAOS_DAOS_GET_ERROR);
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for object ref count read task");
+    } /* end if */
+    rw_args->oh = (*udata->obj_p)->obj_oh;
+    rw_args->th = udata->req->th;
+    rw_args->flags = 0;
+
+    /* Set up dkey */
+    daos_iov_set(&udata->dkey, (void *)H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
+    rw_args->dkey = &udata->dkey;
+
+    /* Set nr */
+    rw_args->nr = 1;
+
+    /* Set up iod */
+    daos_iov_set(&udata->iod.iod_name, (void *)H5_daos_rc_key_g, H5_daos_rc_key_size_g);
+    udata->iod.iod_nr = 1u;
+    udata->iod.iod_size = (daos_size_t)H5_DAOS_ENCODED_RC_SIZE;
+    udata->iod.iod_type = DAOS_IOD_SINGLE;
+    rw_args->iods = &udata->iod;
+
+    /* Set up sgl */
+    daos_iov_set(&udata->sg_iov, udata->rc_buf, (daos_size_t)H5_DAOS_ENCODED_RC_SIZE);
+    udata->sgl.sg_nr = 1;
+    udata->sgl.sg_nr_out = 0;
+    udata->sgl.sg_iovs = &udata->sg_iov;
+    rw_args->sgls = &udata->sgl;
+
+done:
+    D_FUNC_LEAVE;
+} /* end H5_daos_obj_read_rc_prep_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_obj_read_rc_comp_cb
+ *
+ * Purpose:     Complete callback for asynchronous fetch of object
+ *              reference count.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ * Programmer:  Neil Fortner
+ *              June, 2020
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_obj_read_rc_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_obj_rw_rc_ud_t *udata;
+    uint64_t rc_val;
+    uint8_t *p;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for metadata I/O task");
+    assert(!udata->req->file->closed);
+
+    /* Handle errors in fetch task.  Only record error in udata->req_status if
+     * it does not already contain an error (it could contain an error if
+     * another task this task is not dependent on also failed). */
+    if(task->dt_result < -H5_DAOS_PRE_ERROR
+            && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+        udata->req->status = task->dt_result;
+        udata->req->failed_task = "object fetch ref count";
+    } /* end if */
+    else if(task->dt_result == 0) {
+        /* Set output */
+        /* Check for no rc found, in this case the rc is 0 */
+        if(udata->iod.iod_size == 0)
+            *udata->rc = (uint64_t)1;
+        else {
+            /* Decode read rc value */
+            p = udata->rc_buf;
+            UINT64DECODE(p, rc_val);
+
+            *udata->rc = rc_val;
+        } /* end else */
+    } /* end if */
+
+done:
+    /* Clean up */
+    if(udata) {
+        /* Handle errors in this function */
+        /* Do not place any code that can issue errors after this block, except for
+         * H5_daos_req_free_int, which updates req->status if it sees an error */
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+            udata->req->status = ret_value;
+            udata->req->failed_task = "read object ref count completion callback";
+        } /* end if */
+
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(udata->req) < 0)
+            D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+        /* Free udata */
+        udata = DV_free(udata);
+    } /* end if */
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_obj_read_rc_comp_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_obj_read_rc
+ *
+ * Purpose:     Retrieves the object's reference count.  obj_p does not
+ *              need to point to a valid H5_daos_obj_t * until after
+ *              dep_task (as passed to this function) completes.
+ *
+ * Return:      0 on success/Negative error code on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+int
+H5_daos_obj_read_rc(H5_daos_obj_t **obj_p, uint64_t *rc, H5_daos_req_t *req,
+    tse_task_t **first_task, tse_task_t **dep_task)
+{
+    H5_daos_obj_rw_rc_ud_t *fetch_udata = NULL;
+    tse_task_t *fetch_task = NULL;
+    int ret;
+    int ret_value = 0;
+
+    assert(obj_p);
+    assert(rc);
+    assert(req);
+    assert(req->file);
+    assert(first_task);
+    assert(dep_task);
+    H5daos_compile_assert(H5_DAOS_ENCODED_RC_SIZE == H5_DAOS_ENCODED_UINT64_T_SIZE);
+
+    /* Allocate task udata struct */
+    if(NULL == (fetch_udata = (H5_daos_obj_rw_rc_ud_t *)DV_calloc(sizeof(H5_daos_obj_rw_rc_ud_t))))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate read ref count user data");
+    fetch_udata->req = req;
+    fetch_udata->obj_p = obj_p;
+    fetch_udata->rc = rc;
+
+    /* Create task for rc fetch */
+    if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &req->file->sched, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &fetch_task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't create task to read object ref count: %s", H5_daos_err_to_string(ret));
+
+    /* Set callback functions for rc fetch */
+    if(0 != (ret = tse_task_register_cbs(fetch_task, H5_daos_obj_read_rc_prep_cb, NULL, 0, H5_daos_obj_read_rc_comp_cb, NULL, 0)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't register callbacks for task to read object ref count: %s", H5_daos_err_to_string(ret));
+
+    /* Set private data for rc fetch */
+    (void)tse_task_set_priv(fetch_task, fetch_udata);
+
+    /* Schedule fetch task (or save it to be scheduled later) and give it a
+     * reference to req and udata */
+    if(*first_task) {
+        if(0 != (ret = tse_task_schedule(fetch_task, false)))
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't schedule task for object read ref count: %s", H5_daos_err_to_string(ret));
+    } /* end if */
+    else
+        *first_task = fetch_task;
+    *dep_task = fetch_task;
+    req->rc++;
+    fetch_udata = NULL;
+
+done:
+    /* Clean up */
+    if(fetch_udata) {
+        assert(ret_value < 0);
+        fetch_udata = DV_free(fetch_udata);
+    } /* end if */
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_obj_read_rc() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_obj_write_rc_task
+ *
+ * Purpose:     Asynchronous task for object reference count write.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ * Programmer:  Neil Fortner
+ *              June, 2020
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_obj_write_rc_task(tse_task_t *task)
+{
+    H5_daos_obj_rw_rc_ud_t *udata;
+    H5_daos_req_t *req = NULL;
+    uint64_t cur_rc;
+    uint64_t new_rc;
+    int ret;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for object ref count write task");
+
+    assert(udata->obj_p);
+    assert(*udata->obj_p);
+    assert(udata->req);
+    assert(udata->req->file);
+    assert(!udata->req->file->closed);
+    assert(task == udata->op_task);
+
+    /* Assign req convenience pointer and take a refernce to it */
+    req = udata->req;
+    req->rc++;
+
+    /* Handle errors */
+    if(req->status < -H5_DAOS_SHORT_CIRCUIT) {
+        tse_task_complete(task, -H5_DAOS_PRE_ERROR);
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    } /* end if */
+    else if(req->status == -H5_DAOS_SHORT_CIRCUIT) {
+        tse_task_complete(task, -H5_DAOS_SHORT_CIRCUIT);
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
+    } /* end if */
+
+    /* Determine current ref count */
+    cur_rc = udata->rc ? *udata->rc : 0;
+    assert((int64_t)cur_rc + udata->adjust >= 0);
+
+    /* Check if we're deleting the object */
+    new_rc = (uint64_t)((int64_t)cur_rc + udata->adjust);
+    if(udata->adjust < 0 && new_rc == 0) {
+        tse_task_t *punch_task;
+        daos_obj_punch_t *punch_args;
+
+        /* Create task for object punch */
+        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_PUNCH, &req->file->sched, 0, NULL, &punch_task)))
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't create task to delete object: %s", H5_daos_err_to_string(ret));
+
+        /* Set callback functions for object punch */
+        if(0 != (ret = tse_task_register_cbs(punch_task, NULL, NULL, 0, H5_daos_obj_write_rc_comp_cb, NULL, 0)))
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't register callbacks for task to delete object: %s", H5_daos_err_to_string(ret));
+
+        /* Set private data for object punch */
+        (void)tse_task_set_priv(punch_task, udata);
+
+        /* Set punch task arguments */
+        if(NULL == (punch_args = daos_task_get_args(punch_task)))
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for object ref count write task");
+        punch_args->oh = (*udata->obj_p)->obj_oh;
+        punch_args->th = udata->req->th;
+        punch_args->flags = 0;
+        punch_args->dkey = NULL;
+        punch_args->akeys = NULL;
+        punch_args->akey_nr = 0;
+
+        udata->task_name = "object punch due to ref count dropping to 0";
+
+        /* Schedule punch_task task and transfer ownership of udata */
+        if(0 != (ret = tse_task_schedule(punch_task, false)))
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't schedule task for object delete: %s", H5_daos_err_to_string(ret));
+        udata = NULL;
+    } /* end if */
+    else {
+        tse_task_t *update_task;
+        daos_obj_rw_t *rw_args;
+        uint8_t *p;
+
+        /* Encode rc */
+        p = udata->rc_buf;
+        UINT64ENCODE(p, new_rc);
+
+        /* Create task for rc update */
+        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_UPDATE, &req->file->sched, 0, NULL, &update_task)))
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't create task to write object ref count: %s", H5_daos_err_to_string(ret));
+
+        /* Set callback functions for rc update */
+        if(0 != (ret = tse_task_register_cbs(update_task, NULL, NULL, 0, H5_daos_obj_write_rc_comp_cb, NULL, 0)))
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't register callbacks for task to write object ref count: %s", H5_daos_err_to_string(ret));
+
+        /* Set private data for rc fetch */
+        (void)tse_task_set_priv(update_task, udata);
+
+        /* Set update task arguments */
+        if(NULL == (rw_args = daos_task_get_args(update_task)))
+            D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for object ref count write task");
+        rw_args->oh = (*udata->obj_p)->obj_oh;
+        rw_args->th = udata->req->th;
+        rw_args->flags = 0;
+
+        /* Set up dkey */
+        daos_iov_set(&udata->dkey, (void *)H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
+        rw_args->dkey = &udata->dkey;
+
+        /* Set nr */
+        rw_args->nr = 1;
+
+        /* Set up iod */
+        daos_iov_set(&udata->iod.iod_name, (void *)H5_daos_rc_key_g, H5_daos_rc_key_size_g);
+        udata->iod.iod_nr = 1u;
+        udata->iod.iod_size = (daos_size_t)H5_DAOS_ENCODED_RC_SIZE;
+        udata->iod.iod_type = DAOS_IOD_SINGLE;
+        rw_args->iods = &udata->iod;
+
+        /* Set up sgl */
+        daos_iov_set(&udata->sg_iov, udata->rc_buf, (daos_size_t)H5_DAOS_ENCODED_RC_SIZE);
+        udata->sgl.sg_nr = 1;
+        udata->sgl.sg_nr_out = 0;
+        udata->sgl.sg_iovs = &udata->sg_iov;
+        rw_args->sgls = &udata->sgl;
+
+        udata->task_name = "object update ref count";
+
+        /* Schedule update_task task and transfer ownership of udata */
+        if(0 != (ret = tse_task_schedule(update_task, false)))
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't schedule task for object write ref count: %s", H5_daos_err_to_string(ret));
+        udata = NULL;
+    } /* end else */
+
+done:
+    /* Handle errors */
+    if(ret_value < 0 && req) {
+        /* Handle errors in this function */
+        /* Do not place any code that can issue errors after this block, except for
+         * H5_daos_req_free_int, which updates req->status if it sees an error */
+        if(ret_value != -H5_DAOS_SHORT_CIRCUIT && req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+            req->status = ret_value;
+            req->failed_task = "object ref count write task";
+        } /* end if */
+    } /* end if */
+
+    /* Release req */
+    if(req && H5_daos_req_free_int(req) < 0)
+        D_DONE_ERROR(H5E_LINK, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+    /* Cleanup */
+    if(udata) {
+        assert(ret_value < 0);
+
+        tse_task_complete(task, ret_value);
+        udata = DV_free(udata);
+    } /* end if */
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_obj_write_rc_task() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_obj_write_rc_comp_cb
+ *
+ * Purpose:     Complete callback for asynchronous write of object
+ *              reference count.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ * Programmer:  Neil Fortner
+ *              June, 2020
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_obj_write_rc_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_obj_rw_rc_ud_t *udata;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for metadata I/O task");
+    assert(!udata->req->file->closed);
+
+    /* Handle errors in update task.  Only record error in udata->req_status if
+     * it does not already contain an error (it could contain an error if
+     * another task this task is not dependent on also failed). */
+    if(task->dt_result < -H5_DAOS_PRE_ERROR
+            && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+        udata->req->status = task->dt_result;
+        udata->req->failed_task = udata->task_name;
+    } /* end if */
+
+done:
+    /* Clean up */
+    if(udata) {
+        /* Close object if a direct pointer was provided */
+        if(udata->obj && H5_daos_object_close(udata->obj, udata->req->dxpl_id, NULL) < 0)
+            D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
+
+        /* Handle errors in this function */
+        /* Do not place any code that can issue errors after this block, except for
+         * H5_daos_req_free_int, which updates req->status if it sees an error */
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+            udata->req->status = ret_value;
+            udata->req->failed_task = "write object ref count completion callback";
+        } /* end if */
+
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(udata->req) < 0)
+            D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+        /* Complete op task */
+        if(udata->op_task)
+            tse_task_complete(udata->op_task, ret_value);
+
+        /* Free udata */
+        udata = DV_free(udata);
+    } /* end if */
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_obj_write_rc_comp_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_obj_write_rc
+ *
+ * Purpose:     Writes the provided reference count to the object, after
+ *              adding adjust.  Exactly one of obj_p or obj must be
+ *              provided.  Use obj_p if the object struct is not yet
+ *              allocated when this function is called.  *obj_p / *obj and
+ *              *rc does not need to be valid until after dep_task (as
+ *              passed to this function) completes.  If rc is passed as
+ *              NULL *rc is taken to be 0.  If the object's ref count
+ *              drops to 0 it will be deleted from the file.  If *rc and
+ *              adjust are both 0 the object will not be deleted (this is
+ *              used for anonymous object creation).
+ *
+ * Return:      0 on success/Negative error code on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+int
+H5_daos_obj_write_rc(H5_daos_obj_t **obj_p, H5_daos_obj_t *obj, uint64_t *rc,
+    int64_t adjust, H5_daos_req_t *req, tse_task_t **first_task,
+    tse_task_t **dep_task)
+{
+    H5_daos_obj_rw_rc_ud_t *task_udata = NULL;
+    int ret;
+    int ret_value = 0;
+
+    assert(obj_p || obj);
+    assert(!(obj_p && obj));
+    assert(req);
+    assert(req->file);
+    assert(first_task);
+    assert(dep_task);
+    H5daos_compile_assert(H5_DAOS_ENCODED_RC_SIZE == H5_DAOS_ENCODED_UINT64_T_SIZE);
+
+    /* Allocate task udata struct */
+    if(NULL == (task_udata = (H5_daos_obj_rw_rc_ud_t *)DV_calloc(sizeof(H5_daos_obj_rw_rc_ud_t))))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate write ref count user data");
+    task_udata->req = req;
+    if(obj_p)
+        task_udata->obj_p = obj_p;
+    else {
+        task_udata->obj = obj;
+        obj->item.rc++;
+        task_udata->obj_p = &task_udata->obj;
+    } /* end else */
+    task_udata->rc = rc;
+    task_udata->adjust = adjust;
+
+    /* Create task to finish this operation */
+    if(0 !=  (ret = tse_task_create(H5_daos_obj_write_rc_task, &req->file->sched, task_udata, &task_udata->op_task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't create task for object write ref count: %s", H5_daos_err_to_string(ret));
+
+    /* Register task dependency */
+    if(*dep_task && 0 != (ret = tse_task_register_deps(task_udata->op_task, 1, dep_task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't create dependencies for object write ref count task: %s", H5_daos_err_to_string(ret));
+
+    /* Schedule task (or save it to be scheduled later) and give it a
+     * reference to req and udata */
+    if(*first_task) {
+        if(0 != (ret = tse_task_schedule(task_udata->op_task, false)))
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't schedule task for object write ref count: %s", H5_daos_err_to_string(ret));
+    } /* end if */
+    else
+        *first_task = task_udata->op_task;
+    *dep_task = task_udata->op_task;
+    req->rc++;
+    task_udata = NULL;
+
+done:
+    /* Clean up */
+    if(task_udata) {
+        assert(ret_value < 0);
+        task_udata = DV_free(task_udata);
+    } /* end if */
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_obj_write_rc() */
+

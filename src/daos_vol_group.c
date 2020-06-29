@@ -38,6 +38,13 @@ typedef struct H5_daos_group_gnl_ud_t {
     hsize_t *nlinks;
 } H5_daos_group_gnl_ud_t;
 
+/* User data struct for group get max creation order */
+typedef struct H5_daos_group_gmco_ud_t {
+    H5_daos_md_rw_cb_ud_t md_rw_cb_ud;
+    uint8_t max_corder_buf[H5_DAOS_ENCODED_CRT_ORDER_SIZE];
+    uint64_t *max_corder;
+} H5_daos_group_gmco_ud_t;
+
 /********************/
 /* Local Prototypes */
 /********************/
@@ -400,6 +407,14 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hbool_t is_root,
             if(0 != (ret = H5_daos_link_write(parent_grp, name, name_len,
                     &link_val, req, first_task, &gmt_deps[gmt_ndeps])))
                 D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't create link to group: %s", H5_daos_err_to_string(ret));
+            gmt_ndeps++;
+        } /* end if */
+        else if(!is_root) {
+            /* No link to group and it's not the root group, write a ref count
+             * of 0 to grp */
+             gmt_deps[gmt_ndeps] = *dep_task;
+            if(0 != (ret = H5_daos_obj_write_rc(NULL, &grp->obj, NULL, 0, req, first_task, &gmt_deps[gmt_ndeps])))
+                D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't write object ref count: %s", H5_daos_err_to_string(ret));
             gmt_ndeps++;
         } /* end if */
     } /* end if */
@@ -2122,7 +2137,7 @@ done:
         assert(ret_value >= 0 || ret_value == -H5_DAOS_DAOS_GET_ERROR);
 
     D_FUNC_LEAVE;
-} /* end H5_daos_link_gnbc_task() */
+} /* end H5_daos_group_gnl_task() */
 
 
 /*-------------------------------------------------------------------------
@@ -2195,7 +2210,7 @@ H5_daos_group_gnl_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
 done:
     D_FUNC_LEAVE;
-} /* end H5_daos_link_gnbc_comp_cb() */
+} /* end H5_daos_group_gnl_comp_cb() */
 
 
 /*-------------------------------------------------------------------------
@@ -2327,24 +2342,16 @@ done:
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_group_get_max_crt_order
+ * Function:    H5_daos_group_gmco_comp_cb
  *
- * Purpose:     Retrieves a group's current maximum creation order value.
- *              Note that this value may not match the current number of
- *              links within the group, as some of the links may have been
- *              deleted.
+ * Purpose:     Completion callback for asynchronous fetch of group max
+ *              creation order.
  *
  * Return:      Success:        0
- *              Failure:        -1
+ *              Failure:        Error code
  *
  *-------------------------------------------------------------------------
  */
-typedef struct H5_daos_group_gmco_ud_t {
-    H5_daos_md_rw_cb_ud_t md_rw_cb_ud;
-    uint8_t max_corder_buf[H5_DAOS_ENCODED_CRT_ORDER_SIZE];
-    uint64_t *max_corder;
-} H5_daos_group_gmco_ud_t;
-
 static int
 H5_daos_group_gmco_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
@@ -2416,6 +2423,20 @@ done:
     D_FUNC_LEAVE;
 } /* end H5_daos_group_gmco_comp_cb() */
 
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_group_get_max_crt_order
+ *
+ * Purpose:     Retrieves a group's current maximum creation order value.
+ *              Note that this value may not match the current number of
+ *              links within the group, as some of the links may have been
+ *              deleted.
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ *-------------------------------------------------------------------------
+ */
 herr_t
 H5_daos_group_get_max_crt_order(H5_daos_group_t *target_grp,
     uint64_t *max_corder, H5_daos_req_t *req, tse_task_t **first_task,

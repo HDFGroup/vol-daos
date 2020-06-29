@@ -772,6 +772,13 @@ H5_daos_dataset_create_helper(H5_daos_file_t *file, hid_t type_id, hid_t space_i
                 D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't create link to dataset: %s", H5_daos_err_to_string(ret));
             finalize_ndeps++;
         } /* end if */
+        else {
+            /* No link to dataset, write a ref count of 0 to dset */
+             finalize_deps[finalize_ndeps] = *dep_task;
+            if(0 != (ret = H5_daos_obj_write_rc(NULL, &dset->obj, NULL, 0, req, first_task, &finalize_deps[finalize_ndeps])))
+                D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't write object ref count: %s", H5_daos_err_to_string(ret));
+            finalize_ndeps++;
+        } /* end if */
     } /* end if */
     else {
         /* Note no barrier is currently needed here, daos_obj_open is a local

@@ -117,10 +117,23 @@ typedef struct H5_daos_link_write_corder_ud_t {
     tse_task_t *write_corder_task;
 } H5_daos_link_write_corder_ud_t;
 
+/* Task user data for creating hard links */
+typedef struct H5_daos_link_create_hard_ud_t {
+    H5_daos_req_t *req;
+    H5_daos_group_t *link_grp;
+    H5_daos_obj_t *target_obj;
+    const char *link_name;
+    size_t link_name_len;
+    H5_daos_link_val_t link_val;
+    uint64_t obj_rc;
+} H5_daos_link_create_hard_ud_t;
+
 /* Task user data for link copy */
 typedef struct H5_daos_link_copy_ud_t {
     H5_daos_req_t *req;
     H5_daos_obj_t *target_obj;
+    H5_daos_obj_t *link_target_obj;
+    uint64_t link_target_obj_rc;
     const char *new_link_name;
     size_t new_link_name_len;
     H5_daos_link_val_t link_val;
@@ -1753,6 +1766,126 @@ done:
 
 
 /*-------------------------------------------------------------------------
+ * Function:    H5_daos_link_create_task
+ *
+ * Purpose:     Asynchronous task for link create operation.  Basically
+ *              just wraps H5_daos_link_write().
+ *
+ * Return:      0 on success/Negative error code on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_link_create_task(tse_task_t *task)
+{
+    H5_daos_link_create_hard_ud_t *udata = NULL;
+    tse_task_t *first_task = NULL;
+    tse_task_t *dep_task = NULL;
+    int ret;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for link create task");
+
+    /* Handle errors in previous tasks */
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    } /* end if */
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT) {
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
+    } /* end if */
+
+    /* Set up link val */
+    udata->link_val.target_oid_async = NULL;
+    udata->link_val.target.hard = udata->target_obj->oid;
+
+    /* Write link */
+    if(0 != (ret = H5_daos_link_write((H5_daos_group_t *)&udata->link_grp->obj, udata->link_name,
+            udata->link_name_len, &udata->link_val, udata->req, &first_task, &dep_task)))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTCOPY, ret, "failed to write destination link: %s", H5_daos_err_to_string(ret));
+
+done:
+    if(udata) {
+        /* Schedule first task */
+        if(first_task && 0 != (ret = tse_task_schedule(first_task, false)))
+            D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, ret, "can't schedule initial task for link copy: %s", H5_daos_err_to_string(ret));
+
+        /* Handle errors in this function */
+        /* Do not place any code that can issue errors after this block, except for
+         * H5_daos_req_free_int, which updates req->status if it sees an error */
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+            udata->req->status = ret_value;
+            udata->req->failed_task = "link copy task";
+        } /* end if */
+    } /* end if */
+    else
+        assert(ret_value == -H5_DAOS_DAOS_GET_ERROR);
+
+    /* Complete this task */
+    tse_task_complete(task, ret_value);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_link_create_task() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_link_create_end_task
+ *
+ * Purpose:     Finalizes the link get name by name operation, setting
+ *              output and freeing data.
+ *
+ * Return:      Success:        0
+ *              Failure:        Negative
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_link_create_end_task(tse_task_t *task)
+{
+    H5_daos_link_create_hard_ud_t *udata = NULL;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for link get name by name task");
+
+    /* Handle errors in previous tasks */
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT)
+        ret_value = -H5_DAOS_PRE_ERROR;
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT)
+        ret_value = -H5_DAOS_SHORT_CIRCUIT;
+
+    /* Close link group and target object */
+    if(udata->link_grp && H5_daos_group_close(udata->link_grp, udata->req->dxpl_id, NULL) < 0)
+        D_DONE_ERROR(H5E_LINK, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close group");
+    if(udata->target_obj && H5_daos_object_close(udata->target_obj, udata->req->dxpl_id, NULL) < 0)
+        D_DONE_ERROR(H5E_LINK, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close target object");
+
+    /* Handle errors in this function */
+    /* Do not place any code that can issue errors after this block, except for
+     * H5_daos_req_free_int, which updates req->status if it sees an error */
+    if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+        udata->req->status = ret_value;
+        udata->req->failed_task = "get link name by name order end task";
+    } /* end if */
+
+    /* Release our reference to req */
+    if(H5_daos_req_free_int(udata->req) < 0)
+        D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+    /* Free udata */
+    udata = DV_free(udata);
+
+done:
+    /* Complete this task */
+    tse_task_complete(task, ret_value);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_link_create_end_task() */
+
+
+/*-------------------------------------------------------------------------
  * Function:    H5_daos_link_create
  *
  * Purpose:     Creates a hard/soft/UD/external links.
@@ -1767,11 +1900,12 @@ done:
 herr_t
 H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
     const H5VL_loc_params_t *loc_params, hid_t lcpl_id,
-    hid_t H5VL_DAOS_UNUSED lapl_id, hid_t dxpl_id, void **req, va_list arguments)
+    hid_t H5VL_DAOS_UNUSED lapl_id, hid_t dxpl_id, void H5VL_DAOS_UNUSED **req,
+    va_list arguments)
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
+    H5_daos_link_create_hard_ud_t *create_udata = NULL;
     H5_daos_obj_t *link_obj = NULL;
-    H5_daos_obj_t *target_obj = NULL;
     H5_daos_obj_t *target_loc_obj_hard = NULL;
     char *path_buf = NULL;
     const char *link_name = NULL;
@@ -1779,7 +1913,8 @@ H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
     H5_daos_link_val_t link_val;
     H5_daos_req_t *int_req = NULL;
     tse_task_t *first_task = NULL;
-    tse_task_t *dep_task = NULL;
+    tse_task_t *dep_tasks[2] = {NULL, NULL};
+    int ndeps = 0;
     int ret;
     herr_t ret_value = SUCCEED;
 
@@ -1787,6 +1922,9 @@ H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "location parameters object is NULL");
     if(loc_params->type != H5VL_OBJECT_BY_NAME)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "location parameters type is not H5VL_OBJECT_BY_NAME");
+
+    /* Initialize link_val */
+    link_val.type = H5L_TYPE_ERROR;
 
     /* Handle usage of the H5L_SAME_LOC macro for H5Lcreate_hard.
      * Usage of this macro can cause `item` to be NULL; however,
@@ -1822,7 +1960,7 @@ H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "link loc. object is NULL");
 
     /* Start H5 operation */
-    if(NULL == (int_req = H5_daos_req_create(item->file, H5I_INVALID_HID)))
+    if(NULL == (int_req = H5_daos_req_create(item->file, dxpl_id)))
         D_GOTO_ERROR(H5E_LINK, H5E_CANTALLOC, FAIL, "can't create DAOS request");
 
 #ifdef H5_DAOS_USE_TRANSACTIONS
@@ -1832,71 +1970,13 @@ H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
     int_req->th_open = TRUE;
 #endif /* H5_DAOS_USE_TRANSACTIONS */
 
-    switch(create_type) {
-        case H5VL_LINK_CREATE_HARD:
-        {
-            H5VL_loc_params_t *target_loc_params_hard = va_arg(arguments, H5VL_loc_params_t *);
-
-            assert(target_loc_obj_hard);
-
-            link_val.type = H5L_TYPE_HARD;
-
-            if(H5VL_OBJECT_BY_NAME == target_loc_params_hard->type) {
-                /* Attempt to open the hard link's target object */
-                if(H5_daos_object_open_helper((H5_daos_item_t *)target_loc_obj_hard, target_loc_params_hard,
-                        NULL, TRUE, &target_obj, int_req, &first_task, &dep_task) < 0)
-                    D_GOTO_ERROR(H5E_LINK, H5E_CANTOPENOBJ, FAIL, "couldn't open hard link's target object");
-
-                /* Wait until everything is complete then check for errors
-                 * (temporary code until the rest of this function is async) */
-                /* Need this because link_write doesn't handle async link_val */
-                if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
-                    D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
-                if(H5_daos_progress(&item->file->sched, NULL, H5_DAOS_PROGRESS_WAIT) < 0)
-                    D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't progress scheduler");
-                first_task = NULL;
-                dep_task = NULL;
-                if(int_req->status < -H5_DAOS_INCOMPLETE)
-                    D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "asynchronous task failed: %s", H5_daos_err_to_string(int_req->status));
-
-                link_val.target.hard = target_obj->oid;
-            }
-            else {
-                /* H5Olink */
-                if(H5VL_OBJECT_BY_SELF != target_loc_params_hard->type)
-                    D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, FAIL, "invalid loc_params type");
-
-                link_val.target.hard = target_loc_obj_hard->oid;
-            }
-
-            /*
-             * TODO: if the link write succeeds, the link ref. count for
-             * the target object should be incremented.
-             */
-
-            break;
-        } /* H5VL_LINK_CREATE_HARD */
-
-        case H5VL_LINK_CREATE_SOFT:
-            /* Retrieve target name */
-            link_val.type = H5L_TYPE_SOFT;
-            link_val.target.soft = (char *)va_arg(arguments, const char *);
-
-            break;
-
-        case H5VL_LINK_CREATE_UD:
-            D_GOTO_ERROR(H5E_LINK, H5E_UNSUPPORTED, FAIL, "UD link creation not supported");
-            break;
-
-        default:
-            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "invalid link creation call");
-    } /* end switch */
-
     /* Find target group */
     /* This needs to be made collective DSINC */
     if(NULL == (link_obj = H5_daos_group_traverse(item, loc_params->loc_data.loc_by_name.name,
-            lcpl_id, int_req, FALSE, &path_buf, &link_name, &link_name_len, &first_task, &dep_task)))
+            lcpl_id, int_req, FALSE, &path_buf, &link_name, &link_name_len, &first_task, &dep_tasks[0])))
         D_GOTO_ERROR(H5E_SYM, H5E_BADITER, FAIL, "can't traverse path");
+    if(dep_tasks[0])
+        ndeps++;
 
     /* Check type of link_obj */
     if(link_obj->item.type != H5I_GROUP)
@@ -1906,29 +1986,149 @@ H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
     if(link_name_len == 0)
         D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, FAIL, "path given does not resolve to a final link name");
 
-    /* Create link */
-    link_val.target_oid_async = NULL;
-    if(0 != (ret = H5_daos_link_write((H5_daos_group_t *)link_obj, link_name, strlen(link_name),
-            &link_val, int_req, &first_task, &dep_task)))
-        D_GOTO_ERROR(H5E_LINK, H5E_WRITEERROR, FAIL, "can't create link: %s", H5_daos_err_to_string(ret));
+    switch(create_type) {
+        case H5VL_LINK_CREATE_HARD:
+        {
+            H5VL_loc_params_t *target_loc_params_hard = va_arg(arguments, H5VL_loc_params_t *);
+            tse_task_t *create_task = NULL;
+
+            assert(target_loc_obj_hard);
+
+            /* Allocate task udata struct and give it ownership of link_obj and
+             * a reference to req */
+             if(NULL == (create_udata = (H5_daos_link_create_hard_ud_t *)DV_calloc(sizeof(H5_daos_link_create_hard_ud_t))))
+                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate get link create user data");
+            create_udata->req = int_req;
+            int_req->rc++;
+            create_udata->link_grp = (H5_daos_group_t *)link_obj;
+            link_obj = NULL;
+            create_udata->link_name = link_name;
+            create_udata->link_name_len = link_name_len;
+            create_udata->link_val.type = H5L_TYPE_HARD;
+
+            if(H5VL_OBJECT_BY_NAME == target_loc_params_hard->type) {
+                /* Attempt to open the hard link's target object */
+                if(H5_daos_object_open_helper((H5_daos_item_t *)target_loc_obj_hard, target_loc_params_hard,
+                        NULL, FALSE, &create_udata->target_obj, int_req, &first_task, &dep_tasks[ndeps]) < 0)
+                    D_GOTO_ERROR(H5E_LINK, H5E_CANTOPENOBJ, FAIL, "couldn't open hard link's target object");
+                if(dep_tasks[ndeps])
+                    ndeps++;
+            } /* end if */
+            else {
+                /* H5Olink */
+                if(H5VL_OBJECT_BY_SELF != target_loc_params_hard->type)
+                    D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, FAIL, "invalid loc_params type");
+
+                create_udata->target_obj = target_loc_obj_hard;
+                target_loc_obj_hard->item.rc++;
+            } /* end else */
+
+            /* Create task to write link */
+            if(0 !=  (ret = tse_task_create(H5_daos_link_create_task, &item->file->sched, create_udata, &create_task)))
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create task for link create: %s", H5_daos_err_to_string(ret));
+
+            /* Register task dependency */
+            if(ndeps > 0 && 0 != (ret = tse_task_register_deps(create_task, ndeps, dep_tasks)))
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create dependencies for link create task: %s", H5_daos_err_to_string(ret));
+
+            /* Schedule create task (or save it to be scheduled later).  It will
+             * share the reference to req and udata with other tasks */
+            if(first_task) {
+                if(0 != (ret = tse_task_schedule(create_task, false)))
+                    D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't schedule task for link create: %s", H5_daos_err_to_string(ret));
+            } /* end if */
+            else
+                first_task = create_task;
+            dep_tasks[0] = create_task;
+            ndeps = 1;
+
+            /* Read target object ref count */
+            if(0 != (ret = H5_daos_obj_read_rc(&create_udata->target_obj, &create_udata->obj_rc, int_req, &first_task, &dep_tasks[0])))
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't get target object ref count: %s", H5_daos_err_to_string(ret));
+
+            /* Increment and write ref count */
+            if(0 != (ret = H5_daos_obj_write_rc(&create_udata->target_obj, NULL, &create_udata->obj_rc, 1, int_req, &first_task, &dep_tasks[0])))
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTINC, FAIL, "can't write updated target object ref count: %s", H5_daos_err_to_string(ret));
+
+            break;
+        } /* H5VL_LINK_CREATE_HARD */
+
+        case H5VL_LINK_CREATE_SOFT:
+        {
+            /* Retrieve target name */
+            const char *slink_val = va_arg(arguments, const char *);
+
+            /* Set up soft link */
+            link_val.type = H5L_TYPE_SOFT;
+            if(NULL == (link_val.target.soft = strdup(slink_val)))
+                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't copy soft link value");
+
+            /* Create link */
+            link_val.target_oid_async = NULL;
+            if(0 != (ret = H5_daos_link_write((H5_daos_group_t *)link_obj, link_name, strlen(link_name),
+                    &link_val, int_req, &first_task, &dep_tasks[0])))
+                D_GOTO_ERROR(H5E_LINK, H5E_WRITEERROR, FAIL, "can't create link: %s", H5_daos_err_to_string(ret));
+            assert(ndeps <= 1);
+            if(dep_tasks[0])
+                ndeps = 1;
+
+            break;
+        } /* H5VL_LINK_CREATE_HARD */
+
+        case H5VL_LINK_CREATE_UD:
+            D_GOTO_ERROR(H5E_LINK, H5E_UNSUPPORTED, FAIL, "UD link creation not supported");
+            break;
+
+        default:
+            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "invalid link creation call");
+    } /* end switch */
 
 done:
-    /* Close link object and target object */
-    if(link_obj && H5_daos_object_close(link_obj, dxpl_id, req) < 0)
-        D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group");
-    if(target_obj && H5_daos_object_close(target_obj, dxpl_id, req) < 0)
-        D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, FAIL, "can't close object");
+    /* Create task to free create_udata if present */
+    if(create_udata) {
+        tse_task_t *end_task = NULL;
+
+        assert(int_req);
+
+        /* Create task to free udata */
+        if(0 !=  (ret = tse_task_create(H5_daos_link_create_end_task, &item->file->sched, create_udata, &end_task)))
+            D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create end task for link create: %s", H5_daos_err_to_string(ret));
+        else {
+            /* Register task dependency */
+            if(ndeps > 0 && 0 != (ret = tse_task_register_deps(end_task, ndeps, dep_tasks)))
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create dependencies for link create end task: %s", H5_daos_err_to_string(ret));
+
+            /* Schedule create task (or save it to be scheduled later) and give it a
+             * reference to req and udata */
+            if(first_task) {
+                if(0 != (ret = tse_task_schedule(end_task, false)))
+                    D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't schedule end task for link create: %s", H5_daos_err_to_string(ret));
+            } /* end if */
+            else
+                first_task = end_task;
+            dep_tasks[0] = end_task;
+            ndeps = 1;
+            create_udata = NULL;
+        } /* end else */
+    } /* end if */
+
+    /* Close link object */
+    if(link_obj && H5_daos_object_close(link_obj, dxpl_id, NULL) < 0)
+        D_DONE_ERROR(H5E_LINK, H5E_CLOSEERROR, FAIL, "can't close group");
 
     if(int_req) {
-        /* Free path_buf if necessary */
-        if(path_buf && H5_daos_free_async(item->file, path_buf, &first_task, &dep_task) < 0)
+        /* Free path_buf and soft link value if necessary */
+        if(path_buf && H5_daos_free_async(item->file, path_buf, &first_task, &dep_tasks[0]) < 0)
             D_DONE_ERROR(H5E_LINK, H5E_CANTFREE, FAIL, "can't free path buffer");
+        if(link_val.type == H5L_TYPE_SOFT && link_val.target.soft
+                && H5_daos_free_async(item->file, link_val.target.soft, &first_task, &dep_tasks[0]) < 0)
+            D_DONE_ERROR(H5E_LINK, H5E_CANTFREE, FAIL, "can't free soft link value buffer");
 
         /* Create task to finalize H5 operation */
         if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &item->file->sched, int_req, &int_req->finalize_task)))
             D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
         /* Register dependency (if any) */
-        else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
+        else if(ndeps > 0 && 0 != (ret = tse_task_register_deps(int_req->finalize_task, ndeps, dep_tasks)))
             D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
         /* Schedule finalize task */
         else if(0 != (ret = tse_task_schedule(int_req->finalize_task, false)))
@@ -1980,7 +2180,8 @@ H5_daos_link_copy_task(tse_task_t *task)
 {
     H5_daos_link_copy_ud_t *udata = NULL;
     tse_task_t *first_task = NULL;
-    tse_task_t *dep_task = NULL;
+    tse_task_t *dep_tasks[2] = {NULL, NULL};
+    int ndeps = 0;
     int ret;
     int ret_value = 0;
 
@@ -1996,11 +2197,47 @@ H5_daos_link_copy_task(tse_task_t *task)
         D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
     } /* end if */
 
-    /* Write link to destination group */
+    /* Write link to destination object */
     udata->link_val.target_oid_async = NULL;
     if(0 != (ret = H5_daos_link_write((H5_daos_group_t *)udata->target_obj, udata->new_link_name,
-            udata->new_link_name_len, &udata->link_val, udata->req, &first_task, &dep_task)))
-        D_GOTO_ERROR(H5E_LINK, H5E_CANTCOPY, FAIL, "failed to write destination link: %s", H5_daos_err_to_string(ret));
+            udata->new_link_name_len, &udata->link_val, udata->req, &first_task, &dep_tasks[ndeps])))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTCOPY, ret, "failed to write destination link: %s", H5_daos_err_to_string(ret));
+    if(dep_tasks[0])
+        ndeps++;
+
+    /* If it's a hard link we must increment the ref count */
+    if(udata->link_val.type == H5L_TYPE_HARD) {
+        H5VL_loc_params_t link_target_loc_params;
+        H5O_token_t token;
+        int rc_task = ndeps;
+
+        /* Encode loc_params for opening link target object */
+        link_target_loc_params.obj_type = udata->target_obj->item.type;
+        link_target_loc_params.type = H5VL_OBJECT_BY_TOKEN;
+        if(H5_daos_oid_to_token(udata->link_val.target.hard, &token) < 0)
+            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_H5_ENCODE_ERROR, "failed to encode token");
+        link_target_loc_params.loc_data.loc_by_token.token = &token;
+
+        /* Attempt to open the hard link's target object */
+        /* TODO: no logic for 'collective' yet */
+        if(H5_daos_object_open_helper(&udata->target_obj->item, &link_target_loc_params,
+                NULL, FALSE, &udata->link_target_obj, udata->req, &first_task, &dep_tasks[rc_task]) < 0)
+            D_GOTO_ERROR(H5E_LINK, H5E_CANTOPENOBJ, -H5_DAOS_H5_OPEN_ERROR, "couldn't open hard link's target object");
+        if(dep_tasks[rc_task])
+            ndeps++;
+
+        /* Read target object ref count */
+        if(0 != (ret = H5_daos_obj_read_rc(&udata->link_target_obj, &udata->link_target_obj_rc, udata->req, &first_task, &dep_tasks[1])))
+            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, ret, "can't get target object ref count: %s", H5_daos_err_to_string(ret));
+        if(rc_task == ndeps && dep_tasks[rc_task])
+            ndeps++;
+
+        /* Increment and write ref count */
+        if(0 != (ret = H5_daos_obj_write_rc(&udata->link_target_obj, NULL, &udata->link_target_obj_rc, 1, udata->req, &first_task, &dep_tasks[1])))
+            D_GOTO_ERROR(H5E_LINK, H5E_CANTINC, ret, "can't write updated target object ref count: %s", H5_daos_err_to_string(ret));
+        if(rc_task == ndeps && dep_tasks[rc_task])
+            ndeps++;
+    } /* end if */
 
 done:
     if(udata) {
@@ -2010,8 +2247,8 @@ done:
         if(0 !=  (ret = tse_task_create(H5_daos_link_copy_end_task, &udata->req->file->sched, udata, &end_task)))
             D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, ret, "can't create task for link copy end: %s", H5_daos_err_to_string(ret));
         else {
-            /* Register task dependency */
-            if(dep_task && 0 != (ret = tse_task_register_deps(end_task, 1, &dep_task)))
+            /* Register task dependencies */
+            if(ndeps > 0 && 0 != (ret = tse_task_register_deps(end_task, ndeps, dep_tasks)))
                 D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, ret, "can't create dependencies for link copy end task: %s", H5_daos_err_to_string(ret));
 
             /* Schedule copy end task (or save it to be scheduled later) */
@@ -2021,7 +2258,8 @@ done:
             } /* end if */
             else
                 first_task = end_task;
-            dep_task = end_task;
+            dep_tasks[0] = end_task;
+            ndeps = 1;
         } /* end else */
 
         /* Schedule first task */
@@ -2125,7 +2363,8 @@ H5_daos_link_copy_int(H5_daos_item_t *src_item, const H5VL_loc_params_t *loc_par
     H5_daos_obj_t *src_obj = NULL;
     const char *src_link_name = NULL;
     size_t src_link_name_len = 0;
-    tse_task_t *dep_tasks[2];
+    tse_task_t *dep_tasks[2] = {NULL, NULL};
+    int ndeps = 0;
     int ret;
     herr_t ret_value = SUCCEED;
 
@@ -2191,9 +2430,12 @@ H5_daos_link_copy_int(H5_daos_item_t *src_item, const H5VL_loc_params_t *loc_par
     if(0 !=  (ret = tse_task_create(H5_daos_link_copy_task, &req->file->sched, copy_udata, &copy_udata->copy_task)))
         D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create task for link copy: %s", H5_daos_err_to_string(ret));
 
+    /* Count number of dependencies and determine starting dep_task */
+    ndeps = (dep_tasks[0] != NULL) + (dep_tasks[1] != NULL);
+
     /* Register task dependencies - this task depends both on the source link
      * read and the target group open */
-    if(0 != (ret = tse_task_register_deps(copy_udata->copy_task, 2, dep_tasks)))
+    if(ndeps > 0 && 0 != (ret = tse_task_register_deps(copy_udata->copy_task, ndeps, dep_tasks[0] ? &dep_tasks[0] : &dep_tasks[1])))
         D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create dependencies for link copy task: %s", H5_daos_err_to_string(ret));
 
     /* Schedule copy task and give it a reference to req and udata */
@@ -6844,12 +7086,12 @@ H5_daos_link_get_crt_order_by_name(H5_daos_group_t *target_grp, const char *link
     fetch_udata->md_rw_cb_ud.task_name = "link get crt order by name fetch";
 
     /* Create task for creation order fetch */
-    if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &fetch_udata->md_rw_cb_ud.obj->item.file->sched, 0, NULL, &fetch_task)))
-        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, ret, "can't create task to read link creation order by name: %s", H5_daos_err_to_string(ret));
+    if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &fetch_udata->md_rw_cb_ud.obj->item.file->sched, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &fetch_task)))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create task to read link creation order by name: %s", H5_daos_err_to_string(ret));
 
     /* Set callback functions for creation order fetch */
     if(0 != (ret = tse_task_register_cbs(fetch_task, H5_daos_md_rw_prep_cb, NULL, 0, H5_daos_link_gcbn_comp_cb, NULL, 0)))
-        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, ret, "can't register callbacks for task to get link name by creation order: %s", H5_daos_err_to_string(ret));
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't register callbacks for task to get link name by creation order: %s", H5_daos_err_to_string(ret));
 
     /* Set private data for creation order fetch */
     (void)tse_task_set_priv(fetch_task, fetch_udata);

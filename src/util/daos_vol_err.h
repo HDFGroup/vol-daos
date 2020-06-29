@@ -49,7 +49,7 @@ extern hid_t dv_async_err_g;
 /* Private error codes for asynchronous operations */
 typedef enum {
     H5_DAOS_INCOMPLETE = 1,       /* Operation has not yet completed (should only be in the item struct) (must be first) */
-    H5_DAOS_SHORT_CIRCUIT ,       /* Operation completed successfully earlier than expected (but has not finished yet internally) (must be second) */
+    H5_DAOS_SHORT_CIRCUIT,        /* Operation completed successfully earlier than expected (but has not finished yet internally) (must be second) */
     H5_DAOS_PRE_ERROR,            /* A precursor to this task failed (should only be used as the task return value) (must be third) */
     H5_DAOS_CANCELED,             /* Operation canceled by application */
     H5_DAOS_H5_OPEN_ERROR,        /* Failed to open HDF5 object */
@@ -62,6 +62,7 @@ typedef enum {
     H5_DAOS_H5_TCONV_ERROR,       /* HDF5 type conversion failed */
     H5_DAOS_H5_COPY_ERROR,        /* HDF5 copy operation failed */
     H5_DAOS_H5_UNSUPPORTED_ERROR, /* Unsupported HDF5 operation */
+    H5_DAOS_H5_ITER_ERROR,        /* Error occurred during iteration */
     H5_DAOS_H5PSET_ERROR,         /* Failed to set info on HDF5 property list */
     H5_DAOS_H5PGET_ERROR,         /* Failed to get info from HDF5 property list */
     H5_DAOS_REMOTE_ERROR,         /* An operation failed on another process */

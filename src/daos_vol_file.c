@@ -1036,8 +1036,8 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
 
     /* Create root group */
     if(NULL == (file->root_grp = (H5_daos_group_t *)H5_daos_group_create_helper(
-            file, TRUE, fcpl_id, H5P_GROUP_ACCESS_DEFAULT, int_req, NULL, NULL,
-            0, TRUE, &first_task, &dep_task)))
+            file, TRUE, fcpl_id, H5P_GROUP_ACCESS_DEFAULT, NULL, NULL,
+            0, TRUE, int_req, &first_task, &dep_task)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create root group");
 
     /* Write root group OID to global metadata object */
@@ -1758,7 +1758,7 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
 
     /* Open root group and fill in root group's oid */
     if(NULL == (file->root_grp = H5_daos_group_open_helper(file,
-            H5P_GROUP_ACCESS_DEFAULT, int_req, TRUE, &first_task, &dep_task)))
+            H5P_GROUP_ACCESS_DEFAULT, TRUE, int_req, &first_task, &dep_task)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENOBJ, NULL, "can't open root group");
     file->root_grp->obj.oid = root_grp_oid;
 
@@ -3193,7 +3193,7 @@ H5_daos_file_close_helper(H5_daos_file_t *file, hid_t dxpl_id, void **req)
 
     /* Finish the scheduler *//* Make this cancel tasks?  Only if flush progresses until empty.  Otherwise change to custom progress function DSINC */
     if(H5_daos_progress(&file->sched, NULL, H5_DAOS_PROGRESS_WAIT) < 0)
-        D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't progress scheduler");
+        D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't progress scheduler");
     tse_sched_fini(&file->sched);
 
     /* Destroy CART context */

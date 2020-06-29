@@ -450,7 +450,6 @@ H5_daos_link_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
             udata->md_rw_cb_ud.req->failed_task = udata->md_rw_cb_ud.task_name;
             if(udata->link_read)
                 *udata->link_read = FALSE;
-
         } /* end if */
         else if(task->dt_result == 0) {
             if(udata->md_rw_cb_ud.iod[0].iod_size == (uint64_t)0) {
@@ -1844,7 +1843,6 @@ H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
 
             if(H5VL_OBJECT_BY_NAME == target_loc_params_hard->type) {
                 /* Attempt to open the hard link's target object */
-                /* TODO: no logic for 'collective' yet */
                 if(H5_daos_object_open_helper((H5_daos_item_t *)target_loc_obj_hard, target_loc_params_hard,
                         NULL, TRUE, &target_obj, int_req, &first_task, &dep_task) < 0)
                     D_GOTO_ERROR(H5E_LINK, H5E_CANTOPENOBJ, FAIL, "couldn't open hard link's target object");
@@ -2783,7 +2781,7 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
 
                 /* Initialize iteration data */
                 H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_LINK, idx_type, iter_order,
-                        is_recursive, idx_p, target_grp_id, op_data, dxpl_id, int_req, &first_task, &dep_task);
+                        is_recursive, idx_p, target_grp_id, op_data, NULL, int_req);
                 iter_data.u.link_iter_data.u.link_iter_op = iter_op;
 
                 /* Handle iteration return value (TODO: how to handle if called
@@ -3040,8 +3038,8 @@ H5_daos_link_follow_task(tse_task_t *task)
         if(udata->crt_missing_grp) {
             /* Create missing group and link to group */
             if(NULL == (target_grp = (H5_daos_group_t *)H5_daos_group_create_helper(udata->grp->obj.item.file, FALSE,
-                    H5P_GROUP_CREATE_DEFAULT, H5P_GROUP_ACCESS_DEFAULT, req, udata->grp, udata->name,
-                    udata->name_len, FALSE, &first_task, &dep_task)))
+                    H5P_GROUP_CREATE_DEFAULT, H5P_GROUP_ACCESS_DEFAULT, udata->grp, udata->name,
+                    udata->name_len, FALSE, req, &first_task, &dep_task)))
                 D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't create missing group");
 
             /* Output oid of target_grp */
@@ -5613,8 +5611,7 @@ H5_daos_link_remove_from_crt_idx(H5_daos_group_t *target_grp, const H5VL_loc_par
         iter_cb_ud.target_link_name = loc_params->loc_data.loc_by_name.name;
         iter_cb_ud.link_idx_out = &delete_idx;
         H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_LINK, H5_INDEX_CRT_ORDER, H5_ITER_INC,
-                FALSE, NULL, target_grp_id, &iter_cb_ud, H5P_DATASET_XFER_DEFAULT, req, first_task,
-                dep_task);
+                FALSE, NULL, target_grp_id, &iter_cb_ud, NULL, req);
         iter_data.u.link_iter_data.u.link_iter_op = H5_daos_link_remove_from_crt_idx_name_cb;
 
         /*
@@ -6473,8 +6470,7 @@ H5_daos_link_gnbn_task(tse_task_t *task)
     udata->iter_cb_ud.link_name_out = udata->link_name_out;
     udata->iter_cb_ud.link_name_out_size = udata->link_name_out_size;
     H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_LINK, H5_INDEX_NAME, udata->iter_order,
-            FALSE, NULL, udata->target_grp_id, &udata->iter_cb_ud, H5P_DATASET_XFER_DEFAULT, udata->req,
-            &first_task, &dep_task);
+            FALSE, NULL, udata->target_grp_id, &udata->iter_cb_ud, NULL, udata->req);
     iter_data.u.link_iter_data.u.link_iter_op = H5_daos_link_get_name_by_name_order_cb;
 
     /* Perform iteration */
@@ -6687,6 +6683,7 @@ H5_daos_link_get_name_by_name_order_cb(hid_t H5VL_DAOS_UNUSED group, const char 
     const H5L_info2_t H5VL_DAOS_UNUSED *info, void *op_data)
 {
     H5_daos_link_find_name_by_idx_ud_t *cb_ud = (H5_daos_link_find_name_by_idx_ud_t *) op_data;
+    herr_t ret_value = H5_ITER_CONT;
 
     if(cb_ud->cur_link_idx == cb_ud->target_link_idx) {
         size_t name_len = strlen(name);
@@ -6702,11 +6699,13 @@ H5_daos_link_get_name_by_name_order_cb(hid_t H5VL_DAOS_UNUSED group, const char 
         /* Return name length */
         cb_ud->link_name_out_size = name_len;
 
-        return 1;
+        D_GOTO_DONE(H5_ITER_STOP);
     } /* end if */
 
     cb_ud->cur_link_idx++;
-    return 0;
+
+done:
+    D_FUNC_LEAVE;
 } /* end H5_daos_link_get_name_by_name_order_cb() */
 
 

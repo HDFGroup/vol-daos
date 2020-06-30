@@ -1927,7 +1927,7 @@ H5_daos_group_get_info(H5_daos_group_t *grp, const H5VL_loc_params_t *loc_params
         case H5VL_OBJECT_BY_IDX:
         {
             if(H5_daos_object_open_helper(&grp->obj.item, loc_params, &task_udata->opened_type,
-                    FALSE, &task_udata->target_obj, req, first_task, dep_task) < 0)
+                    FALSE, NULL, &task_udata->target_obj, req, first_task, dep_task) < 0)
                 D_GOTO_ERROR(H5E_SYM, H5E_CANTOPENOBJ, FAIL, "can't open group");
 
             break;

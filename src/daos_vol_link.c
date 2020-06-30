@@ -2009,7 +2009,7 @@ H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
             if(H5VL_OBJECT_BY_NAME == target_loc_params_hard->type) {
                 /* Attempt to open the hard link's target object */
                 if(H5_daos_object_open_helper((H5_daos_item_t *)target_loc_obj_hard, target_loc_params_hard,
-                        NULL, FALSE, &create_udata->target_obj, int_req, &first_task, &dep_tasks[ndeps]) < 0)
+                        NULL, FALSE, NULL, &create_udata->target_obj, int_req, &first_task, &dep_tasks[ndeps]) < 0)
                     D_GOTO_ERROR(H5E_LINK, H5E_CANTOPENOBJ, FAIL, "couldn't open hard link's target object");
                 if(dep_tasks[ndeps])
                     ndeps++;
@@ -2043,7 +2043,7 @@ H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
             ndeps = 1;
 
             /* Read target object ref count */
-            if(0 != (ret = H5_daos_obj_read_rc(&create_udata->target_obj, &create_udata->obj_rc, int_req, &first_task, &dep_tasks[0])))
+            if(0 != (ret = H5_daos_obj_read_rc(&create_udata->target_obj, &create_udata->obj_rc, NULL, int_req, &first_task, &dep_tasks[0])))
                 D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't get target object ref count: %s", H5_daos_err_to_string(ret));
 
             /* Increment and write ref count */
@@ -2221,13 +2221,13 @@ H5_daos_link_copy_task(tse_task_t *task)
         /* Attempt to open the hard link's target object */
         /* TODO: no logic for 'collective' yet */
         if(H5_daos_object_open_helper(&udata->target_obj->item, &link_target_loc_params,
-                NULL, FALSE, &udata->link_target_obj, udata->req, &first_task, &dep_tasks[rc_task]) < 0)
+                NULL, FALSE, NULL, &udata->link_target_obj, udata->req, &first_task, &dep_tasks[rc_task]) < 0)
             D_GOTO_ERROR(H5E_LINK, H5E_CANTOPENOBJ, -H5_DAOS_H5_OPEN_ERROR, "couldn't open hard link's target object");
         if(dep_tasks[rc_task])
             ndeps++;
 
         /* Read target object ref count */
-        if(0 != (ret = H5_daos_obj_read_rc(&udata->link_target_obj, &udata->link_target_obj_rc, udata->req, &first_task, &dep_tasks[1])))
+        if(0 != (ret = H5_daos_obj_read_rc(&udata->link_target_obj, &udata->link_target_obj_rc, NULL, udata->req, &first_task, &dep_tasks[1])))
             D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, ret, "can't get target object ref count: %s", H5_daos_err_to_string(ret));
         if(rc_task == ndeps && dep_tasks[rc_task])
             ndeps++;
@@ -4924,7 +4924,7 @@ H5_daos_link_ibco_op_task(tse_task_t *task)
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for iteration operation task");
 
-    /* Assign req convenience pointer and take a refernce to it */
+    /* Assign req convenience pointer and take a reference to it */
     req = udata->iter_data->req;
     req->rc++;
 
@@ -5171,7 +5171,7 @@ H5_daos_link_ibco_task2(tse_task_t *task)
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for link iterate by creation order task 2");
 
-    /* Assign req convenience pointer and take a refernce to it */
+    /* Assign req convenience pointer and take a reference to it */
     req = udata->iter_data->req;
     req->rc++;
 
@@ -5286,7 +5286,7 @@ H5_daos_link_ibco_task(tse_task_t *task)
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for link iterate by creation order task");
 
-    /* Assign req convenience pointer and take a refernce to it */
+    /* Assign req convenience pointer and take a reference to it */
     req = udata->iter_data->req;
     req->rc++;
 

@@ -919,10 +919,11 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_object_specific(void *_item, const H5VL_loc_par
 
 /* Other object routines */
 H5VL_DAOS_PRIVATE herr_t H5_daos_object_open_helper(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
-    H5I_type_t *opened_type, hbool_t collective, H5_daos_obj_t **ret_obj,
+    H5I_type_t *opened_type, hbool_t collective, H5_daos_obj_t ****ret_obj_p, H5_daos_obj_t **ret_obj,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
-H5VL_DAOS_PRIVATE herr_t H5_daos_object_visit(H5_daos_obj_t *target_obj, H5_daos_iter_data_t *iter_data,
-    tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
+H5VL_DAOS_PRIVATE herr_t H5_daos_object_visit(H5_daos_obj_t ***target_obj_prev_out,
+    H5_daos_obj_t *target_obj, H5_daos_iter_data_t *iter_data, tse_sched_t *sched,
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE herr_t H5_daos_object_close(void *_obj, hid_t dxpl_id, void **req);
 H5VL_DAOS_PRIVATE herr_t H5_daos_fill_ocpl_cache(H5_daos_obj_t *obj, hid_t ocpl_id);
 H5VL_DAOS_PRIVATE herr_t H5_daos_object_get_num_attrs(H5_daos_obj_t *target_obj, hsize_t *num_attrs,
@@ -931,6 +932,9 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_object_get_num_attrs(H5_daos_obj_t *target_obj,
 H5VL_DAOS_PRIVATE herr_t H5_daos_object_update_num_attrs_key(H5_daos_obj_t *target_obj, hsize_t *new_nattrs,
     tse_task_cb_t prep_cb, tse_task_cb_t comp_cb, tse_sched_t *sched,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
+H5VL_DAOS_PRIVATE int H5_daos_obj_read_rc(H5_daos_obj_t **obj_p, uint64_t *rc,
+    unsigned *rc_uint, H5_daos_req_t *req, tse_task_t **first_task,
+    tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE int H5_daos_obj_write_rc(H5_daos_obj_t **obj_p,
     H5_daos_obj_t *obj, uint64_t *rc, int64_t adjust, H5_daos_req_t *req,
     tse_task_t **first_task, tse_task_t **dep_task);

@@ -2043,7 +2043,7 @@ H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
             ndeps = 1;
 
             /* Read target object ref count */
-            if(0 != (ret = H5_daos_obj_read_rc(&create_udata->target_obj, &create_udata->obj_rc, NULL, int_req, &first_task, &dep_tasks[0])))
+            if(0 != (ret = H5_daos_obj_read_rc(&create_udata->target_obj, NULL, &create_udata->obj_rc, NULL, int_req, &first_task, &dep_tasks[0])))
                 D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't get target object ref count: %s", H5_daos_err_to_string(ret));
 
             /* Increment and write ref count */
@@ -2227,7 +2227,7 @@ H5_daos_link_copy_task(tse_task_t *task)
             ndeps++;
 
         /* Read target object ref count */
-        if(0 != (ret = H5_daos_obj_read_rc(&udata->link_target_obj, &udata->link_target_obj_rc, NULL, udata->req, &first_task, &dep_tasks[1])))
+        if(0 != (ret = H5_daos_obj_read_rc(&udata->link_target_obj, NULL, &udata->link_target_obj_rc, NULL, udata->req, &first_task, &dep_tasks[1])))
             D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, ret, "can't get target object ref count: %s", H5_daos_err_to_string(ret));
         if(rc_task == ndeps && dep_tasks[rc_task])
             ndeps++;

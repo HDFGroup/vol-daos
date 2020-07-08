@@ -97,6 +97,8 @@ H5_daos_err_to_string(int ret)
             return "error during operation setup (H5_DAOS_SETUP_ERROR)";
         case -H5_DAOS_FILE_EXISTS:
             return "file already exists (H5_DAOS_FILE_EXISTS)";
+        case -H5_DAOS_LINK_EXISTS:
+            return "link already exists (H5_DAOS_LINK_EXISTS)";
 
         /*
          * GURT errors

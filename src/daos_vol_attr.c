@@ -3845,7 +3845,7 @@ H5_daos_attribute_iterate_by_name_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSE
                 } /* end if */
 
                 /* Advance to next akey */
-                p += udata->u.name_order_data.kds[i].kd_key_len + udata->u.name_order_data.kds[i].kd_csum_len;
+                p += udata->u.name_order_data.kds[i].kd_key_len;
             } /* end for */
 
             /* Register dependency on dep_task for attribute iteration metatask */

@@ -142,7 +142,7 @@ H5_daos_dump_obj_keys(daos_handle_t obj)
                     akey_p[akey_desc[j].kd_key_len] = tmp_char2;
 
                     /* Advance to next akey */
-                    akey_p += akey_desc[j].kd_key_len + akey_desc[j].kd_csum_len;
+                    akey_p += akey_desc[j].kd_key_len;
                 } /* end for */
             } while(!daos_anchor_is_eof(&akey_anchor));
 
@@ -150,7 +150,7 @@ H5_daos_dump_obj_keys(daos_handle_t obj)
             dkey_p[dkey_desc[i].kd_key_len] = tmp_char;
 
             /* Advance to next dkey */
-            dkey_p += dkey_desc[i].kd_key_len + dkey_desc[i].kd_csum_len;
+            dkey_p += dkey_desc[i].kd_key_len;
         } /* end for */
     } while(!daos_anchor_is_eof(&dkey_anchor));
 

@@ -79,6 +79,7 @@ typedef enum {
     H5_DAOS_PROGRESS_ERROR,       /* Failed to progress scheduler */
     H5_DAOS_SETUP_ERROR,          /* Error during operation setup */
     H5_DAOS_FILE_EXISTS,          /* File already exists */
+    H5_DAOS_LINK_EXISTS,          /* Link already exists */
 } H5_daos_error_code_t;
 
 /* Use FUNC to safely handle variations of C99 __func__ keyword handling */

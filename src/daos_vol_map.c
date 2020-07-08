@@ -320,7 +320,8 @@ H5_daos_map_create(void *_item,
         else {
             /* No link to map, write a ref count of 0 */
              finalize_deps[finalize_ndeps] = dep_task;
-            if(0 != (ret = H5_daos_obj_write_rc(NULL, &map->obj, NULL, 0, int_req, &first_task, &finalize_deps[finalize_ndeps])))
+            if(0 != (ret = H5_daos_obj_write_rc(NULL, &map->obj, NULL, 0, &item->file->sched,
+                    int_req, &first_task, &finalize_deps[finalize_ndeps])))
                 D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't write object ref count: %s", H5_daos_err_to_string(ret));
             finalize_ndeps++;
         } /* end if */
@@ -2404,7 +2405,7 @@ H5_daos_map_iterate(H5_daos_map_t *map, hid_t map_id, hsize_t *idx,
                 /* If there is no value, skip this dkey */
                 if(iod.iod_size == 0) {
                     /* Advance to next dkey */
-                    p += kds[i].kd_key_len + kds[i].kd_csum_len;
+                    p += kds[i].kd_key_len;
 
                     continue;
                 } /* end if */
@@ -2442,7 +2443,7 @@ H5_daos_map_iterate(H5_daos_map_t *map, hid_t map_id, hsize_t *idx,
                 (*idx)++;
 
             /* Advance to next dkey */
-            p += kds[i].kd_key_len + kds[i].kd_csum_len;
+            p += kds[i].kd_key_len;
         } /* end for */
     } while(!daos_anchor_is_eof(&anchor) && (op_ret == 0));
 

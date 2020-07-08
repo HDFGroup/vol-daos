@@ -786,7 +786,8 @@ H5_daos_datatype_commit_helper(H5_daos_file_t *file, hid_t type_id,
         else {
             /* No link to datatype, write a ref count of 0 */
              finalize_deps[finalize_ndeps] = *dep_task;
-            if(0 != (ret = H5_daos_obj_write_rc(NULL, &dtype->obj, NULL, 0, req, first_task, &finalize_deps[finalize_ndeps])))
+            if(0 != (ret = H5_daos_obj_write_rc(NULL, &dtype->obj, NULL, 0, &file->sched,
+                    req, first_task, &finalize_deps[finalize_ndeps])))
                 D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't write object ref count: %s", H5_daos_err_to_string(ret));
             finalize_ndeps++;
         } /* end if */

@@ -413,7 +413,8 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hbool_t is_root,
             /* No link to group and it's not the root group, write a ref count
              * of 0 to grp */
              gmt_deps[gmt_ndeps] = *dep_task;
-            if(0 != (ret = H5_daos_obj_write_rc(NULL, &grp->obj, NULL, 0, req, first_task, &gmt_deps[gmt_ndeps])))
+            if(0 != (ret = H5_daos_obj_write_rc(NULL, &grp->obj, NULL, 0, &file->sched,
+                    req, first_task, &gmt_deps[gmt_ndeps])))
                 D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't write object ref count: %s", H5_daos_err_to_string(ret));
             gmt_ndeps++;
         } /* end if */

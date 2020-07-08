@@ -2774,6 +2774,9 @@ test_map_delete_key(hid_t file_id, const char *map_name, hid_t key_dtype)
 
     TESTING_2("removing an entry by the key")
 
+    /* Reset iterate_ud */
+    memset(&iterate_ud, 0, sizeof(iterate_ud));
+
     if((map_id = H5Mopen(file_id, map_name, H5P_DEFAULT)) < 0)
         TEST_ERROR
 
@@ -3168,9 +3171,6 @@ test_map_delete_key(hid_t file_id, const char *map_name, hid_t key_dtype)
         printf("unknwon map type\n");
         goto error;
     } /* end if */
-
-    /* Reset iterate_ud */
-    memset(&iterate_ud, 0, sizeof(iterate_ud));
 
     /* Copy the map name to the struct */
     iterate_ud.map_name = strdup(map_name);

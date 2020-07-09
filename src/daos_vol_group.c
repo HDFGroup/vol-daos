@@ -2280,69 +2280,6 @@ done:
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_group_update_num_links_key
- *
- * Purpose:     Updates the target group's link number tracking akey by
- *              setting its value to the specified value.
- *
- *              CAUTION: This routine is 'dangerous' in that the link
- *              number tracking akey is used in various places. Only call
- *              this routine if it is certain that the number of links in
- *              the group has changed to the specified value.
- *
- * Return:      Non-negative on success/Negative on failure
- *
- *-------------------------------------------------------------------------
- */
-herr_t
-H5_daos_group_update_num_links_key(H5_daos_group_t *target_grp, uint64_t new_nlinks)
-{
-    daos_sg_list_t sgl;
-    daos_key_t dkey;
-    daos_iod_t iod;
-    daos_iov_t sg_iov;
-    uint8_t nlinks_new_buf[H5_DAOS_ENCODED_NUM_LINKS_SIZE];
-    uint8_t *p;
-    int ret;
-    herr_t ret_value = SUCCEED;
-
-    assert(target_grp);
-    H5daos_compile_assert(H5_DAOS_ENCODED_NUM_LINKS_SIZE == 8);
-
-    /* Check that creation order is tracked for target group */
-    if(!target_grp->gcpl_cache.track_corder)
-        D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, FAIL, "creation order is not tracked for group");
-
-    /* Encode buffer */
-    p = nlinks_new_buf;
-    UINT64ENCODE(p, new_nlinks);
-
-    /* Set up dkey */
-    daos_iov_set(&dkey, (void *)H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
-
-    /* Set up iod */
-    memset(&iod, 0, sizeof(iod));
-    daos_iov_set(&iod.iod_name, (void *)H5_daos_nlinks_key_g, H5_daos_nlinks_key_size_g);
-    iod.iod_nr = 1u;
-    iod.iod_size = (daos_size_t)H5_DAOS_ENCODED_NUM_LINKS_SIZE;
-    iod.iod_type = DAOS_IOD_SINGLE;
-
-    /* Set up sgl */
-    daos_iov_set(&sg_iov, nlinks_new_buf, (daos_size_t)H5_DAOS_ENCODED_NUM_LINKS_SIZE);
-    sgl.sg_nr = 1;
-    sgl.sg_nr_out = 0;
-    sgl.sg_iovs = &sg_iov;
-
-    /* Issue write */
-    if(0 != (ret = daos_obj_update(target_grp->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod, &sgl, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_SYM, H5E_WRITEERROR, FAIL, "can't write number of links to group: %s", H5_daos_err_to_string(ret));
-
-done:
-    D_FUNC_LEAVE;
-} /* end H5_daos_group_update_num_links_key() */
-
-
-/*-------------------------------------------------------------------------
  * Function:    H5_daos_group_gmco_comp_cb
  *
  * Purpose:     Completion callback for asynchronous fetch of group max

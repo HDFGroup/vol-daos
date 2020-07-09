@@ -80,6 +80,16 @@ do {                                                                            
 /* Local Type and Struct Definition */
 /************************************/
 
+/*
+ * A link iteration callback function data structure. It is
+ * passed during link iteration when retrieving a link's
+ * creation order index value by the given link's name.
+ */
+typedef struct H5_daos_link_crt_idx_iter_ud_t {
+    const char *target_link_name;
+    uint64_t *link_idx_out;
+} H5_daos_link_crt_idx_iter_ud_t;
+
 /* Task user data for reading a link from a group */
 typedef struct H5_daos_link_read_ud_t {
     H5_daos_md_rw_cb_ud_t md_rw_cb_ud; /* Must be first */
@@ -221,6 +231,54 @@ typedef struct H5_daos_link_ibco_ud_t {
     tse_task_t          *ibco_metatask;
 } H5_daos_link_ibco_ud_t;
 
+/* Task user data for deleting a link */
+typedef struct H5_daos_link_delete_ud_t {
+    H5_daos_req_t *req;
+    H5_daos_obj_t *target_obj;
+    H5VL_loc_params_t loc_params;
+    daos_key_t dkey;
+    const char *target_link_name;
+    size_t target_link_name_len;
+    char *path_buf;
+} H5_daos_link_delete_ud_t;
+
+/* Task user data for updating a group's link
+ * creation order index and info after a link
+ * is deleted from it.
+ */
+typedef struct H5_daos_link_delete_corder_ud_t {
+    H5_daos_req_t *req;
+    H5_daos_group_t *target_grp;
+    const H5VL_loc_params_t *loc_params;
+    daos_key_t dkey;
+    daos_key_t akeys[2];
+    uint64_t delete_idx;
+    hsize_t grp_nlinks;
+    uint8_t idx_buf[H5_DAOS_ENCODED_CRT_ORDER_SIZE];
+    uint8_t crt_order_target_buf[H5_DAOS_CRT_ORDER_TO_LINK_TRGT_BUF_SIZE];
+    H5_daos_link_crt_idx_iter_ud_t name_order_iter_cb_ud;
+    /* Fields for updating the number
+     * of links in the group.
+     */
+    struct {
+        H5_daos_md_rw_cb_ud_t unl_ud;
+        uint8_t nlinks_new_buf[H5_DAOS_ENCODED_NUM_LINKS_SIZE];
+    } unl_data;
+    /* Fields for performing bookkeeping on
+     * group's link creation order index.
+     */
+    struct {
+        daos_key_t dkey;
+        daos_key_t tail_akeys[2];
+        daos_sg_list_t *sgls;
+        daos_iod_t *iods;
+        daos_iov_t *sg_iovs;
+        uint8_t *crt_order_link_name_buf;
+        uint8_t *crt_order_link_trgt_buf;
+        size_t nlinks_shift;
+    } index_data;
+} H5_daos_link_delete_corder_ud_t;
+
 /*
  * A link iteration callback function data structure. It is
  * passed during link iteration when retrieving a link's name
@@ -284,16 +342,6 @@ typedef struct H5_daos_link_gcbn_ud_t {
     uint64_t *crt_order;
 } H5_daos_link_gcbn_ud_t;
 
-/*
- * A link iteration callback function data structure. It is
- * passed during link iteration when retrieving a link's
- * creation order index value by the given link's name.
- */
-typedef struct H5_daos_link_crt_idx_iter_ud_t {
-    const char *target_link_name;
-    uint64_t *link_idx_out;
-} H5_daos_link_crt_idx_iter_ud_t;
-
 /********************/
 /* Local Prototypes */
 /********************/
@@ -355,7 +403,22 @@ static herr_t H5_daos_link_iterate_by_crt_order(H5_daos_group_t *target_grp,
     tse_task_t **dep_task);
 
 static herr_t H5_daos_link_delete(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
-    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
+    hbool_t collective, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
+static int H5_daos_link_delete_prep_cb(tse_task_t *task, void *args);
+static int H5_daos_link_delete_comp_cb(tse_task_t *task, void *args);
+static int H5_daos_link_delete_corder_pretask(tse_task_t *task);
+static herr_t H5_daos_link_delete_corder(H5_daos_group_t *target_grp,
+    const H5VL_loc_params_t *loc_params, tse_sched_t *sched, H5_daos_req_t *req,
+    tse_task_t **first_task, tse_task_t **dep_task);
+static herr_t H5_daos_link_delete_corder_name_cb(hid_t group, const char *name, const H5L_info2_t *info, void *op_data);
+static int H5_daos_link_delete_corder_unl_prep_cb(tse_task_t *task, void *args);
+static int H5_daos_link_delete_corder_prep_cb(tse_task_t *task, void *args);
+static int H5_daos_link_delete_corder_bookkeep_task(tse_task_t *task);
+static int H5_daos_link_bookkeep_phase1_prep_cb(tse_task_t *task, void *args);
+static int H5_daos_link_bookkeep_phase2_prep_cb(tse_task_t *task, void *args);
+static int H5_daos_link_bookkeep_phase3_prep_cb(tse_task_t *task, void *args);
+static int H5_daos_link_bookkeep_phase4_prep_cb(tse_task_t *task, void *args);
+static int H5_daos_link_delete_corder_finish(tse_task_t *task);
 
 static int H5_daos_link_gnbi_alloc_task(tse_task_t *task);
 static int H5_daos_link_gnbc_task(tse_task_t *task);
@@ -371,13 +434,6 @@ static herr_t H5_daos_link_get_name_by_name_order(H5_daos_group_t *target_grp,
     char *link_name_out, size_t link_name_out_size, H5_daos_req_t *req,
     tse_task_t **first_task, tse_task_t **dep_task);
 static herr_t H5_daos_link_get_name_by_name_order_cb(hid_t group, const char *name, const H5L_info2_t *info, void *op_data);
-
-static herr_t H5_daos_link_remove_from_crt_idx(H5_daos_group_t *target_grp,
-    const H5VL_loc_params_t *loc_params, H5_daos_req_t *req,
-    tse_task_t **first_task, tse_task_t **dep_task);
-static herr_t H5_daos_link_remove_from_crt_idx_name_cb(hid_t group, const char *name, const H5L_info2_t *info, void *op_data);
-
-static herr_t H5_daos_link_shift_crt_idx_keys_down(H5_daos_group_t *target_grp, uint64_t idx_begin, uint64_t idx_end);
 
 static int H5_daos_link_gcbn_comp_cb(tse_task_t *task, void *args);
 
@@ -2477,7 +2533,8 @@ H5_daos_link_copy_move_int(H5_daos_item_t *src_item, const H5VL_loc_params_t *lo
         /* Remove the original link  depends on link read (don't delete until
          * the read is complete!) */
         delete_task = dep_tasks[0];
-        if(H5_daos_link_delete((src_item ? src_item : dst_item), loc_params1, req, first_task, &delete_task) < 0)
+        if(H5_daos_link_delete((src_item ? src_item : dst_item), loc_params1,
+                FALSE, req, first_task, &delete_task) < 0)
             D_GOTO_ERROR(H5E_LINK, H5E_CANTREMOVE, FAIL, "can't delete original link");
     } /* end if */
 
@@ -2978,19 +3035,26 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_group_t *target_grp = NULL;
+    H5_daos_req_t *int_req = NULL;
+    tse_task_t *first_task = NULL;
+    tse_task_t *dep_task = NULL;
     hid_t target_grp_id = -1;
-    H5_daos_req_t      *int_req = NULL;
-    herr_t              iter_ret = 0;
-    htri_t             *lexists_ret;
-    tse_task_t         *first_task = NULL;
-    tse_task_t         *dep_task = NULL;
-    int                 ret;
+    herr_t iter_ret = 0;
+    htri_t *lexists_ret;
+    hbool_t collective;
+    int ret;
     herr_t ret_value = SUCCEED;    /* Return value */
 
     if(!_item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
     if(!loc_params)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "location parameters object is NULL");
+
+    /*
+     * Like HDF5, all metadata writes are collective by default. Once independent
+     * metadata writes are implemented, we will need to check for this property.
+     */
+    collective = TRUE;
 
     /* Start H5 operation */
     if(NULL == (int_req = H5_daos_req_create(item->file, dxpl_id)))
@@ -3089,7 +3153,7 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
 
         /* H5Ldelete(_by_idx) */
         case H5VL_LINK_DELETE:
-            if(H5_daos_link_delete(item, loc_params, int_req, &first_task, &dep_task) < 0)
+            if(H5_daos_link_delete(item, loc_params, collective, int_req, &first_task, &dep_task) < 0)
                 D_GOTO_ERROR(H5E_LINK, H5E_CANTREMOVE, FAIL, "failed to delete link");
             break;
 
@@ -5546,8 +5610,8 @@ H5_daos_link_ibco_helper(H5_daos_group_t *target_grp,
         ibco_udata->iter_data = iter_data;
 
     /* Retrieve the number of links in the group */
-    if(H5_daos_group_get_num_links(target_grp, &ibco_udata->grp_nlinks, iter_data->req,
-            first_task, dep_task) < 0)
+    if(H5_daos_group_get_num_links(target_grp, &ibco_udata->grp_nlinks,
+            iter_data->req, first_task, dep_task) < 0)
         D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, -H5_DAOS_DAOS_GET_ERROR, "can't get number of links in group");
 
     /* Create metatask for this iteration - body function will free udata.  Will
@@ -5694,9 +5758,10 @@ H5_daos_link_iterate_count_links_callback(hid_t H5VL_DAOS_UNUSED group, const ch
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_link_delete
  *
- * Purpose:     Deletes the link from the specified group according to
- *              either the given link pathname or the given index into the
- *              group's link creation order/link name index.
+ * Purpose:     Creates an asynchronous task to delete a link from the
+ *              specified group according to either the given link pathname
+ *              or the given index into the group's link name/link creation
+ *              order index.
  *
  * Return:      Success:        SUCCEED or positive
  *              Failure:        FAIL
@@ -5705,152 +5770,370 @@ H5_daos_link_iterate_count_links_callback(hid_t H5VL_DAOS_UNUSED group, const ch
  */
 static herr_t
 H5_daos_link_delete(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
-    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
+    hbool_t collective, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
-    H5_daos_obj_t *target_obj = NULL;
-    daos_key_t dkey;
-    const char *grp_path = NULL;
-    char *path_buf = NULL;
-    const char *target_link_name = NULL;
-    size_t target_link_name_len = 0;
-    char *link_name_buf_dyn = NULL;
-    char link_name_buf_static[H5_DAOS_LINK_NAME_BUF_SIZE];
-    hsize_t grp_nlinks;
+    H5_daos_link_delete_ud_t *delete_udata = NULL;
+    tse_task_t *delete_task;
+    tse_task_t *delete_pretask = NULL;
     int ret;
     herr_t ret_value = SUCCEED;
 
     assert(item);
     assert(loc_params);
+    assert(req);
+    assert(first_task);
+    assert(dep_task);
     assert(H5VL_OBJECT_BY_NAME == loc_params->type || H5VL_OBJECT_BY_IDX == loc_params->type);
 
-    grp_path = (H5VL_OBJECT_BY_NAME == loc_params->type)
-            ? loc_params->loc_data.loc_by_name.name : loc_params->loc_data.loc_by_idx.name;
+    /* Allocate argument struct for deletion task */
+    if(NULL == (delete_udata = (H5_daos_link_delete_ud_t *)DV_calloc(sizeof(H5_daos_link_delete_ud_t))))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for link deletion task callback arguments");
+    delete_udata->req = req;
+    delete_udata->target_obj = NULL;
+    delete_udata->loc_params = *loc_params;
+    delete_udata->target_link_name = NULL;
+    delete_udata->target_link_name_len = 0;
+    delete_udata->path_buf = NULL;
 
-    /* Traverse the path */
-    if(NULL == (target_obj = H5_daos_group_traverse(item, grp_path,
-            H5P_LINK_CREATE_DEFAULT, req, FALSE, &path_buf, &target_link_name,
-            &target_link_name_len, first_task, dep_task)))
-        D_GOTO_ERROR(H5E_SYM, H5E_TRAVERSE, FAIL, "can't traverse path");
+    if(H5VL_OBJECT_BY_NAME == loc_params->type) {
+        /* Traverse the path */
+        if(NULL == (delete_udata->target_obj = H5_daos_group_traverse(item, loc_params->loc_data.loc_by_name.name,
+                H5P_LINK_CREATE_DEFAULT, req, collective, &delete_udata->path_buf, &delete_udata->target_link_name,
+                &delete_udata->target_link_name_len, first_task, dep_task)))
+            D_GOTO_ERROR(H5E_SYM, H5E_TRAVERSE, FAIL, "can't traverse path");
+    }
+    else {
+        H5VL_loc_params_t sub_loc_params;
 
-    /* Check type of target_obj */
-    if(target_obj->item.type != H5I_GROUP)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "target object is not a group");
+        assert(H5VL_OBJECT_BY_IDX == loc_params->type);
 
-    if(H5VL_OBJECT_BY_IDX == loc_params->type) {
+        sub_loc_params.type = H5VL_OBJECT_BY_SELF;
+        sub_loc_params.obj_type = H5I_GROUP;
+        if(NULL == (delete_udata->target_obj = (H5_daos_obj_t *)H5_daos_group_open_int(item,
+                &sub_loc_params, loc_params->loc_data.loc_by_idx.name, H5P_GROUP_ACCESS_DEFAULT,
+                req, collective, first_task, dep_task)))
+            D_GOTO_ERROR(H5E_SYM, H5E_TRAVERSE, FAIL, "can't open group");
+
         /* Retrieve the name of the link at the given index */
-        /* Note this could be changed to get_name_by_idx_alloc to simplify things */
-        if(H5_daos_link_get_name_by_idx((H5_daos_group_t *)target_obj, loc_params->loc_data.loc_by_idx.idx_type,
-                loc_params->loc_data.loc_by_idx.order, (uint64_t)loc_params->loc_data.loc_by_idx.n,
-                &target_link_name_len, link_name_buf_static, H5_DAOS_LINK_NAME_BUF_SIZE, req, first_task, dep_task) < 0)
+        assert(delete_udata->target_obj->item.type == H5I_GROUP);
+        if(H5_daos_link_get_name_by_idx_alloc((H5_daos_group_t *)delete_udata->target_obj,
+                loc_params->loc_data.loc_by_idx.idx_type, loc_params->loc_data.loc_by_idx.order,
+                (uint64_t)loc_params->loc_data.loc_by_idx.n, &delete_udata->target_link_name,
+                &delete_udata->target_link_name_len, &delete_udata->path_buf, NULL,
+                req, first_task, dep_task) < 0)
             D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't get link name");
+    }
 
-        /* Wait until everything is complete then check for errors
-         * (temporary code until the rest of this function is async) */
-        if(*first_task && (0 != (ret = tse_task_schedule(*first_task, false))))
-            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
-        if(H5_daos_progress(&item->file->sched, NULL, H5_DAOS_PROGRESS_WAIT) < 0)
-            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't progress scheduler");
-        *first_task = NULL;
-        *dep_task = NULL;
-        if(req->status < -H5_DAOS_INCOMPLETE)
-            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "asynchronous task failed: %s", H5_daos_err_to_string(req->status));
+    if(!collective || (item->file->my_rank == 0)) {
+        /* Create task to determine if the target group has link creation
+         * order tracked once it has been opened. If it does, that group's
+         * link creation order index must be updated before removing the
+         * link's dkey and akeys.
+         */
+        if(0 != (ret = tse_task_create(H5_daos_link_delete_corder_pretask, &item->file->sched,
+                delete_udata, &delete_pretask)))
+            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create link deletion creation order pretask: %s", H5_daos_err_to_string(ret));
 
-        /* Check that buffer was large enough to fit link name */
-        if(target_link_name_len > H5_DAOS_LINK_NAME_BUF_SIZE - 1) {
-            if(NULL == (link_name_buf_dyn = DV_malloc(target_link_name_len + 1)))
-                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "failed to allocate buffer for link name");
+        /* Register dependency on dep_task if present */
+        if(*dep_task && 0 != (ret = tse_task_register_deps(delete_pretask, 1, dep_task)))
+            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create dependencies for link deletion creation order pretask: %s", H5_daos_err_to_string(ret));
 
-            /* Re-issue the call with a larger buffer */
-            if(H5_daos_link_get_name_by_idx((H5_daos_group_t *)target_obj, loc_params->loc_data.loc_by_idx.idx_type,
-                    loc_params->loc_data.loc_by_idx.order, (uint64_t)loc_params->loc_data.loc_by_idx.n,
-                    &target_link_name_len, link_name_buf_dyn, target_link_name_len + 1, req, first_task, dep_task) < 0)
-                D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't get link name");
-
-            /* Wait until everything is complete then check for errors
-             * (temporary code until the rest of this function is async) */
-            if(*first_task && (0 != (ret = tse_task_schedule(*first_task, false))))
-                D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
-            if(H5_daos_progress(&item->file->sched, NULL, H5_DAOS_PROGRESS_WAIT) < 0)
-                D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't progress scheduler");
-            *first_task = NULL;
-            *dep_task = NULL;
-            if(req->status < -H5_DAOS_INCOMPLETE)
-                D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "asynchronous task failed: %s", H5_daos_err_to_string(req->status));
-
-            target_link_name = link_name_buf_dyn;
+        /* Schedule pre-task */
+        if(*first_task) {
+            if(0 != (ret = tse_task_schedule(delete_pretask, false)))
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't schedule link deletion creation order pretask: %s", H5_daos_err_to_string(ret));
         } /* end if */
         else
-            target_link_name = link_name_buf_static;
+            *first_task = delete_pretask;
+        delete_udata->target_obj->item.rc++;
+        req->rc++;
+        *dep_task = delete_pretask;
+
+        /* Create task to punch link's dkey, along with all of its akeys */
+        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_PUNCH_DKEYS, &item->file->sched,
+                *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &delete_task)))
+            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create task to delete link: %s", H5_daos_err_to_string(ret));
+
+        /* Set callback functions for task to delete link */
+        if(0 != (ret = tse_task_register_cbs(delete_task, H5_daos_link_delete_prep_cb, NULL, 0,
+                H5_daos_link_delete_comp_cb, NULL, 0)))
+            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't register callbacks for link deletion task: %s", H5_daos_err_to_string(ret));
+
+        /* Set private data for link deletion task */
+        (void)tse_task_set_priv(delete_task, delete_udata);
+
+        /* Schedule task to delete link (or save it to be scheduled later)
+         * and give it a reference to req.
+         */
+        if(*first_task) {
+            if(0 != (ret = tse_task_schedule(delete_task, false)))
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't schedule task to delete link: %s", H5_daos_err_to_string(ret));
+        } /* end if */
+        else
+            *first_task = delete_task;
+        req->rc++;
+        *dep_task = delete_task;
+
+        /* TODO: If no more hard links point to the object in question, it should be
+         * removed from the file, or at least marked to be removed.
+         */
     } /* end if */
+    else {
+        /* Create empty task that will call the link deletion
+         * completion callback and free private data.
+         */
+        if(0 != (ret = tse_task_create(H5_daos_metatask_autocomplete, &item->file->sched, delete_udata, &delete_task)))
+            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create task to free private data: %s", H5_daos_err_to_string(ret));
 
-    /* Setup dkey */
-    daos_iov_set(&dkey, (void *)target_link_name, target_link_name_len);
+        /* Register dependency on dep_task if present */
+        if(*dep_task && 0 != (ret = tse_task_register_deps(delete_task, 1, dep_task)))
+            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create dependencies for task to free private data: %s", H5_daos_err_to_string(ret));
 
-    /* Wait until everything is complete then check for errors
-     * (temporary code until the rest of this function is async) */
-    if(*first_task && (0 != (ret = tse_task_schedule(*first_task, false))))
-        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
-    if(H5_daos_progress(&item->file->sched, NULL, H5_DAOS_PROGRESS_WAIT) < 0)
-        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't progress scheduler");
-    *first_task = NULL;
-    *dep_task = NULL;
-    if(req->status < -H5_DAOS_INCOMPLETE)
-        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "asynchronous task failed: %s", H5_daos_err_to_string(req->status));
+        /* Set callback functions for task */
+        if(0 != (ret = tse_task_register_cbs(delete_task, NULL, NULL, 0,
+                H5_daos_link_delete_comp_cb, NULL, 0)))
+            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't register callbacks for task to free private data: %s", H5_daos_err_to_string(ret));
 
-    /* If link creation order is tracked, perform some bookkeeping */
-    if(((H5_daos_group_t *)target_obj)->gcpl_cache.track_corder) {
-        /* Update the "number of links" key in the group */
-        if(H5_daos_group_get_num_links((H5_daos_group_t *)target_obj, &grp_nlinks, req,
-                first_task, dep_task) < 0)
-            D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't get number of links in group");
+        /* Schedule task */
+        if(*first_task) {
+            if(0 != (ret = tse_task_schedule(delete_task, false)))
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't schedule task to free private data: %s", H5_daos_err_to_string(ret));
+        } /* end if */
+        else
+            *first_task = delete_task;
+        req->rc++;
+        *dep_task = delete_task;
+    } /* end else */
 
-        /* Wait until everything is complete then check for errors
-         * (temporary code until the rest of this function is async) */
-        if(*first_task && (0 != (ret = tse_task_schedule(*first_task, false))))
-            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
-        if(H5_daos_progress(&item->file->sched, NULL, H5_DAOS_PROGRESS_WAIT) < 0)
-            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't progress scheduler");
-        *first_task = NULL;
-        *dep_task = NULL;
-        if(req->status < -H5_DAOS_INCOMPLETE)
-            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "asynchronous task failed: %s", H5_daos_err_to_string(req->status));
-
-        if(grp_nlinks > 0)
-            grp_nlinks--;
-
-        if(H5_daos_group_update_num_links_key((H5_daos_group_t *)target_obj, (uint64_t)grp_nlinks) < 0)
-            D_GOTO_ERROR(H5E_SYM, H5E_CANTMODIFY, FAIL, "can't update number of links in group");
-
-        /* Remove the link from the group's creation order index */
-        if(H5_daos_link_remove_from_crt_idx((H5_daos_group_t *)target_obj, loc_params, req,
-                first_task, dep_task) < 0)
-            D_GOTO_ERROR(H5E_LINK, H5E_CANTREMOVE, FAIL, "failed to remove link from creation order index");
-    } /* end if */
-
-    /* Punch the link's dkey, along with all of its akeys */
-    if(0 != (ret = daos_obj_punch_dkeys(target_obj->obj_oh, DAOS_TX_NONE, 0 /*flags*/, 1, &dkey, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_LINK, H5E_CANTREMOVE, FAIL, "failed to punch link dkey: %s", H5_daos_err_to_string(ret));
-
-    /* TODO: If no more hard links point to the object in question, it should be
-     * removed from the file, or at least marked to be removed.
-     */
+    /* Relinquish control of link deletion udata to deletion task */
+    delete_udata = NULL;
 
 done:
-    /* Free path_buf if necessary */
-    if(path_buf && H5_daos_free_async(item->file, path_buf, first_task, dep_task) < 0)
-        D_DONE_ERROR(H5E_LINK, H5E_CANTFREE, FAIL, "can't free path buffer");
+    if(ret_value < 0) {
+        if(delete_udata && delete_udata->target_obj)
+            if(H5_daos_object_close(delete_udata->target_obj, req->dxpl_id, NULL) < 0)
+                D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, FAIL, "can't close object");
 
-    if(link_name_buf_dyn)
-        link_name_buf_dyn = DV_free(link_name_buf_dyn);
-    if(target_obj && H5_daos_object_close(target_obj, req->dxpl_id, NULL) < 0)
-        D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close object");
+        delete_udata = DV_free(delete_udata);
+    } /* end if */
 
     D_FUNC_LEAVE;
 } /* end H5_daos_link_delete() */
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_link_remove_from_crt_idx
+ * Function:    H5_daos_link_delete_corder_pretask
+ *
+ * Purpose:     Asynchronous task to check if a target group has link
+ *              creation order tracked once the group has been opened. If
+ *              link creation order is tracked for the group, more tasks
+ *              are created to update the group's link creation order index
+ *              before a link is deleted.
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_link_delete_corder_pretask(tse_task_t *task)
+{
+    H5_daos_link_delete_ud_t *udata = NULL;
+    tse_task_t *metatask = NULL;
+    tse_task_t *first_task = NULL;
+    tse_task_t *dep_task = NULL;
+    int ret;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for link deletion pretask");
+
+    /* Handle errors in previous tasks */
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    } /* end if */
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT) {
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
+    } /* end if */
+
+    /* Remove the link from the group's creation order index if creation order is tracked */
+    if(((H5_daos_group_t *)udata->target_obj)->gcpl_cache.track_corder)
+        if(H5_daos_link_delete_corder((H5_daos_group_t *)udata->target_obj, &udata->loc_params,
+                &udata->target_obj->item.file->sched, udata->req, &first_task, &dep_task) < 0)
+            D_GOTO_ERROR(H5E_LINK, H5E_CANTREMOVE, -H5_DAOS_SETUP_ERROR, "failed to remove link from creation order index");
+
+done:
+    if(udata) {
+        /* Create metatask to complete this task after dep_task if necessary */
+        if(dep_task) {
+            /* Create metatask */
+            if(0 != (ret = tse_task_create(H5_daos_metatask_autocomp_other, &udata->target_obj->item.file->sched, task, &metatask))) {
+                D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, ret, "can't create metatask for link corder info delete task: %s", H5_daos_err_to_string(ret));
+            } /* end if */
+            else {
+                /* Register task dependency */
+                if(0 != (ret = tse_task_register_deps(metatask, 1, &dep_task)))
+                    D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, ret, "can't create dependencies for link corder info delete metatask: %s", H5_daos_err_to_string(ret));
+
+                /* Schedule metatask */
+                assert(first_task);
+                if(0 != (ret = tse_task_schedule(metatask, false)))
+                    D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, ret, "can't schedule metatask for link corder info delete task: %s", H5_daos_err_to_string(ret));
+            } /* end else */
+        } /* end if */
+
+        /* Schedule first task */
+        if(first_task && 0 != (ret = tse_task_schedule(first_task, false)))
+            D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, ret, "can't schedule initial task for link corder info delete task: %s", H5_daos_err_to_string(ret));
+
+        /* Close group */
+        if(H5_daos_group_close(udata->target_obj, udata->req->dxpl_id, NULL) < 0)
+            D_DONE_ERROR(H5E_LINK, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close group");
+
+        /* Handle errors in this function */
+        /* Do not place any code that can issue errors after this block, except for
+         * H5_daos_req_free_int, which updates req->status if it sees an error */
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+            udata->req->status = ret_value;
+            udata->req->failed_task = "link creation order info delete task";
+        } /* end if */
+
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(udata->req) < 0)
+            D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+    } /* end if */
+    else
+        assert(ret_value == -H5_DAOS_DAOS_GET_ERROR);
+
+    /* Complete task if necessary */
+    if(!metatask)
+        tse_task_complete(task, ret_value);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_link_delete_corder_pretask() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_link_delete_prep_cb
+ *
+ * Purpose:     Prepare callback for asynchronous daos_punch_dkeys to
+ *              delete a link from a group. Currently checks for errors
+ *              from previous tasks and then sets arguments for the DAOS
+ *              operation.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_link_delete_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_link_delete_ud_t *udata;
+    daos_obj_punch_t *punch_args;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for link deletion task");
+
+    assert(udata->req);
+    assert(udata->target_obj);
+
+    /* Handle errors */
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    } /* end if */
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT) {
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
+    } /* end if */
+
+    /* Setup dkey now that target link name should be valid */
+    daos_iov_set(&udata->dkey, (void *)udata->target_link_name, udata->target_link_name_len);
+
+    /* Set deletion task arguments */
+    if(NULL == (punch_args = daos_task_get_args(task)))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for link deletion task");
+    punch_args->oh = udata->target_obj->obj_oh;
+    punch_args->th = DAOS_TX_NONE;
+    punch_args->dkey = &udata->dkey;
+    punch_args->akeys = NULL;
+    punch_args->flags = 0;
+    punch_args->akey_nr = 0;
+
+done:
+    D_FUNC_LEAVE;
+} /* end H5_daos_link_delete_prep_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_link_delete_comp_cb
+ *
+ * Purpose:     Complete callback for asynchronous daos_punch_dkeys to
+ *              delete a link from a group. Currently checks for a failed
+ *              task then frees private data.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_link_delete_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_link_delete_ud_t *udata;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for link deletion task");
+
+    assert(!udata->req->file->closed);
+
+    /* Handle errors in deletion task.  Only record error in udata->req_status if
+     * it does not already contain an error (it could contain an error if
+     * another task this task is not dependent on also failed). */
+    if(task->dt_result < -H5_DAOS_PRE_ERROR
+            && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+        udata->req->status = task->dt_result;
+        udata->req->failed_task = "link deletion task";
+    } /* end if */
+
+done:
+    if(udata) {
+        if(H5_daos_object_close(udata->target_obj, H5I_INVALID_HID, NULL) < 0)
+            D_DONE_ERROR(H5E_LINK, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
+
+        /* Handle errors in this function */
+        /* Do not place any code that can issue errors after this block, except
+         * for H5_daos_req_free_int, which updates req->status if it sees an
+         * error */
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+            udata->req->status = ret_value;
+            udata->req->failed_task = "link deletion task completion callback";
+        } /* end if */
+
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(udata->req) < 0)
+            D_DONE_ERROR(H5E_LINK, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+        /* Free private data */
+        if(udata->path_buf)
+            DV_free(udata->path_buf);
+        DV_free(udata);
+    }
+    else
+        assert(ret_value >= 0 || ret_value == -H5_DAOS_DAOS_GET_ERROR);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_link_delete_comp_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_link_delete_corder
  *
  * Purpose:     Removes the target link from the target group's link
  *              creation order index by locating the relevant akeys and
@@ -5861,16 +6144,14 @@ done:
  *-------------------------------------------------------------------------
  */
 static herr_t
-H5_daos_link_remove_from_crt_idx(H5_daos_group_t *target_grp, const H5VL_loc_params_t *loc_params,
-    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
+H5_daos_link_delete_corder(H5_daos_group_t *target_grp, const H5VL_loc_params_t *loc_params,
+    tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
-    daos_key_t dkey;
-    daos_key_t akeys[2];
-    uint64_t delete_idx = 0;
-    uint8_t crt_order_target_buf[H5_DAOS_CRT_ORDER_TO_LINK_TRGT_BUF_SIZE];
-    uint8_t idx_buf[H5_DAOS_ENCODED_CRT_ORDER_SIZE];
-    uint8_t *p;
-    hsize_t grp_nlinks_remaining;
+    H5_daos_link_delete_corder_ud_t *corder_delete_ud = NULL;
+    tse_task_t *update_task = NULL;
+    tse_task_t *delete_task = NULL;
+    tse_task_t *bookkeep_task = NULL;
+    tse_task_t *finish_task = NULL;
     hid_t target_grp_id = H5I_INVALID_HID;
     int ret;
     herr_t ret_value = SUCCEED;
@@ -5880,35 +6161,51 @@ H5_daos_link_remove_from_crt_idx(H5_daos_group_t *target_grp, const H5VL_loc_par
     assert(H5VL_OBJECT_BY_NAME == loc_params->type || H5VL_OBJECT_BY_IDX == loc_params->type);
     H5daos_compile_assert(H5_DAOS_ENCODED_CRT_ORDER_SIZE == 8);
 
+    /* Allocate argument struct for creation order info bookkeeping task */
+    if(NULL == (corder_delete_ud = (H5_daos_link_delete_corder_ud_t *)DV_calloc(sizeof(H5_daos_link_delete_corder_ud_t))))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for link creation order info update callback arguments");
+    corder_delete_ud->req = req;
+    corder_delete_ud->target_grp = target_grp;
+    corder_delete_ud->loc_params = loc_params;
+    corder_delete_ud->delete_idx = 0;
+    corder_delete_ud->grp_nlinks = 0;
+    corder_delete_ud->index_data.sgls = NULL;
+    corder_delete_ud->index_data.iods = NULL;
+    corder_delete_ud->index_data.sg_iovs = NULL;
+
     /* Retrieve the current number of links in the group */
-    if(H5_daos_group_get_num_links(target_grp, &grp_nlinks_remaining, req,
-            first_task, dep_task) < 0)
-        D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't get the number of links in group");
+    if(H5_daos_group_get_num_links(target_grp, &corder_delete_ud->grp_nlinks,
+            req, first_task, dep_task) < 0)
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't get number of links in group");
 
-    /* Wait until everything is complete then check for errors
-     * (temporary code until the rest of this function is async) */
-    if(*first_task && (0 != (ret = tse_task_schedule(*first_task, false))))
-        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
-    if(H5_daos_progress(&req->file->sched, NULL, H5_DAOS_PROGRESS_WAIT) < 0)
-        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't progress scheduler");
-    *first_task = NULL;
-    *dep_task = NULL;
-    if(req->status < -H5_DAOS_INCOMPLETE)
-        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "asynchronous task failed: %s", H5_daos_err_to_string(req->status));
+    /* Create task to update the "number of links" key for the group, accounting for the removed link */
+    if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_UPDATE, &target_grp->obj.item.file->sched,
+            *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &update_task)))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create task to update number of links in group: %s", H5_daos_err_to_string(ret));
 
-    if(H5VL_OBJECT_BY_IDX == loc_params->type) {
-        /* DSINC - no check for safe cast here */
-        /*
-         * Note that this assumes this routine is always called after a link's
-         * dkey is punched during deletion, so the number of links in the group
-         * should reflect the number after the link has been removed.
-         */
-        delete_idx = (H5_ITER_DEC == loc_params->loc_data.loc_by_idx.order) ?
-                (uint64_t)grp_nlinks_remaining - (uint64_t)loc_params->loc_data.loc_by_idx.n :
-                (uint64_t)loc_params->loc_data.loc_by_idx.n;
+    /* Set callback functions for task to update number of links */
+    if(0 != (ret = tse_task_register_cbs(update_task, H5_daos_link_delete_corder_unl_prep_cb, NULL, 0,
+            NULL, NULL, 0)))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't register callbacks for task to update number of links in group: %s", H5_daos_err_to_string(ret));
+
+    /* Set private data for task to update number of links */
+    (void)tse_task_set_priv(update_task, corder_delete_ud);
+
+    /* Schedule task to update number of links in group */
+    if(*first_task) {
+        if(0 != (ret = tse_task_schedule(update_task, false)))
+            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't schedule task to update number of links in group: %s", H5_daos_err_to_string(ret));
     } /* end if */
-    else {
-        H5_daos_link_crt_idx_iter_ud_t iter_cb_ud;
+    else
+        *first_task = update_task;
+
+    *dep_task = update_task;
+
+    /* If originally iterating by name order, create a task to iterate over links
+     * by creation order and match the target link name to a creation order index
+     * value.
+     */
+    if(H5VL_OBJECT_BY_NAME == loc_params->type) {
         H5_daos_iter_data_t iter_data;
 
         /* Register ID for group for link iteration */
@@ -5917,11 +6214,11 @@ H5_daos_link_remove_from_crt_idx(H5_daos_group_t *target_grp, const H5VL_loc_par
         target_grp->obj.item.rc++;
 
         /* Initialize iteration data */
-        iter_cb_ud.target_link_name = loc_params->loc_data.loc_by_name.name;
-        iter_cb_ud.link_idx_out = &delete_idx;
+        corder_delete_ud->name_order_iter_cb_ud.target_link_name = loc_params->loc_data.loc_by_name.name;
+        corder_delete_ud->name_order_iter_cb_ud.link_idx_out = &corder_delete_ud->delete_idx;
         H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_LINK, H5_INDEX_CRT_ORDER, H5_ITER_INC,
-                FALSE, NULL, target_grp_id, &iter_cb_ud, NULL, req);
-        iter_data.u.link_iter_data.u.link_iter_op = H5_daos_link_remove_from_crt_idx_name_cb;
+                FALSE, NULL, target_grp_id, &corder_delete_ud->name_order_iter_cb_ud, NULL, req);
+        iter_data.u.link_iter_data.u.link_iter_op = H5_daos_link_delete_corder_name_cb;
 
         /*
          * TODO: Currently, deleting a link by name means that we need to iterate through
@@ -5938,72 +6235,108 @@ H5_daos_link_remove_from_crt_idx(H5_daos_group_t *target_grp, const H5VL_loc_par
          */
         if(H5_daos_link_iterate(target_grp, &iter_data, first_task, dep_task) < 0)
             D_GOTO_ERROR(H5E_SYM, H5E_BADITER, FAIL, "link iteration failed");
+    } /* end if */
 
-        /* Wait until everything is complete then check for errors
-         * (temporary code until the rest of this function is async) */
-        if(*first_task && (0 != (ret = tse_task_schedule(*first_task, false))))
-            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
-        if(H5_daos_progress(&req->file->sched, NULL, H5_DAOS_PROGRESS_WAIT) < 0)
-            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't progress scheduler");
-        *first_task = NULL;
-        *dep_task = NULL;
-        if(req->status < -H5_DAOS_INCOMPLETE)
-            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "asynchronous task failed: %s", H5_daos_err_to_string(req->status));
-    } /* end else */
 
     /* Set up dkey */
-    daos_iov_set(&dkey, (void *)H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
+    daos_iov_set(&corder_delete_ud->dkey, (void *)H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
 
-    /* Set up akeys */
+    /* Create task to remove link creation order akeys from group */
+    if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_PUNCH_AKEYS, sched,
+            *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &delete_task)))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create task to delete link creation order keys: %s", H5_daos_err_to_string(ret));
 
-    /* Remove the akey which maps creation order -> link name */
-    p = idx_buf;
-    UINT64ENCODE(p, delete_idx);
-    daos_iov_set(&akeys[0], (void *)idx_buf, H5_DAOS_ENCODED_CRT_ORDER_SIZE);
+    /* Set callback functions for task to delete akeys */
+    if(0 != (ret = tse_task_register_cbs(delete_task, H5_daos_link_delete_corder_prep_cb, NULL, 0,
+            NULL, NULL, 0)))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't register callbacks for link creation order key deletion task: %s", H5_daos_err_to_string(ret));
 
-    /* Remove the akey which maps creation order -> link target */
-    p = crt_order_target_buf;
-    UINT64ENCODE(p, delete_idx);
-    crt_order_target_buf[H5_DAOS_CRT_ORDER_TO_LINK_TRGT_BUF_SIZE - 1] = 0;
-    daos_iov_set(&akeys[1], (void *)crt_order_target_buf, H5_DAOS_CRT_ORDER_TO_LINK_TRGT_BUF_SIZE);
+    /* Set private data for link creation order akey deletion task */
+    (void)tse_task_set_priv(delete_task, corder_delete_ud);
 
-    /* Remove the akeys */
-    if(0 != (ret = daos_obj_punch_akeys(target_grp->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 2, akeys, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_LINK, H5E_CANTREMOVE, FAIL, "failed to punch link akeys: %s", H5_daos_err_to_string(ret));
-
-    /*
-     * If there are still links remaining in the group and we didn't delete the
-     * link currently at the end of the creation order index, shift the indices
-     * of all akeys past the removed link's akeys down by one. This maintains
-     * the ability to directly index into the link creation order index.
+    /* Schedule task to delete link creation order akeys (or save
+     * it to be scheduled later) and give it a reference to req.
      */
-    if((grp_nlinks_remaining > 0) && (delete_idx < (uint64_t)grp_nlinks_remaining))
-        if(H5_daos_link_shift_crt_idx_keys_down(target_grp, delete_idx + 1, (uint64_t)grp_nlinks_remaining) < 0)
-            D_GOTO_ERROR(H5E_LINK, H5E_CANTMODIFY, FAIL, "failed to update link creation order index");
+    if(*first_task) {
+        if(0 != (ret = tse_task_schedule(delete_task, false)))
+            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't schedule task to delete link creation order keys: %s", H5_daos_err_to_string(ret));
+    } /* end if */
+    else
+        *first_task = delete_task;
+    req->rc++;
+    target_grp->obj.item.rc++;
+    *dep_task = delete_task;
+
+    /* Create task to perform bookkeeping on group's link creation
+     * order index if necessary.
+     */
+    if(0 != (ret = tse_task_create(H5_daos_link_delete_corder_bookkeep_task, sched, corder_delete_ud, &bookkeep_task)))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create task to update group's link creation order index: %s", H5_daos_err_to_string(ret));
+
+    /* Register dependency on dep_task if present */
+    if(*dep_task && 0 != (ret = tse_task_register_deps(bookkeep_task, 1, dep_task)))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create dependencies for task to update group's link creation order index: %s", H5_daos_err_to_string(ret));
+
+    /* Schedule group link creation order index update task */
+    if(*first_task) {
+        if(0 != (ret = tse_task_schedule(bookkeep_task, false)))
+            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't schedule task to update group's link creation order index: %s", H5_daos_err_to_string(ret));
+    } /* end if */
+    else
+        *first_task = bookkeep_task;
+    req->rc++;
+    target_grp->obj.item.rc++;
+    *dep_task = bookkeep_task;
+
+    /* Create final task to free udata */
+    if(0 != (ret = tse_task_create(H5_daos_link_delete_corder_finish, sched, corder_delete_ud, &finish_task)))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create task to finish link creation order info deletion: %s", H5_daos_err_to_string(ret));
+
+    /* Register dependency on dep_task if present */
+    if(*dep_task && 0 != (ret = tse_task_register_deps(finish_task, 1, dep_task)))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create dependencies for link creation order info deletion task: %s", H5_daos_err_to_string(ret));
+
+    /* Schedule link creation order info deletion finish task */
+    if(*first_task) {
+        if(0 != (ret = tse_task_schedule(finish_task, false)))
+            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't schedule task to finish link creation order info deletion: %s", H5_daos_err_to_string(ret));
+    } /* end if */
+    else
+        *first_task = finish_task;
+
+    *dep_task = finish_task;
+
+    /* Relinquish control of udata to task's function body */
+    corder_delete_ud = NULL;
 
 done:
+    /* Close group since iteration task will now own it */
     if((target_grp_id >= 0) && (H5Idec_ref(target_grp_id) < 0))
         D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group ID");
 
+    if(corder_delete_ud) {
+        assert(ret_value < 0);
+        corder_delete_ud = DV_free(corder_delete_ud);
+    }
+
     D_FUNC_LEAVE;
-} /* end H5_daos_link_remove_from_crt_idx() */
+} /* end H5_daos_link_delete_corder() */
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_link_remove_from_crt_idx_name_cb
+ * Function:    H5_daos_link_delete_corder_name_cb
  *
- * Purpose:     Link iteration callback for
- *              H5_daos_link_remove_from_crt_idx which iterates through
- *              links by creation order until the current link name matches
- *              the target link name, at which point the creation order
- *              index value for the target link has been found.
+ * Purpose:     Link iteration callback which iterates through links by
+ *              creation order until the current link name matches the
+ *              target link name, at which point the creation order index
+ *              value for the target link has been found.
  *
  * Return:      Non-negative (can't fail)
  *
  *-------------------------------------------------------------------------
  */
 static herr_t
-H5_daos_link_remove_from_crt_idx_name_cb(hid_t H5VL_DAOS_UNUSED group, const char *name,
+H5_daos_link_delete_corder_name_cb(hid_t H5VL_DAOS_UNUSED group, const char *name,
     const H5L_info2_t H5VL_DAOS_UNUSED *info, void *op_data)
 {
     H5_daos_link_crt_idx_iter_ud_t *cb_ud = (H5_daos_link_crt_idx_iter_ud_t *) op_data;
@@ -6013,219 +6346,814 @@ H5_daos_link_remove_from_crt_idx_name_cb(hid_t H5VL_DAOS_UNUSED group, const cha
 
     (*cb_ud->link_idx_out)++;
     return 0;
-} /* end H5_daos_link_remove_from_crt_idx_name_cb() */
+} /* end H5_daos_link_delete_corder_name_cb() */
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_link_shift_crt_idx_keys_down
+ * Function:    H5_daos_link_delete_corder_unl_prep_cb
  *
- * Purpose:     After a link has been deleted in a group, this routine
- *              is used to update a group's link creation order index. All
- *              of the index's akeys within the range specified by the
- *              begin and end index parameters are read and then re-written
- *              to the index under new akeys whose integer 'name' values
- *              are one less than the akeys' original values.
+ * Purpose:     Prepare callback for asynchronous task to update the
+ *              "number of links" key for a group after accounting for a
+ *              link having been deleted.
  *
- *              By shifting these indices downward, the creation order
- *              index will not contain any holes and will maintain its
- *              ability to be directly indexed into.
- *
- *              TODO: Currently, this routine attempts to avoid calls to
- *                    the server by allocating buffers for all of the keys
- *                    and then reading/writing them at once. However, this
- *                    leads to several tiny allocations and the potential
- *                    for a very large amount of memory usage, which could
- *                    be improved upon.
- *
- *                    One improvement would be to allocate a single large
- *                    buffer for the key data and then set indices into the
- *                    buffer appropriately in each of the SGLs. This would
- *                    help in avoiding the tiny allocations for the data
- *                    buffers for each key.
- *
- *                    Another improvement would be to pick a sensible upper
- *                    bound on the amount of keys handled at a single time
- *                    and then perform several rounds of reading/writing
- *                    until all of the keys have been processed. This
- *                    should help to minimize the total amount of memory
- *                    that is used at any point in time.
- *
- * Return:      Non-negative on success/negative on failure
+ * Return:      Success:        0
+ *              Failure:        Error code
  *
  *-------------------------------------------------------------------------
  */
-static herr_t
-H5_daos_link_shift_crt_idx_keys_down(H5_daos_group_t *target_grp,
-    uint64_t idx_begin, uint64_t idx_end)
+static int
+H5_daos_link_delete_corder_unl_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
-    daos_sg_list_t *sgls = NULL;
-    daos_iod_t *iods = NULL;
-    daos_iov_t *sg_iovs = NULL;
-    daos_key_t dkey;
-    daos_key_t tail_akeys[2];
-    uint64_t tmp_uint;
-    uint8_t *crt_order_link_name_buf = NULL;
-    uint8_t *crt_order_link_trgt_buf = NULL;
+    H5_daos_link_delete_corder_ud_t *udata;
+    daos_obj_rw_t *update_args;
     uint8_t *p;
-    size_t nlinks_shift;
-    size_t i;
-    char *tmp_buf = NULL;
-    int ret;
-    herr_t ret_value = SUCCEED;
+    int ret_value = 0;
 
-    assert(target_grp);
-    assert(idx_end >= idx_begin);
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for metadata I/O task");
+
+    assert(udata->req);
+    assert(udata->req->file);
+    assert(!udata->req->file->closed);
+    assert(udata->target_grp);
+
+    /* Handle errors */
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
+        tse_task_complete(task, -H5_DAOS_PRE_ERROR);
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    } /* end if */
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT) {
+        tse_task_complete(task, -H5_DAOS_SHORT_CIRCUIT);
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
+    } /* end if */
+
+    /* Decrement number of links to account for removed link */
+    udata->grp_nlinks--;
+
+    /* Encode buffer */
+    p = udata->unl_data.nlinks_new_buf;
+    UINT64ENCODE(p, ((uint64_t)udata->grp_nlinks));
+
+    udata->unl_data.unl_ud.req = udata->req;
+    udata->unl_data.unl_ud.obj = (H5_daos_obj_t *)udata->target_grp;
+
+    /* Set up dkey */
+    daos_iov_set(&udata->unl_data.unl_ud.dkey, (void *)H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
+    udata->unl_data.unl_ud.free_dkey = FALSE;
+
+    /* Set up iod */
+    daos_iov_set(&udata->unl_data.unl_ud.iod[0].iod_name, (void *)H5_daos_nlinks_key_g, H5_daos_nlinks_key_size_g);
+    udata->unl_data.unl_ud.iod[0].iod_nr = 1u;
+    udata->unl_data.unl_ud.iod[0].iod_size = (daos_size_t)H5_DAOS_ENCODED_NUM_LINKS_SIZE;
+    udata->unl_data.unl_ud.iod[0].iod_type = DAOS_IOD_SINGLE;
+
+    udata->unl_data.unl_ud.free_akeys = FALSE;
+
+    /* Set up sgl */
+    daos_iov_set(&udata->unl_data.unl_ud.sg_iov[0], udata->unl_data.nlinks_new_buf, (daos_size_t)H5_DAOS_ENCODED_NUM_LINKS_SIZE);
+    udata->unl_data.unl_ud.sgl[0].sg_nr = 1;
+    udata->unl_data.unl_ud.sgl[0].sg_nr_out = 0;
+    udata->unl_data.unl_ud.sgl[0].sg_iovs = &udata->unl_data.unl_ud.sg_iov[0];
+
+    udata->unl_data.unl_ud.nr = 1u;
+
+    udata->unl_data.unl_ud.task_name = "group number of links update task";
+
+    /* Set update task arguments */
+    if(NULL == (update_args = daos_task_get_args(task))) {
+        tse_task_complete(task, -H5_DAOS_DAOS_GET_ERROR);
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for metadata I/O task");
+    } /* end if */
+    update_args->oh = udata->unl_data.unl_ud.obj->obj_oh;
+    update_args->th = udata->req->th;
+    update_args->flags = 0;
+    update_args->dkey = &udata->unl_data.unl_ud.dkey;
+    update_args->nr = udata->unl_data.unl_ud.nr;
+    update_args->iods = udata->unl_data.unl_ud.iod;
+    update_args->sgls = udata->unl_data.unl_ud.sgl;
+
+done:
+    D_FUNC_LEAVE;
+} /* end H5_daos_link_delete_corder_unl_prep_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_link_delete_corder_prep_cb
+ *
+ * Purpose:     Prepare callback for asynchronous daos_obj_punch_akeys to
+ *              remove link creation order-related akeys from a group after
+ *              deleting a link from it. Currently checks for errors from
+ *              previous tasks and then sets arguments for the DAOS
+ *              operation.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_link_delete_corder_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_link_delete_corder_ud_t *udata;
+    daos_obj_punch_t *punch_args;
+    uint8_t *p;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for link creation order info deletion task");
+
+    assert(udata->req);
+    assert(udata->target_grp);
+
+    /* Handle errors */
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    } /* end if */
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT) {
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
+    } /* end if */
+
+    /* If iteration was done by creation order, determine the
+     * index of the link to delete creation order info for now.
+     * If iteration was done by name order, the index will have
+     * been setup by a previous task. */
+    if(H5VL_OBJECT_BY_IDX == udata->loc_params->type) {
+        /* DSINC - no check for safe cast here */
+        udata->delete_idx = (H5_ITER_DEC == udata->loc_params->loc_data.loc_by_idx.order) ?
+                (uint64_t)udata->grp_nlinks - (uint64_t)udata->loc_params->loc_data.loc_by_idx.n :
+                (uint64_t)udata->loc_params->loc_data.loc_by_idx.n;
+    } /* end if */
+
+    /* Set up akey buffers now that the index for the
+     * link to delete will have been resolved.
+     */
+
+    /* Remove the akey which maps creation order -> link name */
+    p = udata->idx_buf;
+    UINT64ENCODE(p, udata->delete_idx);
+    daos_iov_set(&udata->akeys[0], (void *)udata->idx_buf, H5_DAOS_ENCODED_CRT_ORDER_SIZE);
+
+    /* Remove the akey which maps creation order -> link target */
+    p = udata->crt_order_target_buf;
+    UINT64ENCODE(p, udata->delete_idx);
+    udata->crt_order_target_buf[H5_DAOS_CRT_ORDER_TO_LINK_TRGT_BUF_SIZE - 1] = 0;
+    daos_iov_set(&udata->akeys[1], (void *)udata->crt_order_target_buf, H5_DAOS_CRT_ORDER_TO_LINK_TRGT_BUF_SIZE);
+
+    /* Set deletion task arguments */
+    if(NULL == (punch_args = daos_task_get_args(task)))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for link creation order info deletion task");
+    punch_args->oh = udata->target_grp->obj.obj_oh;
+    punch_args->th = DAOS_TX_NONE;
+    punch_args->dkey = &udata->dkey;
+    punch_args->akeys = udata->akeys;
+    punch_args->flags = 0;
+    punch_args->akey_nr = 2;
+
+done:
+    D_FUNC_LEAVE;
+} /* end H5_daos_link_delete_corder_prep_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_link_delete_corder_bookkeep_task
+ *
+ * Purpose:     Asynchronous task to update a group's link creation order
+ *              index after a link has been deleted. If links are left in
+ *              the group and the link deleted wasn't at the "end" of the
+ *              index, shifts the indices of all akeys past the removed
+ *              link's akeys down by one. This maintains the ability to
+ *              directly index into the group's link creation order index
+ *              by removing any potential holes.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_link_delete_corder_bookkeep_task(tse_task_t *task)
+{
+    H5_daos_link_delete_corder_ud_t *udata;
+    tse_task_t *metatask = NULL;
+    tse_task_t *first_task = NULL;
+    tse_task_t *dep_task = NULL;
+    tse_task_t *bookkeeping_tasks[4];
+    int ret;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for task to update group's link creation order index");
+
+    assert(udata->req);
     H5daos_compile_assert(H5_DAOS_ENCODED_CRT_ORDER_SIZE == 8);
 
-    nlinks_shift = idx_end - idx_begin + 1;
+    /* Check for previous errors */
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT)
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT)
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
+
+    /* Bookkeeping can be skipped if the last link in the group was
+     * deleted or if the link at the "end" of the index was deleted.
+     */
+    if((udata->grp_nlinks == 0) || (udata->delete_idx >= (uint64_t)udata->grp_nlinks))
+        D_GOTO_DONE(0);
+
+    /* Determine number of link akeys to rewrite and allocate sgl/iod buffers */
+    udata->index_data.nlinks_shift = (uint64_t)udata->grp_nlinks - udata->delete_idx;
 
     /*
      * Allocate space for the 2 akeys per link, one akey that maps the link's
      * creation order value to the link's name and one akey that maps the link's
      * creation order value to the link's target.
      */
-    if(NULL == (iods = DV_malloc(2 * nlinks_shift * sizeof(*iods))))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate IOD buffer");
-    if(NULL == (sgls = DV_malloc(2 * nlinks_shift * sizeof(*sgls))))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate SGL buffer");
-    if(NULL == (sg_iovs = DV_calloc(2 * nlinks_shift * sizeof(*sg_iovs))))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate IOV buffer");
-    if(NULL == (crt_order_link_name_buf = DV_malloc(nlinks_shift * H5_DAOS_ENCODED_CRT_ORDER_SIZE)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate akey data buffer");
-    /*
-     * The 'creation order -> link target' akey's integer 'name' value is a 9-byte buffer:
-     * 8 bytes for the integer creation order value + 1 0-byte at the end of the buffer.
-     */
-    if(NULL == (crt_order_link_trgt_buf = DV_malloc(nlinks_shift * (H5_DAOS_ENCODED_CRT_ORDER_SIZE + 1))))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate akey data buffer");
+    if(NULL == (udata->index_data.iods = DV_malloc(2 * udata->index_data.nlinks_shift * sizeof(daos_iod_t))))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate IOD buffer");
+    if(NULL == (udata->index_data.sgls = DV_malloc(2 * udata->index_data.nlinks_shift * sizeof(daos_sg_list_t))))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate SGL buffer");
+    if(NULL == (udata->index_data.sg_iovs = DV_calloc(2 * udata->index_data.nlinks_shift * sizeof(daos_iov_t))))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate IOV buffer");
+    if(NULL == (udata->index_data.crt_order_link_name_buf = DV_malloc(udata->index_data.nlinks_shift * H5_DAOS_ENCODED_CRT_ORDER_SIZE)))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate akey data buffer");
+    if(NULL == (udata->index_data.crt_order_link_trgt_buf = DV_malloc(udata->index_data.nlinks_shift * (H5_DAOS_ENCODED_CRT_ORDER_SIZE + 1))))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate akey data buffer");
 
     /* Set up dkey */
-    daos_iov_set(&dkey, (void *)H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
+    daos_iov_set(&udata->index_data.dkey, (void *)H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
+
+    /* Create task to fetch data size for each akey */
+    if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &udata->target_grp->obj.item.file->sched,
+            0, NULL, &bookkeeping_tasks[0])))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't create task to fetch sizes of link creation order index akeys: %s", H5_daos_err_to_string(ret));
+
+    /* Set callback functions for task to fetch sizes of akeys */
+    if(0 != (ret = tse_task_register_cbs(bookkeeping_tasks[0], H5_daos_link_bookkeep_phase1_prep_cb, NULL, 0,
+            NULL, NULL, 0)))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't register callbacks for task to fetch sizes of link creation order index akeys: %s", H5_daos_err_to_string(ret));
+
+    /* Set private data for task to fetch sizes of akeys */
+    (void)tse_task_set_priv(bookkeeping_tasks[0], udata);
+
+    /* Save task to fetch sizes of akeys so that it can be scheduled later */
+    assert(!first_task);
+    first_task = bookkeeping_tasks[0];
+    dep_task = bookkeeping_tasks[0];
+
+    /* Create task to fetch akey data */
+    assert(dep_task);
+    if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &udata->target_grp->obj.item.file->sched,
+            1, &dep_task, &bookkeeping_tasks[1])))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't create task to fetch link creation order index akeys: %s", H5_daos_err_to_string(ret));
+
+    /* Set callback functions for task to fetch akeys */
+    if(0 != (ret = tse_task_register_cbs(bookkeeping_tasks[1], H5_daos_link_bookkeep_phase2_prep_cb, NULL, 0,
+            NULL, NULL, 0)))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't register callbacks for task to fetch link creation order index akeys: %s", H5_daos_err_to_string(ret));
+
+    /* Set private data for task to fetch akeys */
+    (void)tse_task_set_priv(bookkeeping_tasks[1], udata);
+
+    /* Schedule task to fetch akeys */
+    assert(first_task);
+    if(0 != (ret = tse_task_schedule(bookkeeping_tasks[1], false)))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't schedule task to fetch link creation order index akeys: %s", H5_daos_err_to_string(ret));
+    dep_task = bookkeeping_tasks[1];
+
+    /* Create task to update each akey */
+    assert(dep_task);
+    if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_UPDATE, &udata->target_grp->obj.item.file->sched,
+            1, &dep_task, &bookkeeping_tasks[2])))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't create task to update link creation order index akeys: %s", H5_daos_err_to_string(ret));
+
+    /* Set callback functions for task to update akeys */
+    if(0 != (ret = tse_task_register_cbs(bookkeeping_tasks[2], H5_daos_link_bookkeep_phase3_prep_cb, NULL, 0,
+            NULL, NULL, 0)))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't register callbacks for task to update link creation order index akeys: %s", H5_daos_err_to_string(ret));
+
+    /* Set private data for task to update akeys */
+    (void)tse_task_set_priv(bookkeeping_tasks[2], udata);
+
+    /* Schedule task to update akeys */
+    assert(first_task);
+    if(0 != (ret = tse_task_schedule(bookkeeping_tasks[2], false)))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't schedule task to update link creation order index akeys: %s", H5_daos_err_to_string(ret));
+    dep_task = bookkeeping_tasks[2];
+
+    /* Create task to remove the (now invalid) two akeys at the end of the index */
+    assert(dep_task);
+    if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_PUNCH_AKEYS, &udata->target_grp->obj.item.file->sched,
+            1, &dep_task, &bookkeeping_tasks[3])))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't create task to remove invalid index akeys: %s", H5_daos_err_to_string(ret));
+
+    /* Set callback functions for task to remove invalid akeys */
+    if(0 != (ret = tse_task_register_cbs(bookkeeping_tasks[3], H5_daos_link_bookkeep_phase4_prep_cb, NULL, 0,
+            NULL, NULL, 0)))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't register callbacks for task to remove invalid index akeys: %s", H5_daos_err_to_string(ret));
+
+    /* Set private data for task to remove invalid akeys */
+    (void)tse_task_set_priv(bookkeeping_tasks[3], udata);
+
+    /* Schedule task to remove invalid akeys */
+    assert(first_task);
+    if(0 != (ret = tse_task_schedule(bookkeeping_tasks[3], false)))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't schedule task to remove invalid index akeys: %s", H5_daos_err_to_string(ret));
+    dep_task = bookkeeping_tasks[3];
+
+done:
+    if(udata) {
+        /* Create metatask to complete this task after dep_task if necessary */
+        if(dep_task) {
+            /* Create metatask */
+            if(0 != (ret = tse_task_create(H5_daos_metatask_autocomp_other,
+                    &udata->target_grp->obj.item.file->sched, task, &metatask))) {
+                D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, ret, "can't create metatask for link creation order index update task: %s", H5_daos_err_to_string(ret));
+                tse_task_complete(task, ret_value);
+            } /* end if */
+            else {
+                /* Register task dependency */
+                if(0 != (ret = tse_task_register_deps(metatask, 1, &dep_task)))
+                    D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, ret, "can't create dependencies for link creation order index update metatask: %s", H5_daos_err_to_string(ret));
+
+                /* Schedule metatask */
+                assert(first_task);
+                if(0 != (ret = tse_task_schedule(metatask, false)))
+                    D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, ret, "can't schedule metatask for link creation order index update task: %s", H5_daos_err_to_string(ret));
+            } /* end else */
+        }
+
+        /* Schedule first task */
+        if(first_task && 0 != (ret = tse_task_schedule(first_task, false)))
+            D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, ret, "can't schedule initial task for link creation order index update task: %s", H5_daos_err_to_string(ret));
+
+        if(H5_daos_group_close(udata->target_grp, H5I_INVALID_HID, NULL) < 0)
+            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close group");
+
+        /* Handle errors in this function */
+        /* Do not place any code that can issue errors after this block, except
+         * for H5_daos_req_free_int, which updates req->status if it sees an
+         * error */
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+            udata->req->status = ret_value;
+            udata->req->failed_task = "link deletion bookkeeping task";
+        } /* end if */
+
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(udata->req) < 0)
+            D_DONE_ERROR(H5E_LINK, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+    }
+    else
+        assert(ret_value == -H5_DAOS_DAOS_GET_ERROR);
+
+    /* Complete task if necessary */
+    if(!metatask)
+        tse_task_complete(task, ret_value);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_link_delete_corder_bookkeep_task() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_link_bookkeep_phase1_prep_cb
+ *
+ * Purpose:     Prepare callback for phase 1 of link creation order index
+ *              bookkeeping. Currently checks for errors from previous
+ *              tasks, sets up IODs and SGLs to read the size of data for
+ *              each link's creation order akeys and then sets arguments
+ *              for the DAOS operation.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_link_bookkeep_phase1_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_link_delete_corder_ud_t *udata;
+    daos_obj_rw_t *fetch_args;
+    uint64_t tmp_uint;
+    uint8_t *p;
+    size_t i;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for link creation order index bookkeeping task");
+
+    assert(udata->req);
+    assert(udata->target_grp);
+
+    /* Handle errors */
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    } /* end if */
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT) {
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
+    } /* end if */
 
     /* Set up iods */
-    for(i = 0; i < nlinks_shift; i++) {
-        tmp_uint = idx_begin + i;
+    for(i = 0; i < udata->index_data.nlinks_shift; i++) {
+        tmp_uint = udata->delete_idx + i + 1;
 
         /* Setup the integer 'name' value for the current 'creation order -> link name' akey */
-        p = &crt_order_link_name_buf[i * H5_DAOS_ENCODED_CRT_ORDER_SIZE];
+        p = &udata->index_data.crt_order_link_name_buf[i * H5_DAOS_ENCODED_CRT_ORDER_SIZE];
         UINT64ENCODE(p, tmp_uint);
 
         /* Set up iods for the current 'creation order -> link name' akey */
-        memset(&iods[2 * i], 0, sizeof(*iods));
-        daos_iov_set(&iods[2 * i].iod_name, &crt_order_link_name_buf[i * H5_DAOS_ENCODED_CRT_ORDER_SIZE], H5_DAOS_ENCODED_CRT_ORDER_SIZE);
-        iods[2 * i].iod_nr = 1u;
-        iods[2 * i].iod_size = DAOS_REC_ANY;
-        iods[2 * i].iod_type = DAOS_IOD_SINGLE;
+        memset(&udata->index_data.iods[2 * i], 0, sizeof(daos_iod_t));
+        daos_iov_set(&udata->index_data.iods[2 * i].iod_name,
+                &udata->index_data.crt_order_link_name_buf[i * H5_DAOS_ENCODED_CRT_ORDER_SIZE],
+                H5_DAOS_ENCODED_CRT_ORDER_SIZE);
+        udata->index_data.iods[2 * i].iod_nr = 1u;
+        udata->index_data.iods[2 * i].iod_size = DAOS_REC_ANY;
+        udata->index_data.iods[2 * i].iod_type = DAOS_IOD_SINGLE;
 
         /* Setup the integer 'name' value for the current 'creation order -> link target' akey */
-        p = &crt_order_link_trgt_buf[i * (H5_DAOS_ENCODED_CRT_ORDER_SIZE + 1)];
+        p = &udata->index_data.crt_order_link_trgt_buf[i * (H5_DAOS_ENCODED_CRT_ORDER_SIZE + 1)];
         UINT64ENCODE(p, tmp_uint);
         *p++ = 0;
 
         /* Set up iods for the current 'creation order -> link target' akey */
-        memset(&iods[(2 * i) + 1], 0, sizeof(*iods));
-        daos_iov_set(&iods[(2 * i) + 1].iod_name, &crt_order_link_trgt_buf[i * (H5_DAOS_ENCODED_CRT_ORDER_SIZE + 1)], H5_DAOS_ENCODED_CRT_ORDER_SIZE + 1);
-        iods[(2 * i) + 1].iod_nr = 1u;
-        iods[(2 * i) + 1].iod_size = DAOS_REC_ANY;
-        iods[(2 * i) + 1].iod_type = DAOS_IOD_SINGLE;
+        memset(&udata->index_data.iods[(2 * i) + 1], 0, sizeof(daos_iod_t));
+        daos_iov_set(&udata->index_data.iods[(2 * i) + 1].iod_name,
+                &udata->index_data.crt_order_link_trgt_buf[i * (H5_DAOS_ENCODED_CRT_ORDER_SIZE + 1)],
+                H5_DAOS_ENCODED_CRT_ORDER_SIZE + 1);
+        udata->index_data.iods[(2 * i) + 1].iod_nr = 1u;
+        udata->index_data.iods[(2 * i) + 1].iod_size = DAOS_REC_ANY;
+        udata->index_data.iods[(2 * i) + 1].iod_type = DAOS_IOD_SINGLE;
     } /* end for */
 
-    /* Fetch the data size for each akey */
-    if(0 != (ret = daos_obj_fetch(target_grp->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, (unsigned) 2 * nlinks_shift,
-            iods, NULL, NULL /*maps*/, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_LINK, H5E_READERROR, FAIL, "can't read akey data sizes: %s", H5_daos_err_to_string(ret));
+    /* Set task arguments */
+    if(NULL == (fetch_args = daos_task_get_args(task)))
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for link creation order index akey size fetch task");
+    fetch_args->oh = udata->target_grp->obj.obj_oh;
+    fetch_args->th = DAOS_TX_NONE;
+    fetch_args->flags = 0;
+    fetch_args->dkey = &udata->index_data.dkey;
+    fetch_args->nr = 2 * udata->index_data.nlinks_shift;
+    fetch_args->iods = udata->index_data.iods;
+    fetch_args->sgls = NULL;
 
-    /* Allocate buffers and setup sgls for each akey */
-    for(i = 0; i < nlinks_shift; i++) {
-        /* Allocate buffer for the current 'creation order -> link name' akey */
-        if(iods[2 * i].iod_size == 0)
-            D_GOTO_ERROR(H5E_SYM, H5E_BADSIZE, FAIL, "invalid iod size - missing metadata");
-        if(NULL == (tmp_buf = DV_malloc(iods[2 * i].iod_size)))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akey data");
+done:
+    if(ret_value < 0)
+        tse_task_complete(task, ret_value);
 
+    D_FUNC_LEAVE;
+} /* end H5_daos_link_bookkeep_phase1_prep_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_link_bookkeep_phase2_prep_cb
+ *
+ * Purpose:     Prepare callback for phase 2 of link creation order index
+ *              bookkeeping. Currently checks for errors from previous
+ *              tasks, allocates buffers for each link's creation order
+ *              akeys and then sets arguments for the DAOS operation.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_link_bookkeep_phase2_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_link_delete_corder_ud_t *udata;
+    daos_obj_rw_t *fetch_args;
+    size_t i;
+    size_t link_corder_name_buf_size;
+    size_t link_corder_target_buf_size;
+    char *link_corder_name_buf = NULL;
+    char *link_corder_target_buf = NULL;
+    char *name_buf_cur_pos = NULL;
+    char *target_buf_cur_pos = NULL;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for link creation order index bookkeeping task");
+
+    assert(udata->req);
+    assert(udata->target_grp);
+
+    /* Handle errors */
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    } /* end if */
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT) {
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
+    } /* end if */
+
+    /* Determine size of buffers needed for link creation order akeys */
+    link_corder_name_buf_size = 0;
+    link_corder_target_buf_size = 0;
+    for(i = 0; i < udata->index_data.nlinks_shift; i++) {
+        /* Determine size for 'creation order -> link name' akey buffer */
+        if(udata->index_data.iods[2 * i].iod_size == 0)
+            D_GOTO_ERROR(H5E_SYM, H5E_BADSIZE, -H5_DAOS_BAD_VALUE, "invalid iod size - missing metadata");
+        link_corder_name_buf_size += udata->index_data.iods[2 * i].iod_size;
+
+        /* Determine size for 'creation order -> link target' akey buffer */
+        if(udata->index_data.iods[(2 * i) + 1].iod_size == 0)
+            D_GOTO_ERROR(H5E_SYM, H5E_BADSIZE, -H5_DAOS_BAD_VALUE, "invalid iod size - missing metadata");
+        link_corder_target_buf_size += udata->index_data.iods[(2 * i) + 1].iod_size;
+    } /* end for */
+
+    if(NULL == (link_corder_name_buf = DV_malloc(link_corder_name_buf_size)))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate buffer for akey data");
+    if(NULL == (link_corder_target_buf = DV_malloc(link_corder_target_buf_size)))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate buffer for akey data");
+
+    /* Setup SGLs for each akey */
+    name_buf_cur_pos = link_corder_name_buf;
+    target_buf_cur_pos = link_corder_target_buf;
+    for(i = 0; i < udata->index_data.nlinks_shift; i++) {
         /* Set up sgls for the current 'creation order -> link name' akey */
-        daos_iov_set(&sg_iovs[2 * i], tmp_buf, iods[2 * i].iod_size);
-        sgls[2 * i].sg_nr = 1;
-        sgls[2 * i].sg_nr_out = 0;
-        sgls[2 * i].sg_iovs = &sg_iovs[2 * i];
+        daos_iov_set(&udata->index_data.sg_iovs[2 * i], name_buf_cur_pos,
+                udata->index_data.iods[2 * i].iod_size);
+        udata->index_data.sgls[2 * i].sg_nr = 1;
+        udata->index_data.sgls[2 * i].sg_nr_out = 0;
+        udata->index_data.sgls[2 * i].sg_iovs = &udata->index_data.sg_iovs[2 * i];
 
-        /* Allocate buffer for the current 'creation order -> link target' akey */
-        if(iods[(2 * i) + 1].iod_size == 0)
-            D_GOTO_ERROR(H5E_SYM, H5E_BADSIZE, FAIL, "invalid iod size - missing metadata");
-        if(NULL == (tmp_buf = DV_malloc(iods[(2 * i) + 1].iod_size)))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akey data");
+        name_buf_cur_pos += udata->index_data.iods[2 * i].iod_size;
 
         /* Set up sgls for the current 'creation order -> link target' akey */
-        daos_iov_set(&sg_iovs[(2 * i) + 1], tmp_buf, iods[(2 * i) + 1].iod_size);
-        sgls[(2 * i) + 1].sg_nr = 1;
-        sgls[(2 * i) + 1].sg_nr_out = 0;
-        sgls[(2 * i) + 1].sg_iovs = &sg_iovs[(2 * i) + 1];
+        daos_iov_set(&udata->index_data.sg_iovs[(2 * i) + 1], target_buf_cur_pos,
+                udata->index_data.iods[(2 * i) + 1].iod_size);
+        udata->index_data.sgls[(2 * i) + 1].sg_nr = 1;
+        udata->index_data.sgls[(2 * i) + 1].sg_nr_out = 0;
+        udata->index_data.sgls[(2 * i) + 1].sg_iovs = &udata->index_data.sg_iovs[(2 * i) + 1];
+
+        target_buf_cur_pos += udata->index_data.iods[(2 * i) + 1].iod_size;
     } /* end for */
 
-    /* Read the akey's data */
-    if(0 != (ret = daos_obj_fetch(target_grp->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, (unsigned) 2 * nlinks_shift,
-            iods, sgls, NULL /*maps*/, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_LINK, H5E_READERROR, FAIL, "can't read akey data: %s", H5_daos_err_to_string(ret));
+    /* Set task arguments */
+    if(NULL == (fetch_args = daos_task_get_args(task)))
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for link creation order index akey fetch task");
+    fetch_args->oh = udata->target_grp->obj.obj_oh;
+    fetch_args->th = DAOS_TX_NONE;
+    fetch_args->flags = 0;
+    fetch_args->dkey = &udata->index_data.dkey;
+    fetch_args->nr = 2 * udata->index_data.nlinks_shift;
+    fetch_args->iods = udata->index_data.iods;
+    fetch_args->sgls = udata->index_data.sgls;
+
+done:
+    if(ret_value < 0) {
+        if(link_corder_target_buf)
+            link_corder_target_buf = DV_free(link_corder_target_buf);
+        if(link_corder_name_buf)
+            link_corder_name_buf = DV_free(link_corder_name_buf);
+
+        tse_task_complete(task, ret_value);
+    }
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_link_bookkeep_phase2_prep_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_link_bookkeep_phase3_prep_cb
+ *
+ * Purpose:     Prepare callback for phase 3 of link creation order index
+ *              bookkeeping. Currently checks for errors from previous
+ *              tasks, adjusts each link's creation order akeys by setting
+ *              their integer 'name' values to one less than their original
+ *              values and then sets arguments for the DAOS operation.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_link_bookkeep_phase3_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_link_delete_corder_ud_t *udata;
+    daos_obj_rw_t *update_args;
+    uint64_t tmp_uint;
+    uint8_t *p;
+    size_t i;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for link creation order index bookkeeping task");
+
+    assert(udata->req);
+    assert(udata->target_grp);
+
+    /* Handle errors */
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    } /* end if */
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT) {
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
+    } /* end if */
 
     /*
      * Adjust the akeys down by setting their integer 'name' values to
-     * one less than their original values
+     * one less than their original values.
      */
-    for(i = 0; i < nlinks_shift; i++) {
+    for(i = 0; i < udata->index_data.nlinks_shift; i++) {
         /* Setup the integer 'name' value for the current 'creation order -> link name' akey */
-        p = &crt_order_link_name_buf[i * H5_DAOS_ENCODED_CRT_ORDER_SIZE];
+        p = &udata->index_data.crt_order_link_name_buf[i * H5_DAOS_ENCODED_CRT_ORDER_SIZE];
         UINT64DECODE(p, tmp_uint);
 
         tmp_uint--;
-        p = &crt_order_link_name_buf[i * H5_DAOS_ENCODED_CRT_ORDER_SIZE];
+        p = &udata->index_data.crt_order_link_name_buf[i * H5_DAOS_ENCODED_CRT_ORDER_SIZE];
         UINT64ENCODE(p, tmp_uint);
 
         /* Setup the integer 'name' value for the current 'creation order -> link target' akey */
-        p = &crt_order_link_trgt_buf[i * (H5_DAOS_ENCODED_CRT_ORDER_SIZE + 1)];
+        p = &udata->index_data.crt_order_link_trgt_buf[i * (H5_DAOS_ENCODED_CRT_ORDER_SIZE + 1)];
         UINT64ENCODE(p, tmp_uint);
         *p++ = 0;
     } /* end for */
 
-    /* Write the akeys back */
-    if(0 != (ret = daos_obj_update(target_grp->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, (unsigned) 2 * nlinks_shift,
-            iods, sgls, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_LINK, H5E_WRITEERROR, FAIL, "can't write akey data: %s", H5_daos_err_to_string(ret));
-
-    /* Delete the (now invalid) akeys at the end of the creation index */
-    tmp_uint = idx_end;
-    p = &crt_order_link_name_buf[0];
-    UINT64ENCODE(p, tmp_uint);
-    daos_iov_set(&tail_akeys[0], (void *)crt_order_link_name_buf, H5_DAOS_ENCODED_CRT_ORDER_SIZE);
-
-    p = &crt_order_link_trgt_buf[0];
-    UINT64ENCODE(p, tmp_uint);
-    *p++ = 0;
-    daos_iov_set(&tail_akeys[1], (void *)crt_order_link_trgt_buf, H5_DAOS_ENCODED_CRT_ORDER_SIZE + 1);
-
-    if(0 != (ret = daos_obj_punch_akeys(target_grp->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey,
-            2, tail_akeys, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_LINK, H5E_CANTDELETE, FAIL, "can't trim tail akeys from link creation order index");
+    /* Set task arguments */
+    if(NULL == (update_args = daos_task_get_args(task)))
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for link creation order index akey update task");
+    update_args->oh = udata->target_grp->obj.obj_oh;
+    update_args->th = DAOS_TX_NONE;
+    update_args->flags = 0;
+    update_args->dkey = &udata->index_data.dkey;
+    update_args->nr = 2 * udata->index_data.nlinks_shift;
+    update_args->iods = udata->index_data.iods;
+    update_args->sgls = udata->index_data.sgls;
 
 done:
-    for(i = 0; i < nlinks_shift; i++) {
-        if(sg_iovs[2 * i].iov_buf)
-            sg_iovs[2 * i].iov_buf = DV_free(sg_iovs[2 * i].iov_buf);
-        if(sg_iovs[(2 * i) + 1].iov_buf)
-            sg_iovs[(2 * i) + 1].iov_buf = DV_free(sg_iovs[(2 * i) + 1].iov_buf);
-    } /* end for */
-    if(crt_order_link_trgt_buf)
-        crt_order_link_trgt_buf = DV_free(crt_order_link_trgt_buf);
-    if(crt_order_link_name_buf)
-        crt_order_link_name_buf = DV_free(crt_order_link_name_buf);
-    if(sg_iovs)
-        sg_iovs = DV_free(sg_iovs);
-    if(sgls)
-        sgls = DV_free(sgls);
-    if(iods)
-        iods = DV_free(iods);
+    if(ret_value < 0)
+        tse_task_complete(task, ret_value);
 
     D_FUNC_LEAVE;
-} /* end H5_daos_link_shift_crt_idx_keys_down() */
+} /* end H5_daos_link_bookkeep_phase3_prep_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_link_bookkeep_phase4_prep_cb
+ *
+ * Purpose:     Prepare callback for phase 4 of link creation order index
+ *              bookkeeping. Currently checks for errors from previous
+ *              tasks, then sets arguments for the DAOS operation to remove
+ *              the two link creation order akeys at the "end" of the index
+ *              (which are now invalid after shifting akeys downward in
+ *              the index).
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_link_bookkeep_phase4_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_link_delete_corder_ud_t *udata;
+    daos_obj_punch_t *punch_args;
+    uint64_t tmp_uint;
+    uint8_t *p;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for link creation order index bookkeeping task");
+
+    assert(udata->req);
+    assert(udata->target_grp);
+
+    /* Handle errors */
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    } /* end if */
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT) {
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
+    } /* end if */
+
+    /* Encode last (now invalid) index value into akeys */
+    tmp_uint = (uint64_t)udata->grp_nlinks;
+    p = &udata->index_data.crt_order_link_name_buf[0];
+    UINT64ENCODE(p, tmp_uint);
+    daos_iov_set(&udata->index_data.tail_akeys[0],
+            (void *)udata->index_data.crt_order_link_name_buf, H5_DAOS_ENCODED_CRT_ORDER_SIZE);
+
+    p = &udata->index_data.crt_order_link_trgt_buf[0];
+    UINT64ENCODE(p, tmp_uint);
+    *p++ = 0;
+    daos_iov_set(&udata->index_data.tail_akeys[1],
+            (void *)udata->index_data.crt_order_link_trgt_buf, H5_DAOS_ENCODED_CRT_ORDER_SIZE + 1);
+
+    /* Set deletion task arguments */
+    if(NULL == (punch_args = daos_task_get_args(task)))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for link creation order akey deletion task");
+    punch_args->oh = udata->target_grp->obj.obj_oh;
+    punch_args->th = DAOS_TX_NONE;
+    punch_args->dkey = &udata->index_data.dkey;
+    punch_args->akeys = udata->index_data.tail_akeys;
+    punch_args->flags = 0;
+    punch_args->akey_nr = 2;
+
+done:
+    if(ret_value < 0)
+        tse_task_complete(task, ret_value);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_link_bookkeep_phase4_prep_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_link_delete_corder_finish
+ *
+ * Purpose:     Asynchronous task to finish deletion of link creation
+ *              order-related info from a group after a link has been
+ *              deleted. Currently checks for a failed task then frees
+ *              private data.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_link_delete_corder_finish(tse_task_t *task)
+{
+    H5_daos_link_delete_corder_ud_t *udata;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for link creation order info deletion task");
+
+    assert(udata->req);
+
+    if(H5_daos_group_close(udata->target_grp, H5I_INVALID_HID, NULL) < 0)
+        D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close group");
+
+    /* Handle errors in this function */
+    /* Do not place any code that can issue errors after this block, except
+     * for H5_daos_req_free_int, which updates req->status if it sees an
+     * error */
+    if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+        udata->req->status = ret_value;
+        udata->req->failed_task = "link creation order info deletion finish task";
+    } /* end if */
+
+    /* Release our reference to req */
+    if(H5_daos_req_free_int(udata->req) < 0)
+        D_DONE_ERROR(H5E_LINK, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+    /* Free private data */
+    if(udata->index_data.crt_order_link_trgt_buf) {
+        DV_free(udata->index_data.crt_order_link_trgt_buf);
+        udata->index_data.crt_order_link_trgt_buf = NULL;
+    }
+    if(udata->index_data.crt_order_link_name_buf) {
+        DV_free(udata->index_data.crt_order_link_name_buf);
+        udata->index_data.crt_order_link_name_buf = NULL;
+    }
+    if(udata->index_data.sg_iovs) {
+        if(udata->index_data.sg_iovs[0].iov_buf) {
+            DV_free(udata->index_data.sg_iovs[0].iov_buf);
+            udata->index_data.sg_iovs[0].iov_buf = NULL;
+        }
+        if(udata->index_data.sg_iovs[1].iov_buf) {
+            DV_free(udata->index_data.sg_iovs[1].iov_buf);
+            udata->index_data.sg_iovs[1].iov_buf = NULL;
+        }
+
+        DV_free(udata->index_data.sg_iovs);
+        udata->index_data.sg_iovs = NULL;
+    }
+    if(udata->index_data.sgls) {
+        DV_free(udata->index_data.sgls);
+        udata->index_data.sgls = NULL;
+    }
+    if(udata->index_data.iods) {
+        DV_free(udata->index_data.iods);
+        udata->index_data.iods = NULL;
+    }
+
+    DV_free(udata);
+
+done:
+    /* Complete this task */
+    tse_task_complete(task, ret_value);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_link_delete_corder_finish() */
 
 
 /*-------------------------------------------------------------------------

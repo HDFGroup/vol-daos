@@ -279,6 +279,17 @@ typedef struct H5_daos_link_delete_corder_ud_t {
     } index_data;
 } H5_daos_link_delete_corder_ud_t;
 
+/* User data struct for decrementing a deleted link's target object's reference
+ * count */
+typedef struct H5_daos_link_delete_rc_ud_t {
+    H5_daos_req_t *req;
+    H5_daos_obj_t *target_obj;
+    H5_daos_obj_t *link_target_obj;
+    H5_daos_link_val_t link_val;
+    uint64_t obj_rc;
+    tse_task_t *rc_task;
+} H5_daos_link_delete_rc_ud_t;
+
 /*
  * A link iteration callback function data structure. It is
  * passed during link iteration when retrieving a link's name
@@ -403,7 +414,8 @@ static herr_t H5_daos_link_iterate_by_crt_order(H5_daos_group_t *target_grp,
     tse_task_t **dep_task);
 
 static herr_t H5_daos_link_delete(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
-    hbool_t collective, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
+    hbool_t collective, hbool_t dec_rc, H5_daos_req_t *req,
+    tse_task_t **first_task, tse_task_t **dep_task);
 static int H5_daos_link_delete_prep_cb(tse_task_t *task, void *args);
 static int H5_daos_link_delete_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_link_delete_corder_pretask(tse_task_t *task);
@@ -419,6 +431,8 @@ static int H5_daos_link_bookkeep_phase2_prep_cb(tse_task_t *task, void *args);
 static int H5_daos_link_bookkeep_phase3_prep_cb(tse_task_t *task, void *args);
 static int H5_daos_link_bookkeep_phase4_prep_cb(tse_task_t *task, void *args);
 static int H5_daos_link_delete_corder_finish(tse_task_t *task);
+static int H5_daos_link_delete_rc_task(tse_task_t *task);
+static int H5_daos_link_delete_rc_end_task(tse_task_t *task);
 
 static int H5_daos_link_gnbi_alloc_task(tse_task_t *task);
 static int H5_daos_link_gnbc_task(tse_task_t *task);
@@ -2241,6 +2255,7 @@ static int
 H5_daos_link_copy_move_task(tse_task_t *task)
 {
     H5_daos_link_copy_move_ud_t *udata = NULL;
+    H5_daos_req_t *req = NULL;;
     tse_task_t *first_task = NULL;
     tse_task_t *dep_tasks[2] = {NULL, NULL};
     int ndeps = 0;
@@ -2251,18 +2266,23 @@ H5_daos_link_copy_move_task(tse_task_t *task)
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for link copy task");
 
+    /* Assign req convenience pointer.  We do this so we can still handle errors
+     * after transfering ownership of udata.  This should be safe since we
+     * increase the ref count on req when we transfer ownership. */
+    req = udata->req;
+
     /* Handle errors in previous tasks */
-    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
+    if(req->status < -H5_DAOS_SHORT_CIRCUIT) {
         D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
     } /* end if */
-    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT) {
+    else if(req->status == -H5_DAOS_SHORT_CIRCUIT) {
         D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
     } /* end if */
 
     /* Write link to destination object */
     udata->link_val.target_oid_async = NULL;
     if(0 != (ret = H5_daos_link_write((H5_daos_group_t *)udata->target_obj, udata->new_link_name,
-            udata->new_link_name_len, &udata->link_val, udata->req, &first_task, &dep_tasks[ndeps])))
+            udata->new_link_name_len, &udata->link_val, req, &first_task, &dep_tasks[ndeps])))
         D_GOTO_ERROR(H5E_LINK, H5E_CANTCOPY, ret, "failed to write destination link: %s", H5_daos_err_to_string(ret));
     if(dep_tasks[0])
         ndeps++;
@@ -2273,8 +2293,11 @@ H5_daos_link_copy_move_task(tse_task_t *task)
         H5O_token_t token;
         int rc_task = ndeps;
 
+        /* Verify src and dst files are the same? */
+
         /* Encode loc_params for opening link target object */
-        link_target_loc_params.obj_type = udata->target_obj->item.type;
+        if(H5I_BADID == (link_target_loc_params.obj_type = H5_daos_oid_to_type(udata->link_val.target.hard)))
+            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_BAD_VALUE, "failed to get link target object's type");
         link_target_loc_params.type = H5VL_OBJECT_BY_TOKEN;
         if(H5_daos_oid_to_token(udata->link_val.target.hard, &token) < 0)
             D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_H5_ENCODE_ERROR, "failed to encode token");
@@ -2283,7 +2306,7 @@ H5_daos_link_copy_move_task(tse_task_t *task)
         /* Attempt to open the hard link's target object */
         /* TODO: no logic for 'collective' yet */
         if(H5_daos_object_open_helper(&udata->target_obj->item, &link_target_loc_params,
-                NULL, FALSE, NULL, &udata->link_target_obj, udata->req, &first_task, &dep_tasks[rc_task]) < 0)
+                NULL, FALSE, NULL, &udata->link_target_obj, req, &first_task, &dep_tasks[rc_task]) < 0)
             D_GOTO_ERROR(H5E_LINK, H5E_CANTOPENOBJ, -H5_DAOS_H5_OPEN_ERROR, "couldn't open hard link's target object");
         if(dep_tasks[rc_task])
             ndeps++;
@@ -2291,7 +2314,7 @@ H5_daos_link_copy_move_task(tse_task_t *task)
         /* Read target object ref count */
         if(0 != (ret = H5_daos_obj_read_rc(&udata->link_target_obj, NULL,
                 &udata->link_target_obj_rc, NULL, &udata->target_obj->item.file->sched,
-                udata->req, &first_task, &dep_tasks[1])))
+                req, &first_task, &dep_tasks[1])))
             D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, ret, "can't get target object ref count: %s", H5_daos_err_to_string(ret));
         if(rc_task == ndeps && dep_tasks[rc_task])
             ndeps++;
@@ -2299,7 +2322,7 @@ H5_daos_link_copy_move_task(tse_task_t *task)
         /* Increment and write ref count */
         if(0 != (ret = H5_daos_obj_write_rc(&udata->link_target_obj, NULL,
                 &udata->link_target_obj_rc, 1, &udata->target_obj->item.file->sched,
-                udata->req, &first_task, &dep_tasks[1])))
+                req, &first_task, &dep_tasks[1])))
             D_GOTO_ERROR(H5E_LINK, H5E_CANTINC, ret, "can't write updated target object ref count: %s", H5_daos_err_to_string(ret));
         if(rc_task == ndeps && dep_tasks[rc_task])
             ndeps++;
@@ -2319,13 +2342,17 @@ done:
             if(ndeps > 0 && 0 != (ret = tse_task_register_deps(end_task, ndeps, dep_tasks)))
                 D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, ret, "can't create dependencies for link copy/move end task: %s", H5_daos_err_to_string(ret));
 
-            /* Schedule copy end task (or save it to be scheduled later) */
+            /* Schedule copy end task (or save it to be scheduled later) and
+             * give it ownership of udata, while keeping a reference to req for
+             * ourselves */
+            req->rc++;
             if(first_task) {
                 if(0 != (ret = tse_task_schedule(end_task, false)))
                     D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, ret, "can't schedule task for link copy/move order end: %s", H5_daos_err_to_string(ret));
             } /* end if */
             else
                 first_task = end_task;
+            udata = NULL;
             dep_tasks[0] = end_task;
             ndeps = 1;
         } /* end else */
@@ -2337,10 +2364,14 @@ done:
         /* Handle errors in this function */
         /* Do not place any code that can issue errors after this block, except for
          * H5_daos_req_free_int, which updates req->status if it sees an error */
-        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
-            udata->req->status = ret_value;
-            udata->req->failed_task = "link copy/move task";
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+            req->status = ret_value;
+            req->failed_task = "link copy/move task";
         } /* end if */
+
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(req) < 0)
+            D_DONE_ERROR(H5E_LINK, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
     } /* end if */
     else {
         assert(ret_value == -H5_DAOS_DAOS_GET_ERROR);
@@ -2534,7 +2565,7 @@ H5_daos_link_copy_move_int(H5_daos_item_t *src_item, const H5VL_loc_params_t *lo
          * the read is complete!) */
         delete_task = dep_tasks[0];
         if(H5_daos_link_delete((src_item ? src_item : dst_item), loc_params1,
-                FALSE, req, first_task, &delete_task) < 0)
+                FALSE, FALSE, req, first_task, &delete_task) < 0)
             D_GOTO_ERROR(H5E_LINK, H5E_CANTREMOVE, FAIL, "can't delete original link");
     } /* end if */
 
@@ -3153,7 +3184,7 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
 
         /* H5Ldelete(_by_idx) */
         case H5VL_LINK_DELETE:
-            if(H5_daos_link_delete(item, loc_params, collective, int_req, &first_task, &dep_task) < 0)
+            if(H5_daos_link_delete(item, loc_params, collective, TRUE, int_req, &first_task, &dep_task) < 0)
                 D_GOTO_ERROR(H5E_LINK, H5E_CANTREMOVE, FAIL, "failed to delete link");
             break;
 
@@ -5770,9 +5801,11 @@ H5_daos_link_iterate_count_links_callback(hid_t H5VL_DAOS_UNUSED group, const ch
  */
 static herr_t
 H5_daos_link_delete(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
-    hbool_t collective, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
+    hbool_t collective, hbool_t dec_rc, H5_daos_req_t *req,
+    tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_link_delete_ud_t *delete_udata = NULL;
+    H5_daos_link_delete_rc_ud_t *rc_udata = NULL;
     tse_task_t *delete_task;
     tse_task_t *delete_pretask = NULL;
     int ret;
@@ -5849,6 +5882,22 @@ H5_daos_link_delete(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
         req->rc++;
         *dep_task = delete_pretask;
 
+        /* If we're decrementing the ref count we must read the link's value
+         * before we delete it */
+        if(dec_rc) {
+            /* Allocate argument struct for rc task */
+            if(NULL == (rc_udata = (H5_daos_link_delete_rc_ud_t *)DV_calloc(sizeof(H5_daos_link_delete_rc_ud_t))))
+                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for link deletion task callback arguments");
+            rc_udata->req = req;
+            rc_udata->target_obj = delete_udata->target_obj;
+
+            /* Retrieve the link's value so we can adjust the target object's rc */
+            if(H5_daos_link_read_late_name((H5_daos_group_t *)delete_udata->target_obj,
+                    &delete_udata->target_link_name, &delete_udata->target_link_name_len,
+                    req, &rc_udata->link_val, NULL, first_task, dep_task) < 0)
+                D_GOTO_ERROR(H5E_LINK, H5E_READERROR, FAIL, "can't read link value");
+        } /* end if */
+
         /* Create task to punch link's dkey, along with all of its akeys */
         if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_PUNCH_DKEYS, &item->file->sched,
                 *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &delete_task)))
@@ -5874,9 +5923,30 @@ H5_daos_link_delete(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
         req->rc++;
         *dep_task = delete_task;
 
-        /* TODO: If no more hard links point to the object in question, it should be
-         * removed from the file, or at least marked to be removed.
-         */
+        /* Decrement ref count */
+        if(dec_rc) {
+            /* Create task to decrement ref count */
+            if(0 != (ret = tse_task_create(H5_daos_link_delete_rc_task, &item->file->sched,
+                    rc_udata, &rc_udata->rc_task)))
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create task to decrement rc: %s", H5_daos_err_to_string(ret));
+
+            /* Register dependency on dep_task if present */
+            if(*dep_task && 0 != (ret = tse_task_register_deps(rc_udata->rc_task, 1, dep_task)))
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create dependencies for task to decrement rc: %s", H5_daos_err_to_string(ret));
+
+            /* Schedule rc task (or save it to be scheduled later) and give it
+             * a reference to req */
+            if(*first_task) {
+                if(0 != (ret = tse_task_schedule(rc_udata->rc_task, false)))
+                    D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't schedule task to decrement rc: %s", H5_daos_err_to_string(ret));
+            } /* end if */
+            else
+                *first_task = rc_udata->rc_task;
+            req->rc++;
+            rc_udata->target_obj->item.rc++;
+            *dep_task = rc_udata->rc_task;
+            rc_udata = NULL;
+        } /* end if */
     } /* end if */
     else {
         /* Create empty task that will call the link deletion
@@ -7154,6 +7224,197 @@ done:
 
     D_FUNC_LEAVE;
 } /* end H5_daos_link_delete_corder_finish() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_link_delete_rc_task
+ *
+ * Purpose:     Asynchronous task to decrement the deleted link's target
+ *              object's reference count, deleting the object if the ref
+ *              count drops to zero.
+ *
+ * Return:      Success:        0
+ *              Failure:        Negative error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_link_delete_rc_task(tse_task_t *task)
+{
+    H5_daos_link_delete_rc_ud_t *udata = NULL;
+    H5_daos_req_t *req = NULL;;
+    tse_task_t *first_task = NULL;
+    tse_task_t *dep_task = NULL;
+    int ret;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for link deletion rc end task");
+
+    assert(udata->target_obj);
+    assert(udata->rc_task == task);
+
+    /* Assign req convenience pointer.  We do this so we can still handle errors
+     * after transfering ownership of udata.  This should be safe since we
+     * increase the ref count on req when we transfer ownership. */
+    req = udata->req;
+
+    /* Handle errors in previous tasks */
+    if(req->status < -H5_DAOS_SHORT_CIRCUIT) {
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    } /* end if */
+    else if(req->status == -H5_DAOS_SHORT_CIRCUIT) {
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
+    } /* end if */
+
+    /* Check for hard link */
+    if(udata->link_val.type == H5L_TYPE_HARD) {
+        H5VL_loc_params_t link_target_loc_params;
+        H5O_token_t token;
+
+        /* Encode loc_params for opening link target object */
+        if(H5I_BADID == (link_target_loc_params.obj_type = H5_daos_oid_to_type(udata->link_val.target.hard)))
+            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_BAD_VALUE, "failed to get link target object's type");
+        link_target_loc_params.type = H5VL_OBJECT_BY_TOKEN;
+        if(H5_daos_oid_to_token(udata->link_val.target.hard, &token) < 0)
+            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_H5_ENCODE_ERROR, "failed to encode token");
+        link_target_loc_params.loc_data.loc_by_token.token = &token;
+
+        /* Open the link target object */
+        if(H5_daos_object_open_helper(&udata->target_obj->item, &link_target_loc_params,
+                NULL, FALSE, NULL, &udata->link_target_obj, req, &first_task, &dep_task) < 0)
+            D_GOTO_ERROR(H5E_LINK, H5E_CANTOPENOBJ, -H5_DAOS_H5_OPEN_ERROR, "couldn't open link's target object");
+
+        /* Read target object ref count */
+        if(0 != (ret = H5_daos_obj_read_rc(&udata->link_target_obj, NULL,
+                &udata->obj_rc, NULL, &udata->target_obj->item.file->sched, req,
+                &first_task, &dep_task)))
+            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, ret, "can't get target object ref count: %s", H5_daos_err_to_string(ret));
+
+        /* Increment and write ref count */
+        if(0 != (ret = H5_daos_obj_write_rc(&udata->link_target_obj, NULL,
+                &udata->obj_rc, -1, &udata->target_obj->item.file->sched, req,
+                &first_task, &dep_task)))
+            D_GOTO_ERROR(H5E_LINK, H5E_CANTINC, ret, "can't write updated target object ref count: %s", H5_daos_err_to_string(ret));
+    } /* end if */
+
+done:
+    /* Clean up */
+    if(udata) {
+        tse_task_t *end_task;
+
+        assert(req);
+
+        /* Create task to free udata */
+        if(0 != (ret = tse_task_create(H5_daos_link_delete_rc_end_task, &udata->target_obj->item.file->sched,
+                udata, &end_task))) {
+            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, ret, "can't create task to decrement rc: %s", H5_daos_err_to_string(ret));
+            tse_task_complete(task, ret_value);
+        } /* end if */
+        else {
+            /* Register dependency on dep_task if present */
+            if(dep_task && 0 != (ret = tse_task_register_deps(end_task, 1, &dep_task)))
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, ret, "can't create dependencies for task to decrement rc: %s", H5_daos_err_to_string(ret));
+
+            /* Schedule rc end task (or save it to be scheduled later) and give
+             * it ownership of udata, while keeping a reference to req for
+             * ourselves */
+            req->rc++;
+            if(first_task) {
+                if(0 != (ret = tse_task_schedule(end_task, false)))
+                    D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, ret, "can't schedule task to decrement rc: %s", H5_daos_err_to_string(ret));
+            } /* end if */
+            else
+                first_task = end_task;
+            udata = NULL;
+            dep_task = end_task;
+        } /* end else */
+
+        /* Schedule first task */
+        if(first_task && 0 != (ret = tse_task_schedule(first_task, false)))
+            D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, ret, "can't schedule initial task for link copy/move: %s", H5_daos_err_to_string(ret));
+
+        /* Handle errors in this function */
+        /* Do not place any code that can issue errors after this block, except for
+         * H5_daos_req_free_int, which updates req->status if it sees an error */
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+            req->status = ret_value;
+            req->failed_task = "link delete dec rc task";
+        } /* end if */
+
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(req) < 0)
+            D_DONE_ERROR(H5E_LINK, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+    } /* end if */
+    else {
+        assert(ret_value == -H5_DAOS_DAOS_GET_ERROR);
+        tse_task_complete(task, ret_value);
+    } /* end else */
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_link_delete_rc_task() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_link_delete_rc_end_task
+ *
+ * Purpose:     Asynchronous task to release resources used by
+ *              H5_daos_link_delete_rc_task() and its sub tasks.
+ *
+ * Return:      Success:        0
+ *              Failure:        Negative error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_link_delete_rc_end_task(tse_task_t *task)
+{
+    H5_daos_link_delete_rc_ud_t *udata = NULL;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for link deletion rc end task");
+
+    /* Handle errors in previous tasks */
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT)
+        ret_value = -H5_DAOS_PRE_ERROR;
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT)
+        ret_value = -H5_DAOS_SHORT_CIRCUIT;
+
+    /* Complete main task */
+    tse_task_complete(udata->rc_task, ret_value);
+
+    /* Close link group */
+    if(udata->target_obj && H5_daos_object_close(udata->target_obj, udata->req->dxpl_id, NULL) < 0)
+        D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close link group");
+
+    /* Close link target object */
+    if(udata->link_target_obj && H5_daos_object_close(udata->link_target_obj, udata->req->dxpl_id, NULL) < 0)
+        D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close link destination object");
+
+    /* Handle errors in this function */
+    /* Do not place any code that can issue errors after this block, except for
+     * H5_daos_req_free_int, which updates req->status if it sees an error */
+    if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+        udata->req->status = ret_value;
+        udata->req->failed_task = "get link name by name order end task";
+    } /* end if */
+
+    /* Release our reference to req */
+    if(H5_daos_req_free_int(udata->req) < 0)
+        D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+    /* Free udata */
+    udata = DV_free(udata);
+
+done:
+    /* Complete this task */
+    tse_task_complete(task, ret_value);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_link_delete_rc_end_task() */
 
 
 /*-------------------------------------------------------------------------

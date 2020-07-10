@@ -17,6 +17,7 @@ set(daos_vol_tests
   map
   oclass
   recovery
+  metadata
 #  example
 )
 if(HDF5_VOL_TEST_ENABLE_PARALLEL)

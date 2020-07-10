@@ -534,7 +534,7 @@ H5_daos_attribute_create_helper(H5_daos_item_t *item, const H5VL_loc_params_t *l
     } /* end if */
     else if(loc_params->type == H5VL_OBJECT_BY_NAME) {
         /* Open target_obj */
-        if(H5_daos_object_open_helper(item, loc_params, NULL, TRUE, &attr->parent,
+        if(H5_daos_object_open_helper(item, loc_params, NULL, TRUE, NULL, &attr->parent,
                 req, first_task, dep_task) < 0)
             D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, NULL, "can't open parent object for attribute");
 
@@ -1296,7 +1296,7 @@ H5_daos_attribute_open_helper(H5_daos_item_t *item, const H5VL_loc_params_t *loc
         case H5VL_OBJECT_BY_NAME:
         {
             /* Open target_obj */
-            if(H5_daos_object_open_helper(item, loc_params, NULL, TRUE, &attr->parent,
+            if(H5_daos_object_open_helper(item, loc_params, NULL, TRUE, NULL, &attr->parent,
                     req, first_task, dep_task) < 0)
                 D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, NULL, "can't open parent object for attribute");
 
@@ -1493,7 +1493,7 @@ H5_daos_attribute_open_by_idx_helper(H5_daos_obj_t *target_obj, const H5VL_loc_p
     sub_loc_params.loc_data.loc_by_name.name = loc_params->loc_data.loc_by_idx.name;
     sub_loc_params.loc_data.loc_by_name.lapl_id = loc_params->loc_data.loc_by_idx.lapl_id;
     if(H5_daos_object_open_helper((H5_daos_item_t *)target_obj, &sub_loc_params, NULL, TRUE,
-            &attr_parent_obj, req, first_task, dep_task) < 0)
+            NULL, &attr_parent_obj, req, first_task, dep_task) < 0)
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, FAIL, "can't open attribute's parent object");
 
     H5_DAOS_WAIT_ON_ASYNC_CHAIN(sched, req, *first_task, *dep_task, H5E_ATTR, H5E_CANTINIT, FAIL);
@@ -2238,7 +2238,7 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
         case H5VL_OBJECT_BY_NAME:
             /* Open target_obj */
             if(H5_daos_object_open_helper(item, loc_params, NULL, TRUE,
-                    &target_obj, int_req, &first_task, &dep_task) < 0)
+                    NULL, &target_obj, int_req, &first_task, &dep_task) < 0)
                 D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, FAIL, "can't open object for attribute");
 
             H5_DAOS_WAIT_ON_ASYNC_CHAIN(&item->file->sched, int_req, first_task, dep_task,
@@ -2255,7 +2255,7 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
             sub_loc_params.loc_data.loc_by_name.name = loc_params->loc_data.loc_by_idx.name;
             sub_loc_params.loc_data.loc_by_name.lapl_id = loc_params->loc_data.loc_by_idx.lapl_id;
             if(H5_daos_object_open_helper(item, &sub_loc_params, NULL, TRUE,
-                    &target_obj, int_req, &first_task, &dep_task))
+                    NULL, &target_obj, int_req, &first_task, &dep_task))
                 D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, FAIL, "can't open object for attribute");
 
             H5_DAOS_WAIT_ON_ASYNC_CHAIN(&item->file->sched, int_req, first_task, dep_task,
@@ -2490,7 +2490,7 @@ H5_daos_attribute_get_name(H5_daos_obj_t *target_obj, const H5VL_loc_params_t *l
             sub_loc_params.loc_data.loc_by_name.name = loc_params->loc_data.loc_by_idx.name;
             sub_loc_params.loc_data.loc_by_name.lapl_id = loc_params->loc_data.loc_by_idx.lapl_id;
             if(H5_daos_object_open_helper((H5_daos_item_t *)target_obj, &sub_loc_params, NULL, TRUE,
-                    &parent_obj, req, first_task, dep_task) < 0)
+                    NULL, &parent_obj, req, first_task, dep_task) < 0)
                 D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, (-1), "can't open attribute's parent object");
 
             H5_DAOS_WAIT_ON_ASYNC_CHAIN(sched, req, *first_task, *dep_task,
@@ -3845,7 +3845,7 @@ H5_daos_attribute_iterate_by_name_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSE
                 } /* end if */
 
                 /* Advance to next akey */
-                p += udata->u.name_order_data.kds[i].kd_key_len + udata->u.name_order_data.kds[i].kd_csum_len;
+                p += udata->u.name_order_data.kds[i].kd_key_len;
             } /* end for */
 
             /* Register dependency on dep_task for attribute iteration metatask */

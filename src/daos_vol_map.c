@@ -59,6 +59,27 @@ typedef struct H5_daos_map_exists_ud_t {
     hbool_t *exists_ret;
 } H5_daos_map_exists_ud_t;
 
+/* A struct used to operate on a single key-value
+ * pair during map iteration */
+typedef struct H5_daos_map_iter_op_ud_t {
+    H5_daos_iter_ud_t *iter_ud;
+    H5_daos_vl_union_t vl_union;
+    void *key_buf;
+    void *key_buf_alloc;
+    size_t key_len;
+    hid_t key_file_type_id;
+    hid_t key_mem_type_id;
+    char *char_replace_loc;
+    char char_replace_char;
+    tse_task_t *op_task;
+    /* Fields for querying for existence of Map Record
+     * akey for map keys that share dkey with other metadata
+     */
+    hbool_t shared_dkey;
+    daos_key_t dkey;
+    daos_iod_t iod;
+} H5_daos_map_iter_op_ud_t;
+
 /* Task user data for deleting a key-value pair from a map */
 typedef struct H5_daos_map_delete_key_ud_t {
     H5_daos_req_t *req;
@@ -96,9 +117,11 @@ static int H5_daos_map_exists_comp_cb(tse_task_t *task, void *args);
 
 static herr_t H5_daos_map_get_count_cb(hid_t map_id, const void *key,
     void *_int_count);
-static herr_t H5_daos_map_iterate(H5_daos_map_t *map, hid_t map_id,
-    hsize_t *idx, hid_t key_mem_type_id, H5M_iterate_t op, void *op_data,
-    hid_t dxpl_id, void **req);
+static herr_t H5_daos_map_iterate(H5_daos_map_t *map, H5_daos_iter_data_t *iter_data,
+    tse_task_t **first_task, tse_task_t **dep_task);
+static int H5_daos_map_iterate_list_comp_cb(tse_task_t *task, void *args);
+static int H5_daos_map_iterate_op_task(tse_task_t *task);
+static int H5_daos_map_iter_op_end(tse_task_t *task);
 
 static herr_t H5_daos_map_delete_key(H5_daos_map_t *map, hid_t key_mem_type_id, const void *key,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
@@ -2737,10 +2760,15 @@ done:
  */
 herr_t
 H5_daos_map_get(void *_map, H5VL_map_get_t get_type,
-    hid_t dxpl_id, void **req, va_list arguments)
+    hid_t dxpl_id, void H5VL_DAOS_UNUSED **req, va_list arguments)
 {
     H5_daos_map_t *map = (H5_daos_map_t *)_map;
-    herr_t       ret_value = SUCCEED;    /* Return value */
+    H5_daos_req_t *int_req = NULL;
+    tse_task_t *first_task = NULL;
+    tse_task_t *dep_task = NULL;
+    hid_t map_id = H5I_INVALID_HID;
+    int ret;
+    herr_t ret_value = SUCCEED;    /* Return value */
 
     if(!_map)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
@@ -2790,16 +2818,31 @@ H5_daos_map_get(void *_map, H5VL_map_get_t get_type,
             } /* end block */
         case H5VL_MAP_GET_COUNT:
             {
+                H5_daos_iter_data_t iter_data;
                 hsize_t *count = va_arg(arguments, hsize_t *);
-                hsize_t idx = 0;
-                hsize_t int_count = 0;
+
+                /* Start H5 operation */
+                if(NULL == (int_req = H5_daos_req_create(map->obj.item.file, dxpl_id)))
+                    D_GOTO_ERROR(H5E_MAP, H5E_CANTALLOC, FAIL, "can't create DAOS request");
+
+                /* Initialize counter */
+                *count = 0;
+
+                /* Register ID for map */
+                if((map_id = H5VLwrap_register(map, H5I_MAP)) < 0)
+                    D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, FAIL, "unable to atomize object handle");
+                map->obj.item.rc++;
+
+                /* Initialize iteration data */
+                H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_MAP, H5_INDEX_NAME, H5_ITER_INC,
+                        FALSE, NULL, map_id, count, NULL, int_req);
+                iter_data.u.map_iter_data.key_mem_type_id = map->key_type_id;
+                iter_data.u.map_iter_data.u.map_iter_op = H5_daos_map_get_count_cb;
 
                 /* Iterate over the keys, counting them */
-                if(H5_daos_map_iterate(map, 0, &idx, map->key_type_id, H5_daos_map_get_count_cb, &int_count, dxpl_id, req) < 0)
+                if(H5_daos_map_iterate(map, &iter_data, &first_task, &dep_task) < 0)
                     D_GOTO_ERROR(H5E_MAP, H5E_BADITER, FAIL, "can't iterate over map keys");
 
-                /* Set return value */
-                *count = int_count;
                 break;
             } /* end block */
         default:
@@ -2807,6 +2850,48 @@ H5_daos_map_get(void *_map, H5VL_map_get_t get_type,
     } /* end switch */
 
 done:
+    if(int_req) {
+        /* Create task to finalize H5 operation */
+        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &map->obj.item.file->sched, int_req, &int_req->finalize_task)))
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        /* Register dependency (if any) */
+        else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        /* Schedule finalize task */
+        else if(0 != (ret = tse_task_schedule(int_req->finalize_task, false)))
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        else
+            /* finalize_task now owns a reference to req */
+            int_req->rc++;
+
+        /* If there was an error during setup, pass it to the request */
+        if(ret_value < 0)
+            int_req->status = -H5_DAOS_SETUP_ERROR;
+
+        /* Schedule first task */
+        if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
+
+        /* Block until operation completes */
+        if(H5_daos_progress(&map->obj.item.file->sched, int_req, H5_DAOS_PROGRESS_WAIT) < 0)
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't progress scheduler");
+
+        /* Check for failure */
+        if(int_req->status < 0)
+            D_DONE_ERROR(H5E_MAP, H5E_CANTOPERATE, FAIL, "map get operation failed in task \"%s\": %s",
+                    int_req->failed_task, H5_daos_err_to_string(int_req->status));
+
+        /* Close internal request */
+        if(H5_daos_req_free_int(int_req) < 0)
+            D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't free request");
+    } /* end if */
+
+    if(map_id >= 0) {
+        if(H5Idec_ref(map_id) < 0)
+            D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't close map ID");
+        map_id = H5I_INVALID_HID;
+    } /* end if */
+
     D_FUNC_LEAVE;
 } /* end H5_daos_map_get() */
 
@@ -2852,7 +2937,8 @@ H5_daos_map_specific(void *_item, const H5VL_loc_params_t *loc_params,
     H5_daos_req_t *int_req = NULL;
     tse_task_t *first_task = NULL;
     tse_task_t *dep_task = NULL;
-    hid_t map_id = -1;
+    herr_t iter_ret = 0;
+    hid_t map_id = H5I_INVALID_HID;
     int ret;
     herr_t ret_value = SUCCEED;
 
@@ -2869,6 +2955,7 @@ H5_daos_map_specific(void *_item, const H5VL_loc_params_t *loc_params,
         /* H5Miterate(_by_name) */
         case H5VL_MAP_ITER:
         {
+            H5_daos_iter_data_t iter_data;
             hsize_t *idx = va_arg(arguments, hsize_t *);
             hid_t key_mem_type_id = va_arg(arguments, hid_t);
             H5M_iterate_t op = va_arg(arguments, H5M_iterate_t);
@@ -2907,12 +2994,22 @@ H5_daos_map_specific(void *_item, const H5VL_loc_params_t *loc_params,
                     D_GOTO_ERROR(H5E_MAP, H5E_BADVALUE, FAIL, "invalid loc_params type");
             } /* end switch */
 
-            /* Register id for target_map */
+            /* Register ID for map */
             if((map_id = H5VLwrap_register(map, H5I_MAP)) < 0)
                 D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, FAIL, "unable to atomize object handle");
 
+            /* Initialize iteration data */
+            H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_MAP, H5_INDEX_NAME, H5_ITER_INC,
+                    FALSE, idx, map_id, op_data, NULL, int_req);
+            iter_data.u.map_iter_data.key_mem_type_id = key_mem_type_id;
+            iter_data.u.map_iter_data.u.map_iter_op = op;
+
+            /* Handle iteration return value TODO: how to handle if called async? */
+            if(!req)
+                iter_data.op_ret_p = &iter_ret;
+
             /* Perform map iteration */
-            if((ret_value = H5_daos_map_iterate(map, map_id, idx, key_mem_type_id, op, op_data, dxpl_id, req)) < 0)
+            if(H5_daos_map_iterate(map, &iter_data, &first_task, &dep_task) < 0)
                 D_GOTO_ERROR(H5E_MAP, H5E_BADITER, FAIL, "map iteration failed");
 
             break;
@@ -2976,6 +3073,11 @@ done:
         /* Close internal request */
         if(H5_daos_req_free_int(int_req) < 0)
             D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't free request");
+
+        /* Set return value for map iteration, unless this function failed but
+         * the iteration did not */
+        if(specific_type == H5VL_MAP_ITER && !(ret_value < 0 && iter_ret >= 0))
+            ret_value = iter_ret;
     } /* end if */
 
     if(map_id >= 0) {
@@ -3006,151 +3108,466 @@ done:
  *              call to H5Miterate, idx should be the same value as
  *              returned by the previous call.
  *
- * Return:      Success:        Last value returned by op (non-negative)
- *              Failure:        Last value returned by op (negative), or
- *                              -1 (error not caused by op)
+ * Return:      Non-negative on success/Negative on failure
  *
  *-------------------------------------------------------------------------
  */
 static herr_t 
-H5_daos_map_iterate(H5_daos_map_t *map, hid_t map_id, hsize_t *idx,
-    hid_t key_mem_type_id, H5M_iterate_t op, void *op_data, hid_t dxpl_id,
-    void H5VL_DAOS_UNUSED **req)
+H5_daos_map_iterate(H5_daos_map_t *map, H5_daos_iter_data_t *iter_data,
+    tse_task_t **first_task, tse_task_t **dep_task)
 {
-    daos_anchor_t anchor;
-    uint32_t nr;
-    daos_key_desc_t *kds = NULL;
     size_t dkey_prefetch_size = 0;
-    void *key_buf = NULL;
-    void *key_buf_alloc = NULL;
-    H5_daos_vl_union_t vl_union;
-    daos_key_t dkey;
-    daos_iod_t iod;
-    daos_sg_list_t sgl;
-    daos_iov_t sg_iov;
-    herr_t op_ret;
-    char tmp_char;
-    char *dkey_buf = NULL;
     size_t dkey_alloc_size = 0;
-    char *p;
     int ret;
-    uint32_t i;
     herr_t ret_value = SUCCEED;
 
     assert(map);
-    assert(map_id >= 0);
-    if(!op)
+    assert(iter_data);
+    assert(iter_data->req);
+    assert(first_task);
+    assert(dep_task);
+    assert(H5_DAOS_ITER_TYPE_MAP == iter_data->iter_type);
+    assert(H5_INDEX_NAME == iter_data->index_type);
+    assert(H5_ITER_INC == iter_data->iter_order);
+
+    if(!iter_data->u.map_iter_data.u.map_iter_op)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "operator is NULL");
 
     /* Iteration restart not supported */
-    if(idx && (*idx != 0))
+    if(iter_data->idx_p && (*iter_data->idx_p != 0))
         D_GOTO_ERROR(H5E_MAP, H5E_UNSUPPORTED, FAIL, "iteration restart not supported (must start from 0)");
 
     /* Get map iterate hints */
     if(H5Pget_map_iterate_hints(map->mapl_id, &dkey_prefetch_size, &dkey_alloc_size) < 0)
         D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get map iterate hints");
 
-    /* Initialize anchor */
-    memset(&anchor, 0, sizeof(anchor));
+    /* Increment reference count on map ID */
+    if(H5Iinc_ref(iter_data->iter_root_obj) < 0)
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTINC, FAIL, "can't increment reference count on iteration base object");
 
-    /* Allocate kds */
-    if(NULL == (kds = (daos_key_desc_t *)DV_malloc(dkey_prefetch_size * sizeof(daos_key_desc_t))))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for dkeys");
-
-    /* Allocate dkey_buf */
-    if(NULL == (dkey_buf = (char *)DV_malloc(dkey_alloc_size)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for dkeys");
-
-    /* Set up list_sgl.  Report size as 1 less than buffer size so we
-     * always have room for a null terminator. */
-    daos_iov_set(&sg_iov, dkey_buf, (daos_size_t)(dkey_alloc_size - 1));
-    sgl.sg_nr = 1;
-    sgl.sg_nr_out = 0;
-    sgl.sg_iovs = &sg_iov;
-
-    /* Loop to retrieve keys and make callbacks */
-    do {
-        H5_DAOS_RETRIEVE_KEYS_LOOP(dkey_buf, dkey_alloc_size, sg_iov, nr, dkey_prefetch_size, H5E_MAP, daos_obj_list_dkey,
-                map->obj.obj_oh, DAOS_TX_NONE, &nr, kds, &sgl, &anchor, NULL /*event*/);
-
-        /* Loop over returned dkeys */
-        p = dkey_buf;
-        op_ret = 0;
-        for(i = 0; (i < nr) && (op_ret == 0); i++) {
-            /* Check for key sharing dkey with other metadata */
-            if(((kds[i].kd_key_len == H5_daos_int_md_key_size_g)
-                    && !memcmp(p, H5_daos_int_md_key_g, H5_daos_int_md_key_size_g))
-                    || ((kds[i].kd_key_len == H5_daos_attr_key_size_g)
-                    && !memcmp(p, H5_daos_attr_key_g, H5_daos_attr_key_size_g))) {
-                /* Set up dkey */
-                daos_iov_set(&dkey, (void *)p, kds[i].kd_key_len);
-
-                /* Set up iod */
-                memset(&iod, 0, sizeof(iod));
-                daos_iov_set(&iod.iod_name, (void *)H5_daos_map_key_g, H5_daos_map_key_size_g);
-                iod.iod_nr = 1u;
-                iod.iod_type = DAOS_IOD_SINGLE;
-                iod.iod_size = DAOS_REC_ANY;
-
-                /* Query map record in dkey */
-                if(0 != (ret = daos_obj_fetch(map->obj.obj_oh, DAOS_TX_NONE,
-                        0 /*flags*/, &dkey, 1, &iod, NULL, NULL , NULL)))
-                    D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't check for value in map: %s", H5_daos_err_to_string(ret));
-
-                /* If there is no value, skip this dkey */
-                if(iod.iod_size == 0) {
-                    /* Advance to next dkey */
-                    p += kds[i].kd_key_len + kds[i].kd_csum_len;
-
-                    continue;
-                } /* end if */
-            } /* end if */
-
-            /* Add null terminator temporarily.  Only necessary for VL strings
-             * but it would take about as much time to check for VL string again
-             * after the callback as it does to just always swap in the null
-             * terminator so just do this for simplicity. */
-            tmp_char = p[kds[i].kd_key_len];
-            p[kds[i].kd_key_len] = '\0';
-
-            /* Convert key (if necessary) */
-            if(H5_daos_map_key_conv_reverse(map->key_file_type_id, key_mem_type_id, p, (size_t)kds[i].kd_key_len, &key_buf, &key_buf_alloc, &vl_union, dxpl_id) < 0)
-                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't convert key");
-
-            /* Make callback */
-            if((op_ret = op(map_id, key_buf, op_data)) < 0)
-                D_GOTO_ERROR(H5E_MAP, H5E_BADITER, op_ret, "operator function returned failure");
-
-            /* Replace null terminator */
-            p[kds[i].kd_key_len] = tmp_char;
-
-            /* Free allocated buffer */
-            /* While the free/alloc cycle for the key buffer could be a
-             * performance problem, this will only happen when the key types
-             * require conversion and are not vlen, or if they are vlen and the
-             * parent types require conversion (it will never happen for
-             * strings), which should be a rare case. */
-            if(key_buf_alloc)
-                key_buf_alloc = DV_free(key_buf_alloc);
-
-            /* Advance idx */
-            if(idx)
-                (*idx)++;
-
-            /* Advance to next dkey */
-            p += kds[i].kd_key_len + kds[i].kd_csum_len;
-        } /* end for */
-    } while(!daos_anchor_is_eof(&anchor) && (op_ret == 0));
-
-    ret_value = op_ret;
+    /* Start iteration */
+    if(0 != (ret = H5_daos_list_key_init(iter_data, &map->obj, NULL,
+            DAOS_OPC_OBJ_LIST_DKEY, H5_daos_map_iterate_list_comp_cb, TRUE,
+            dkey_prefetch_size, dkey_alloc_size, first_task, dep_task)))
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't start map iteration: %s", H5_daos_err_to_string(ret));
 
 done:
-    kds = (daos_key_desc_t *)DV_free(kds);
-    dkey_buf = (char *)DV_free(dkey_buf);
-    key_buf_alloc = DV_free(key_buf_alloc);
-
     D_FUNC_LEAVE;
 } /* end H5_daos_map_iterate() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_map_iterate_list_comp_cb
+ *
+ * Purpose:     Completion callback for dkey list for map iteration.
+ *              Initiates operation on each key-value pair and reissues
+ *              list operation if appropriate.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_map_iterate_list_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_iter_ud_t *udata = NULL;
+    H5_daos_map_iter_op_ud_t *iter_op_udata = NULL;
+    H5_daos_req_t *req = NULL;
+    tse_task_t *query_task = NULL;
+    tse_task_t *first_task = NULL;
+    tse_task_t *dep_task = NULL;
+    int ret;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for operation finalize task");
+
+    /* Assign req convenience pointer.  We do this so we can still handle errors
+     * after transfering ownership of udata.  This should be safe since the
+     * iteration metatask holds a reference to req until all iteration is
+     * complete at this level. */
+    req = udata->iter_data->req;
+
+    /* Check for buffer not large enough */
+    if(task->dt_result == -DER_REC2BIG) {
+        char *tmp_realloc = NULL;
+        size_t key_buf_len = 2 * (udata->sg_iov.iov_buf_len + 1);
+
+        /* Reallocate larger buffer */
+        if(NULL == (tmp_realloc = (char *)DV_realloc(udata->sg_iov.iov_buf, key_buf_len)))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't reallocate key buffer");
+
+        /* Update sg_iov */
+        daos_iov_set(&udata->sg_iov, tmp_realloc, (daos_size_t)(key_buf_len - 1));
+
+        /* Reissue list operation */
+        if(0 != (ret = H5_daos_list_key_start(udata, DAOS_OPC_OBJ_LIST_DKEY,
+                H5_daos_map_iterate_list_comp_cb, &first_task, &dep_task)))
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't start iteration");
+        udata = NULL;
+    } /* end if */
+    else {
+        /* Handle errors in list task.  Only record error in req->status
+         * if it does not already contain an error (it could contain an error if
+         * another task this task is not dependent on also failed). */
+        if(task->dt_result < -H5_DAOS_PRE_ERROR
+                && req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+            req->status = task->dt_result;
+            req->failed_task = "map iterate key list completion callback";
+        } /* end if */
+        else if(task->dt_result == 0) {
+            H5_daos_map_t *map = (H5_daos_map_t *)udata->target_obj;
+            uint32_t i;
+            char *p = udata->sg_iov.iov_buf;
+
+            assert(map);
+
+            /* Loop over returned dkeys */
+            for(i = 0; i < udata->nr; i++) {
+                /* Allocate iter op udata */
+                if(NULL == (iter_op_udata = (H5_daos_map_iter_op_ud_t *)DV_calloc(sizeof(H5_daos_map_iter_op_ud_t))))
+                    D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate iteration op user data");
+                iter_op_udata->iter_ud = udata;
+                iter_op_udata->key_file_type_id = map->key_file_type_id;
+                iter_op_udata->key_mem_type_id = udata->iter_data->u.map_iter_data.key_mem_type_id;
+
+                /* Check for key sharing dkey with other metadata */
+                iter_op_udata->shared_dkey =
+                        (udata->kds[i].kd_key_len == H5_daos_int_md_key_size_g &&
+                         !memcmp(p, H5_daos_int_md_key_g, H5_daos_int_md_key_size_g))
+                     || (udata->kds[i].kd_key_len == H5_daos_attr_key_size_g &&
+                         !memcmp(p, H5_daos_attr_key_g, H5_daos_attr_key_size_g));
+                if(iter_op_udata->shared_dkey) {
+                    daos_obj_rw_t *rw_args;
+
+                    /* Set up dkey */
+                    daos_iov_set(&iter_op_udata->dkey, (void *)p, udata->kds[i].kd_key_len);
+
+                    /* Set up iod */
+                    memset(&iter_op_udata->iod, 0, sizeof(daos_iod_t));
+                    daos_iov_set(&iter_op_udata->iod.iod_name,
+                            (void *)H5_daos_map_key_g, H5_daos_map_key_size_g);
+                    iter_op_udata->iod.iod_nr = 1u;
+                    iter_op_udata->iod.iod_type = DAOS_IOD_SINGLE;
+                    iter_op_udata->iod.iod_size = DAOS_REC_ANY;
+
+                    /* Create task to query record in dkey */
+                    if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &map->obj.item.file->sched,
+                            dep_task ? 1 : 0, dep_task ? &dep_task : NULL, &query_task)))
+                        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't create task to check for value in map: %s", H5_daos_err_to_string(ret));
+
+                    /* Set fetch task arguments */
+                    if(NULL == (rw_args = daos_task_get_args(query_task)))
+                        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for metadata I/O task");
+                    rw_args->oh = map->obj.obj_oh;
+                    rw_args->th = DAOS_TX_NONE;
+                    rw_args->flags = 0;
+                    rw_args->dkey = &iter_op_udata->dkey;
+                    rw_args->nr = 1u;
+                    rw_args->iods = &iter_op_udata->iod;
+                    rw_args->sgls = NULL;
+
+                    /* Schedule record query task (or save it to be scheduled later) */
+                    if(first_task) {
+                        if(0 != (ret = tse_task_schedule(query_task, false)))
+                            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't schedule task to check for value in map: %s", H5_daos_err_to_string(ret));
+                    } /* end if */
+                    else
+                        first_task = query_task;
+                    dep_task = query_task;
+                } /* end if */
+
+                iter_op_udata->key_buf = p;
+                iter_op_udata->key_len = udata->kds[i].kd_key_len;
+
+                /* Create task for iter op */
+                if(0 != (ret = tse_task_create(H5_daos_map_iterate_op_task, &udata->target_obj->item.file->sched, iter_op_udata, &iter_op_udata->op_task)))
+                    D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't create task for iteration op: %s", H5_daos_err_to_string(ret));
+
+                /* Register task dependency */
+                if(dep_task && 0 != (ret = tse_task_register_deps(iter_op_udata->op_task, 1, &dep_task)))
+                    D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't create dependencies for iteration op task: %s", H5_daos_err_to_string(ret));
+
+                /* Schedule iter op (or save it to be scheduled later) and
+                 * transfer ownership of iter_op_udata */
+                if(first_task) {
+                    if(0 != (ret = tse_task_schedule(iter_op_udata->op_task, false)))
+                        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't schedule task for iteration op: %s", H5_daos_err_to_string(ret));
+                } /* end if */
+                else
+                    first_task = iter_op_udata->op_task;
+                dep_task = iter_op_udata->op_task;
+                iter_op_udata = NULL;
+
+                /* Advance to next akey */
+                p += udata->kds[i].kd_key_len + udata->kds[i].kd_csum_len;
+            } /* end for */
+
+            /* Continue iteration if we're not done */
+            if(!daos_anchor_is_eof(&udata->anchor) && (req->status == -H5_DAOS_INCOMPLETE)) {
+                if(0 != (ret = H5_daos_list_key_start(udata, DAOS_OPC_OBJ_LIST_DKEY,
+                        H5_daos_map_iterate_list_comp_cb, &first_task, &dep_task)))
+                    D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't start iteration");
+                udata = NULL;
+            } /* end if */
+        } /* end else */
+    } /* end else */
+
+done:
+    /* If we still own udata then iteration is complete.  Register dependency
+     * for metatask and schedule it. */
+    if(udata) {
+        if(dep_task && 0 != (ret = tse_task_register_deps(udata->iter_metatask, 1, &dep_task)))
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't create dependencies for iteration metatask: %s", H5_daos_err_to_string(ret));
+
+        if(first_task) {
+            if(0 != (ret = tse_task_schedule(udata->iter_metatask, false)))
+                D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't schedule iteration metatask: %s", H5_daos_err_to_string(ret));
+        } /* end if */
+        else
+            first_task = udata->iter_metatask;
+        udata = NULL;
+    } /* end if */
+
+    /* Schedule first task */
+    if(first_task && 0 != (ret = tse_task_schedule(first_task, false)))
+        D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't schedule initial task for map iteration dkey list comp cb: %s", H5_daos_err_to_string(ret));
+
+    /* Clean up on error */
+    if(ret_value < 0) {
+        if(iter_op_udata) {
+            if(iter_op_udata->key_buf_alloc)
+                iter_op_udata->key_buf_alloc = DV_free(iter_op_udata->key_buf_alloc);
+            iter_op_udata = DV_free(iter_op_udata);
+        } /* end if */
+
+        /* Handle errors in this function */
+        /* Do not place any code that can issue errors after this block, except for
+         * H5_daos_req_free_int, which updates req->status if it sees an error */
+        if(ret_value != -H5_DAOS_SHORT_CIRCUIT && req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+            req->status = ret_value;
+            req->failed_task = "map iteration dkey list completion callback";
+        } /* end if */
+    } /* end if */
+
+    /* Make sure we cleaned up */
+    assert(!udata);
+    assert(!iter_op_udata);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_map_iterate_list_key_comp_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_map_iterate_op_task
+ *
+ * Purpose:     Perform operation on a map key-value pair during iteration.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_map_iterate_op_task(tse_task_t *task)
+{
+    H5_daos_map_iter_op_ud_t *udata = NULL;
+    H5_daos_req_t *req = NULL;
+    tse_task_t *first_task = NULL;
+    tse_task_t *dep_task = NULL;
+    int ret;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for iteration operation task");
+
+    /* Assign req convenience pointer.  We do this so we can still handle errors
+     * after transfering ownership of udata.  This should be safe since the
+     * iteration metatask holds a reference to req until all iteration is
+     * complete at this level. */
+    req = udata->iter_ud->iter_data->req;
+
+    /* Handle errors in previous tasks */
+    if(req->status < -H5_DAOS_SHORT_CIRCUIT) {
+        tse_task_complete(task, -H5_DAOS_PRE_ERROR);
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    } /* end if */
+    else if(req->status == -H5_DAOS_SHORT_CIRCUIT) {
+        tse_task_complete(task, -H5_DAOS_SHORT_CIRCUIT);
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
+    } /* end if */
+
+    /* Check if this key's dkey was a dkey shared with other metadata.
+     * If it was, skip processing of this key. */
+    if(udata->shared_dkey && udata->iod.iod_size == 0)
+        D_GOTO_DONE(0);
+
+    /* Add null terminator temporarily.  Only necessary for VL strings
+     * but it would take about as much time to check for VL string again
+     * after the callback as it does to just always swap in the null
+     * terminator so just do this for simplicity. */
+    udata->char_replace_loc = &((char *)udata->key_buf)[udata->key_len];
+    udata->char_replace_char = *udata->char_replace_loc;
+    *udata->char_replace_loc = '\0';
+
+    /* Convert key (if necessary) */
+    if(H5_daos_map_key_conv_reverse(udata->key_file_type_id, udata->key_mem_type_id,
+            udata->key_buf, (size_t)udata->key_len, &udata->key_buf,
+            &udata->key_buf_alloc, &udata->vl_union, req->dxpl_id) < 0)
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, -H5_DAOS_H5_TCONV_ERROR, "can't convert key");
+
+    /* Call the map iteration callback operator function on the current key-value pair */
+    if(udata->iter_ud->iter_data->async_op) {
+        if(udata->iter_ud->iter_data->u.map_iter_data.u.map_iter_op_async(
+                udata->iter_ud->iter_data->iter_root_obj, udata->key_buf,
+                udata->iter_ud->iter_data->op_data, &udata->iter_ud->iter_data->op_ret,
+                &first_task, &dep_task) < 0)
+            D_GOTO_ERROR(H5E_MAP, H5E_BADITER, -H5_DAOS_CALLBACK_ERROR, "operator function returned failure");
+    } /* end if */
+    else
+        udata->iter_ud->iter_data->op_ret = udata->iter_ud->iter_data->u.map_iter_data.u.map_iter_op(
+                udata->iter_ud->iter_data->iter_root_obj, udata->key_buf, udata->iter_ud->iter_data->op_data);
+
+    /* Check for failure from operator return */
+    if(udata->iter_ud->iter_data->op_ret < 0)
+        D_GOTO_ERROR(H5E_MAP, H5E_BADITER, -H5_DAOS_CALLBACK_ERROR, "operator function returned failure");
+
+    /* Advance idx */
+    if(udata->iter_ud->iter_data->idx_p)
+        (*udata->iter_ud->iter_data->idx_p)++;
+
+    /* Check for short-circuit success */
+    if(udata->iter_ud->iter_data->op_ret) {
+        udata->iter_ud->iter_data->req->status = -H5_DAOS_SHORT_CIRCUIT;
+        udata->iter_ud->iter_data->short_circuit_init = TRUE;
+
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
+    } /* end if */
+
+done:
+    /* Check for tasks scheduled, in this case we need to schedule a task to
+     * mark this task complete and free udata */
+    if(dep_task) {
+        tse_task_t *op_end_task;
+
+        assert(udata);
+
+        /* Schedule task to complete this task and free udata */
+        if(0 != (ret = tse_task_create(H5_daos_map_iter_op_end, &req->file->sched, udata, &op_end_task)))
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't create task to finish iteration op: %s", H5_daos_err_to_string(ret));
+        else {
+            /* Register dependency for task */
+            if(0 != (ret = tse_task_register_deps(op_end_task, 1, &dep_task)))
+                D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't create dependencies for iteration op end task: %s", H5_daos_err_to_string(ret));
+
+            /* Schedule map iter op end task and give it ownership of udata */
+            assert(first_task);
+            if(0 != (ret = tse_task_schedule(op_end_task, false)))
+                D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't schedule task to finish map iteration op: %s", H5_daos_err_to_string(ret));
+            udata = NULL;
+            dep_task = op_end_task;
+        } /* end else */
+
+        /* Schedule first task */
+        assert(first_task);
+        if(0 != (ret = tse_task_schedule(first_task, false)))
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't schedule initial task for map iteration op: %s", H5_daos_err_to_string(ret));
+    } /* end if */
+    else
+        assert(!first_task);
+
+    /* Handle errors */
+    if(ret_value < 0 && req) {
+        /* Handle errors in this function */
+        /* Do not place any code that can issue errors after this block, except for
+         * H5_daos_req_free_int, which updates req->status if it sees an error */
+        if(ret_value != -H5_DAOS_SHORT_CIRCUIT && req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+            req->status = ret_value;
+            req->failed_task = "map iteration op";
+        } /* end if */
+    } /* end if */
+
+    /* Complete task and free udata if we still own udata */
+    if(udata) {
+        /* Replace char */
+        if(udata->char_replace_loc)
+            *udata->char_replace_loc = udata->char_replace_char;
+
+        /* Complete this task */
+        tse_task_complete(task, ret_value);
+
+        /* Free private data */
+        if(udata->key_buf_alloc)
+            DV_free(udata->key_buf_alloc);
+        udata = DV_free(udata);
+    } /* end if */
+    else
+        assert(ret_value >= 0 || ret_value == -H5_DAOS_DAOS_GET_ERROR);
+
+    /* Make sure we cleaned up */
+    assert(!udata);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_map_iterate_op_task() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_map_iter_op_end
+ *
+ * Purpose:     Completes the map iteration op and frees its udata.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_map_iter_op_end(tse_task_t *task)
+{
+    H5_daos_map_iter_op_ud_t *udata;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for task");
+
+    /* Replace char */
+    if(udata->char_replace_loc)
+        *udata->char_replace_loc = udata->char_replace_char;
+
+    /* Check if we need to update the request status due to an operator return */
+    if(udata->iter_ud->iter_data->async_op
+            && udata->iter_ud->iter_data->req->status >= -H5_DAOS_INCOMPLETE) {
+        /* Check for failure from operator return */
+        if(udata->iter_ud->iter_data->op_ret < 0) {
+            udata->iter_ud->iter_data->req->status = -H5_DAOS_CALLBACK_ERROR;
+            udata->iter_ud->iter_data->req->failed_task = "map iteration callback operator function";
+            D_DONE_ERROR(H5E_LINK, H5E_BADITER, -H5_DAOS_CALLBACK_ERROR, "operator function returned failure");
+        } /* end if */
+        else if(udata->iter_ud->iter_data->op_ret) {
+            /* Short-circuit success */
+            udata->iter_ud->iter_data->req->status = -H5_DAOS_SHORT_CIRCUIT;
+            udata->iter_ud->iter_data->short_circuit_init = TRUE;
+        } /* end if */
+    } /* end if */
+
+    /* Complete op task */
+    tse_task_complete(udata->op_task, 0);
+
+    /* Free udata */
+    if(udata->key_buf_alloc)
+        DV_free(udata->key_buf_alloc);
+    DV_free(udata);
+
+done:
+    /* Complete this task */
+    tse_task_complete(task, ret_value);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_map_iter_op_end() */
 
 
 /*-------------------------------------------------------------------------

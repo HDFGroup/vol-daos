@@ -3936,6 +3936,10 @@ H5_daos_list_key_finish(tse_task_t *task)
     if(udata->sg_iov.iov_buf)
         DV_free(udata->sg_iov.iov_buf);
 
+    /* Free kds buffer if one was allocated */
+    if(udata->kds_dyn)
+        DV_free(udata->kds_dyn);
+
     /* Free udata */
     udata = DV_free(udata);
 
@@ -4003,7 +4007,7 @@ H5_daos_list_key_start(H5_daos_iter_ud_t *iter_udata, daos_opc_t opc,
 
     /* Set arguments */
     list_args->th = iter_udata->iter_data->req->th;
-    iter_udata->nr = H5_DAOS_ITER_LEN;
+    iter_udata->nr = iter_udata->kds_len;
     list_args->nr = &iter_udata->nr;
     list_args->kds = iter_udata->kds;
     list_args->sgl = &iter_udata->sgl;
@@ -4060,6 +4064,13 @@ done:
  *              executes when everything is complete a this level of
  *              iteration.
  *
+ *              key_prefetch_size specifies the number of keys to fetch at
+ *              a time while prefetching keys during the listing operation.
+ *              key_buf_size_init specifies the initial size in bytes of
+ *              the buffer allocated to hold these keys. This buffer will
+ *              be re-allocated as necessary if it is too small to hold the
+ *              keys, but this may incur additional I/O overhead.
+ *
  * Return:      Non-negative on success/Negative on failure
  *
  *-------------------------------------------------------------------------
@@ -4067,7 +4078,8 @@ done:
 int
 H5_daos_list_key_init(H5_daos_iter_data_t *iter_data, H5_daos_obj_t *target_obj,
     daos_key_t *dkey, daos_opc_t opc, tse_task_cb_t comp_cb, hbool_t base_iter,
-    tse_task_t **first_task, tse_task_t **dep_task)
+    size_t key_prefetch_size, size_t key_buf_size_init, tse_task_t **first_task,
+    tse_task_t **dep_task)
 {
     H5_daos_iter_ud_t *iter_udata = NULL;
     char *tmp_alloc = NULL;
@@ -4077,6 +4089,8 @@ H5_daos_list_key_init(H5_daos_iter_data_t *iter_data, H5_daos_obj_t *target_obj,
     assert(iter_data);
     assert(target_obj);
     assert(comp_cb);
+    assert(key_prefetch_size > 0);
+    assert(key_buf_size_init > 0);
     assert(first_task);
     assert(dep_task);
 
@@ -4103,13 +4117,22 @@ H5_daos_list_key_init(H5_daos_iter_data_t *iter_data, H5_daos_obj_t *target_obj,
     else
         iter_udata->iter_data = iter_data;
 
+    /* Allocate kds buffer if necessary */
+    iter_udata->kds = iter_udata->kds_static;
+    iter_udata->kds_len = key_prefetch_size;
+    if(key_prefetch_size * sizeof(daos_key_desc_t) > sizeof(iter_udata->kds_static)) {
+        if(NULL == (iter_udata->kds_dyn = (daos_key_desc_t *)DV_malloc(key_prefetch_size * sizeof(daos_key_desc_t))))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate key descriptor buffer");
+        iter_udata->kds = iter_udata->kds_dyn;
+    } /* end if */
+
     /* Allocate key_buf */
-    if(NULL == (tmp_alloc = (char *)DV_malloc(H5_DAOS_ITER_SIZE_INIT)))
+    if(NULL == (tmp_alloc = (char *)DV_malloc(key_buf_size_init)))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate buffer for keys");
 
     /* Set up sg_iov.  Report size as 1 less than buffer size so we always have
      * room for a null terminator. */
-    daos_iov_set(&iter_udata->sg_iov, tmp_alloc, (daos_size_t)(H5_DAOS_ITER_SIZE_INIT - 1));
+    daos_iov_set(&iter_udata->sg_iov, tmp_alloc, (daos_size_t)(key_buf_size_init - 1));
 
     /* Set up sgl */
     iter_udata->sgl.sg_nr = 1;
@@ -4179,6 +4202,10 @@ done:
             /* Free key buffer */
             if(iter_udata->sg_iov.iov_buf)
                 DV_free(iter_udata->sg_iov.iov_buf);
+
+            /* Free kds buffer if one was allocated */
+            if(iter_udata->kds_dyn)
+                DV_free(iter_udata->kds_dyn);
 
             /* Free udata */
             iter_udata = DV_free(iter_udata);

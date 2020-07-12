@@ -7292,7 +7292,7 @@ H5_daos_link_delete_rc_task(tse_task_t *task)
                 &first_task, &dep_task)))
             D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, ret, "can't get target object ref count: %s", H5_daos_err_to_string(ret));
 
-        /* Increment and write ref count */
+        /* Decrement and write ref count */
         if(0 != (ret = H5_daos_obj_write_rc(&udata->link_target_obj, NULL,
                 &udata->obj_rc, -1, &udata->target_obj->item.file->sched, req,
                 &first_task, &dep_task)))
@@ -7399,7 +7399,7 @@ H5_daos_link_delete_rc_end_task(tse_task_t *task)
      * H5_daos_req_free_int, which updates req->status if it sees an error */
     if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
         udata->req->status = ret_value;
-        udata->req->failed_task = "get link name by name order end task";
+        udata->req->failed_task = "link delete decr ref count end task";
     } /* end if */
 
     /* Release our reference to req */

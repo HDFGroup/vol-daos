@@ -65,6 +65,9 @@ typedef d_sg_list_t daos_sg_list_t;
 /* Constant keys */
 #define H5_DAOS_CHUNK_KEY 0u
 
+/* Default target chunk size for automatic chunking */
+#define H5_DAOS_CHUNK_TARGET_SIZE_DEF ((uint64_t)(1024 * 1024))
+
 /* Initial allocation sizes */
 #define H5_DAOS_GH_BUF_SIZE 1024
 #define H5_DAOS_FOI_BUF_SIZE 1024
@@ -667,6 +670,9 @@ extern H5VL_DAOS_PRIVATE MPI_Comm H5_daos_pool_comm_g;
 
 /* Global variable used for bypassing the DUNS when requested. */
 extern H5VL_DAOS_PRIVATE hbool_t H5_daos_bypass_duns_g;
+
+/* Target chunk size for automatic chunking */
+extern H5VL_DAOS_PRIVATE uint64_t H5_daos_chunk_target_size_g;
 
 /* DAOS task and MPI request for current in-flight MPI operation.  Only allow
  * one at a time for now since:

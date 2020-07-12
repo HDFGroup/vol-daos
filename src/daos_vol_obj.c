@@ -2453,9 +2453,10 @@ H5_daos_group_copy_cb(hid_t group, const char *name, const H5L_info2_t *info,
             } /* end if */
             else {
                 /* Copy the link as is */
-                if(H5_daos_link_copy_int((H5_daos_item_t *)obj_copy_udata->src_obj, &sub_loc_params,
+                if(H5_daos_link_copy_move_int((H5_daos_item_t *)obj_copy_udata->src_obj, &sub_loc_params,
                         (H5_daos_item_t *)obj_copy_udata->copied_obj, &sub_loc_params,
-                        obj_copy_udata->lcpl_id, &sched_loc, obj_copy_udata->req, first_task, dep_task) < 0)
+                        obj_copy_udata->lcpl_id, FALSE, &sched_loc, obj_copy_udata->req,
+                        first_task, dep_task) < 0)
                     D_GOTO_ERROR(H5E_LINK, H5E_CANTCOPY, H5_ITER_ERROR, "failed to copy link");
             } /* end else */
 
@@ -2474,9 +2475,10 @@ H5_daos_group_copy_cb(hid_t group, const char *name, const H5L_info2_t *info,
             } /* end if */
             else {
                 /* Copy the link as is */
-                if(H5_daos_link_copy_int((H5_daos_item_t *)obj_copy_udata->src_obj, &sub_loc_params,
+                if(H5_daos_link_copy_move_int((H5_daos_item_t *)obj_copy_udata->src_obj, &sub_loc_params,
                         (H5_daos_item_t *)obj_copy_udata->dst_grp, &sub_loc_params,
-                        obj_copy_udata->lcpl_id, &sched_loc, obj_copy_udata->req, first_task, dep_task) < 0)
+                        obj_copy_udata->lcpl_id, FALSE, &sched_loc, obj_copy_udata->req,
+                        first_task, dep_task) < 0)
                     D_GOTO_ERROR(H5E_LINK, H5E_CANTCOPY, H5_ITER_ERROR, "failed to copy link");
             } /* end else */
 

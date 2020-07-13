@@ -458,6 +458,13 @@ typedef struct H5_daos_req_t {
     const char *failed_task; /* Add more error info? DSINC */
 } H5_daos_req_t;
 
+/* Enum for denoting scheduler location for cross file operations */
+typedef enum {
+    H5_DAOS_SCHED_LOC_NONE,
+    H5_DAOS_SCHED_LOC_SRC,
+    H5_DAOS_SCHED_LOC_DST,
+} H5_daos_sched_loc_t;
+
 /* Task user data for MPI broadcast of group info for group open */
 typedef struct H5_daos_mpi_ibcast_ud_t {
     H5_daos_req_t *req;
@@ -499,6 +506,7 @@ typedef struct H5_daos_omd_fetch_ud_t {
 /* Task user data for OIDX generation */
 typedef struct H5_daos_oidx_generate_ud_t {
     H5_daos_generic_cb_ud_t generic_ud; /* Must be first */
+    H5_daos_file_t *file;
     hbool_t collective;
     uint64_t *oidx_out;
     uint64_t *next_oidx;
@@ -510,6 +518,7 @@ typedef struct H5_daos_oidx_generate_ud_t {
  */
 typedef struct H5_daos_oidx_bcast_ud_t {
     H5_daos_mpi_ibcast_ud_t bcast_udata; /* Must be first */
+    H5_daos_file_t *file;
     uint8_t next_oidx_buf[H5_DAOS_ENCODED_UINT64_T_SIZE];
     uint64_t *oidx_out;
     uint64_t *next_oidx;
@@ -519,6 +528,7 @@ typedef struct H5_daos_oidx_bcast_ud_t {
 /* Task user data for OID encoding */
 typedef struct H5_daos_oid_encode_ud_t {
     H5_daos_req_t *req;
+    H5_daos_file_t *file;
     daos_obj_id_t *oid_out;
     uint64_t oidx;
     H5I_type_t obj_type;
@@ -763,6 +773,8 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_obj_open(H5_daos_file_t *file,
     const char *task_name, tse_task_t **first_task, tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE herr_t H5_daos_free_async(H5_daos_file_t *file, void *buf,
     tse_task_t **first_task, tse_task_t **dep_task);
+H5VL_DAOS_PRIVATE int H5_daos_sched_link(tse_sched_t *old_sched,
+    tse_sched_t *new_sched, tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE herr_t H5_daos_comm_info_dup(MPI_Comm comm, MPI_Info info,
         MPI_Comm *comm_new, MPI_Info *info_new);
 H5VL_DAOS_PRIVATE herr_t H5_daos_comm_info_free(MPI_Comm *comm, MPI_Info *info);
@@ -802,13 +814,14 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_link_specific(void *_item, const H5VL_loc_param
 H5VL_DAOS_PRIVATE int H5_daos_link_write(H5_daos_group_t *grp, const char *name,
     size_t name_len, H5_daos_link_val_t *val, H5_daos_req_t *req,
     tse_task_t **first_task, tse_task_t **dep_task);
-H5VL_DAOS_PRIVATE herr_t H5_daos_link_copy_int(H5_daos_item_t *src_item,
+H5VL_DAOS_PRIVATE herr_t H5_daos_link_copy_move_int(H5_daos_item_t *src_item,
     const H5VL_loc_params_t *loc_params1, H5_daos_item_t *dst_item,
-    const H5VL_loc_params_t *loc_params2, hid_t lcpl, H5_daos_req_t *req,
-    tse_task_t **first_task, tse_task_t **dep_task);
+    const H5VL_loc_params_t *loc_params2, hid_t lcpl, hbool_t move,
+    H5_daos_sched_loc_t *sched_loc, H5_daos_req_t *req, tse_task_t **first_task,
+    tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE herr_t H5_daos_link_exists(H5_daos_item_t *item,
-    const char *link_path, htri_t *exists, H5_daos_req_t *req,
-    tse_task_t **first_task, tse_task_t **dep_task);
+    const char *link_path, htri_t ***exists_p, htri_t *exists,
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE htri_t H5_daos_link_follow(H5_daos_group_t *grp,
     const char *name, size_t name_len, hbool_t crt_missing_grp,
     H5_daos_req_t *req, daos_obj_id_t ***oid_ptr, hbool_t *link_exists,
@@ -934,10 +947,11 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_object_specific(void *_item, const H5VL_loc_par
 
 /* Other object routines */
 H5VL_DAOS_PRIVATE herr_t H5_daos_object_open_helper(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
-    H5I_type_t *opened_type, hbool_t collective, H5_daos_obj_t **ret_obj,
+    H5I_type_t *opened_type, hbool_t collective, H5_daos_obj_t ****ret_obj_p, H5_daos_obj_t **ret_obj,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
-H5VL_DAOS_PRIVATE herr_t H5_daos_object_visit(H5_daos_obj_t *target_obj, H5_daos_iter_data_t *iter_data,
-    tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
+H5VL_DAOS_PRIVATE herr_t H5_daos_object_visit(H5_daos_obj_t ***target_obj_prev_out,
+    H5_daos_obj_t *target_obj, H5_daos_iter_data_t *iter_data, tse_sched_t *sched,
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE herr_t H5_daos_object_close(void *_obj, hid_t dxpl_id, void **req);
 H5VL_DAOS_PRIVATE herr_t H5_daos_fill_ocpl_cache(H5_daos_obj_t *obj, hid_t ocpl_id);
 H5VL_DAOS_PRIVATE herr_t H5_daos_object_get_num_attrs(H5_daos_obj_t *target_obj, hsize_t *num_attrs,
@@ -946,9 +960,12 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_object_get_num_attrs(H5_daos_obj_t *target_obj,
 H5VL_DAOS_PRIVATE herr_t H5_daos_object_update_num_attrs_key(H5_daos_obj_t *target_obj, hsize_t *new_nattrs,
     tse_task_cb_t prep_cb, tse_task_cb_t comp_cb, tse_sched_t *sched,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
+H5VL_DAOS_PRIVATE int H5_daos_obj_read_rc(H5_daos_obj_t **obj_p,
+    H5_daos_obj_t *obj, uint64_t *rc, unsigned *rc_uint, tse_sched_t *sched,
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE int H5_daos_obj_write_rc(H5_daos_obj_t **obj_p,
-    H5_daos_obj_t *obj, uint64_t *rc, int64_t adjust, H5_daos_req_t *req,
-    tse_task_t **first_task, tse_task_t **dep_task);
+    H5_daos_obj_t *obj, uint64_t *rc, int64_t adjust, tse_sched_t *sched,
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 
 /* Attribute callbacks */
 H5VL_DAOS_PRIVATE void *H5_daos_attribute_create(void *_obj, const H5VL_loc_params_t *loc_params,
@@ -1038,6 +1055,8 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_req_free_int(H5_daos_req_t *req);
 /* Generic Asynchronous routines */
 H5VL_DAOS_PRIVATE herr_t H5_daos_progress(tse_sched_t *sched,
         H5_daos_req_t *req, uint64_t timeout);
+H5VL_DAOS_PRIVATE herr_t H5_daos_progress_2(tse_sched_t *sched1,
+    tse_sched_t *sched2, H5_daos_req_t *req, uint64_t timeout);
 H5VL_DAOS_PRIVATE int H5_daos_list_key_start(H5_daos_iter_ud_t *iter_udata,
     daos_opc_t opc, tse_task_cb_t comp_cb, tse_task_t **first_task,
     tse_task_t **dep_task);

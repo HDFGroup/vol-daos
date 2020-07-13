@@ -84,6 +84,7 @@ typedef struct H5_daos_pool_disconnect_ud_t {
 /* Task user data for DAOS object open */
 typedef struct H5_daos_obj_open_ud_t {
     H5_daos_generic_cb_ud_t generic_ud; /* Must be first */
+    H5_daos_file_t *file;
     daos_obj_id_t *oid;
 } H5_daos_obj_open_ud_t;
 
@@ -129,6 +130,7 @@ static int H5_daos_pool_connect_prep_cb(tse_task_t *task, void *args);
 static int H5_daos_pool_connect_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_pool_disconnect_prep_cb(tse_task_t *task, void *args);
 static int H5_daos_pool_disconnect_comp_cb(tse_task_t *task, void *args);
+static int H5_daos_sched_link_old_task(tse_task_t *task);
 
 /*******************/
 /* Local Variables */
@@ -2331,6 +2333,7 @@ H5_daos_oidx_generate(uint64_t *oidx, H5_daos_file_t *file, hbool_t collective,
     int ret;
     herr_t ret_value = SUCCEED;
 
+    assert(file);
     assert(req);
     assert(first_task);
     assert(dep_task);
@@ -2353,6 +2356,7 @@ H5_daos_oidx_generate(uint64_t *oidx, H5_daos_file_t *file, hbool_t collective,
                 D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate user data struct for OIDX generation task");
             generate_udata->generic_ud.req = req;
             generate_udata->generic_ud.task_name = "OIDX generation";
+            generate_udata->file = file;
             generate_udata->collective = collective;
             generate_udata->oidx_out = oidx;
             generate_udata->next_oidx = next_oidx;
@@ -2435,7 +2439,8 @@ H5_daos_oidx_generate_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for OIDX generation task");
 
-    assert(!udata->generic_ud.req->file->closed);
+    assert(udata->file);
+    assert(!udata->file->closed);
 
     /* Handle errors in OIDX generation task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if
@@ -2467,7 +2472,7 @@ H5_daos_oidx_generate_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 done:
     if(udata) {
         /* Release our reference on the file */
-        H5_daos_file_decref(udata->generic_ud.req->file);
+        H5_daos_file_decref(udata->file);
 
         /* Handle errors in this function */
         /* Do not place any code that can issue errors after this block, except for
@@ -2523,6 +2528,7 @@ H5_daos_oidx_bcast(H5_daos_file_t *file, uint64_t *oidx_out,
     oidx_bcast_udata->bcast_udata.buffer = oidx_bcast_udata->next_oidx_buf;
     oidx_bcast_udata->bcast_udata.buffer_len = H5_DAOS_ENCODED_UINT64_T_SIZE;
     oidx_bcast_udata->bcast_udata.count = H5_DAOS_ENCODED_UINT64_T_SIZE;
+    oidx_bcast_udata->file = file;
     oidx_bcast_udata->oidx_out = oidx_out;
     oidx_bcast_udata->next_oidx = &file->next_oidx_collective;
     oidx_bcast_udata->max_oidx = &file->max_oidx_collective;
@@ -2646,6 +2652,7 @@ H5_daos_oidx_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     assert(udata->bcast_udata.req);
     assert(udata->bcast_udata.buffer);
+    assert(udata->file);
     assert(udata->oidx_out);
     assert(udata->next_oidx);
     assert(udata->max_oidx);
@@ -2689,7 +2696,7 @@ done:
             udata->bcast_udata.req->failed_task = "MPI_Ibcast next object index completion callback";
         } /* end if */
 
-        H5_daos_file_decref(udata->bcast_udata.req->file);
+        H5_daos_file_decref(udata->file);
 
         /* Release our reference to req */
         if(H5_daos_req_free_int(udata->bcast_udata.req) < 0)
@@ -2825,7 +2832,7 @@ done:
             if(H5Idec_ref(udata->crt_plist_id) < 0)
                 D_DONE_ERROR(H5E_PLIST, H5E_CANTDEC, -H5_DAOS_H5_CLOSE_ERROR, "can't decrement ref. count on creation plist");
 
-        H5_daos_file_decref(udata->req->file);
+        H5_daos_file_decref(udata->file);
 
         /* Handle errors in this function */
         /* Do not place any code that can issue errors after this block, except for
@@ -2873,6 +2880,7 @@ H5_daos_oid_generate(daos_obj_id_t *oid, H5I_type_t obj_type,
     int ret;
     herr_t ret_value = SUCCEED;
 
+    assert(file);
     assert(req);
     assert(first_task);
     assert(dep_task);
@@ -2903,6 +2911,7 @@ H5_daos_oid_generate(daos_obj_id_t *oid, H5I_type_t obj_type,
     else {
         /* Create asynchronous task for OID encoding */
 
+        encode_udata->file = file;
         encode_udata->obj_type = obj_type;
         encode_udata->crt_plist_id = crt_plist_id;
         encode_udata->oclass_prop_name = H5_DAOS_OBJ_CLASS_NAME;
@@ -3514,65 +3523,6 @@ done:
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_obj_open_prep_cb
- *
- * Purpose:     Prepare callback for daos_obj_open.  Currently only sets
- *              the coh and checks for errors from previous tasks.  This
- *              is only necessary for operations that might otherwise be
- *              run before file->coh is set up, since daos_obj_open is a
- *              non-blocking operation.  The other fields in the argument
- *              struct must have already been filled in.  Since this does
- *              not hold the object open it must only be used when there
- *              is a task that depends on it that does so.
- *
- * Return:      Success:        0
- *              Failure:        Error code
- *
- * Programmer:  Neil Fortner
- *              February, 2020
- *
- *-------------------------------------------------------------------------
- */
-int
-H5_daos_obj_open_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
-{
-    H5_daos_obj_open_ud_t *udata;
-    daos_obj_open_t *open_args;
-    int ret_value = 0;
-
-    /* Get private data */
-    if(NULL == (udata = tse_task_get_priv(task)))
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for object open task");
-
-    assert(udata->generic_ud.req);
-    assert(udata->generic_ud.req->file);
-
-    /* Handle errors */
-    if(udata->generic_ud.req->status < -H5_DAOS_SHORT_CIRCUIT) {
-        tse_task_complete(task, -H5_DAOS_PRE_ERROR);
-        udata = NULL;
-        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
-    } /* end if */
-    else if(udata->generic_ud.req->status == -H5_DAOS_SHORT_CIRCUIT) {
-        tse_task_complete(task, -H5_DAOS_SHORT_CIRCUIT);
-        udata = NULL;
-        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
-    } /* end if */
-
-    /* Set container open handle and oid in args */
-    if(NULL == (open_args = daos_task_get_args(task))) {
-        tse_task_complete(task, -H5_DAOS_DAOS_GET_ERROR);
-        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for object open task");
-    } /* end if */
-    open_args->coh = udata->generic_ud.req->file->coh;
-    open_args->oid = *udata->oid;
-
-done:
-    D_FUNC_LEAVE;
-} /* end H5_daos_obj_open_prep_cb() */
-
-
-/*-------------------------------------------------------------------------
  * Function:    H5_daos_md_rw_prep_cb
  *
  * Purpose:     Prepare callback for asynchronous daos_obj_update or
@@ -3601,8 +3551,8 @@ H5_daos_md_rw_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     assert(udata->obj);
     assert(udata->req);
-    assert(udata->req->file);
-    assert(!udata->req->file->closed);
+    assert(udata->obj->item.file);
+    assert(!udata->obj->item.file->closed);
 
     /* Handle errors */
     if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
@@ -4217,6 +4167,65 @@ done:
 
 
 /*-------------------------------------------------------------------------
+ * Function:    H5_daos_obj_open_prep_cb
+ *
+ * Purpose:     Prepare callback for daos_obj_open.  Currently only sets
+ *              the coh and checks for errors from previous tasks.  This
+ *              is only necessary for operations that might otherwise be
+ *              run before file->coh is set up, since daos_obj_open is a
+ *              non-blocking operation.  The other fields in the argument
+ *              struct must have already been filled in.  Since this does
+ *              not hold the object open it must only be used when there
+ *              is a task that depends on it that does so.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ * Programmer:  Neil Fortner
+ *              February, 2020
+ *
+ *-------------------------------------------------------------------------
+ */
+int
+H5_daos_obj_open_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_obj_open_ud_t *udata;
+    daos_obj_open_t *open_args;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for object open task");
+
+    assert(udata->generic_ud.req);
+    assert(udata->file);
+
+    /* Handle errors */
+    if(udata->generic_ud.req->status < -H5_DAOS_SHORT_CIRCUIT) {
+        tse_task_complete(task, -H5_DAOS_PRE_ERROR);
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    } /* end if */
+    else if(udata->generic_ud.req->status == -H5_DAOS_SHORT_CIRCUIT) {
+        tse_task_complete(task, -H5_DAOS_SHORT_CIRCUIT);
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
+    } /* end if */
+
+    /* Set container open handle and oid in args */
+    if(NULL == (open_args = daos_task_get_args(task))) {
+        tse_task_complete(task, -H5_DAOS_DAOS_GET_ERROR);
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for object open task");
+    } /* end if */
+    open_args->coh = udata->file->coh;
+    open_args->oid = *udata->oid;
+
+done:
+    D_FUNC_LEAVE;
+} /* end H5_daos_obj_open_prep_cb() */
+
+
+/*-------------------------------------------------------------------------
  * Function:    H5_daos_obj_open
  *
  * Purpose:     Open a DAOS object object asynchronously.  daos_obj_open
@@ -4260,6 +4269,7 @@ H5_daos_obj_open(H5_daos_file_t *file, H5_daos_req_t *req, daos_obj_id_t *oid,
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate user data struct for object open task");
     open_udata->generic_ud.req = req;
     open_udata->generic_ud.task_name = task_name;
+    open_udata->file = file;
     open_udata->oid = oid;
     (void)tse_task_set_priv(open_task, open_udata);
 
@@ -4465,7 +4475,7 @@ H5_daos_free_async(H5_daos_file_t *file, void *buf, tse_task_t **first_task,
     /* Schedule free task (or save it to be scheduled later) */
     if(*first_task) {
         if(0 != (ret = tse_task_schedule(free_task, false)))
-            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't schedule task to free buffert: %s", H5_daos_err_to_string(ret));
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't schedule task to free buffer: %s", H5_daos_err_to_string(ret));
     } /* end if */
     else
         *first_task = free_task;
@@ -4479,13 +4489,108 @@ done:
 
 
 /*-------------------------------------------------------------------------
+ * Function:    H5_daos_sched_link_old_task
+ *
+ * Purpose:     Asynchronous task for H5_daos_sched_link().  Exists in
+ *              old_sched, completes the new task in new_sched.
+ *
+ * Return:      0 on success/Negative error code on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_sched_link_old_task(tse_task_t *task)
+{
+    tse_task_t *new_task = NULL;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (new_task = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for sched link task");
+
+    /* Complete new task */
+    tse_task_complete(new_task, 0);
+
+done:
+    /* Complete this task */
+    tse_task_complete(task, ret_value);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_sched_link_old_task() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_sched_link
+ *
+ * Purpose:     Switches a task dependency chain from old_sched to
+ *              new_sched.  *dep_task must be in old_sched on entry, and
+ *              on exit dep_task will be a task in new_sched that will
+ *              complete as soon as the original *dep_task completes.
+ *
+ * Return:      0 on success/Negative error code on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+int
+H5_daos_sched_link(tse_sched_t *old_sched, tse_sched_t *new_sched,
+    tse_task_t **dep_task)
+{
+    tse_task_t *old_task = NULL;
+    tse_task_t *new_task = NULL;
+    int ret;
+    int ret_value = 0;
+
+    assert(dep_task);
+    assert(*dep_task);
+
+    /* If the schedulers are the same no need to do anything */
+    if(old_sched == new_sched)
+        D_GOTO_DONE(0);
+
+    /* Create empty task in new scheduler - this will be returned in *dep_task,
+     * and will be completed by old task when it runs */
+    if(0 != (ret = tse_task_create(NULL, new_sched, NULL, &new_task)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't create new task to link schedulers: %s", H5_daos_err_to_string(ret));;
+
+    /* Schedule new task */
+    if(0 != (ret = tse_task_schedule(new_task, false)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't schedule new task to link schedulers: %s", H5_daos_err_to_string(ret));
+
+    /* Create task in old scheduler */
+    if(0 != (ret = tse_task_create(H5_daos_sched_link_old_task, old_sched, new_task, &old_task)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't create old task to link schedulers: %s", H5_daos_err_to_string(ret));
+
+    /* Register dependency for old task */
+    if(0 != (ret = tse_task_register_deps(old_task, 1, dep_task)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't create dependencies for old task to link schedulers: %s", H5_daos_err_to_string(ret));
+
+    /* Schedule old task */
+    if(0 != (ret = tse_task_schedule(old_task, false)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't schedule old task to link schedulers: %s", H5_daos_err_to_string(ret));
+
+    /* Update *dep_task to be the new task */
+    *dep_task = new_task;
+done:
+    D_FUNC_LEAVE;
+} /* end H5_daos_sched_link() */
+
+
+/*-------------------------------------------------------------------------
  * Function:    H5_daos_progress
  *
- * Purpose:     Make progress on asynchronous tasks.  Can be run
+ * Purpose:     Make progress on asynchronous tasks.  Can be run with a
+ *              request (in which case it waits until the the request
+ *              finishes) or without one (in which case it waits until all
+ *              tasks in the file are complete.  Can be run with timeout
+ *              set to H5_DAOS_PROGRESS_KICK in which case it makes
+ *              non-blocking progress then exits immediately, with timout
+ *              set to H5_DAOS_PROGRESS_WAIT in which case it waits as
+ *              long as it takes, or with timeout set to a value in
+ *              microseconds in which case it wait up to that amount of
+ *              time then exits as soon as the exit condition or the
+ *              timeout is met.
  *
- * Return:      Success:    Non-negative.  The new communicator and info
- *                          object handles are returned via the comm_new
- *                          and info_new pointers.
+ * Return:      Success:    Non-negative.
  *
  *              Failure:    Negative.
  *
@@ -4542,6 +4647,84 @@ H5_daos_progress(tse_sched_t *sched, H5_daos_req_t *req, uint64_t timeout)
 done:
     D_FUNC_LEAVE;
 } /* end H5_daos_progress() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_progress_2
+ *
+ * Purpose:     Like H5_daos_progress except operates on two schedulers at
+ *              once (for cross-file operations).
+ *
+ * Return:      Success:    Non-negative.
+ *
+ *              Failure:    Negative.
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_progress_2(tse_sched_t *sched1, tse_sched_t *sched2, H5_daos_req_t *req,
+    uint64_t timeout)
+{
+    int64_t  timeout_rem;
+    int      completed;
+    bool     is_empty1 = FALSE;
+    bool     is_empty2 = FALSE;
+    tse_task_t *tmp_task;
+    int      ret;
+    herr_t   ret_value = SUCCEED;
+
+    assert(sched1);
+    assert(sched2);
+
+    /* Set timeout_rem, being careful to avoid overflow */
+    timeout_rem = timeout > INT64_MAX ? INT64_MAX : (int64_t)timeout;
+
+    /* Loop until the scheduler is empty, the timeout is met, or  */
+    do {
+        /* Progress MPI if there is a task in flight */
+        if(H5_daos_mpi_task_g) {
+            /* Check if task is complete */
+            if(MPI_SUCCESS != (ret = MPI_Test(&H5_daos_mpi_req_g, &completed, MPI_STATUS_IGNORE)))
+                D_DONE_ERROR(H5E_VOL, H5E_MPI, FAIL, "MPI_Test failed: %d", ret);
+
+            /* Complete matching DAOS task if so */
+            if(ret_value < 0) {
+                tmp_task = H5_daos_mpi_task_g;
+                H5_daos_mpi_task_g = NULL;
+                tse_task_complete(tmp_task, -H5_DAOS_MPI_ERROR);
+            } /* end if */
+            else if(completed) {
+                tmp_task = H5_daos_mpi_task_g;
+                H5_daos_mpi_task_g = NULL;
+                tse_task_complete(tmp_task, 0);
+            } /* end if */
+        } /* end if */
+
+        /* Progress DAOS */
+        if((0 != (ret = daos_progress(sched1,
+                timeout_rem > H5_DAOS_ASYNC_POLL_INTERVAL ? H5_DAOS_ASYNC_POLL_INTERVAL : timeout_rem,
+                &is_empty1))) && (ret != -DER_TIMEDOUT))
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't progress scheduler 1: %s", H5_daos_err_to_string(ret));
+
+        /* Advance time */
+        /* Actually check clock here? */
+        timeout_rem -= H5_DAOS_ASYNC_POLL_INTERVAL;
+
+        /* Progress DAOS */
+        if((0 != (ret = daos_progress(sched2,
+                timeout_rem > H5_DAOS_ASYNC_POLL_INTERVAL ? H5_DAOS_ASYNC_POLL_INTERVAL : timeout_rem,
+                &is_empty1))) && (ret != -DER_TIMEDOUT))
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't progress scheduler 2: %s", H5_daos_err_to_string(ret));
+
+        /* Advance time */
+        /* Actually check clock here? */
+        timeout_rem -= H5_DAOS_ASYNC_POLL_INTERVAL;
+    } while((req ? (req->status == -H5_DAOS_INCOMPLETE || req->status == -H5_DAOS_SHORT_CIRCUIT)
+            : !(is_empty1 && is_empty2)) && timeout_rem > 0);
+
+done:
+    D_FUNC_LEAVE;
+} /* end H5_daos_progress_2() */
 
 
 /*-------------------------------------------------------------------------

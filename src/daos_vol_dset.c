@@ -775,7 +775,8 @@ H5_daos_dataset_create_helper(H5_daos_file_t *file, hid_t type_id, hid_t space_i
         else {
             /* No link to dataset, write a ref count of 0 to dset */
              finalize_deps[finalize_ndeps] = *dep_task;
-            if(0 != (ret = H5_daos_obj_write_rc(NULL, &dset->obj, NULL, 0, req, first_task, &finalize_deps[finalize_ndeps])))
+            if(0 != (ret = H5_daos_obj_write_rc(NULL, &dset->obj, NULL, 0, &file->sched,
+                    req, first_task, &finalize_deps[finalize_ndeps])))
                 D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't write object ref count: %s", H5_daos_err_to_string(ret));
             finalize_ndeps++;
         } /* end if */
@@ -1142,7 +1143,7 @@ H5_daos_dset_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     assert(udata->req);
     assert(udata->obj);
     assert(udata->obj->item.file);
-    assert(!udata->req->file->closed);
+    assert(!udata->obj->item.file->closed);
     assert(udata->obj->item.file->my_rank > 0);
     assert(udata->obj->item.type == H5I_DATASET);
 
@@ -2238,7 +2239,7 @@ H5_daos_chunk_io_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     update_args->nr = 1;
     update_args->iods = &udata->iod;
     update_args->sgls = &udata->sgl;
-    update_args->maps = NULL;
+    update_args->ioms = NULL;
 
 done:
     D_FUNC_LEAVE;

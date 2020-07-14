@@ -52,22 +52,28 @@ typedef struct {
 typedef enum {
   GROUP_CREATE_NUM 	= 0,
   GROUP_INFO_NUM 	= 1,
-  GROUP_REMOVE_NUM 	= 2,
-  DSET_CREATE_NUM 	= 3,
-  DSET_READ_NUM 	= 4,
-  DSET_REMOVE_NUM 	= 5,
-  ATTR_CREATE_NUM 	= 6,
-  ATTR_REMOVE_NUM 	= 7,
-  DTYPE_COMMIT_NUM      = 8,
-  MAP_CREATE_NUM 	= 9,
-  MAP_REMOVE_NUM 	= 10,
+  GROUP_CLOSE_NUM	= 2,
+  GROUP_REMOVE_NUM 	= 3,
+  DSET_CREATE_NUM 	= 4,
+  DSET_READ_NUM 	= 5,
+  DSET_CLOSE_NUM	= 6,
+  DSET_REMOVE_NUM 	= 7,
+  ATTR_CREATE_NUM 	= 8,
+  ATTR_CLOSE_NUM	= 9,
+  ATTR_REMOVE_NUM 	= 10,
+  DTYPE_COMMIT_NUM      = 11,
+  DTYPE_CLOSE_NUM	= 12,
+  MAP_CREATE_NUM 	= 13,
+  MAP_CLOSE_NUM 	= 14,
+  MAP_REMOVE_NUM 	= 15,
   ENTRY_NUM
 } test_num_t;
 
 /* List of file operations */
 typedef enum {
   FILE_CREATE_NUM 	= 0,
-  FILE_REMOVE_NUM 	= 1,
+  FILE_CLOSE_NUM 	= 1,
+  FILE_REMOVE_NUM 	= 2,
   FILE_ENTRY_NUM
 } file_num_t;
 
@@ -309,26 +315,38 @@ calculate_results()
 	    overall_mean_time[GROUP_CREATE_NUM]);  
         printf("Group info time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[GROUP_INFO_NUM], max_time[GROUP_INFO_NUM], 
 	    overall_mean_time[GROUP_INFO_NUM]);  
+        printf("Group close time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[GROUP_CLOSE_NUM], max_time[GROUP_CLOSE_NUM], 
+	    overall_mean_time[GROUP_CLOSE_NUM]);  
         printf("Group removal time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[GROUP_REMOVE_NUM], max_time[GROUP_REMOVE_NUM], 
 	    overall_mean_time[GROUP_REMOVE_NUM]);  
         printf("Dataset creation time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[DSET_CREATE_NUM], max_time[DSET_CREATE_NUM], 
 	    overall_mean_time[DSET_CREATE_NUM]);  
         printf("Dataset read time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[DSET_READ_NUM], max_time[DSET_READ_NUM], 
 	    overall_mean_time[DSET_READ_NUM]);  
+        printf("Dataset close time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[DSET_CLOSE_NUM], max_time[DSET_CLOSE_NUM], 
+	    overall_mean_time[DSET_CLOSE_NUM]);  
         printf("Dataset removal time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[DSET_REMOVE_NUM], max_time[DSET_REMOVE_NUM], 
 	    overall_mean_time[DSET_REMOVE_NUM]);  
         printf("Attribute creation time: 	min %lf, 	max %lf, 	mean %lf\n", min_time[ATTR_CREATE_NUM], max_time[ATTR_CREATE_NUM], 
 	    overall_mean_time[ATTR_CREATE_NUM]);  
+        printf("Attribute close time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[ATTR_CLOSE_NUM], max_time[ATTR_CLOSE_NUM], 
+	    overall_mean_time[ATTR_CLOSE_NUM]);  
         printf("Attribute removal time: 	min %lf, 	max %lf, 	mean %lf\n", min_time[ATTR_REMOVE_NUM], max_time[ATTR_REMOVE_NUM], 
 	    overall_mean_time[ATTR_REMOVE_NUM]);  
         printf("Datatype commit time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[DTYPE_COMMIT_NUM], max_time[DTYPE_COMMIT_NUM], 
 	    overall_mean_time[DTYPE_COMMIT_NUM]);  
+        printf("Datatype close time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[DTYPE_CLOSE_NUM], max_time[DTYPE_CLOSE_NUM], 
+	    overall_mean_time[DTYPE_CLOSE_NUM]);  
         printf("Map creation time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[MAP_CREATE_NUM], max_time[MAP_CREATE_NUM], 
 	    overall_mean_time[MAP_CREATE_NUM]);  
+        printf("Map close time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[MAP_CLOSE_NUM], max_time[MAP_CLOSE_NUM], 
+	    overall_mean_time[MAP_CLOSE_NUM]);  
         printf("Map removal time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[MAP_REMOVE_NUM], max_time[MAP_REMOVE_NUM], 
 	    overall_mean_time[MAP_REMOVE_NUM]);  
         printf("File creation time: 		min %lf, 	max %lf, 	mean %lf\n", file_min_time[FILE_CREATE_NUM], file_max_time[FILE_CREATE_NUM], 
 	    file_mean_time[FILE_CREATE_NUM]);  
+        printf("File close time: 		min %lf, 	max %lf, 	mean %lf\n", file_min_time[FILE_CLOSE_NUM], file_max_time[FILE_CLOSE_NUM], 
+	    file_mean_time[FILE_CLOSE_NUM]);  
         printf("File removal time: 		min %lf, 	max %lf, 	mean %lf\n", file_min_time[FILE_REMOVE_NUM], file_max_time[FILE_REMOVE_NUM], 
 	    file_mean_time[FILE_REMOVE_NUM]);  
 
@@ -336,26 +354,38 @@ calculate_results()
 	    1 / overall_mean_time[GROUP_CREATE_NUM]);  
         printf("Group info rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[GROUP_INFO_NUM], 1 / max_time[GROUP_INFO_NUM], 
 	    1 / overall_mean_time[GROUP_INFO_NUM]);  
+        printf("Group close rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[GROUP_CLOSE_NUM], 1 / max_time[GROUP_CLOSE_NUM], 
+	    1 / overall_mean_time[GROUP_CLOSE_NUM]);  
         printf("Group removal rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[GROUP_REMOVE_NUM], 1 / max_time[GROUP_REMOVE_NUM], 
 	    1 / overall_mean_time[GROUP_REMOVE_NUM]);  
         printf("Dataset creation rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[DSET_CREATE_NUM], 1 / max_time[DSET_CREATE_NUM], 
 	    1 / overall_mean_time[DSET_CREATE_NUM]);  
         printf("Dataset read rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[DSET_READ_NUM], 1 / max_time[DSET_READ_NUM], 
 	    1 / overall_mean_time[DSET_READ_NUM]);  
+        printf("Dataset close rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[DSET_CLOSE_NUM], 1 / max_time[DSET_CLOSE_NUM], 
+	    1 / overall_mean_time[DSET_CLOSE_NUM]);  
         printf("Dataset removal rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[DSET_REMOVE_NUM], 1 / max_time[DSET_REMOVE_NUM], 
 	    1 / overall_mean_time[DSET_REMOVE_NUM]); 
         printf("Attribute creation rate: 	max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[ATTR_CREATE_NUM], 1 / max_time[ATTR_CREATE_NUM], 
 	    1 / overall_mean_time[ATTR_CREATE_NUM]);  
+        printf("Attribute close rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[ATTR_CLOSE_NUM], 1 / max_time[ATTR_CLOSE_NUM], 
+	    1 / overall_mean_time[ATTR_CLOSE_NUM]);  
         printf("Attribute removal rate: 	max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[ATTR_REMOVE_NUM], 1 / max_time[ATTR_REMOVE_NUM], 
 	    1 / overall_mean_time[ATTR_REMOVE_NUM]); 
         printf("Datatype commit rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[DTYPE_COMMIT_NUM], 1 / max_time[DTYPE_COMMIT_NUM], 
 	    1 / overall_mean_time[DTYPE_COMMIT_NUM]);  
+        printf("Datatype close rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[DTYPE_CLOSE_NUM], 1 / max_time[DTYPE_CLOSE_NUM], 
+	    1 / overall_mean_time[DTYPE_CLOSE_NUM]);  
         printf("Map creation rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[MAP_CREATE_NUM], 1 / max_time[MAP_CREATE_NUM], 
 	    1 / overall_mean_time[MAP_CREATE_NUM]);  
+        printf("Map close rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[MAP_CLOSE_NUM], 1 / max_time[MAP_CLOSE_NUM], 
+	    1 / overall_mean_time[MAP_CLOSE_NUM]);  
         printf("Map removal rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[MAP_REMOVE_NUM], 1 / max_time[MAP_REMOVE_NUM], 
 	    1 / overall_mean_time[MAP_REMOVE_NUM]);  
         printf("File creation rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / file_min_time[FILE_CREATE_NUM], 1 / file_max_time[FILE_CREATE_NUM], 
 	    1 / file_mean_time[FILE_CREATE_NUM]);  
+        printf("File close rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / file_min_time[FILE_CLOSE_NUM], 1 / file_max_time[FILE_CLOSE_NUM], 
+	    1 / file_mean_time[FILE_CLOSE_NUM]);  
         printf("File removal rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / file_min_time[FILE_REMOVE_NUM], 1 / file_max_time[FILE_REMOVE_NUM], 
 	    1 / file_mean_time[FILE_REMOVE_NUM]);  
     }
@@ -417,11 +447,22 @@ create_objects_in_tree_node(hid_t tree_node_gid)
             printf("\nGroup creation time: %lf", time);
 #endif
 
+        start = MPI_Wtime();
+
         if (H5Gclose(gid) < 0) {
             H5_FAILED(); AT();
             printf("failed to close the group '%s'\n", gname);
             goto error;
         }
+
+        end = MPI_Wtime();
+        time = end - start;
+        op_time[GROUP_CLOSE_NUM][tree_order] += time;
+
+#ifdef DEBUG
+        if (MAINPROCESS)
+            printf("\nGroup close time: %lf", time);
+#endif
     }
 
     /* Group info */
@@ -507,11 +548,28 @@ create_objects_in_tree_node(hid_t tree_node_gid)
         time = end - start;
         op_time[DSET_READ_NUM][tree_order] += time;
 
+#ifdef DEBUG
+        if (MAINPROCESS)
+            printf("\nDset read time: %lf", time);
+#endif
+
+        /* Dataset close */
+        start = MPI_Wtime();
+
         if (H5Dclose(dset_id) < 0) {
             H5_FAILED(); AT();
             printf("failed to close the dataset '%s'\n", dset_name);
             goto error;
         }
+
+        end = MPI_Wtime();
+        time = end - start;
+        op_time[DSET_CLOSE_NUM][tree_order] += time;
+
+#ifdef DEBUG
+        if (MAINPROCESS)
+            printf("\nDset close time: %lf", time);
+#endif
     }
 
     /* Dataset removal */
@@ -555,11 +613,22 @@ create_objects_in_tree_node(hid_t tree_node_gid)
             printf("\nAttr creation time: %lf", time);
 #endif
 
+        start = MPI_Wtime();
+
         if(H5Aclose(attr_id) < 0) {
             H5_FAILED(); AT();
             printf("failed to close the attribure\n");
             goto error;
         } 
+
+        end = MPI_Wtime();
+        time = end - start;
+        op_time[ATTR_CLOSE_NUM][tree_order] += time;
+
+#ifdef DEBUG
+        if (MAINPROCESS)
+            printf("\nAttr close time: %lf", time);
+#endif
     }
 
     /* Close the data sapce for datasets and attributes */
@@ -616,11 +685,22 @@ create_objects_in_tree_node(hid_t tree_node_gid)
             printf("\nDtype commit time: %lf", time);
 #endif
 
+        start = MPI_Wtime();
+
         if (H5Tclose(dtype_id) < 0) {
             H5_FAILED(); AT();
             printf("failed to close the datatype\n");
             goto error;
         } 
+
+        end = MPI_Wtime();
+        time = end - start;
+        op_time[DTYPE_CLOSE_NUM][tree_order] += time;
+
+#ifdef DEBUG
+        if (MAINPROCESS)
+            printf("\nDtype close time: %lf", time);
+#endif
     }
 
     if(!hand.runMPIIO) {
@@ -644,11 +724,22 @@ create_objects_in_tree_node(hid_t tree_node_gid)
                 printf("\nMap creation time: %lf", time);
 #endif
 
+            start = MPI_Wtime();
+
             if(H5Mclose(map_id) < 0) {
                 H5_FAILED(); AT();
                 printf("failed to close the map\n");
                 goto error;
             } 
+
+            end = MPI_Wtime();
+            time = end - start;
+            op_time[MAP_CLOSE_NUM][tree_order] += time;
+
+#ifdef DEBUG
+            if (MAINPROCESS)
+                printf("\nMap close time: %lf", time);
+#endif
         }
 
         /* Map removal */
@@ -716,11 +807,22 @@ operate_on_files(hid_t fapl_id)
             printf("\nFile creation time: %lf", time);
 #endif
 
+        start = MPI_Wtime();
+
         if(H5Fclose(file_id) < 0) {
             H5_FAILED(); AT();
             printf("failed to close the file\n");
             goto error;
         } 
+
+        end = MPI_Wtime();
+        time = end - start;
+        file_op_time[FILE_CLOSE_NUM][i] = time;
+
+#ifdef DEBUG
+        if (MAINPROCESS)
+            printf("\nFile close time: %lf", time);
+#endif
     }
 
     /* File delete */

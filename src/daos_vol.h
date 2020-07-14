@@ -546,6 +546,7 @@ typedef struct H5_daos_oid_encode_ud_t {
 typedef enum {
     H5_DAOS_ITER_TYPE_ATTR,
     H5_DAOS_ITER_TYPE_LINK,
+    H5_DAOS_ITER_TYPE_MAP,
     H5_DAOS_ITER_TYPE_OBJ,
 } H5_daos_iter_data_type_t;
 
@@ -557,6 +558,10 @@ typedef herr_t (*H5_daos_attribute_iterate_async_t)(hid_t obj, const char *name,
 /* Could have an option to disable name and/or linfo here for performance -NAF */
 typedef herr_t (*H5_daos_link_iterate_async_t)(hid_t group, const char *name, const H5L_info2_t *info,
     void *op_data, herr_t *op_ret, tse_task_t **first_task, tse_task_t **dep_task);
+
+/* Function type for asynchronous map iterate callbacks */
+typedef herr_t (*H5_daos_map_iterate_async_t)(hid_t map, const void *key, void *op_data,
+    herr_t *op_ret, tse_task_t **first_task, tse_task_t **dep_task);
 
 /* Function type for asynchronous object visit callbacks */
 typedef herr_t (*H5_daos_object_visit_async_t)(hid_t obj, const char *name, const H5O_info2_t *info,
@@ -602,6 +607,14 @@ typedef struct H5_daos_iter_data_t {
 
         struct {
             union {
+                H5M_iterate_t map_iter_op;
+                H5_daos_map_iterate_async_t map_iter_op_async;
+            } u;
+            hid_t key_mem_type_id;
+        } map_iter_data;
+
+        struct {
+            union {
                 H5O_iterate2_t obj_iter_op;
                 H5_daos_object_visit_async_t obj_iter_op_async;
             } u;
@@ -617,10 +630,13 @@ typedef struct H5_daos_iter_ud_t {
     H5_daos_obj_t    *target_obj;
     uint32_t          nr;
     daos_key_t        dkey;
-    daos_key_desc_t   kds[H5_DAOS_ITER_LEN];
+    daos_key_desc_t  *kds;
+    daos_key_desc_t   kds_static[H5_DAOS_ITER_LEN];
+    daos_key_desc_t  *kds_dyn;
+    size_t            kds_len;
     daos_sg_list_t    sgl;
     daos_iov_t        sg_iov;
-    daos_anchor_t      anchor;
+    daos_anchor_t     anchor;
     hbool_t           base_iter;
     tse_task_t       *iter_metatask;
 } H5_daos_iter_ud_t;
@@ -1020,6 +1036,10 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_map_close(void *_map, hid_t dxpl_id,
 /* Other map routines */
 H5VL_DAOS_PRIVATE H5_daos_map_t *H5_daos_map_open_helper(H5_daos_file_t *file,
     hid_t mapl_id, hbool_t collective, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
+H5VL_DAOS_PRIVATE H5_daos_map_t *H5_daos_map_open_int(H5_daos_item_t *item,
+    const H5VL_loc_params_t *loc_params, const char *name, hid_t mapl_id,
+    H5_daos_req_t *req, hbool_t collective, tse_task_t **first_task,
+    tse_task_t **dep_task);
 
 /* Blob callbacks */
 H5VL_DAOS_PRIVATE herr_t H5_daos_blob_put(void *_file, const void *buf,
@@ -1052,8 +1072,8 @@ H5VL_DAOS_PRIVATE int H5_daos_list_key_start(H5_daos_iter_ud_t *iter_udata,
     tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE int H5_daos_list_key_init(H5_daos_iter_data_t *iter_data,
     H5_daos_obj_t *target_obj, daos_key_t *dkey, daos_opc_t opc,
-    tse_task_cb_t comp_cb, hbool_t base_iter, tse_task_t **first_task,
-    tse_task_t **dep_task);
+    tse_task_cb_t comp_cb, hbool_t base_iter, size_t key_prefetch_size,
+    size_t key_buf_size_init, tse_task_t **first_task, tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE herr_t H5_daos_mpi_ibcast(H5_daos_mpi_ibcast_ud_t *_bcast_udata, tse_sched_t *sched,
     H5_daos_obj_t *obj, size_t buffer_size, hbool_t empty, tse_task_cb_t bcast_prep_cb, tse_task_cb_t bcast_comp_cb,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);

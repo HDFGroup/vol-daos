@@ -4717,7 +4717,7 @@ H5_daos_link_iterate_op_task(tse_task_t *task)
             /* Recurse on this group */
             if(0 != (ret = H5_daos_list_key_init(udata->iter_ud->iter_data, &subgroup->obj,
                     NULL, DAOS_OPC_OBJ_LIST_DKEY, H5_daos_link_iterate_list_comp_cb, FALSE,
-                    &first_task, &dep_task)))
+                    H5_DAOS_ITER_LEN, H5_DAOS_ITER_SIZE_INIT, &first_task, &dep_task)))
                 D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, ret, "can't start link iteration: %s", H5_daos_err_to_string(ret));
 
             if(H5_daos_group_close(subgroup, req->dxpl_id, NULL) < 0)
@@ -4920,7 +4920,7 @@ H5_daos_link_iterate_by_name_order(H5_daos_group_t *target_grp, H5_daos_iter_dat
     /* Start iteration */
     if(0 != (ret = H5_daos_list_key_init(iter_data, &target_grp->obj,
             NULL, DAOS_OPC_OBJ_LIST_DKEY, H5_daos_link_iterate_list_comp_cb, TRUE,
-            first_task, dep_task)))
+            H5_DAOS_ITER_LEN, H5_DAOS_ITER_SIZE_INIT, first_task, dep_task)))
         D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't start link iteration: %s", H5_daos_err_to_string(ret));
 
 done:
@@ -5499,7 +5499,7 @@ H5_daos_link_ibco_task(tse_task_t *task)
              * iteration by name order don't check this field */
             if(0 != (ret = H5_daos_list_key_init(udata->iter_data, &udata->target_grp->obj,
                     NULL, DAOS_OPC_OBJ_LIST_DKEY, H5_daos_link_iterate_list_comp_cb, TRUE,
-                    &first_task, &dep_task)))
+                    H5_DAOS_ITER_LEN, H5_DAOS_ITER_SIZE_INIT, &first_task, &dep_task)))
                 D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, ret, "can't fall back to iteration by name order: %s", H5_daos_err_to_string(ret));
 
             /* Schedule metatask to clean up */

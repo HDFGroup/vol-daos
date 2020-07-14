@@ -1030,6 +1030,10 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_map_close(void *_map, hid_t dxpl_id,
 /* Other map routines */
 H5VL_DAOS_PRIVATE H5_daos_map_t *H5_daos_map_open_helper(H5_daos_file_t *file,
     hid_t mapl_id, hbool_t collective, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
+H5VL_DAOS_PRIVATE H5_daos_map_t *H5_daos_map_open_int(H5_daos_item_t *item,
+    const H5VL_loc_params_t *loc_params, const char *name, hid_t mapl_id,
+    H5_daos_req_t *req, hbool_t collective, tse_task_t **first_task,
+    tse_task_t **dep_task);
 
 /* Blob callbacks */
 H5VL_DAOS_PRIVATE herr_t H5_daos_blob_put(void *_file, const void *buf,

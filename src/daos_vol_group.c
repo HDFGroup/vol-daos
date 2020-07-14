@@ -1054,9 +1054,9 @@ done:
  * Function:    H5_daos_group_open_helper
  *
  * Purpose:     Performs the actual group open. It is the responsibility
-+ *             of the calling function to make sure that the group's oid
-+ *             field is filled in before scheduled tasks are allowed to
-+ *             run.
+ *              of the calling function to make sure that the group's oid
+ *              field is filled in before scheduled tasks are allowed to
+ *              run.
  *
  * Return:      Success:        group object. 
  *              Failure:        NULL

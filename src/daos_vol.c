@@ -3511,12 +3511,16 @@ H5_daos_generic_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     } /* end if */
 
 done:
-    /* Release our reference to req */
-    if(H5_daos_req_free_int(udata->req) < 0)
-        D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+    if(udata) {
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(udata->req) < 0)
+            D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
 
-    /* Free private data */
-    DV_free(udata);
+        /* Free private data */
+        DV_free(udata);
+    }
+    else
+        assert(ret_value == -H5_DAOS_DAOS_GET_ERROR);
 
     D_FUNC_LEAVE;
 } /* end H5_daos_generic_comp_cb() */

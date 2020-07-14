@@ -62,6 +62,7 @@ typedef struct H5_daos_map_exists_ud_t {
 /* A struct used to operate on a single key-value
  * pair during map iteration */
 typedef struct H5_daos_map_iter_op_ud_t {
+    H5_daos_generic_cb_ud_t generic_ud; /* Must be first */
     H5_daos_iter_ud_t *iter_ud;
     H5_daos_vl_union_t vl_union;
     void *key_buf;
@@ -120,6 +121,7 @@ static herr_t H5_daos_map_get_count_cb(hid_t map_id, const void *key,
 static herr_t H5_daos_map_iterate(H5_daos_map_t *map, H5_daos_iter_data_t *iter_data,
     tse_task_t **first_task, tse_task_t **dep_task);
 static int H5_daos_map_iterate_list_comp_cb(tse_task_t *task, void *args);
+static int H5_daos_map_iterate_query_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_map_iterate_op_task(tse_task_t *task);
 static int H5_daos_map_iter_op_end(tse_task_t *task);
 
@@ -524,15 +526,10 @@ H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_map_t *map = NULL;
-    H5_daos_obj_t *target_obj = NULL;
-    daos_obj_id_t oid = {0, 0};
-    daos_obj_id_t **oid_ptr = NULL;
     H5_daos_req_t *int_req = NULL;
     tse_task_t *first_task = NULL;
     tse_task_t *dep_task = NULL;
     hbool_t collective;
-    hbool_t must_bcast = FALSE;
-    char *path_buf = NULL;
     int ret;
     void *ret_value = NULL;
 
@@ -552,7 +549,7 @@ H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
             D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, NULL, "can't get collective access property");
 
     /* Start H5 operation */
-    if(NULL == (int_req = H5_daos_req_create(item->file, H5I_INVALID_HID)))
+    if(NULL == (int_req = H5_daos_req_create(item->file, dxpl_id)))
         D_GOTO_ERROR(H5E_MAP, H5E_CANTALLOC, NULL, "can't create DAOS request");
 
 #ifdef H5_DAOS_USE_TRANSACTIONS
@@ -562,93 +559,16 @@ H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
     int_req->th_open = TRUE;
 #endif /* H5_DAOS_USE_TRANSACTIONS */
 
-    /* Check for open by object token */
-    if(H5VL_OBJECT_BY_TOKEN == loc_params->type) {
-        /* Generate oid from token */
-        if(H5_daos_token_to_oid(loc_params->loc_data.loc_by_token.token, &oid) < 0)
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't convert object token to OID");
-    } /* end if */
-    else {
-        const char *target_name = NULL;
-        size_t target_name_len;
-
-        /* Open using name parameter */
-        if(H5VL_OBJECT_BY_SELF != loc_params->type)
-            D_GOTO_ERROR(H5E_ARGS, H5E_UNSUPPORTED, NULL, "unsupported map open location parameters type");
-        if(!name)
-            D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "map name is NULL");
-
-        /* At this point we must broadcast on failure */
-        if(collective && (item->file->num_procs > 1))
-            must_bcast = TRUE;
-
-        /* Traverse the path */
-        if(NULL == (target_obj = H5_daos_group_traverse(item, name, H5P_LINK_CREATE_DEFAULT,
-                int_req, collective, &path_buf, &target_name, &target_name_len, &first_task, &dep_task)))
-            D_GOTO_ERROR(H5E_MAP, H5E_BADITER, NULL, "can't traverse path");
-
-        /* Check for no target_name, in this case just return target_obj */
-        if(target_name_len == 0) {
-            /* Check type of target_obj */
-            if(target_obj->item.type != H5I_MAP)
-                D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "target object is not a map");
-
-            /* Take ownership of target_obj */
-            map = (H5_daos_map_t *)target_obj;
-            target_obj = NULL;
-
-            /* No need to bcast since everyone just opened the already open
-             * map */
-            must_bcast = FALSE;
-
-            D_GOTO_DONE(map);
-        } /* end if */
-
-        /* Check type of target_obj */
-        if(target_obj->item.type != H5I_GROUP)
-            D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "target object is not a group");
-
-        if(!collective || (item->file->my_rank == 0))
-            /* Follow link to map */
-            if(H5_daos_link_follow((H5_daos_group_t *)target_obj, target_name, target_name_len, FALSE,
-                    int_req, &oid_ptr, NULL, &first_task, &dep_task) < 0)
-                D_GOTO_ERROR(H5E_DATASET, H5E_TRAVERSE, NULL, "can't follow link to map");
-    } /* end else */
-
-    must_bcast = FALSE;
-    if(NULL == (map = H5_daos_map_open_helper(item->file, mapl_id,
-            collective, int_req, &first_task, &dep_task)))
+    /* Call internal open routine */
+    if(NULL == (map = H5_daos_map_open_int(item, loc_params, name, mapl_id,
+            int_req, collective, &first_task, &dep_task)))
         D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, NULL, "can't open map");
-
-    /* Set map oid */
-    if(oid_ptr)
-        /* Retarget *oid_ptr to map->obj.oid so H5_daos_link_follow fills in
-         * the map's oid */
-        *oid_ptr = &map->obj.oid;
-    else if(H5VL_OBJECT_BY_TOKEN == loc_params->type)
-        /* Just set the static oid from the token */
-        map->obj.oid = oid;
-    else
-        /* We will receive oid from lead process */
-        assert(collective && item->file->my_rank > 0);
 
     /* Set return value */
     ret_value = (void *)map;
 
 done:
-    /* Broadcast failure if appropriate */
-    if(NULL == ret_value && must_bcast && H5_daos_mpi_ibcast(NULL, &item->file->sched, &map->obj, H5_DAOS_MINFO_BCAST_BUF_SIZE,
-            TRUE, NULL, item->file->my_rank == 0 ? H5_daos_map_open_bcast_comp_cb : H5_daos_map_open_recv_comp_cb,
-            int_req, &first_task, &dep_task) < 0)
-        D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "failed to broadcast empty map info buffer to signal failure");
-
-    assert(!(ret_value && must_bcast));
-
     if(int_req) {
-        /* Free path_buf if necessary */
-        if(path_buf && H5_daos_free_async(item->file, path_buf, &first_task, &dep_task) < 0)
-            D_DONE_ERROR(H5E_MAP, H5E_CANTFREE, NULL, "can't free path buffer");
-
         /* Create task to finalize H5 operation */
         if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &item->file->sched, int_req, &int_req->finalize_task)))
             D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
@@ -683,10 +603,6 @@ done:
             D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't free request");
     } /* end if */
 
-    /* Close target object */
-    if(target_obj && H5_daos_object_close(target_obj, dxpl_id, NULL) < 0)
-        D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't close object");
-
     /* If we are not returning a map we must close it */
     if(ret_value == NULL && map && H5_daos_map_close(map, dxpl_id, NULL) < 0)
         D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't close map");
@@ -699,7 +615,10 @@ done:
  * Function:    H5_daos_map_open_helper
  *
  * Purpose:     Internal-use helper routine to create an asynchronous task
- *              for opening a DAOS HDF5 map.
+ *              for opening a DAOS HDF5 map. It is the responsibility
+ *              of the calling function to make sure that the map's oid
+ *              field is filled in before scheduled tasks are allowed to
+ *              run.
  *
  * Return:      Success:        map object.
  *              Failure:        NULL
@@ -926,6 +845,139 @@ done:
 
     D_FUNC_LEAVE;
 } /* end H5_daos_map_open_helper() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_map_open_int
+ *
+ * Purpose:     Internal version of H5_daos_map_open
+ *
+ * Return:      Success:        map object.
+ *              Failure:        NULL
+ *
+ *-------------------------------------------------------------------------
+ */
+H5_daos_map_t *
+H5_daos_map_open_int(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
+    const char *name, hid_t mapl_id, H5_daos_req_t *req, hbool_t collective,
+    tse_task_t **first_task, tse_task_t **dep_task)
+{
+    H5_daos_map_t *map = NULL;
+    H5_daos_obj_t *target_obj = NULL;
+    daos_obj_id_t oid = {0, 0};
+    daos_obj_id_t **oid_ptr = NULL;
+    char *path_buf = NULL;
+    hbool_t must_bcast = FALSE;
+    H5_daos_map_t *ret_value = NULL;
+
+    assert(item);
+    assert(loc_params);
+    assert(req);
+    assert(req->dxpl_id >= 0);
+    assert(first_task);
+    assert(dep_task);
+
+    /* Check for open by object token */
+    if(H5VL_OBJECT_BY_TOKEN == loc_params->type) {
+        /* Generate oid from token */
+        if(H5_daos_token_to_oid(loc_params->loc_data.loc_by_token.token, &oid) < 0)
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't convert object token to OID");
+    } /* end if */
+    else {
+        const char *target_name = NULL;
+        size_t target_name_len;
+
+        /* Open using name parameter */
+        if(H5VL_OBJECT_BY_SELF != loc_params->type)
+            D_GOTO_ERROR(H5E_ARGS, H5E_UNSUPPORTED, NULL, "unsupported map open location parameters type");
+        if(!name)
+            D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "map name is NULL");
+
+        /* At this point we must broadcast on failure */
+        if(collective && (item->file->num_procs > 1))
+            must_bcast = TRUE;
+
+        /* Traverse the path */
+        if(NULL == (target_obj = H5_daos_group_traverse(item, name, H5P_LINK_CREATE_DEFAULT,
+                req, collective, &path_buf, &target_name, &target_name_len, first_task, dep_task)))
+            D_GOTO_ERROR(H5E_SYM, H5E_BADITER, NULL, "can't traverse path");
+
+        /* Check for no target_name, in this case just return target_obj */
+        if(target_name_len == 0) {
+            /* Check type of target_obj */
+            if(target_obj->item.type != H5I_MAP)
+                D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "target object is not a map");
+
+            /* Take ownership of target_obj */
+            map = (H5_daos_map_t *)target_obj;
+            target_obj = NULL;
+
+            /* No need to bcast since everyone just opened the already open
+             * map */
+            must_bcast = FALSE;
+        } /* end if */
+        else if(!collective || (item->file->my_rank == 0)) {
+            /* Check type of target_obj */
+            if(target_obj->item.type != H5I_GROUP)
+                D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "target object is not a group");
+
+            /* Follow link to group */
+            if(H5_daos_link_follow((H5_daos_group_t *)target_obj, target_name, target_name_len, FALSE,
+                    req, &oid_ptr, NULL, first_task, dep_task) < 0)
+                D_GOTO_ERROR(H5E_MAP, H5E_TRAVERSE, NULL, "can't follow link to map");
+        } /* end else */
+    } /* end else */
+
+    /* Open map if not already open */
+    if(!map) {
+        must_bcast = FALSE;     /* Helper function will handle bcast */
+        if(NULL == (map = H5_daos_map_open_helper(item->file, mapl_id,
+                collective, req, first_task, dep_task)))
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, NULL, "can't open map");
+
+        /* Set map oid */
+        if(oid_ptr)
+            /* Retarget *oid_ptr to map->obj.oid so H5_daos_link_follow fills in
+             * the map's oid */
+            *oid_ptr = &map->obj.oid;
+        else if(H5VL_OBJECT_BY_TOKEN == loc_params->type)
+            /* Just set the static oid from the token */
+            map->obj.oid = oid;
+        else
+            /* We will receive oid from lead process */
+            assert(collective && item->file->my_rank > 0);
+    } /* end if */
+
+    /* Set return value */
+    ret_value = map;
+
+done:
+    /* Free path_buf if necessary */
+    if(path_buf && H5_daos_free_async(item->file, path_buf, first_task, dep_task) < 0)
+        D_DONE_ERROR(H5E_MAP, H5E_CANTFREE, NULL, "can't free path buffer");
+
+    /* Close target object */
+    if(target_obj && H5_daos_object_close(target_obj, req->dxpl_id, NULL) < 0)
+        D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't close object");
+
+    /* Cleanup on failure */
+    if(NULL == ret_value) {
+        /* Broadcast failure */
+        if(must_bcast && H5_daos_mpi_ibcast(NULL, &item->file->sched, &map->obj, H5_DAOS_MINFO_BCAST_BUF_SIZE,
+                TRUE, NULL, item->file->my_rank == 0 ? H5_daos_map_open_bcast_comp_cb : H5_daos_map_open_recv_comp_cb,
+                        req, first_task, dep_task) < 0)
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "failed to broadcast empty map info buffer to signal failure");
+        must_bcast = FALSE;
+
+        /* Close map to prevent memory leaks since we're not returning it */
+        if(map && H5_daos_map_close(map, req->dxpl_id, NULL) < 0)
+            D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't close map");
+    } /* end if */
+
+    assert(!must_bcast);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_map_open_int() */
 
 
 /*-------------------------------------------------------------------------
@@ -2983,7 +3035,9 @@ H5_daos_map_specific(void *_item, const H5VL_loc_params_t *loc_params,
                     /* Open target_map */
                     sub_loc_params.obj_type = item->type;
                     sub_loc_params.type = H5VL_OBJECT_BY_SELF;
-                    if(NULL == (map = (H5_daos_map_t *)H5_daos_map_open(item, &sub_loc_params, loc_params->loc_data.loc_by_name.name, loc_params->loc_data.loc_by_name.lapl_id, dxpl_id, req)))
+                    if(NULL == (map = H5_daos_map_open_int(item, &sub_loc_params,
+                            loc_params->loc_data.loc_by_name.name, loc_params->loc_data.loc_by_name.lapl_id,
+                            int_req, FALSE, &first_task, &dep_task)))
                         D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, FAIL, "can't open map for operation");
 
                     break;
@@ -3230,6 +3284,7 @@ H5_daos_map_iterate_list_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
                 /* Allocate iter op udata */
                 if(NULL == (iter_op_udata = (H5_daos_map_iter_op_ud_t *)DV_calloc(sizeof(H5_daos_map_iter_op_ud_t))))
                     D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate iteration op user data");
+                iter_op_udata->generic_ud.req = req;
                 iter_op_udata->iter_ud = udata;
                 iter_op_udata->key_file_type_id = map->key_file_type_id;
                 iter_op_udata->key_mem_type_id = udata->iter_data->u.map_iter_data.key_mem_type_id;
@@ -3242,6 +3297,8 @@ H5_daos_map_iterate_list_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
                          !memcmp(p, H5_daos_attr_key_g, H5_daos_attr_key_size_g));
                 if(iter_op_udata->shared_dkey) {
                     daos_obj_rw_t *rw_args;
+
+                    iter_op_udata->generic_ud.task_name = "map key record query task";
 
                     /* Set up dkey */
                     daos_iov_set(&iter_op_udata->dkey, (void *)p, udata->kds[i].kd_key_len);
@@ -3258,6 +3315,14 @@ H5_daos_map_iterate_list_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
                     if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &map->obj.item.file->sched,
                             dep_task ? 1 : 0, dep_task ? &dep_task : NULL, &query_task)))
                         D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't create task to check for value in map: %s", H5_daos_err_to_string(ret));
+
+                    /* Set callback functions for task to query record in dkey */
+                    if(0 != (ret = tse_task_register_cbs(query_task, H5_daos_generic_prep_cb, NULL, 0,
+                            H5_daos_map_iterate_query_comp_cb, NULL, 0)))
+                        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't register callbacks for task to check for value in map: %s", H5_daos_err_to_string(ret));
+
+                    /* Set private data for task to query record in dkey */
+                    (void)tse_task_set_priv(query_task, iter_op_udata);
 
                     /* Set fetch task arguments */
                     if(NULL == (rw_args = daos_task_get_args(query_task)))
@@ -3362,6 +3427,46 @@ done:
 
 
 /*-------------------------------------------------------------------------
+ * Function:    H5_daos_map_iterate_query_comp_cb
+ *
+ * Purpose:     Complete callback for asynchronous daos_obj_fetch to query
+ *              whether a key-value pair in a map object is actually a map
+ *              record key or if it is a dkey representing other metadata.
+ *              Currently just checks for a failed task.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_map_iterate_query_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_map_iter_op_ud_t *udata;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for map iteration record query task");
+
+    assert(udata->generic_ud.req);
+    assert(udata->generic_ud.req->file);
+
+    /* Handle errors in task.  Only record error in udata->req_status if it does
+     * not already contain an error (it could contain an error if another task
+     * this task is not dependent on also failed). */
+    if(task->dt_result < -H5_DAOS_PRE_ERROR
+            && udata->generic_ud.req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+        udata->generic_ud.req->status = task->dt_result;
+        udata->generic_ud.req->failed_task = udata->generic_ud.task_name;
+    } /* end if */
+
+done:
+    D_FUNC_LEAVE;
+} /* end H5_daos_map_iterate_query_comp_cb() */
+
+
+/*-------------------------------------------------------------------------
  * Function:    H5_daos_map_iterate_op_task
  *
  * Purpose:     Perform operation on a map key-value pair during iteration.
@@ -3385,11 +3490,14 @@ H5_daos_map_iterate_op_task(tse_task_t *task)
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for iteration operation task");
 
+    /* Set task name in case it was set for the map key record query task */
+    udata->generic_ud.task_name = "map iteration op";
+
     /* Assign req convenience pointer.  We do this so we can still handle errors
      * after transfering ownership of udata.  This should be safe since the
      * iteration metatask holds a reference to req until all iteration is
      * complete at this level. */
-    req = udata->iter_ud->iter_data->req;
+    req = udata->generic_ud.req;
 
     /* Handle errors in previous tasks */
     if(req->status < -H5_DAOS_SHORT_CIRCUIT) {
@@ -3487,7 +3595,7 @@ done:
          * H5_daos_req_free_int, which updates req->status if it sees an error */
         if(ret_value != -H5_DAOS_SHORT_CIRCUIT && req->status >= -H5_DAOS_SHORT_CIRCUIT) {
             req->status = ret_value;
-            req->failed_task = "map iteration op";
+            req->failed_task = udata->generic_ud.task_name;
         } /* end if */
     } /* end if */
 

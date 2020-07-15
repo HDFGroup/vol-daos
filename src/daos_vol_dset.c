@@ -83,7 +83,7 @@ typedef enum dset_io_type {
 /* Typedef for function to perform I/O on a single chunk */
 typedef herr_t (*H5_daos_chunk_io_func)(H5_daos_dset_t *dset, daos_key_t *dkey,
     hssize_t num_elem, hid_t mem_type_id, hid_t mem_space_id, hid_t file_space_id,
-    hid_t dxpl_id, dset_io_type io_type, void *buf, H5_daos_req_t *req,
+    dset_io_type io_type, void *buf, H5_daos_req_t *req,
     tse_task_t **first_task, tse_task_t **dep_task);
 
 /* Task user data for raw data I/O */
@@ -99,6 +99,30 @@ typedef struct H5_daos_chunk_io_ud_t {
     daos_iov_t sg_iov;
     daos_iov_t *sg_iovs;
 } H5_daos_chunk_io_ud_t;
+
+/* Task user data for raw data I/O with type conversion */
+typedef struct H5_daos_chunk_io_tconv_ud_t {
+    H5_daos_req_t *req;
+    H5_daos_dset_t *dset;
+    hssize_t num_elem;
+    hid_t mem_type_id;
+    hid_t mem_space_id;
+    void *buf;
+    dset_io_type io_type;
+    daos_key_t dkey;
+    uint8_t akey_buf;
+    daos_iod_t iod;
+    daos_sg_list_t sgl;
+    daos_recx_t recx;
+    daos_recx_t *recxs;
+    daos_iov_t sg_iov;
+    H5_daos_tconv_reuse_t reuse;
+    hbool_t fill_bkg;
+    size_t mem_type_size;
+    size_t file_type_size;
+    void *tconv_buf;
+    void *bkg_buf;
+} H5_daos_chunk_io_tconv_ud_t;
 
 /********************/
 /* Local Prototypes */
@@ -123,11 +147,15 @@ static int H5_daos_chunk_io_prep_cb(tse_task_t *task, void *args);
 static int H5_daos_chunk_io_comp_cb(tse_task_t *task, void *args);
 static herr_t H5_daos_dataset_io_types_equal(H5_daos_dset_t *dset, daos_key_t *dkey,
     hssize_t num_elem, hid_t mem_type_id, hid_t mem_space_id, hid_t file_space_id,
-    hid_t dxpl_id, dset_io_type io_type, void *buf, H5_daos_req_t *req,
+    dset_io_type io_type, void *buf, H5_daos_req_t *req,
     tse_task_t **first_task, tse_task_t **dep_task);
+static int H5_daos_chunk_io_tconv_prep_cb(tse_task_t *task, void *args);
+static int H5_daos_chunk_io_tconv_comp_cb(tse_task_t *task, void *args);
+static int H5_daos_chunk_fill_bkg_prep_cb(tse_task_t *task, void *args);
+static int H5_daos_chunk_fill_bkg_comp_cb(tse_task_t *task, void *args);
 static herr_t H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t *dkey,
     hssize_t num_elem, hid_t mem_type_id, hid_t mem_space_id, hid_t file_space_id,
-    hid_t dxpl_id, dset_io_type io_type, void *buf, H5_daos_req_t *req,
+    dset_io_type io_type, void *buf, H5_daos_req_t *req,
     tse_task_t **first_task, tse_task_t **dep_task);
 static herr_t H5_daos_dataset_set_extent(H5_daos_dset_t *dset,
     const hsize_t *size, hid_t dxpl_id, H5_daos_req_t *req,
@@ -2368,8 +2396,8 @@ H5_daos_chunk_io_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 done:
     if(udata) {
         /* Close dataset */
-        if(H5_daos_dataset_close(udata->dset, H5I_INVALID_HID, NULL) < 0)
-            D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
+        if(H5_daos_dataset_close(udata->dset, udata->req->dxpl_id, NULL) < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
 
         /* Handle errors in this function */
         /* Do not place any code that can issue errors after this block, except for
@@ -2381,7 +2409,7 @@ done:
 
         /* Release our reference to req */
         if(H5_daos_req_free_int(udata->req) < 0)
-            D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+            D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
 
         /* Free private data */
         DV_free(udata->dkey.iov_buf);
@@ -2415,7 +2443,7 @@ done:
  */
 static herr_t
 H5_daos_dataset_io_types_equal(H5_daos_dset_t *dset, daos_key_t *dkey, hssize_t H5VL_DAOS_UNUSED num_elem,
-    hid_t H5VL_DAOS_UNUSED mem_type_id, hid_t mem_space_id, hid_t file_space_id, hid_t H5VL_DAOS_UNUSED dxpl_id,
+    hid_t H5VL_DAOS_UNUSED mem_type_id, hid_t mem_space_id, hid_t file_space_id,
     dset_io_type io_type, void *buf, H5_daos_req_t *req,
     tse_task_t **first_task, tse_task_t **dep_task)
 {
@@ -2457,7 +2485,8 @@ H5_daos_dataset_io_types_equal(H5_daos_dset_t *dset, daos_key_t *dkey, hssize_t 
     /* Set up iod */
     memset(&chunk_io_ud->iod, 0, sizeof(chunk_io_ud->iod));
     chunk_io_ud->akey_buf = H5_DAOS_CHUNK_KEY;
-    daos_iov_set(&chunk_io_ud->iod.iod_name, (void *)&chunk_io_ud->akey_buf, (daos_size_t)(sizeof(chunk_io_ud->akey_buf)));
+    daos_iov_set(&chunk_io_ud->iod.iod_name, (void *)&chunk_io_ud->akey_buf,
+            (daos_size_t)(sizeof(chunk_io_ud->akey_buf)));
     chunk_io_ud->iod.iod_size = (daos_size_t)file_type_size;
     chunk_io_ud->iod.iod_type = DAOS_IOD_ARRAY;
 
@@ -2527,11 +2556,11 @@ H5_daos_dataset_io_types_equal(H5_daos_dset_t *dset, daos_key_t *dkey, hssize_t 
         if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_UPDATE, &dset->obj.item.file->sched, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &io_task)))
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create task to write data: %s", H5_daos_err_to_string(ret));
 
-    /* Set callback functions for raw data write */
+    /* Set callback functions for raw data I/O */
     if(0 != (ret = tse_task_register_cbs(io_task, H5_daos_chunk_io_prep_cb, NULL, 0, H5_daos_chunk_io_comp_cb, NULL, 0)))
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't register callbacks for data I/O task: %s", H5_daos_err_to_string(ret));
 
-    /* Set private data for raw data write */
+    /* Set private data for raw data I/O */
     (void)tse_task_set_priv(io_task, chunk_io_ud);
 
     /* Set first_task and dep_task pointers.  first_task should have been NULL
@@ -2560,6 +2589,282 @@ done:
 
 
 /*-------------------------------------------------------------------------
+ * Function:    H5_daos_chunk_io_tconv_prep_cb
+ *
+ * Purpose:     Prepare callback for asynchronous daos_obj_update or
+ *              daos_obj_fetch for raw data I/O with type conversion.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_chunk_io_tconv_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_chunk_io_tconv_ud_t *udata;
+    daos_obj_rw_t *update_args;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for chunk I/O task");
+
+    assert(udata);
+    assert(udata->dset);
+    assert(udata->req);
+    assert(udata->req->file);
+    assert(!udata->req->file->closed);
+
+    /* Handle errors */
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
+        tse_task_complete(task, -H5_DAOS_PRE_ERROR);
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    } /* end if */
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT) {
+        tse_task_complete(task, -H5_DAOS_SHORT_CIRCUIT);
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
+    } /* end if */
+
+    /* If writing, gather the write buffer data to the type conversion buffer */
+    if(udata->io_type == IO_WRITE) {
+        /* Gather data to conversion buffer */
+        if(H5Dgather(udata->mem_space_id, udata->buf, udata->mem_type_id, (size_t)udata->num_elem * udata->mem_type_size, udata->tconv_buf, NULL, NULL) < 0)
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, H5_DAOS_H5_SCATGATH_ERROR, "can't gather data to conversion buffer");
+
+        /* Perform type conversion */
+        if(H5Tconvert(udata->mem_type_id, udata->dset->file_type_id, (size_t)udata->num_elem, udata->tconv_buf, udata->bkg_buf, udata->req->dxpl_id) < 0)
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTCONVERT, H5_DAOS_H5_TCONV_ERROR, "can't perform type conversion");
+    } /* end if */
+
+    /* Set sg_iov to point to tconv_buf */
+    daos_iov_set(&udata->sg_iov, udata->tconv_buf, (daos_size_t)udata->num_elem * (daos_size_t)udata->file_type_size);
+
+    /* Set I/O task arguments */
+    if(NULL == (update_args = daos_task_get_args(task))) {
+        tse_task_complete(task, -H5_DAOS_DAOS_GET_ERROR);
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for chunk I/O task");
+    } /* end if */
+    update_args->oh = udata->dset->obj.obj_oh;
+    update_args->th = udata->req->th;
+    update_args->flags = 0;
+    update_args->dkey = &udata->dkey;
+    update_args->nr = 1;
+    update_args->iods = &udata->iod;
+    update_args->sgls = &udata->sgl;
+    update_args->ioms = NULL;
+
+done:
+    D_FUNC_LEAVE;
+} /* end H5_daos_chunk_io_tconv_prep_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_chunk_io_tconv_comp_cb
+ *
+ * Purpose:     Complete callback for asynchronous daos_obj_update or
+ *              daos_obj_fetch for raw data I/O with type conversion.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_chunk_io_tconv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_chunk_io_tconv_ud_t *udata;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for chunk I/O task");
+
+    assert(udata);
+    assert(udata->req);
+    assert(udata->req->file);
+    assert(!udata->req->file->closed);
+
+    /* Handle errors in update task.  Only record error in udata->req_status if
+     * it does not already contain an error (it could contain an error if
+     * another task this task is not dependent on also failed). */
+    if(task->dt_result < -H5_DAOS_PRE_ERROR
+            && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+        udata->req->status = task->dt_result;
+        udata->req->failed_task = "raw data I/O";
+    } /* end if */
+
+    /* If reading we must perform type conversion on the read data */
+    if(udata->io_type == IO_READ) {
+        /* Gather data to background buffer if necessary */
+        if(udata->fill_bkg && (udata->reuse != H5_DAOS_TCONV_REUSE_BKG))
+            if(H5Dgather(udata->mem_space_id, udata->buf, udata->mem_type_id, (size_t)udata->num_elem * udata->mem_type_size, udata->bkg_buf, NULL, NULL) < 0)
+                D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, H5_DAOS_H5_SCATGATH_ERROR, "can't gather data to background buffer");
+
+        /* Perform type conversion */
+        if(H5Tconvert(udata->dset->file_type_id, udata->mem_type_id, (size_t)udata->num_elem, udata->tconv_buf, udata->bkg_buf, udata->req->dxpl_id) < 0)
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTCONVERT, H5_DAOS_H5_TCONV_ERROR, "can't perform type conversion");
+
+        /* Scatter data to memory buffer if necessary */
+        if(udata->reuse != H5_DAOS_TCONV_REUSE_TCONV) {
+            H5_daos_scatter_cb_ud_t scatter_cb_ud;
+
+            scatter_cb_ud.buf = udata->tconv_buf;
+            scatter_cb_ud.len = (size_t)udata->num_elem * udata->mem_type_size;
+            if(H5Dscatter(H5_daos_scatter_cb, &scatter_cb_ud, udata->mem_type_id, udata->mem_space_id, udata->buf) < 0)
+                D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, H5_DAOS_H5_SCATGATH_ERROR, "can't scatter data to read buffer");
+        } /* end if */
+    } /* end if */
+
+done:
+    if(udata) {
+        /* Close dataset */
+        if(H5_daos_dataset_close(udata->dset, udata->req->dxpl_id, NULL) < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
+
+        /* Close space and type IDs */
+        if(H5Sclose(udata->mem_space_id) < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close memory dataspace");
+        if(H5Tclose(udata->mem_type_id) < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close memory datatype");
+
+        /* Handle errors in this function */
+        /* Do not place any code that can issue errors after this block, except for
+         * H5_daos_req_free_int, which updates req->status if it sees an error */
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+            udata->req->status = ret_value;
+            udata->req->failed_task = "raw data I/O completion callback";
+        } /* end if */
+
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(udata->req) < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+        /* Free private data */
+        DV_free(udata->dkey.iov_buf);
+        if(udata->recxs != &udata->recx)
+            DV_free(udata->recxs);
+        DV_free(udata->tconv_buf);
+        DV_free(udata->bkg_buf);
+        DV_free(udata);
+    } /* end if */
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_chunk_io_tconv_comp_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_chunk_fill_bkg_prep_cb
+ *
+ * Purpose:     Prepare callback for asynchronous daos_obj_update or
+ *              daos_obj_fetch for filling background buffer for type
+ *              conversion.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_chunk_fill_bkg_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_chunk_io_tconv_ud_t *udata;
+    daos_obj_rw_t *update_args;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for chunk I/O task");
+
+    assert(udata);
+    assert(udata->dset);
+    assert(udata->req);
+    assert(udata->req->file);
+    assert(!udata->req->file->closed);
+
+    /* Handle errors */
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
+        tse_task_complete(task, -H5_DAOS_PRE_ERROR);
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    } /* end if */
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT) {
+        tse_task_complete(task, -H5_DAOS_SHORT_CIRCUIT);
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
+    } /* end if */
+
+    /* Set sg_iov to point to background buffer */
+    daos_iov_set(&udata->sg_iov, udata->bkg_buf, (daos_size_t)udata->num_elem * (daos_size_t)udata->file_type_size);
+
+    /* Set I/O task arguments */
+    if(NULL == (update_args = daos_task_get_args(task))) {
+        tse_task_complete(task, -H5_DAOS_DAOS_GET_ERROR);
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for chunk I/O task");
+    } /* end if */
+    update_args->oh = udata->dset->obj.obj_oh;
+    update_args->th = udata->req->th;
+    update_args->flags = 0;
+    update_args->dkey = &udata->dkey;
+    update_args->nr = 1;
+    update_args->iods = &udata->iod;
+    update_args->sgls = &udata->sgl;
+    update_args->ioms = NULL;
+
+done:
+    D_FUNC_LEAVE;
+} /* end H5_daos_chunk_fill_bkg_prep_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_chunk_fill_bkg_comp_cb
+ *
+ * Purpose:     Complete callback for asynchronous daos_obj_update or
+ *              daos_obj_fetch for filling background buffer for type
+ *              conversion.  Does not free data, will be freed by
+ *              H5_daos_chunk_io_tconv_comp_cb().
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_chunk_fill_bkg_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_chunk_io_tconv_ud_t *udata;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for chunk I/O task");
+
+    assert(udata);
+    assert(udata->req);
+    assert(udata->req->file);
+    assert(!udata->req->file->closed);
+
+    /* Handle errors in update task.  Only record error in udata->req_status if
+     * it does not already contain an error (it could contain an error if
+     * another task this task is not dependent on also failed). */
+    if(task->dt_result < -H5_DAOS_PRE_ERROR
+            && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+        udata->req->status = task->dt_result;
+        udata->req->failed_task = "background buffer fill (daos_obj_fetch) for raw data write";
+    } /* end if */
+
+    /* Reset iod_size, if the dataset was not allocated then it could
+     * have been overwritten by daos_obj_fetch */
+    udata->iod.iod_size = udata->file_type_size;
+
+done:
+    D_FUNC_LEAVE;
+} /* end H5_daos_chunk_fill_bkg_comp_cb() */
+
+
+/*-------------------------------------------------------------------------
  * Function:    H5_daos_dataset_io_types_unequal
  *
  * Purpose:     Internal helper routine to perform I/O on a dataset
@@ -2577,27 +2882,17 @@ done:
  *-------------------------------------------------------------------------
  */
 static herr_t
-H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t *dkey, hssize_t num_elem,
-    hid_t mem_type_id, hid_t mem_space_id, hid_t file_space_id, hid_t dxpl_id,
-    dset_io_type io_type, void *buf, H5_daos_req_t *req,
+H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t *dkey,
+    hssize_t num_elem, hid_t mem_type_id, hid_t mem_space_id,
+    hid_t file_space_id, dset_io_type io_type, void *buf, H5_daos_req_t *req,
     tse_task_t **first_task, tse_task_t **dep_task)
 {
-    H5_daos_tconv_reuse_t reuse = H5_DAOS_TCONV_REUSE_NONE;
-    daos_sg_list_t sgl;
-    daos_recx_t recx;
-    daos_recx_t *recxs = &recx;
-    daos_iov_t sg_iov;
-    daos_iov_t *sg_iovs = &sg_iov;
-    daos_iod_t iod;
-    uint8_t akey = H5_DAOS_CHUNK_KEY;
+    H5_daos_chunk_io_tconv_ud_t *chunk_io_ud = NULL;
     hbool_t contig = FALSE;
-    hbool_t fill_bkg = FALSE;
     size_t tot_nseq;
-    size_t mem_type_size;
-    size_t file_type_size;
+    tse_task_t *io_task;
+    tse_task_t *fill_bkg_task = NULL;
     hid_t sel_iter = H5I_INVALID_HID;
-    void *tconv_buf = NULL;
-    void *bkg_buf = NULL;
     int ret;
     herr_t ret_value = SUCCEED;
 
@@ -2607,9 +2902,28 @@ H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t *dkey, hssize_
     assert(first_task);
     assert(dep_task);
 
-    /* Set first_task and dep_task to NULL DSINC */
-    *first_task = NULL;
-    *dep_task = NULL;
+    /* Allocate argument struct */
+    if(NULL == (chunk_io_ud = (H5_daos_chunk_io_tconv_ud_t *)DV_calloc(sizeof(H5_daos_chunk_io_tconv_ud_t))))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for I/O callback arguments");
+    chunk_io_ud->num_elem = num_elem;
+    chunk_io_ud->mem_type_id = mem_type_id;
+    chunk_io_ud->mem_space_id = mem_space_id;
+    chunk_io_ud->buf = buf;
+    chunk_io_ud->io_type = io_type;
+    chunk_io_ud->recxs = &chunk_io_ud->recx;
+    assert(chunk_io_ud->reuse == H5_DAOS_TCONV_REUSE_NONE);
+
+    /* Point to dset */
+    chunk_io_ud->dset = dset;
+
+    /* Point to req */
+    chunk_io_ud->req = req;
+
+    /* Copy dkey to new buffer */
+    if(NULL == (chunk_io_ud->dkey.iov_buf = DV_malloc(dkey->iov_len)))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for dkey");
+    (void)memcpy(chunk_io_ud->dkey.iov_buf, dkey->iov_buf, dkey->iov_len);
+    chunk_io_ud->dkey.iov_len = chunk_io_ud->dkey.iov_buf_len = dkey->iov_len;
 
     if(io_type == IO_READ) {
         size_t nseq_tmp;
@@ -2635,73 +2949,75 @@ H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t *dkey, hssize_
         /* Initialize type conversion */
         if(H5_daos_tconv_init(
                 dset->file_type_id,
-                &file_type_size,
+                &chunk_io_ud->file_type_size,
                 mem_type_id,
-                &mem_type_size,
+                &chunk_io_ud->mem_type_size,
                 (size_t)num_elem,
                 dset->dcpl_cache.fill_method == H5_DAOS_ZERO_FILL,
                 FALSE,
-                &tconv_buf,
-                &bkg_buf,
-                contig ? &reuse : NULL,
-                &fill_bkg) < 0)
+                &chunk_io_ud->tconv_buf,
+                &chunk_io_ud->bkg_buf,
+                contig ? &chunk_io_ud->reuse : NULL,
+                &chunk_io_ud->fill_bkg) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't initialize type conversion");
 
         /* Reuse buffer as appropriate */
         if(contig) {
-            sel_off *= (hsize_t)mem_type_size;
-            if(reuse == H5_DAOS_TCONV_REUSE_TCONV)
-                tconv_buf = (char *)buf + (size_t)sel_off;
-            else if(reuse == H5_DAOS_TCONV_REUSE_BKG)
-                bkg_buf = (char *)buf + (size_t)sel_off;
+            sel_off *= (hsize_t)chunk_io_ud->mem_type_size;
+            if(chunk_io_ud->reuse == H5_DAOS_TCONV_REUSE_TCONV)
+                chunk_io_ud->tconv_buf = (char *)buf + (size_t)sel_off;
+            else if(chunk_io_ud->reuse == H5_DAOS_TCONV_REUSE_BKG)
+                chunk_io_ud->bkg_buf = (char *)buf + (size_t)sel_off;
         } /* end if */
     } /* end (io_type == IO_READ) */
     else
         /* Initialize type conversion */
         if(H5_daos_tconv_init(
                 mem_type_id,
-                &mem_type_size,
+                &chunk_io_ud->mem_type_size,
                 dset->file_type_id,
-                &file_type_size,
+                &chunk_io_ud->file_type_size,
                 (size_t)num_elem,
                 FALSE,
                 TRUE,
-                &tconv_buf,
-                &bkg_buf,
+                &chunk_io_ud->tconv_buf,
+                &chunk_io_ud->bkg_buf,
                 NULL,
-                &fill_bkg) < 0)
+                &chunk_io_ud->fill_bkg) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't initialize type conversion");
 
     /* Set up iod */
-    memset(&iod, 0, sizeof(iod));
-    daos_iov_set(&iod.iod_name, (void *)&akey, (daos_size_t)(sizeof(akey)));
-    iod.iod_size = (daos_size_t)file_type_size;
-    iod.iod_type = DAOS_IOD_ARRAY;
+    memset(&chunk_io_ud->iod, 0, sizeof(chunk_io_ud->iod));
+    chunk_io_ud->akey_buf = H5_DAOS_CHUNK_KEY;
+    daos_iov_set(&chunk_io_ud->iod.iod_name, (void *)&chunk_io_ud->akey_buf,
+            (daos_size_t)(sizeof(chunk_io_ud->akey_buf)));
+    chunk_io_ud->iod.iod_size = (daos_size_t)chunk_io_ud->file_type_size;
+    chunk_io_ud->iod.iod_type = DAOS_IOD_ARRAY;
 
     /* Build recxs and sg_iovs */
 
     /* Calculate recxs from file space */
-    if(H5_daos_sel_to_recx_iov(file_space_id, file_type_size, buf, &recxs, NULL, &tot_nseq) < 0)
+    if(H5_daos_sel_to_recx_iov(file_space_id, chunk_io_ud->file_type_size, buf, &chunk_io_ud->recxs, NULL, &tot_nseq) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't generate sequence lists for DAOS I/O");
-    iod.iod_nr = (unsigned)tot_nseq;
-    iod.iod_recxs = recxs;
+    chunk_io_ud->iod.iod_nr = (unsigned)tot_nseq;
+    chunk_io_ud->iod.iod_recxs = chunk_io_ud->recxs;
 
     /* No selection in the file */
-    if(iod.iod_nr == 0)
+    if(chunk_io_ud->iod.iod_nr == 0)
         D_GOTO_DONE(SUCCEED);
 
     /* Set up constant sgl info */
-    sgl.sg_nr = 1;
-    sgl.sg_nr_out = 0;
-    sgl.sg_iovs = &sg_iov;
+    chunk_io_ud->sgl.sg_nr = 1;
+    chunk_io_ud->sgl.sg_nr_out = 0;
+    chunk_io_ud->sgl.sg_iovs = &chunk_io_ud->sg_iov;
 
     if(io_type == IO_READ) {
         /* Handle fill values */
         if(dset->dcpl_cache.fill_method == H5_DAOS_ZERO_FILL) {
             /* H5_daos_tconv_init() will have cleared the tconv buf, but not if
              * we're reusing buf as tconv_buf */
-            if(reuse == H5_DAOS_TCONV_REUSE_TCONV)
-                (void)memset(tconv_buf, 0, (daos_size_t)num_elem * (daos_size_t)file_type_size);
+            if(chunk_io_ud->reuse == H5_DAOS_TCONV_REUSE_TCONV)
+                (void)memset(chunk_io_ud->tconv_buf, 0, (daos_size_t)num_elem * (daos_size_t)chunk_io_ud->file_type_size);
         } /* end if */
         else if(dset->dcpl_cache.fill_method == H5_DAOS_COPY_FILL) {
             hssize_t i;
@@ -2710,79 +3026,78 @@ H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t *dkey, hssize_
 
             /* Copy the fill value to every element in tconv_buf */
             for(i = 0; i < num_elem; i++)
-                (void)memcpy((uint8_t *)tconv_buf + ((size_t)i * file_type_size),
-                        dset->fill_val, file_type_size);
+                (void)memcpy((uint8_t *)chunk_io_ud->tconv_buf + ((size_t)i * chunk_io_ud->file_type_size),
+                        dset->fill_val, chunk_io_ud->file_type_size);
         } /* end if */
 
-        /* Set sg_iov to point to tconv_buf */
-        daos_iov_set(&sg_iov, tconv_buf, (daos_size_t)num_elem * (daos_size_t)file_type_size);
-
-        /* Read data to tconv_buf */
-        if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_DATASET, H5E_READERROR, FAIL, "can't read data from dataset: %s", H5_daos_err_to_string(ret));
-
-        /* Gather data to background buffer if necessary */
-        if(fill_bkg && (reuse != H5_DAOS_TCONV_REUSE_BKG))
-            if(H5Dgather(mem_space_id, buf, mem_type_id, (size_t)num_elem * mem_type_size, bkg_buf, NULL, NULL) < 0)
-                D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't gather data to background buffer");
-
-        /* Perform type conversion */
-        if(H5Tconvert(dset->file_type_id, mem_type_id, (size_t)num_elem, tconv_buf, bkg_buf, dxpl_id) < 0)
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTCONVERT, FAIL, "can't perform type conversion");
-
-        /* Scatter data to memory buffer if necessary */
-        if(reuse != H5_DAOS_TCONV_REUSE_TCONV) {
-            H5_daos_scatter_cb_ud_t scatter_cb_ud;
-
-            scatter_cb_ud.buf = tconv_buf;
-            scatter_cb_ud.len = (size_t)num_elem * mem_type_size;
-            if(H5Dscatter(H5_daos_scatter_cb, &scatter_cb_ud, mem_type_id, mem_space_id, buf) < 0)
-                D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't scatter data to read buffer");
-        } /* end if */
+        /* Create task to read data from dataset */
+        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &dset->obj.item.file->sched, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &io_task)))
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create task to read data: %s", H5_daos_err_to_string(ret));
     } /* end (io_type == IO_READ) */
     else {
         /* Check if we need to fill background buffer */
-        if(fill_bkg) {
-            assert(bkg_buf);
+        if(chunk_io_ud->fill_bkg) {
+            assert(chunk_io_ud->bkg_buf);
 
-            /* Set sg_iov to point to background buffer */
-            daos_iov_set(&sg_iov, bkg_buf, (daos_size_t)num_elem * (daos_size_t)file_type_size);
+            /* Create task to read data from dataset */
+            if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &dset->obj.item.file->sched, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &fill_bkg_task)))
+                D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create task to read data to background buffer: %s", H5_daos_err_to_string(ret));
 
-            /* Read data from dataset to background buffer */
-            if(0 != (ret = daos_obj_fetch(dset->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
-                D_GOTO_ERROR(H5E_DATASET, H5E_READERROR, FAIL, "can't read data from dataset: %s", H5_daos_err_to_string(ret));
+            /* Set callback functions for background buffer fill */
+            if(0 != (ret = tse_task_register_cbs(fill_bkg_task, H5_daos_chunk_fill_bkg_prep_cb, NULL, 0, H5_daos_chunk_fill_bkg_comp_cb, NULL, 0)))
+                D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't register callbacks for background buffer fill task: %s", H5_daos_err_to_string(ret));
 
-            /* Reset iod_size, if the dataset was not allocated then it could
-             * have been overwritten by daos_obj_fetch */
-            iod.iod_size = file_type_size;
+            /* Set private data for background buffer fill */
+            (void)tse_task_set_priv(fill_bkg_task, chunk_io_ud);
+
+            /* Save bkg fill task to be scheduled later */
+            assert(!*first_task);
+            *first_task = io_task;
+            *dep_task = io_task;
         } /* end if */
 
-        /* Gather data to conversion buffer */
-        if(H5Dgather(mem_space_id, buf, mem_type_id, (size_t)num_elem * mem_type_size, tconv_buf, NULL, NULL) < 0)
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't gather data to conversion buffer");
-
-        /* Perform type conversion */
-        if(H5Tconvert(mem_type_id, dset->file_type_id, (size_t)num_elem, tconv_buf, bkg_buf, dxpl_id) < 0)
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTCONVERT, FAIL, "can't perform type conversion");
-
-        /* Set sg_iovs to write from tconv_buf */
-        daos_iov_set(&sg_iov, tconv_buf, (daos_size_t)num_elem * (daos_size_t)file_type_size);
-
-        /* Write data to dataset */
-        if(0 != (ret = daos_obj_update(dset->obj.obj_oh, DAOS_TX_NONE, 0 /*flags*/, dkey, 1, &iod, &sgl, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_DATASET, H5E_WRITEERROR, FAIL, "can't write data to dataset: %s", H5_daos_err_to_string(ret));
+        /* Create task to write data to dataset */
+        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_UPDATE, &dset->obj.item.file->sched, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &io_task)))
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create task to write data: %s", H5_daos_err_to_string(ret));
     } /* end (io_type == IO_WRITE) */
 
-done:
-    if(recxs != &recx)
-        DV_free(recxs);
-    if(sg_iovs != &sg_iov)
-        DV_free(sg_iovs);
+    /* Set callback functions for raw data I/O */
+    if(0 != (ret = tse_task_register_cbs(io_task, H5_daos_chunk_io_tconv_prep_cb, NULL, 0, H5_daos_chunk_io_tconv_comp_cb, NULL, 0)))
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't register callbacks for data I/O task: %s", H5_daos_err_to_string(ret));
 
-    if(reuse != H5_DAOS_TCONV_REUSE_TCONV)
-        tconv_buf = DV_free(tconv_buf);
-    if(reuse != H5_DAOS_TCONV_REUSE_BKG)
-        bkg_buf = DV_free(bkg_buf);
+    /* Set private data for raw data I/O */
+    (void)tse_task_set_priv(io_task, chunk_io_ud);
+
+    /* Schedule IO task (or save it to be scheduled later) */
+    if(*first_task) {
+        if(0 != (ret = tse_task_schedule(io_task, false)))
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't schedule dataset I/O task");
+    } /* end if */
+    else
+        *first_task = io_task;
+    *dep_task = io_task;
+
+    /* Task will be scheduled, give it a reference to req, the dataset, and open
+     * dataspace and datatype IDs */
+    chunk_io_ud->req->rc++;
+    chunk_io_ud->dset->obj.item.rc++;
+    if(H5Iinc_ref(mem_type_id) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't increment ref count on memory type ID");
+    if(H5Iinc_ref(mem_space_id) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't increment ref count on memory space ID");
+
+done:
+    /* Cleanup on failure */
+    if(ret_value < 0 && chunk_io_ud && !fill_bkg_task) {
+        if(chunk_io_ud->recxs != &chunk_io_ud->recx)
+            DV_free(chunk_io_ud->recxs);
+        DV_free(chunk_io_ud->dkey.iov_buf);
+        if(chunk_io_ud->reuse != H5_DAOS_TCONV_REUSE_TCONV)
+            chunk_io_ud->tconv_buf = DV_free(chunk_io_ud->tconv_buf);
+        if(chunk_io_ud->reuse != H5_DAOS_TCONV_REUSE_BKG)
+            chunk_io_ud->bkg_buf = DV_free(chunk_io_ud->bkg_buf);
+        chunk_io_ud = DV_free(chunk_io_ud);
+    } /* end if */
 
     /* Release selection iterator */
     if(sel_iter >= 0 && H5Ssel_iter_close(sel_iter) < 0)
@@ -2908,7 +3223,7 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
         single_chunk_read_func = H5_daos_dataset_io_types_equal;
 
     /* Start H5 operation */
-    if(NULL == (int_req = H5_daos_req_create(dset->obj.item.file, need_tconv ? dxpl_id : H5I_INVALID_HID)))
+    if(NULL == (int_req = H5_daos_req_create(dset->obj.item.file, dxpl_id)))
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't create DAOS request");
 
     /* Set up chunk I/O task arrays if there is more than one chunk selected */
@@ -2940,9 +3255,8 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get number of points in selection");
 
         if(single_chunk_read_func(dset, &dkey, num_elem_file, mem_type_id,
-                chunk_info[i].mspace_id, chunk_info[i].fspace_id, dxpl_id,
-                IO_READ, buf, int_req, &first_tasks[ntasks],
-                &finalize_deps[ntasks]) < 0)
+                chunk_info[i].mspace_id, chunk_info[i].fspace_id, IO_READ, buf,
+                int_req, &first_tasks[ntasks], &finalize_deps[ntasks]) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_READERROR, FAIL, "dataset read failed");
         if(finalize_deps[ntasks]) /* Remove this check once full async support is implemented or make it an assert DSINC */
             ntasks++;
@@ -3142,7 +3456,7 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
         single_chunk_write_func = H5_daos_dataset_io_types_equal;
 
     /* Start H5 operation */
-    if(NULL == (int_req = H5_daos_req_create(dset->obj.item.file, need_tconv ? dxpl_id : H5I_INVALID_HID)))
+    if(NULL == (int_req = H5_daos_req_create(dset->obj.item.file, dxpl_id)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, FAIL, "can't create DAOS request");
 
     /* Set up chunk I/O task arrays if there is more than one chunk selected */
@@ -3175,8 +3489,8 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get number of points in selection");
 
         if(single_chunk_write_func(dset, &dkey, num_elem_file, mem_type_id,
-                chunk_info[i].mspace_id, chunk_info[i].fspace_id, dxpl_id,
-                IO_WRITE, (void *)buf, int_req, &first_tasks[ntasks],
+                chunk_info[i].mspace_id, chunk_info[i].fspace_id, IO_WRITE,
+                (void *)buf, int_req, &first_tasks[ntasks],
                 &finalize_deps[ntasks]) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_WRITEERROR, FAIL, "dataset write failed");
         if(finalize_deps[ntasks]) /* Remove this check once full async support is implemented or make it an assert DSINC */

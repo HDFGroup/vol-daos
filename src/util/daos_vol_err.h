@@ -63,6 +63,7 @@ typedef enum {
     H5_DAOS_H5_COPY_ERROR,        /* HDF5 copy operation failed */
     H5_DAOS_H5_UNSUPPORTED_ERROR, /* Unsupported HDF5 operation */
     H5_DAOS_H5_ITER_ERROR,        /* Error occurred during iteration */
+    H5_DAOS_H5_SCATGATH_ERROR,    /* Error occurred during HDF5 scatter/gather operation */
     H5_DAOS_H5PSET_ERROR,         /* Failed to set info on HDF5 property list */
     H5_DAOS_H5PGET_ERROR,         /* Failed to get info from HDF5 property list */
     H5_DAOS_REMOTE_ERROR,         /* An operation failed on another process */

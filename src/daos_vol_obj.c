@@ -34,35 +34,170 @@ typedef struct H5_daos_object_open_ud_t {
     H5_daos_obj_t **obj_out;
 } H5_daos_object_open_ud_t;
 
+typedef struct H5_daos_get_oid_by_idx_ud_t {
+    H5_daos_req_t *req;
+    H5_daos_group_t *target_grp;
+    daos_obj_id_t *oid_out;
+    tse_task_t *oid_retrieval_metatask;
+    const char *link_name;
+    size_t link_name_len;
+    char *path_buf;
+} H5_daos_get_oid_by_idx_ud_t;
+
 typedef struct H5_daos_oid_bcast_ud_t {
     H5_daos_mpi_ibcast_ud_t bcast_udata; /* Must be first */
     daos_obj_id_t *oid;
     uint8_t oid_buf[H5_DAOS_ENCODED_OID_SIZE];
 } H5_daos_oid_bcast_ud_t;
 
-/* Data passed to link iteration callback when performing a group copy */
-typedef struct group_copy_op_data {
-    H5_daos_group_t *new_group;
-    unsigned object_copy_opts;
-    hid_t lcpl_id;
-    hid_t dxpl_id;
+/* Task user data for retrieving info about an object */
+typedef struct H5_daos_object_get_info_ud_t {
     H5_daos_req_t *req;
-    tse_task_t **first_task;
-    tse_task_t **dep_task;
-} group_copy_op_data;
+    tse_task_t *get_info_task;
+    H5_daos_obj_t **target_obj_p;
+    H5_daos_obj_t *target_obj;
+    H5O_info2_t *info_out;
+    unsigned fields;
+} H5_daos_object_get_info_ud_t;
+
+/* Task user data for copying an object */
+typedef struct H5_daos_object_copy_ud_t {
+    H5_daos_req_t *req;
+    tse_task_t *obj_copy_metatask;
+    H5_daos_obj_t *src_obj;
+    H5_daos_group_t *dst_grp;
+    H5_daos_obj_t *copied_obj;
+    const char *new_obj_name;
+    size_t new_obj_name_len;
+    char *new_obj_name_path_buf;
+    htri_t dst_link_exists;
+    unsigned obj_copy_options;
+    hid_t lcpl_id;
+} H5_daos_object_copy_ud_t;
+
+/* Task user data for copying data between
+ * datasets during object copying.
+ */
+typedef struct H5_daos_dataset_copy_data_ud_t {
+    H5_daos_req_t *req;
+    H5_daos_dset_t *src_dset;
+    H5_daos_dset_t *dst_dset;
+    void *data_buf;
+} H5_daos_dataset_copy_data_ud_t;
+
+/* Task user data for copying attribute from a
+ * source object to a target object.
+ */
+typedef struct H5_daos_object_copy_attributes_ud_t {
+    H5_daos_req_t *req;
+    H5_daos_obj_t *target_obj;
+} H5_daos_object_copy_attributes_ud_t;
+
+/* Task user data for copying a single attribute
+ * from source object to a new target object.
+ */
+typedef struct H5_daos_object_copy_single_attribute_ud_t {
+    H5_daos_req_t *req;
+    H5_daos_attr_t *src_attr;
+    H5_daos_attr_t *new_attr;
+    H5_daos_obj_t *target_obj;
+    tse_task_t *copy_task;
+} H5_daos_object_copy_single_attribute_ud_t;
+
+/* Task user data for checking if a particular
+ * object exists in a group according to a
+ * given link name.
+ */
+typedef struct H5_daos_object_exists_ud_t {
+    H5_daos_req_t *req;
+    H5_daos_group_t *target_grp;
+    daos_obj_id_t oid;
+    const char *link_name;
+    size_t link_name_len;
+    hbool_t link_exists;
+    htri_t *oexists_ret;
+} H5_daos_object_exists_ud_t;
+
+/* Task user data for object token lookup */
+typedef struct H5_daos_object_lookup_ud_t {
+    H5_daos_req_t *req;
+    H5_daos_obj_t *target_obj;
+    H5O_token_t *token;
+} H5_daos_object_lookup_ud_t;
+
+/* Task user data for visiting an object */
+typedef struct H5_daos_object_visit_ud_t {
+    H5_daos_req_t *req;
+    tse_task_t *visit_metatask;
+    H5_daos_iter_data_t iter_data;
+    H5_daos_obj_t *target_obj;
+    H5O_info2_t obj_info;
+    hid_t target_obj_id;
+} H5_daos_object_visit_ud_t;
+
+/* Task user data for visiting an object
+ * pointed to by a soft link.
+ */
+typedef struct H5_daos_object_visit_soft_ud_t {
+    H5_daos_req_t *req;
+    H5_daos_group_t *target_grp;
+    tse_task_t *visit_metatask;
+    H5_daos_iter_data_t *iter_data;
+    const char *link_name;
+    daos_obj_id_t oid;
+    hbool_t link_resolves;
+} H5_daos_object_visit_soft_ud_t;
+
+/* Task user data for retrieving the number of attributes
+ * attached to an object
+ */
+typedef struct H5_daos_object_get_num_attrs_ud_t {
+    H5_daos_md_rw_cb_ud_t md_rw_cb_ud; /* Must be first */
+    hsize_t *num_attrs_out;
+    uint8_t nattrs_buf[H5_DAOS_ENCODED_NUM_ATTRS_SIZE];
+    hbool_t post_decr;
+    herr_t op_ret;
+} H5_daos_object_get_num_attrs_ud_t;
+
+/* Task user data for updating the attribute number tracking
+ * akey for an object
+ */
+typedef struct H5_daos_object_update_num_attrs_key_ud_t {
+    H5_daos_md_rw_cb_ud_t update_ud;
+    hsize_t *new_nattrs;
+    uint8_t nattrs_new_buf[H5_DAOS_ENCODED_NUM_ATTRS_SIZE];
+} H5_daos_object_update_num_attrs_key_ud_t;
+
+/* User data struct for object reference count operations */
+typedef struct H5_daos_obj_rw_rc_ud_t {
+    H5_daos_req_t *req;
+    H5_daos_obj_t **obj_p;
+    H5_daos_obj_t *obj;
+    uint64_t *rc;
+    unsigned *rc_uint;
+    int64_t adjust;
+    daos_key_t dkey;
+    daos_iod_t iod;
+    daos_sg_list_t sgl;
+    daos_iov_t sg_iov;
+    uint8_t rc_buf[H5_DAOS_ENCODED_RC_SIZE];
+    tse_task_t *op_task;
+    char *task_name;
+} H5_daos_obj_rw_rc_ud_t;
 
 /********************/
 /* Local Prototypes */
 /********************/
 
 static int H5_daos_object_open_task(tse_task_t *task);
-
 static herr_t H5_daos_object_get_oid_by_name(H5_daos_obj_t *loc_obj, const H5VL_loc_params_t *loc_params,
     daos_obj_id_t *oid_out, hbool_t collective, H5_daos_req_t *req, tse_task_t **first_task,
     tse_task_t **dep_task);
 static herr_t H5_daos_object_get_oid_by_idx(H5_daos_obj_t *loc_obj, const H5VL_loc_params_t *loc_params,
     daos_obj_id_t *oid_out, hbool_t collective, H5_daos_req_t *req, tse_task_t **first_task,
     tse_task_t **dep_task);
+static int H5_daos_object_gobi_follow_task(tse_task_t *task);
+static int H5_daos_object_get_oid_by_idx_finish(tse_task_t *task);
 static herr_t H5_daos_object_get_oid_by_token(H5_daos_obj_t *loc_obj, const H5VL_loc_params_t *loc_params,
     daos_obj_id_t *oid_out, hbool_t collective, H5_daos_req_t *req, tse_task_t **first_task,
     tse_task_t **dep_task);
@@ -70,23 +205,68 @@ static herr_t H5_daos_object_oid_bcast(H5_daos_file_t *file, daos_obj_id_t *oid,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 static int H5_daos_object_oid_bcast_prep_cb(tse_task_t *task, void *args);
 static int H5_daos_object_oid_bcast_comp_cb(tse_task_t *task, void *args);
-static herr_t H5_daos_object_visit_link_iter_cb(hid_t group, const char *name, const H5L_info2_t *info, void *op_data);
-static herr_t H5_daos_object_get_info(H5_daos_obj_t *target_obj, unsigned fields, H5O_info2_t *obj_info_out);
-static herr_t H5_daos_object_copy_helper(H5_daos_obj_t *src_obj, H5I_type_t src_obj_type,
-    H5_daos_group_t *dst_obj, const char *dst_name, unsigned obj_copy_options,
-    hid_t lcpl_id, H5_daos_req_t *req, tse_task_t **first_task,
-    tse_task_t **dep_task);
-static herr_t H5_daos_group_copy(H5_daos_group_t *src_obj, H5_daos_group_t *dst_obj, const char *dst_name,
-    unsigned obj_copy_options, hid_t lcpl_id, H5_daos_req_t *req,
+static herr_t H5_daos_object_get_info(H5_daos_obj_t ***target_obj_prev_out,
+    H5_daos_obj_t **target_obj_p, H5_daos_obj_t *target_obj, unsigned fields,
+    H5O_info2_t *obj_info_out, tse_sched_t *sched, H5_daos_req_t *req,
     tse_task_t **first_task, tse_task_t **dep_task);
-static H5_daos_group_t *H5_daos_group_copy_helper(H5_daos_group_t *src_obj, H5_daos_group_t *dst_obj,
-    const char *dst_name, unsigned obj_copy_options, hid_t lcpl_id, hid_t dxpl_id, void **req);
-static herr_t H5_daos_datatype_copy(H5_daos_dtype_t *src_obj, H5_daos_group_t *dst_obj, const char *dst_name,
-    unsigned obj_copy_options, hid_t lcpl_id, hid_t dxpl_id, void **req);
-static herr_t H5_daos_dataset_copy(H5_daos_dset_t *src_obj, H5_daos_group_t *dst_obj, const char *dst_name,
-    unsigned obj_copy_options, hid_t lcpl_id, hid_t dxpl_id, void **req);
+static int H5_daos_object_get_info_task(tse_task_t *task);
+static int H5_daos_object_get_info_end(tse_task_t *task);
+static int H5_daos_get_num_attrs_prep_cb(tse_task_t *task, void *args);
+static int H5_daos_get_num_attrs_comp_cb(tse_task_t *task, void *args);
+static int H5_daos_object_update_num_attrs_key_prep_cb(tse_task_t *task, void *args);
+static int H5_daos_object_update_num_attrs_key_comp_cb(tse_task_t *task, void *args);
+
+static herr_t H5_daos_object_copy_helper(void *src_loc_obj, const H5VL_loc_params_t *src_loc_params,
+    const char *src_name, void *dst_loc_obj, const H5VL_loc_params_t *dst_loc_params,
+    const char *dst_name, unsigned obj_copy_options, hid_t lcpl_id, htri_t **link_exists_p,
+    H5_daos_sched_loc_t *sched_loc, H5_daos_req_t *req, tse_task_t **first_task,
+    tse_task_t **dep_task);
+static int H5_daos_object_copy_task(tse_task_t *task);
+static herr_t H5_daos_object_copy_free_copy_udata(H5_daos_object_copy_ud_t *copy_udata,
+    tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
+static int H5_daos_object_copy_free_copy_udata_task(tse_task_t *task);
 static herr_t H5_daos_object_copy_attributes(H5_daos_obj_t *src_obj, H5_daos_obj_t *dst_obj,
-    hid_t dxpl_id, void **req);
+    H5_daos_sched_loc_t *sched_loc, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
+static herr_t H5_daos_object_copy_attributes_cb(hid_t location_id, const char *attr_name,
+    const H5A_info_t H5VL_DAOS_UNUSED *ainfo, void *op_data, herr_t *op_ret,
+    tse_task_t **first_task, tse_task_t **dep_task);
+static herr_t H5_daos_object_copy_single_attribute(H5_daos_obj_t *src_obj, const char *attr_name,
+    H5_daos_obj_t *target_obj, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
+static int H5_daos_object_copy_single_attribute_task(tse_task_t *task);
+static int H5_daos_object_copy_single_attribute_free_udata_task(tse_task_t *task);
+static herr_t H5_daos_group_copy(H5_daos_object_copy_ud_t *obj_copy_udata, H5_daos_sched_loc_t *sched_loc,
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
+static H5_daos_group_t *H5_daos_group_copy_helper(H5_daos_group_t *src_grp,
+    H5_daos_group_t *dst_grp, const char *name, unsigned obj_copy_options,
+    H5_daos_sched_loc_t *sched_loc, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
+static herr_t H5_daos_group_copy_cb(hid_t group, const char *name, const H5L_info2_t *info,
+    void *op_data, herr_t *op_ret, tse_task_t **first_task, tse_task_t **dep_task);
+static herr_t H5_daos_datatype_copy(H5_daos_object_copy_ud_t *obj_copy_udata, H5_daos_sched_loc_t *sched_loc,
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
+static herr_t H5_daos_dataset_copy(H5_daos_object_copy_ud_t *obj_copy_udata, H5_daos_sched_loc_t *sched_loc,
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
+static herr_t H5_daos_dataset_copy_data(H5_daos_dset_t *src_dset, H5_daos_dset_t *dst_dset,
+    H5_daos_sched_loc_t *sched_loc, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
+static int H5_daos_dataset_copy_data_task(tse_task_t *task);
+
+static int H5_daos_object_lookup_task(tse_task_t *task);
+static herr_t H5_daos_object_exists(H5_daos_group_t *target_grp, const char *link_name,
+    size_t link_name_len, htri_t *oexists_ret, tse_sched_t *sched,
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
+static int H5_daos_object_exists_finish(tse_task_t *task);
+static int H5_daos_object_visit_task(tse_task_t *task);
+static herr_t H5_daos_object_visit_link_iter_cb(hid_t group, const char *name, const H5L_info2_t *info,
+    void *op_data, herr_t *op_ret, tse_task_t **first_task, tse_task_t **dep_task);
+static herr_t H5_daos_object_visit_soft(H5_daos_group_t *target_grp, const char *link_name,
+    H5_daos_iter_data_t *iter_data, tse_sched_t *sched, H5_daos_req_t *req,
+    tse_task_t **first_task, tse_task_t **dep_task);
+static int H5_daos_object_visit_soft_task(tse_task_t *task);
+static int H5_daos_object_visit_finish(tse_task_t *task);
+static int H5_daos_obj_read_rc_prep_cb(tse_task_t *task, void *args);
+static int H5_daos_obj_read_rc_comp_cb(tse_task_t *task, void *args);
+static int H5_daos_obj_write_rc_task(tse_task_t *task);
+static int H5_daos_obj_write_rc_comp_cb(tse_task_t *task, void *args);
+
 
 
 /*-------------------------------------------------------------------------
@@ -106,7 +286,7 @@ static herr_t H5_daos_object_copy_attributes(H5_daos_obj_t *src_obj, H5_daos_obj
  */
 void *
 H5_daos_object_open(void *_item, const H5VL_loc_params_t *loc_params,
-    H5I_type_t *opened_type, hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req)
+    H5I_type_t *opened_type, hid_t dxpl_id, void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_req_t *int_req = NULL;
@@ -143,7 +323,7 @@ H5_daos_object_open(void *_item, const H5VL_loc_params_t *loc_params,
     } /* end if */
 
     /* Start H5 operation */
-    if(NULL == (int_req = H5_daos_req_create(item->file, H5I_INVALID_HID)))
+    if(NULL == (int_req = H5_daos_req_create(item->file, dxpl_id)))
         D_GOTO_ERROR(H5E_OBJECT, H5E_CANTALLOC, NULL, "can't create DAOS request");
 
 #ifdef H5_DAOS_USE_TRANSACTIONS
@@ -154,10 +334,10 @@ H5_daos_object_open(void *_item, const H5VL_loc_params_t *loc_params,
 #endif /* H5_DAOS_USE_TRANSACTIONS */
 
     if(H5_daos_object_open_helper(item, loc_params, opened_type,
-            collective, &ret_obj, int_req, &first_task, &dep_task) < 0)
+            collective, NULL, &ret_obj, int_req, &first_task, &dep_task) < 0)
         D_GOTO_ERROR(H5E_OBJECT, H5E_CANTOPENOBJ, NULL, "can't open object");
 
-    /* DSINC - special care will have to be taken with ret_value when explicit async is introduced */
+    /* DSINC - special care will have to be taken with ret_value when external async is introduced */
 
 done:
     if(int_req) {
@@ -213,7 +393,14 @@ done:
  * Function:    H5_daos_object_open_helper
  *
  * Purpose:     Internal-use helper routine to create an asynchronous task
- *              for opening a DAOS HDF5 object.
+ *              for opening a DAOS HDF5 object.  Exactly one of ret_obj_p
+ *              and ret_obj must be provided.  If ret_obj_p is provided,
+ *              *ret_obj_p will be set to the address of a H5_daos_obj_t**
+ *              managed by this function that will be used to place the
+ *              output object once it is allocated.  This way, the calling
+ *              function can set **ret_obj_p to the address of its
+ *              H5_daos_obj_t * and this pointer will be filled in by
+ *              tasks created by this function when it is ready.
  *
  * Return:      Success:        object.
  *              Failure:        NULL
@@ -224,12 +411,12 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_object_open_helper(void *_item, const H5VL_loc_params_t *loc_params,
-    H5I_type_t *opened_type, hbool_t collective, H5_daos_obj_t **ret_obj,
-    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
+H5_daos_object_open_helper(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
+    H5I_type_t *opened_type, hbool_t collective, H5_daos_obj_t ****ret_obj_p,
+    H5_daos_obj_t **ret_obj, H5_daos_req_t *req, tse_task_t **first_task,
+    tse_task_t **dep_task)
 {
     H5_daos_object_open_ud_t *open_udata = NULL;
-    H5_daos_item_t *item = (H5_daos_item_t *)_item;
     tse_task_t *open_task = NULL;
     hbool_t open_task_scheduled = FALSE;
     int ret;
@@ -237,7 +424,8 @@ H5_daos_object_open_helper(void *_item, const H5VL_loc_params_t *loc_params,
 
     assert(item);
     assert(loc_params);
-    assert(ret_obj);
+    assert(ret_obj_p || ret_obj);
+    assert(!(ret_obj_p && ret_obj));
     assert(req);
     assert(first_task);
     assert(dep_task);
@@ -251,6 +439,10 @@ H5_daos_object_open_helper(void *_item, const H5VL_loc_params_t *loc_params,
     open_udata->obj_type_out = opened_type;
     open_udata->obj_out = ret_obj;
     open_udata->open_metatask = NULL;
+
+    /* Set *ret_obj_p to the caller can retarget obj_out */
+    if(ret_obj_p)
+        *ret_obj_p = &open_udata->obj_out;
 
     if(item->type == H5I_FILE)
         open_udata->loc_obj = (H5_daos_obj_t *)((H5_daos_file_t *)item)->root_grp;
@@ -321,7 +513,7 @@ H5_daos_object_open_helper(void *_item, const H5VL_loc_params_t *loc_params,
 
     /* Register dependency on object open task for metatask */
     if(0 != (ret = tse_task_register_deps(open_udata->open_metatask, 1, &open_task)))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't create dependencies for object open metatask: %s", H5_daos_err_to_string(ret));
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create dependencies for object open metatask: %s", H5_daos_err_to_string(ret));
 
     /* Schedule meta task */
     assert(*first_task);
@@ -379,8 +571,10 @@ H5_daos_object_open_task(tse_task_t *task)
     assert(udata->obj_out);
 
     /* Check for previous errors */
-    if(udata->req->status < -H5_DAOS_INCOMPLETE)
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT)
         D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT)
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
 
     if(H5I_BADID == (obj_type = H5_daos_oid_to_type(udata->oid)))
         D_GOTO_ERROR(H5E_OBJECT, H5E_CANTGET, -H5_DAOS_DAOS_GET_ERROR, "can't get object type");
@@ -392,7 +586,7 @@ H5_daos_object_open_task(tse_task_t *task)
             apl_id = H5P_GROUP_ACCESS_DEFAULT;
 
         if(NULL == (obj = (H5_daos_obj_t *)H5_daos_group_open_helper(((H5_daos_item_t *)udata->loc_obj)->file,
-                apl_id, udata->req, udata->collective, &first_task, &dep_task)))
+                apl_id, udata->collective, udata->req, &first_task, &dep_task)))
             D_GOTO_ERROR(H5E_OBJECT, H5E_CANTOPENOBJ, -H5_DAOS_H5_OPEN_ERROR, "can't open group");
     } /* end if */
     else if(obj_type == H5I_DATASET) {
@@ -453,13 +647,13 @@ done:
             /* Handle errors in this function */
             /* Do not place any code that can issue errors after this block, except for
              * H5_daos_req_free_int, which updates req->status if it sees an error */
-            if(udata->req->status >= -H5_DAOS_INCOMPLETE) {
+            if(ret_value != -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
                 udata->req->status = ret_value;
                 udata->req->failed_task = "object open";
             } /* end if */
 
             /* Complete metatask */
-            tse_task_complete(udata->open_metatask, -H5_DAOS_SETUP_ERROR);
+            tse_task_complete(udata->open_metatask, ret_value);
         } /* end if */
 
         /* Release our reference to req */
@@ -607,14 +801,9 @@ H5_daos_object_get_oid_by_idx(H5_daos_obj_t *loc_obj, const H5VL_loc_params_t *l
     daos_obj_id_t *oid_out, hbool_t H5VL_DAOS_UNUSED collective, H5_daos_req_t *req,
     tse_task_t **first_task, tse_task_t **dep_task)
 {
+    H5_daos_get_oid_by_idx_ud_t *get_oid_udata = NULL;
     H5VL_loc_params_t sub_loc_params;
-    H5_daos_group_t *container_group = NULL;
-    daos_obj_id_t **oid_ptr;
-    ssize_t link_name_size;
-    char *path_buf = NULL;
-    char *link_name = NULL;
-    char *link_name_buf_dyn = NULL;
-    char link_name_buf_static[H5_DAOS_LINK_NAME_BUF_SIZE];
+    tse_task_t *link_follow_task = NULL;
     int ret;
     herr_t ret_value = SUCCEED;
 
@@ -623,64 +812,219 @@ H5_daos_object_get_oid_by_idx(H5_daos_obj_t *loc_obj, const H5VL_loc_params_t *l
     assert(oid_out);
     assert(H5VL_OBJECT_BY_IDX == loc_params->type);
 
+    /* Allocate argument struct for OID retrieval task */
+    if(NULL == (get_oid_udata = (H5_daos_get_oid_by_idx_ud_t *)DV_calloc(sizeof(H5_daos_get_oid_by_idx_ud_t))))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for OID retrieval task arguments");
+    get_oid_udata->req = req;
+    get_oid_udata->target_grp = NULL;
+    get_oid_udata->oid_retrieval_metatask = NULL;
+    get_oid_udata->oid_out = oid_out;
+    get_oid_udata->link_name = NULL;
+    get_oid_udata->link_name_len = 0;
+    get_oid_udata->path_buf = NULL;
+
     /* Open the group containing the target object */
     sub_loc_params.type = H5VL_OBJECT_BY_SELF;
     sub_loc_params.obj_type = H5I_GROUP;
-    if(NULL == (container_group = (H5_daos_group_t *)H5_daos_group_open(loc_obj, &sub_loc_params,
+    if(NULL == (get_oid_udata->target_grp = (H5_daos_group_t *)H5_daos_group_open(loc_obj, &sub_loc_params,
             loc_params->loc_data.loc_by_idx.name, loc_params->loc_data.loc_by_idx.lapl_id, req->dxpl_id, NULL)))
         D_GOTO_ERROR(H5E_OBJECT, H5E_CANTOPENOBJ, FAIL, "can't open group containing target object");
 
     /* Retrieve the name of the link at the given index */
-    link_name = link_name_buf_static;
-    if((link_name_size = H5_daos_link_get_name_by_idx(container_group, loc_params->loc_data.loc_by_idx.idx_type,
+    if(H5_daos_link_get_name_by_idx_alloc(get_oid_udata->target_grp, loc_params->loc_data.loc_by_idx.idx_type,
             loc_params->loc_data.loc_by_idx.order, (uint64_t)loc_params->loc_data.loc_by_idx.n,
-            link_name, H5_DAOS_LINK_NAME_BUF_SIZE, req, first_task, dep_task)) < 0)
+            &get_oid_udata->link_name, &get_oid_udata->link_name_len, &get_oid_udata->path_buf,
+            NULL, req, first_task, dep_task) < 0)
         D_GOTO_ERROR(H5E_OBJECT, H5E_CANTGET, FAIL, "can't get link name");
 
-    /* Check that buffer was large enough to fit link name */
-    if(link_name_size > H5_DAOS_LINK_NAME_BUF_SIZE - 1) {
-        if(NULL == (link_name_buf_dyn = DV_malloc((size_t)link_name_size + 1)))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate link name buffer");
-        link_name = link_name_buf_dyn;
+    /* Create task to follow link once link name is valid */
+    if(0 != (ret = tse_task_create(H5_daos_object_gobi_follow_task, &loc_obj->item.file->sched,
+            get_oid_udata, &link_follow_task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create link follow task for OID retrieval: %s", H5_daos_err_to_string(ret));
 
-        /* Re-issue the call with a larger buffer */
-        if(H5_daos_link_get_name_by_idx(container_group, loc_params->loc_data.loc_by_idx.idx_type,
-                loc_params->loc_data.loc_by_idx.order, (uint64_t)loc_params->loc_data.loc_by_idx.n,
-                link_name, (size_t)link_name_size + 1, req, first_task, dep_task) < 0)
-            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTGET, FAIL, "can't get link name");
+    /* Register dependency on previous tasks for link follow task */
+    if(*dep_task && 0 != (ret = tse_task_register_deps(link_follow_task, 1, dep_task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create dependencies for OID retrieval's link follow task: %s", H5_daos_err_to_string(ret));
+
+    /* Schedule link follow task */
+    if(*first_task) {
+        if(0 != (ret = tse_task_schedule(link_follow_task, false)))
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't schedule link follow task for OID retrieval: %s", H5_daos_err_to_string(ret));
     } /* end if */
+    else
+        *first_task = link_follow_task;
+    get_oid_udata->target_grp->obj.item.rc++;
+    req->rc++;
+    *dep_task = link_follow_task;
 
-    /* Attempt to follow the link */
-    if(H5_daos_link_follow(container_group, link_name, link_name_size, FALSE,
-            req, &oid_ptr, NULL, first_task, dep_task) < 0)
-        D_GOTO_ERROR(H5E_OBJECT, H5E_TRAVERSE, FAIL, "can't follow link to object");
+    /* Create metatask for OID retrieval task to free data after retrieval is finished. This
+     * task will be completed when the actual asynchronous OID retrieval is finished.
+     */
+    if(0 != (ret = tse_task_create(H5_daos_object_get_oid_by_idx_finish, &loc_obj->item.file->sched,
+            get_oid_udata, &get_oid_udata->oid_retrieval_metatask)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create metatask for OID retrieval: %s", H5_daos_err_to_string(ret));
 
-    /* Retarget *oid_ptr so H5_daos_link_follow fills in the object's oid */
-    *oid_ptr = oid_out;
+    /* Register dependency on OID retrieval link follow task for metatask */
+    if(*dep_task && 0 != (ret = tse_task_register_deps(get_oid_udata->oid_retrieval_metatask, 1, dep_task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create dependencies for OID retrieval task: %s", H5_daos_err_to_string(ret));
 
-    /* Wait until everything is complete then check for errors
-     * (temporary code until the rest of this function is async) */
-    if(*first_task && (0 != (ret = tse_task_schedule(*first_task, false))))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
-    if(H5_daos_progress(&loc_obj->item.file->sched, NULL, H5_DAOS_PROGRESS_WAIT) < 0)
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't progress scheduler");
-    *first_task = NULL;
-    *dep_task = NULL;
-    if(req->status < -H5_DAOS_INCOMPLETE)
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "asynchronous task failed");
+    /* Schedule meta task */
+    if(*first_task) {
+        if(0 != (ret = tse_task_schedule(get_oid_udata->oid_retrieval_metatask, false)))
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't schedule metatask for OID retrieval: %s", H5_daos_err_to_string(ret));
+    } /* end if */
+    else
+        *first_task = get_oid_udata->oid_retrieval_metatask;
+    req->rc++;
+    *dep_task = get_oid_udata->oid_retrieval_metatask;
+
+    /* Relinquish control of udata to task's function body */
+    get_oid_udata = NULL;
 
 done:
-    if(link_name_buf_dyn)
-        link_name_buf_dyn = DV_free(link_name_buf_dyn);
-    if(container_group && H5_daos_group_close(container_group, req->dxpl_id, NULL) < 0)
-        D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group");
-
-    /* Free path_buf if necessary */
-    if(path_buf && H5_daos_free_async(loc_obj->item.file, path_buf, first_task, dep_task) < 0)
-        D_DONE_ERROR(H5E_SYM, H5E_CANTFREE, FAIL, "can't free path buffer");
+    if(get_oid_udata) {
+        assert(ret_value < 0);
+        get_oid_udata = DV_free(get_oid_udata);
+    }
 
     D_FUNC_LEAVE;
 } /* end H5_daos_object_get_oid_by_idx() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_object_gobi_follow_task
+ *
+ * Purpose:     Asynchronous task to call H5_daos_link_follow during
+ *              object OID retrieval by an index value. Executes once the
+ *              link name for the object is valid.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_object_gobi_follow_task(tse_task_t *task)
+{
+    H5_daos_get_oid_by_idx_ud_t *udata;
+    daos_obj_id_t **oid_ptr;
+    tse_task_t *first_task = NULL;
+    tse_task_t *dep_task = NULL;
+    int ret;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for OID retrieval link follow task");
+
+    assert(udata->req);
+    assert(udata->target_grp);
+    assert(udata->link_name);
+
+    /* Handle errors in previous tasks */
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    } /* end if */
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT) {
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
+    } /* end if */
+
+    /* Attempt to follow the link */
+    if(H5_daos_link_follow(udata->target_grp, udata->link_name, udata->link_name_len,
+            FALSE, udata->req, &oid_ptr, NULL, &first_task, &dep_task) < 0)
+        D_GOTO_ERROR(H5E_OBJECT, H5E_TRAVERSE, -H5_DAOS_SETUP_ERROR, "can't follow link to object");
+
+    /* Retarget *oid_ptr so H5_daos_link_follow fills in the object's oid */
+    *oid_ptr = udata->oid_out;
+
+    /* Register task dependency */
+    if(dep_task && 0 != (ret = tse_task_register_deps(udata->oid_retrieval_metatask, 1, &dep_task)))
+        D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't create dependencies for link follow: %s", H5_daos_err_to_string(ret));
+
+done:
+    /* Schedule first task */
+    if(first_task && 0 != (ret = tse_task_schedule(first_task, false)))
+        D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't schedule task to follow link: %s", H5_daos_err_to_string(ret));
+
+    if(udata) {
+        /* Close group */
+        if(H5_daos_group_close(udata->target_grp, H5I_INVALID_HID, NULL) < 0)
+            D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close group");
+
+        /* Handle errors in this function */
+        /* Do not place any code that can issue errors after this block, except for
+         * H5_daos_req_free_int, which updates req->status if it sees an error */
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+            udata->req->status = ret_value;
+            udata->req->failed_task = "OID retrieval link follow task";
+        } /* end if */
+
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(udata->req) < 0)
+            D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+    }
+    else
+        assert(ret_value == -H5_DAOS_DAOS_GET_ERROR);
+
+    /* Complete this task */
+    tse_task_complete(task, ret_value);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_object_gobi_follow_task() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_object_get_oid_by_idx_finish
+ *
+ * Purpose:     Asynchronous task to free OID retrieval udata once OID
+ *              retrieval has finished.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_object_get_oid_by_idx_finish(tse_task_t *task)
+{
+    H5_daos_get_oid_by_idx_ud_t *udata;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for OID retrieval task");
+
+    assert(udata->req);
+    assert(udata->target_grp);
+    assert(task == udata->oid_retrieval_metatask);
+
+    if(H5_daos_group_close(udata->target_grp, udata->req->dxpl_id, NULL) < 0)
+        D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close group");
+
+    /* Handle errors in this function */
+    /* Do not place any code that can issue errors after this block, except for
+     * H5_daos_req_free_int, which updates req->status if it sees an error */
+    if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+        udata->req->status = ret_value;
+        udata->req->failed_task = "OID retrieval udata free task";
+    } /* end if */
+
+    /* Release our reference to req */
+    if(H5_daos_req_free_int(udata->req) < 0)
+        D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+    /* Free path buffer */
+    if(udata->path_buf)
+        DV_free(udata->path_buf);
+
+    DV_free(udata);
+
+done:
+    /* Complete this task */
+    tse_task_complete(task, ret_value);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_object_get_oid_by_idx_finish() */
 
 
 /*-------------------------------------------------------------------------
@@ -873,7 +1217,7 @@ H5_daos_object_oid_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
      * contain an error if another task this task is not dependent on also
      * failed). */
     if(task->dt_result < -H5_DAOS_PRE_ERROR
-            && udata->bcast_udata.req->status >= -H5_DAOS_INCOMPLETE) {
+            && udata->bcast_udata.req->status >= -H5_DAOS_SHORT_CIRCUIT) {
         udata->bcast_udata.req->status = task->dt_result;
         udata->bcast_udata.req->failed_task = "MPI_Ibcast OID";
     } /* end if */
@@ -896,12 +1240,10 @@ done:
         /* Do not place any code that can issue errors after this block, except
          * for H5_daos_req_free_int, which updates req->status if it sees an
          * error */
-        if(ret_value < 0 && udata->bcast_udata.req->status >= -H5_DAOS_INCOMPLETE) {
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->bcast_udata.req->status >= -H5_DAOS_SHORT_CIRCUIT) {
             udata->bcast_udata.req->status = ret_value;
             udata->bcast_udata.req->failed_task = "MPI_Ibcast OID completion callback";
         } /* end if */
-
-        H5_daos_file_decref(udata->bcast_udata.req->file);
 
         /* Release our reference to req */
         if(H5_daos_req_free_int(udata->bcast_udata.req) < 0)
@@ -931,66 +1273,37 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_object_copy(void *src_loc_obj, const H5VL_loc_params_t *loc_params1,
-    const char *src_name, void *dst_loc_obj, const H5VL_loc_params_t *loc_params2,
-    const char *dst_name, hid_t ocpypl_id, hid_t lcpl_id, hid_t dxpl_id, void **req)
+H5_daos_object_copy(void *src_loc_obj, const H5VL_loc_params_t *src_loc_params,
+    const char *src_name, void *dst_loc_obj, const H5VL_loc_params_t *dst_loc_params,
+    const char *dst_name, hid_t ocpypl_id, hid_t lcpl_id, hid_t H5VL_DAOS_UNUSED dxpl_id,
+    void H5VL_DAOS_UNUSED **req)
 {
-    H5VL_loc_params_t sub_loc_params;
-    H5_daos_obj_t *src_obj = NULL;
+    H5_daos_item_t *item = (H5_daos_item_t *)src_loc_obj;
     H5_daos_req_t *int_req = NULL;
+    H5_daos_sched_loc_t sched_loc = H5_DAOS_SCHED_LOC_NONE;
     tse_task_t *first_task = NULL;
     tse_task_t *dep_task = NULL;
-    H5I_type_t src_obj_type;
-    unsigned obj_copy_options;
-    htri_t link_exists;
+    unsigned obj_copy_options = 0;
+    htri_t **link_exists_p;
     int ret;
     herr_t ret_value = SUCCEED;
 
     if(!src_loc_obj)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "source location object is NULL");
-    if(!loc_params1)
+    if(!src_loc_params)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "first location parameters object is NULL");
     if(!src_name)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "source object name is NULL");
     if(!dst_loc_obj)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "destination location object is NULL");
-    if(!loc_params2)
+    if(!dst_loc_params)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "second location parameters object is NULL");
     if(!dst_name)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "destination object name is NULL");
-
-    /* Start H5 operation */
-    /* Make work for cross file copies DSINC */
-    if(NULL == (int_req = H5_daos_req_create(((H5_daos_item_t *)src_loc_obj)->file, H5I_INVALID_HID)))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTALLOC, FAIL, "can't create DAOS request");
-
-#ifdef H5_DAOS_USE_TRANSACTIONS
-    /* Start transaction */
-    if(0 != (ret = daos_tx_open(((H5_daos_item_t *)src_loc_obj)->file->coh, &int_req->th, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't start transaction");
-    int_req->th_open = TRUE;
-#endif /* H5_DAOS_USE_TRANSACTIONS */
-
-    /*
-     * First, ensure that the object doesn't currently exist at the specified destination
-     * location object/destination name pair.
-     */
-    if((link_exists = H5_daos_link_exists((H5_daos_item_t *) dst_loc_obj, dst_name, int_req, &first_task, &dep_task)) < 0)
-        D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "couldn't determine if link exists");
-    if(link_exists)
-        D_GOTO_ERROR(H5E_OBJECT, H5E_ALREADYEXISTS, FAIL, "source object already exists at specified destination location object/destination name pair");
-
-    /* Wait until everything is complete then check for errors
-     * (temporary code until the rest of this function is async) */
-    /* Needed because swapping between src and dst files causes issues */
-    if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
-    if(H5_daos_progress(&((H5_daos_item_t *)dst_loc_obj)->file->sched, NULL, H5_DAOS_PROGRESS_WAIT) < 0)
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't progress scheduler");
-    first_task = NULL;
-    dep_task = NULL;
-    if(int_req->status < -H5_DAOS_INCOMPLETE)
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "asynchronous task failed");
+    if(H5VL_OBJECT_BY_SELF != src_loc_params->type)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "source location parameters type is invalid");
+    if(H5VL_OBJECT_BY_SELF != dst_loc_params->type)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "destination location parameters type is invalid");
 
     /* Retrieve the object copy options. The following flags are
      * currently supported:
@@ -1005,28 +1318,43 @@ H5_daos_object_copy(void *src_loc_obj, const H5VL_loc_params_t *loc_params1,
      *   H5O_COPY_EXPAND_REFERENCE_FLAG
      *   H5O_COPY_MERGE_COMMITTED_DTYPE_FLAG
      */
-    if(H5Pget_copy_object(ocpypl_id, &obj_copy_options) < 0)
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTGET, FAIL, "failed to retrieve object copy options");
+    if(H5P_OBJECT_COPY_DEFAULT != ocpypl_id)
+        if(H5Pget_copy_object(ocpypl_id, &obj_copy_options) < 0)
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTGET, FAIL, "failed to retrieve object copy options");
+
+    /* Start H5 operation */
+    /* Make work for cross file copies DSINC */
+    if(NULL == (int_req = H5_daos_req_create(item->file, H5I_INVALID_HID)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTALLOC, FAIL, "can't create DAOS request");
+
+#ifdef H5_DAOS_USE_TRANSACTIONS
+    /* Start transaction */
+    if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, NULL /*event*/)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't start transaction");
+    int_req->th_open = TRUE;
+#endif /* H5_DAOS_USE_TRANSACTIONS */
 
     /*
-     * Open the source object
+     * First, ensure that the object doesn't currently exist at the specified destination
+     * location object/destination name pair.
      */
-    sub_loc_params.type = H5VL_OBJECT_BY_NAME;
-    sub_loc_params.obj_type = loc_params1->obj_type;
-    sub_loc_params.loc_data.loc_by_name.lapl_id = H5P_LINK_ACCESS_DEFAULT;
-    sub_loc_params.loc_data.loc_by_name.name = src_name;
-    if(NULL == (src_obj = H5_daos_object_open(src_loc_obj, &sub_loc_params, &src_obj_type, dxpl_id, req)))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTOPENOBJ, FAIL, "failed to open source object");
+    if(H5_daos_link_exists((H5_daos_item_t *)dst_loc_obj, dst_name, &link_exists_p, NULL, int_req, &first_task, &dep_task) < 0)
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "couldn't determine if link exists");
+
+    /* Initialize sched_loc if we created the first task here */
+    if(dep_task)
+        sched_loc = H5_DAOS_SCHED_LOC_DST;
 
     /* Perform the object copy */
-    if(H5_daos_object_copy_helper(src_obj, src_obj_type, dst_loc_obj, dst_name, obj_copy_options,
-            lcpl_id, int_req, &first_task, &dep_task) < 0)
+    if(H5_daos_object_copy_helper(src_loc_obj, src_loc_params, src_name,
+            dst_loc_obj, dst_loc_params, dst_name, obj_copy_options, lcpl_id,
+            link_exists_p, &sched_loc, int_req, &first_task, &dep_task) < 0)
         D_GOTO_ERROR(H5E_OBJECT, H5E_CANTCOPY, FAIL, "failed to copy object");
 
 done:
     if(int_req) {
         /* Create task to finalize H5 operation */
-        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &((H5_daos_item_t *)src_loc_obj)->file->sched, int_req, &int_req->finalize_task)))
+        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &item->file->sched, int_req, &int_req->finalize_task)))
             D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
         /* Register dependencies (if any) */
         else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
@@ -1047,8 +1375,13 @@ done:
             D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't schedule first task: %s", H5_daos_err_to_string(ret));
 
         /* Block until operation completes */
-        if(H5_daos_progress(&((H5_daos_item_t *)src_loc_obj)->file->sched, int_req, H5_DAOS_PROGRESS_WAIT) < 0)
-            D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't progress scheduler");
+        if(item->file == ((H5_daos_item_t *)dst_loc_obj)->file) {
+            if(H5_daos_progress(&item->file->sched, int_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't progress scheduler");
+        } /* end if */
+        else
+            if(H5_daos_progress_2(&item->file->sched, &((H5_daos_item_t *)dst_loc_obj)->file->sched, int_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't progress scheduler");
 
         /* Check for failure */
         if(int_req->status < 0)
@@ -1059,10 +1392,6 @@ done:
             D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, FAIL, "can't free request");
     } /* end if */
 
-    if(src_obj)
-        if(H5_daos_object_close(src_obj, dxpl_id, req) < 0)
-            D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, FAIL, "can't close object");
-
     D_FUNC_LEAVE_API;
 } /* end H5_daos_object_copy() */
 
@@ -1070,50 +1399,253 @@ done:
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_object_copy_helper
  *
- * Purpose:     Helper routine for H5_daos_object_copy that calls the
- *              appropriate copying routine based upon the object type of
- *              the object being copied. This routine separates out the
- *              copying logic so that recursive group copying can re-use
- *              it.
+ * Purpose:     Internal-use routine to create an asynchronous task for
+ *              copying an HDF5 DAOS object.
  *
- * Return:      Success:        0
- *              Failure:        -1
- *
- * Programmer:  Jordan Henderson
- *              January, 2019
+ * Return:      Non-negative on success/Negative on failure
  *
  *-------------------------------------------------------------------------
  */
 static herr_t
-H5_daos_object_copy_helper(H5_daos_obj_t *src_obj, H5I_type_t src_obj_type,
-    H5_daos_group_t *dst_obj, const char *dst_name, unsigned obj_copy_options,
-    hid_t lcpl_id, H5_daos_req_t *req, tse_task_t **first_task,
+H5_daos_object_copy_helper(void *src_loc_obj, const H5VL_loc_params_t *src_loc_params,
+    const char *src_name, void *dst_loc_obj, const H5VL_loc_params_t *dst_loc_params,
+    const char *dst_name, unsigned obj_copy_options, hid_t lcpl_id, htri_t **link_exists_p,
+    H5_daos_sched_loc_t *sched_loc, H5_daos_req_t *req, tse_task_t **first_task,
     tse_task_t **dep_task)
 {
+    H5_daos_object_copy_ud_t *obj_copy_udata = NULL;
+    H5VL_loc_params_t sub_loc_params;
+    tse_task_t *copy_task = NULL;
+    hbool_t copy_task_scheduled = FALSE;
+    tse_sched_t *src_sched;
+    tse_sched_t *dst_sched;
+    int ret;
     herr_t ret_value = SUCCEED;
 
-    switch(src_obj_type) {
+    assert(src_loc_obj);
+    assert(src_loc_params);
+    assert(src_name);
+    assert(dst_loc_obj);
+    assert(dst_loc_params);
+    assert(dst_name);
+    assert(req);
+    assert(sched_loc);
+    assert(first_task);
+    assert(dep_task);
+
+    /* Set up src_sched and dst_sched convenience pointers */
+    src_sched = &((H5_daos_item_t *)src_loc_obj)->file->sched;
+    dst_sched = &((H5_daos_item_t *)dst_loc_obj)->file->sched;
+
+    /* Set up user data for object copy */
+    if(NULL == (obj_copy_udata = (H5_daos_object_copy_ud_t *)DV_malloc(sizeof(H5_daos_object_copy_ud_t))))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "failed to allocate buffer for object copy user data");
+    obj_copy_udata->req = req;
+    obj_copy_udata->obj_copy_metatask = NULL;
+    obj_copy_udata->src_obj = NULL;
+    obj_copy_udata->dst_grp = NULL;
+    obj_copy_udata->copied_obj = NULL;
+    obj_copy_udata->new_obj_name = NULL;
+    obj_copy_udata->new_obj_name_len = 0;
+    obj_copy_udata->new_obj_name_path_buf = NULL;
+    obj_copy_udata->obj_copy_options = obj_copy_options;
+    obj_copy_udata->lcpl_id = H5P_LINK_CREATE_DEFAULT;
+    if(H5P_LINK_CREATE_DEFAULT != lcpl_id)
+        if((obj_copy_udata->lcpl_id = H5Pcopy(lcpl_id)) < 0)
+            D_GOTO_ERROR(H5E_PLIST, H5E_CANTCOPY, FAIL, "can't copy LCPL");
+    if(link_exists_p) {
+        obj_copy_udata->dst_link_exists = TRUE;
+        *link_exists_p = &obj_copy_udata->dst_link_exists;
+    } /* end if */
+    else
+        obj_copy_udata->dst_link_exists = FALSE;
+
+    /* Switch to source scheduler */
+    if(*sched_loc == H5_DAOS_SCHED_LOC_DST) {
+        assert(*dep_task);
+        if(0 != (ret = H5_daos_sched_link(dst_sched, src_sched, dep_task)))
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "failed to switch to source scheduler");
+        *sched_loc = H5_DAOS_SCHED_LOC_SRC;
+    } /* end if */
+
+    /* Open the source object */
+    sub_loc_params.type = H5VL_OBJECT_BY_NAME;
+    sub_loc_params.obj_type = src_loc_params->obj_type;
+    sub_loc_params.loc_data.loc_by_name.lapl_id = H5P_LINK_ACCESS_DEFAULT;
+    sub_loc_params.loc_data.loc_by_name.name = src_name;
+    if(H5_daos_object_open_helper(src_loc_obj, &sub_loc_params, NULL,
+            TRUE, NULL, &obj_copy_udata->src_obj, req, first_task, dep_task) < 0)
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTOPENOBJ, FAIL, "failed to open source object");
+
+    /* Initialize sched_loc if we created the first task here */
+    if(*sched_loc == H5_DAOS_SCHED_LOC_NONE && *dep_task)
+        *sched_loc = H5_DAOS_SCHED_LOC_SRC;
+
+    /* Switch to destination scheduler */
+    if(*sched_loc == H5_DAOS_SCHED_LOC_SRC) {
+        assert(*dep_task);
+        if(0 != (ret = H5_daos_sched_link(src_sched, dst_sched, dep_task)))
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "failed to switch to destination scheduler");
+        *sched_loc = H5_DAOS_SCHED_LOC_DST;
+    } /* end if */
+
+    /* Traverse path to destination group */
+    if(NULL == (obj_copy_udata->dst_grp = (H5_daos_group_t *)H5_daos_group_traverse(dst_loc_obj, dst_name,
+            lcpl_id, req, TRUE, &obj_copy_udata->new_obj_name_path_buf, &obj_copy_udata->new_obj_name,
+            &obj_copy_udata->new_obj_name_len, first_task, dep_task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_TRAVERSE, FAIL, "can't traverse path");
+
+    /* Initialize sched_loc if we created the first task here */
+    if(*sched_loc == H5_DAOS_SCHED_LOC_NONE && *dep_task)
+        *sched_loc = H5_DAOS_SCHED_LOC_DST;
+
+    /* Check type of target_obj */
+    if(obj_copy_udata->dst_grp->obj.item.type != H5I_GROUP)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "target object is not a group");
+
+    if(obj_copy_udata->new_obj_name_len == 0)
+        D_GOTO_ERROR(H5E_OBJECT, H5E_BADVALUE, FAIL, "can't copy new object with same name as destination group");
+
+    /* Switch to source scheduler */
+    if(*sched_loc == H5_DAOS_SCHED_LOC_DST) {
+        assert(*dep_task);
+        if(0 != (ret = H5_daos_sched_link(dst_sched, src_sched, dep_task)))
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "failed to switch to source scheduler");
+        *sched_loc = H5_DAOS_SCHED_LOC_SRC;
+    } /* end if */
+
+    /* Create task for object copy */
+    if(0 != (ret = tse_task_create(H5_daos_object_copy_task, src_sched, obj_copy_udata, &copy_task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to copy object: %s", H5_daos_err_to_string(ret));
+
+    /* Register dependency on dep_task if present */
+    if(*dep_task && 0 != (ret = tse_task_register_deps(copy_task, 1, dep_task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create dependencies for object copy task: %s", H5_daos_err_to_string(ret));
+
+    /* Schedule object copy task (or save it to be scheduled later) and give it
+     * a reference to req */
+    if(*first_task) {
+        if(0 != (ret = tse_task_schedule(copy_task, false)))
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't schedule task to copy object: %s", H5_daos_err_to_string(ret));
+    }
+    else
+        *first_task = copy_task;
+    req->rc++;
+    *sched_loc = H5_DAOS_SCHED_LOC_SRC;
+
+    copy_task_scheduled = TRUE;
+
+    /* Create meta task for object copy. This task will be completed when the
+     * actual asynchronous object copy call chain is finished. This metatask
+     * is necessary because the object copy task will generate another async
+     * task once the type of the source object is determined. That task might
+     * also generate new async tasks depending on the object copy options used.
+     */
+    if(0 != (ret = tse_task_create(H5_daos_metatask_autocomplete, src_sched, NULL, &obj_copy_udata->obj_copy_metatask)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create meta task for object copy: %s", H5_daos_err_to_string(ret));
+
+    /* Register dependency on object copy task for metatask */
+    if(0 != (ret = tse_task_register_deps(obj_copy_udata->obj_copy_metatask, 1, &copy_task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create dependencies for object copy metatask: %s", H5_daos_err_to_string(ret));
+
+    /* Schedule meta task */
+    assert(*first_task);
+    if(0 != (ret = tse_task_schedule(obj_copy_udata->obj_copy_metatask, false)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't schedule meta task for object copy: %s", H5_daos_err_to_string(ret));
+
+    *dep_task = obj_copy_udata->obj_copy_metatask;
+
+    /* Create final task to free object copy udata after copying has finished */
+    if(H5_daos_object_copy_free_copy_udata(obj_copy_udata, src_sched, req, first_task, dep_task) < 0)
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to free object copying data");
+
+    /* Relinquish control of the object copy udata to task */
+    obj_copy_udata = NULL;
+
+done:
+    /* Cleanup on failure */
+    if(ret_value < 0) {
+        if(obj_copy_udata->dst_grp && H5_daos_group_close(obj_copy_udata->dst_grp, req->dxpl_id, NULL) < 0)
+            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group");
+
+        if(!copy_task_scheduled) {
+            if(obj_copy_udata->new_obj_name_path_buf)
+                DV_free(obj_copy_udata->new_obj_name_path_buf);
+            if(H5P_LINK_CREATE_DEFAULT != obj_copy_udata->lcpl_id)
+                if(obj_copy_udata->lcpl_id >= 0 && H5Pclose(obj_copy_udata->lcpl_id) < 0)
+                    D_DONE_ERROR(H5E_PLIST, H5E_CLOSEERROR, FAIL, "can't close LCPL");
+
+            obj_copy_udata = DV_free(obj_copy_udata);
+        } /* end if */
+    } /* end if */
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_object_copy_helper() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_object_copy_task
+ *
+ * Purpose:     Asynchronous task to copy a DAOS HDF5 object.  This task
+ *              exists in the source object's scheduler.
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_object_copy_task(tse_task_t *task)
+{
+    H5_daos_object_copy_ud_t *udata;
+    H5_daos_sched_loc_t sched_loc = H5_DAOS_SCHED_LOC_NONE;
+    tse_task_t *first_task = NULL;
+    tse_task_t *dep_task = NULL;
+    int ret;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for object copy task");
+
+    assert(udata->req);
+    assert(udata->obj_copy_metatask);
+
+    /* Check for previous errors */
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT)
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT)
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
+
+    /* Check if the source object was missing (for example, tried to open
+     * the source object through a dangling soft link.
+     */
+    if(!udata->src_obj)
+        D_GOTO_ERROR(H5E_OBJECT, H5E_NOTFOUND, -H5_DAOS_H5_OPEN_ERROR, "failed to open source object to copy");
+
+    /* Check for destination object already exists */
+    if(udata->dst_link_exists)
+        D_GOTO_ERROR(H5E_OBJECT, H5E_ALREADYEXISTS, -H5_DAOS_LINK_EXISTS, "source object/link already exists at specified destination location object/destination name pair");
+
+    /* Determine object copying routine to call */
+    switch(udata->src_obj->item.type) {
         case H5I_FILE:
         case H5I_GROUP:
-            if(H5_daos_group_copy((H5_daos_group_t *) src_obj, (H5_daos_group_t *) dst_obj, dst_name,
-                    obj_copy_options, lcpl_id, req, first_task, dep_task) < 0)
-                D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, FAIL, "failed to copy group");
+            if(H5_daos_group_copy(udata, &sched_loc, udata->req, &first_task, &dep_task) < 0)
+                D_GOTO_ERROR(H5E_OBJECT, H5E_CANTCOPY, -H5_DAOS_H5_COPY_ERROR, "can't copy group");
             break;
         case H5I_DATATYPE:
-            if(H5_daos_datatype_copy((H5_daos_dtype_t *) src_obj, (H5_daos_group_t *) dst_obj, dst_name,
-                    obj_copy_options, lcpl_id, req->dxpl_id, NULL) < 0)
-                D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTCOPY, FAIL, "failed to copy datatype");
+            if(H5_daos_datatype_copy(udata, &sched_loc, udata->req, &first_task, &dep_task) < 0)
+                D_GOTO_ERROR(H5E_OBJECT, H5E_CANTCOPY, -H5_DAOS_H5_COPY_ERROR, "can't copy datatype");
             break;
         case H5I_DATASET:
-            if(H5_daos_dataset_copy((H5_daos_dset_t *) src_obj, (H5_daos_group_t *) dst_obj, dst_name,
-                    obj_copy_options, lcpl_id, req->dxpl_id, NULL) < 0)
-                D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, FAIL, "failed to copy dataset");
+            if(H5_daos_dataset_copy(udata, &sched_loc, udata->req, &first_task, &dep_task) < 0)
+                D_GOTO_ERROR(H5E_OBJECT, H5E_CANTCOPY, -H5_DAOS_H5_COPY_ERROR, "can't copy dataset");
             break;
         case H5I_MAP:
             /* TODO: Add map copying support */
-            D_GOTO_ERROR(H5E_MAP, H5E_UNSUPPORTED, H5_ITER_ERROR, "map copying is unsupported");
+            D_GOTO_ERROR(H5E_OBJECT, H5E_UNSUPPORTED, -H5_DAOS_H5_UNSUPPORTED_ERROR, "map copying is unsupported");
             break;
-
         case H5I_UNINIT:
         case H5I_BADID:
         case H5I_DATASPACE:
@@ -1128,12 +1660,1166 @@ H5_daos_object_copy_helper(H5_daos_obj_t *src_obj, H5I_type_t src_obj_type,
         case H5I_SPACE_SEL_ITER:
         case H5I_NTYPES:
         default:
-            D_GOTO_ERROR(H5E_VOL, H5E_BADVALUE, FAIL, "invalid object type");
+            D_GOTO_ERROR(H5E_OBJECT, H5E_BADVALUE, -H5_DAOS_BAD_VALUE, "invalid object type");
     } /* end switch */
+
+    /* Switch to source scheduler */
+    if(sched_loc == H5_DAOS_SCHED_LOC_DST) {
+        assert(dep_task);
+        if(0 != (ret = H5_daos_sched_link(&udata->dst_grp->obj.item.file->sched, &udata->src_obj->item.file->sched, &dep_task)))
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "failed to switch to source scheduler");
+        sched_loc = H5_DAOS_SCHED_LOC_SRC;
+    } /* end if */
+
+    /* Register dependency on new object copying task for metatask */
+    if(dep_task && 0 != (ret = tse_task_register_deps(udata->obj_copy_metatask, 1, &dep_task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't create dependencies for object copy metatask: %s", H5_daos_err_to_string(ret));
+
+    /* Relinquish control of the object copying udata to the new task. */
+    udata = NULL;
+
+done:
+    /* Schedule first task */
+    if(first_task && 0 != (ret = tse_task_schedule(first_task, false)))
+        D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't schedule task to copy object: %s", H5_daos_err_to_string(ret));
+
+    /* Handle errors in this function */
+    /* Do not place any code that can issue errors after this block, except for
+     * H5_daos_req_free_int, which updates req->status if it sees an error */
+    if(udata && ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+        udata->req->status = ret_value;
+        udata->req->failed_task = "object copy task";
+    } /* end if */
+
+    /* Complete this task */
+    tse_task_complete(task, ret_value);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_object_copy_task() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_object_copy_free_copy_udata
+ *
+ * Purpose:     Creates an asynchronous task for freeing private object
+ *              copying data after the copying has completed.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_object_copy_free_copy_udata(H5_daos_object_copy_ud_t *copy_udata,
+    tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
+{
+    tse_task_t *free_task;
+    int ret;
+    herr_t ret_value = SUCCEED;
+
+    assert(copy_udata);
+    assert(sched);
+    assert(req);
+    assert(first_task);
+    assert(dep_task);
+
+    /* Create task for freeing udata */
+    if(0 != (ret = tse_task_create(H5_daos_object_copy_free_copy_udata_task, sched,
+            copy_udata, &free_task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to free object copying udata: %s", H5_daos_err_to_string(ret));
+
+    /* Register dependency on dep_task if present */
+    if(*dep_task && 0 != (ret = tse_task_register_deps(free_task, 1, dep_task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't register dependencies for task to free object copying udata: %s", H5_daos_err_to_string(ret));
+
+    /* Schedule object copying udata free task (or save it to be scheduled later) and
+     * give it a reference to req */
+    if(*first_task) {
+        if(0 != (ret = tse_task_schedule(free_task, false)))
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't schedule task to free object copying udata: %s", H5_daos_err_to_string(ret));
+    } /* end if */
+    else
+        *first_task = free_task;
+
+    *dep_task = free_task;
 
 done:
     D_FUNC_LEAVE;
-} /* end H5_daos_object_copy_helper() */
+} /* end H5_daos_object_copy_free_copy_udata() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_object_copy_free_copy_udata_task
+ *
+ * Purpose:     Asynchronous task to free private object copying data
+ *              after the copying has completed.  This task exists in the
+ *              source object's scheduler.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_object_copy_free_copy_udata_task(tse_task_t *task)
+{
+    H5_daos_object_copy_ud_t *udata;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for task to free object copying udata");
+
+    assert(udata->req);
+
+    /* Handle errors in previous tasks */
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT)
+        ret_value = -H5_DAOS_PRE_ERROR;
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT)
+        ret_value = -H5_DAOS_SHORT_CIRCUIT;
+
+    /* Close source object that was opened during copying */
+    if(udata->src_obj && H5_daos_object_close(udata->src_obj, H5I_INVALID_HID, NULL) < 0)
+        D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
+
+    /* Close destination group that was opened during copying */
+    if(udata->dst_grp && H5_daos_group_close(udata->dst_grp, H5I_INVALID_HID, NULL) < 0)
+        D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close group");
+
+    /* Close copied object */
+    if(udata->copied_obj && H5_daos_object_close(udata->copied_obj, H5I_INVALID_HID, NULL) < 0)
+        D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close newly-copied object");
+
+    /* Handle errors in this function */
+    /* Do not place any code that can issue errors after this block, except for
+     * H5_daos_req_free_int, which updates req->status if it sees an error */
+    if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+        udata->req->status = ret_value;
+        udata->req->failed_task = "object copying udata free task";
+    } /* end if */
+
+    /* Release our reference to req */
+    if(H5_daos_req_free_int(udata->req) < 0)
+        D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+    /* Free path buffer allocated by H5_daos_group_traverse */
+    if(udata->new_obj_name_path_buf) {
+        DV_free(udata->new_obj_name_path_buf);
+        udata->new_obj_name_path_buf = NULL;
+    }
+
+    /* Free private data */
+    DV_free(udata);
+
+done:
+    /* Complete this task */
+    tse_task_complete(task, ret_value);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_object_copy_free_copy_udata_task() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_object_copy_attributes
+ *
+ * Purpose:     Helper routine to create an asynchronous task for copying
+ *              all of the attributes from a given object to the specified
+ *              destination object.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_object_copy_attributes(H5_daos_obj_t *src_obj, H5_daos_obj_t *dst_obj,
+    H5_daos_sched_loc_t *sched_loc, H5_daos_req_t *req,
+    tse_task_t **first_task, tse_task_t **dep_task)
+{
+    H5_daos_object_copy_attributes_ud_t *attr_copy_ud = NULL;
+    H5_daos_iter_data_t iter_data;
+    H5_index_t iter_index_type;
+    int ret;
+    herr_t ret_value = SUCCEED;
+
+    assert(src_obj);
+    assert(dst_obj);
+    assert(sched_loc);
+    assert(req);
+    assert(first_task);
+    assert(dep_task);
+
+    if(NULL == (attr_copy_ud = (H5_daos_object_copy_attributes_ud_t *)DV_malloc(sizeof(H5_daos_object_copy_attributes_ud_t))))
+         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate user data struct for attribute copy task");
+    attr_copy_ud->req = req;
+    attr_copy_ud->target_obj = dst_obj;
+
+    /*
+     * Determine whether to iterate by name order or creation order, based
+     * upon whether attribute creation order is tracked for the object.
+     */
+    iter_index_type = (src_obj->ocpl_cache.track_acorder) ? H5_INDEX_CRT_ORDER : H5_INDEX_NAME;
+
+    /* Initialize iteration data. Attributes are re-created by creation order if possible */
+    H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_ATTR, iter_index_type, H5_ITER_INC,
+            FALSE, NULL, H5I_INVALID_HID, attr_copy_ud, NULL, req);
+    iter_data.async_op = TRUE;
+    iter_data.u.attr_iter_data.u.attr_iter_op_async = H5_daos_object_copy_attributes_cb;
+
+    /* Switch to source scheduler */
+    if(*sched_loc == H5_DAOS_SCHED_LOC_DST) {
+        assert(*dep_task);
+        if(0 != (ret = H5_daos_sched_link(&dst_obj->item.file->sched, &src_obj->item.file->sched, dep_task)))
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "failed to switch to source scheduler");
+        *sched_loc = H5_DAOS_SCHED_LOC_SRC;
+    } /* end if */
+
+    if(H5_daos_attribute_iterate(src_obj, &iter_data, &src_obj->item.file->sched, req, first_task, dep_task) < 0)
+        D_GOTO_ERROR(H5E_ATTR, H5E_BADITER, FAIL, "can't iterate over object's attributes");
+
+    /* Initialize sched_loc if we created the first task here */
+    if(*sched_loc == H5_DAOS_SCHED_LOC_NONE && *dep_task)
+        *sched_loc = H5_DAOS_SCHED_LOC_SRC;
+
+    if(H5_daos_free_async(src_obj->item.file, attr_copy_ud, first_task, dep_task) < 0)
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to free attribute copying data");
+
+    /* Initialize sched_loc if we created the first task here */
+    if(*sched_loc == H5_DAOS_SCHED_LOC_NONE && *dep_task)
+        *sched_loc = H5_DAOS_SCHED_LOC_SRC;
+
+done:
+    D_FUNC_LEAVE;
+} /* end H5_daos_object_copy_attributes() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_object_copy_attributes_cb
+ *
+ * Purpose:     Attribute iteration callback to copy a single attribute
+ *              from one DAOS object to another.  The current scheduler
+ *              will always be the source file's on entry, and must be on
+ *              exit.
+ *
+ *              DSINC - currently no provision for dxpl_id or req.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_object_copy_attributes_cb(hid_t location_id, const char *attr_name,
+    const H5A_info_t H5VL_DAOS_UNUSED *ainfo, void *op_data, herr_t *op_ret,
+    tse_task_t **first_task, tse_task_t **dep_task)
+{
+    H5_daos_object_copy_attributes_ud_t *copy_ud = (H5_daos_object_copy_attributes_ud_t *)op_data;
+    H5_daos_obj_t *src_loc_obj = NULL;
+    herr_t ret_value = H5_ITER_CONT;
+
+    assert(copy_ud);
+
+    if(NULL == (src_loc_obj = H5VLobject(location_id)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, H5_ITER_ERROR, "failed to retrieve VOL object for source location ID");
+
+    if(H5_daos_object_copy_single_attribute(src_loc_obj, attr_name, copy_ud->target_obj,
+            copy_ud->req, first_task, dep_task) < 0)
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTCOPY, H5_ITER_ERROR, "can't create task to copy single attribute");
+
+done:
+    *op_ret = ret_value;
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_object_copy_attributes_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_object_copy_single_attribute
+ *
+ * Purpose:     Creates an asynchronous task to copy a single attribute
+ *              to a target object during object copying.  All tasks are
+ *              scheduled in the source scheduler.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_object_copy_single_attribute(H5_daos_obj_t *src_obj,
+    const char *attr_name, H5_daos_obj_t *target_obj, H5_daos_req_t *req,
+    tse_task_t **first_task, tse_task_t **dep_task)
+{
+    H5_daos_object_copy_single_attribute_ud_t *attr_copy_ud = NULL;
+    H5VL_loc_params_t sub_loc_params;
+    int ret;
+    herr_t ret_value = SUCCEED;
+
+    assert(src_obj);
+    assert(attr_name);
+    assert(req);
+    assert(first_task);
+    assert(dep_task);
+
+    if(NULL == (attr_copy_ud = (H5_daos_object_copy_single_attribute_ud_t *)DV_malloc(sizeof(H5_daos_object_copy_single_attribute_ud_t))))
+         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate user data struct for attribute copy task");
+    attr_copy_ud->req = req;
+    attr_copy_ud->src_attr = NULL;
+    attr_copy_ud->target_obj = target_obj;
+
+    sub_loc_params.obj_type = src_obj->item.type;
+    sub_loc_params.type = H5VL_OBJECT_BY_SELF;
+
+    if(NULL == (attr_copy_ud->src_attr = H5_daos_attribute_open_helper((H5_daos_item_t *)src_obj, &sub_loc_params,
+            attr_name, H5P_ATTRIBUTE_ACCESS_DEFAULT, req, first_task, dep_task)))
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, FAIL, "failed to open attribute");
+
+    if(0 != (ret = tse_task_create(H5_daos_object_copy_single_attribute_task,
+            &src_obj->item.file->sched, attr_copy_ud, &attr_copy_ud->copy_task)))
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to copy attribute: %s", H5_daos_err_to_string(ret));
+
+    /* Register dependency on dep_task if present */
+    if(*dep_task && 0 != (ret = tse_task_register_deps(attr_copy_ud->copy_task, 1, dep_task)))
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create dependencies for attribute copy task: %s", H5_daos_err_to_string(ret));
+
+    /* Schedule attribute copy task (or save it to be scheduled later) and
+     * give it a reference to req */
+    if(*first_task) {
+        if(0 != (ret = tse_task_schedule(attr_copy_ud->copy_task, false)))
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't schedule task to copy attribute: %s", H5_daos_err_to_string(ret));
+    } /* end if */
+    else
+        *first_task = attr_copy_ud->copy_task;
+    req->rc++;
+    target_obj->item.rc++;
+    *dep_task = attr_copy_ud->copy_task;
+
+    /* Relinquish control of attribute copy udata to task. */
+    attr_copy_ud = NULL;
+
+done:
+    if(ret_value < 0) {
+        DV_free(attr_copy_ud);
+    }
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_object_copy_single_attribute() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_object_copy_single_attribute_task
+ *
+ * Purpose:     Asynchronous task to copy a single attribute to a target
+ *              object during object copying.  This exists within the
+ *              source object's scheduler, but all scheduled tasks will
+ *              be in the destination file's scheduler.
+ *
+ * Return:      Success:        0
+ *              Failure:        Negative error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_object_copy_single_attribute_task(tse_task_t *task)
+{
+    H5_daos_object_copy_single_attribute_ud_t *udata;
+    H5VL_loc_params_t sub_loc_params;
+    H5_daos_req_t *req = NULL;
+    tse_task_t *free_task = NULL;
+    tse_task_t *first_task = NULL;
+    tse_task_t *dep_task = NULL;
+    int ret;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for attribute copying task");
+
+    assert(udata->req);
+    assert(udata->src_attr);
+    assert(udata->target_obj);
+    assert(udata->copy_task == task);
+
+    /* Assign convenience pointer to req and take a reference to it */
+    req = udata->req;
+    req->rc++;
+
+    /* Check for previous errors */
+    if(req->status < -H5_DAOS_SHORT_CIRCUIT)
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    else if(req->status == -H5_DAOS_SHORT_CIRCUIT)
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
+
+    /* Create task for creating new attribute now that the
+     * source attribute should be valid.
+     */
+    sub_loc_params.obj_type = udata->target_obj->item.type;
+    sub_loc_params.type = H5VL_OBJECT_BY_SELF;
+    if(NULL == (udata->new_attr = H5_daos_attribute_create_helper(&udata->target_obj->item,
+            &sub_loc_params, udata->src_attr->type_id, udata->src_attr->space_id,
+            udata->src_attr->acpl_id, H5P_ATTRIBUTE_ACCESS_DEFAULT, udata->src_attr->name,
+            TRUE, req, &first_task, &dep_task)))
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTCOPY, -H5_DAOS_H5_COPY_ERROR, "failed to create new attribute");
+
+done:
+    if(udata) {
+        /* Create task to free attribute copying udata after copying is finished */
+        if(0 != (ret = tse_task_create(H5_daos_object_copy_single_attribute_free_udata_task,
+                &udata->target_obj->item.file->sched, udata, &free_task))) {
+            tse_task_complete(task, ret_value);
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't create task to free attribute copying data: %s", H5_daos_err_to_string(ret));
+        } /* end if */
+        else {
+            /* Register dependency on dep_task if present */
+            if(dep_task && 0 != (ret = tse_task_register_deps(free_task, 1, &dep_task)))
+                D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't create dependencies for attribute copying data free task: %s", H5_daos_err_to_string(ret));
+
+            /* Schedule attribute copying data free task (or save it to be scheduled
+             * later) and transfer ownership reference of udata */
+            if(first_task) {
+                if(0 != (ret = tse_task_schedule(free_task, false))) {
+                    tse_task_complete(task, ret_value);
+                    D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't schedule task to free attribute copying data: %s", H5_daos_err_to_string(ret));
+                } /* end if */
+            } /* end if */
+            else
+                first_task = free_task;
+            dep_task = free_task;
+            udata = NULL;
+        } /* end else */
+
+        /* Handle errors in this function */
+        /* Do not place any code that can issue errors after this block, except for
+         * H5_daos_req_free_int, which updates req->status if it sees an error */
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+            req->status = ret_value;
+            req->failed_task = "single attribute copy task";
+        } /* end if */
+
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(req) < 0)
+            D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+    } /* end if */
+
+    /* Schedule first task */
+    if(first_task && 0 != (ret = tse_task_schedule(first_task, false)))
+        D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, ret, "can't schedule task to copy attribute: %s", H5_daos_err_to_string(ret));
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_object_copy_single_attribute_task() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_object_copy_single_attribute_free_udata_task
+ *
+ * Purpose:     Asynchronous task to free private attribute copying data
+ *              after copying a single attribute.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_object_copy_single_attribute_free_udata_task(tse_task_t *task)
+{
+    H5_daos_object_copy_single_attribute_ud_t *udata;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for task to free attribute copying udata");
+
+    assert(udata->src_attr);
+    assert(udata->req);
+    assert(udata->target_obj);
+
+    /* Handle errors in previous tasks */
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT)
+        ret_value = -H5_DAOS_PRE_ERROR;
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT)
+        ret_value = -H5_DAOS_SHORT_CIRCUIT;
+
+    /* Close source attribute */
+    if(H5_daos_attribute_close(udata->src_attr, H5I_INVALID_HID, NULL) < 0)
+        D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close attribute");
+
+    /* Close newly-copied attribute */
+    if(H5_daos_attribute_close(udata->new_attr, H5I_INVALID_HID, NULL) < 0)
+        D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close attribute");
+
+    /* Close object */
+    if(H5_daos_object_close(udata->target_obj, H5I_INVALID_HID, NULL) < 0)
+        D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
+
+    /* Handle errors in this function */
+    /* Do not place any code that can issue errors after this block, except for
+     * H5_daos_req_free_int, which updates req->status if it sees an error */
+    if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+        udata->req->status = ret_value;
+        udata->req->failed_task = "attribute copying udata free task";
+    } /* end if */
+
+    /* Release our reference to req */
+    if(H5_daos_req_free_int(udata->req) < 0)
+        D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+    /* Complete copy task */
+    tse_task_complete(udata->copy_task, ret_value);
+
+    /* Free private data */
+    DV_free(udata);
+
+done:
+    /* Complete this task */
+    tse_task_complete(task, ret_value);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_object_copy_single_attribute_free_udata_task() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_group_copy
+ *
+ * Purpose:     Helper routine to create asynchronous tasks for copying a
+ *              group and its immediate members to the given location
+ *              specified by the dst_obj/dst_name pair. The new group's
+ *              name is specified by the base portion of dst_name.
+ *
+ *              Copying of certain parts of the group, such as its
+ *              attributes, is controlled by the passed in object copy
+ *              options.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_group_copy(H5_daos_object_copy_ud_t *obj_copy_udata, H5_daos_sched_loc_t *sched_loc,
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
+{
+    H5_daos_iter_data_t iter_data;
+    H5_daos_group_t *src_grp;
+    H5_index_t iter_index_type;
+    hid_t target_obj_id = H5I_INVALID_HID;
+    int ret;
+    herr_t ret_value = SUCCEED;
+
+    assert(obj_copy_udata);
+    assert(obj_copy_udata->req);
+    assert(obj_copy_udata->obj_copy_metatask);
+    assert(obj_copy_udata->src_obj);
+    assert(obj_copy_udata->new_obj_name);
+    assert(sched_loc);
+    assert(req);
+    assert(first_task);
+    assert(dep_task);
+
+    src_grp = (H5_daos_group_t *)obj_copy_udata->src_obj;
+
+    /* Switch to source scheduler */
+    if(*sched_loc == H5_DAOS_SCHED_LOC_DST) {
+        assert(*dep_task);
+        if(0 != (ret = H5_daos_sched_link(&obj_copy_udata->dst_grp->obj.item.file->sched, &obj_copy_udata->src_obj->item.file->sched, dep_task)))
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "failed to switch to source scheduler");
+        *sched_loc = H5_DAOS_SCHED_LOC_SRC;
+    } /* end if */
+
+    /* Copy the group */
+    if(NULL == (obj_copy_udata->copied_obj = (H5_daos_obj_t *)H5_daos_group_copy_helper(src_grp,
+            obj_copy_udata->dst_grp, obj_copy_udata->new_obj_name, obj_copy_udata->obj_copy_options,
+            sched_loc, req, first_task, dep_task)))
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, FAIL, "can't copy group");
+
+    /* Initialize sched_loc if we created the first task here */
+    if(*sched_loc == H5_DAOS_SCHED_LOC_NONE && *dep_task)
+        *sched_loc = H5_DAOS_SCHED_LOC_SRC;
+
+    /* Now copy the immediate members of the group to the new group. If the
+     * H5O_COPY_SHALLOW_HIERARCHY_FLAG flag wasn't specified, this will also
+     * recursively copy the members of any subgroups found. */
+
+    /* Register an ID for the group to iterate over */
+    if((target_obj_id = H5VLwrap_register(obj_copy_udata->src_obj, H5I_GROUP)) < 0)
+        D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, FAIL, "unable to atomize object handle");
+    obj_copy_udata->src_obj->item.rc++;
+
+    /*
+     * Determine whether to iterate by name order or creation order, based
+     * upon whether creation order is tracked for the group.
+     */
+    iter_index_type = (src_grp->gcpl_cache.track_corder) ? H5_INDEX_CRT_ORDER : H5_INDEX_NAME;
+
+    /* Initialize iteration data */
+    H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_LINK, iter_index_type, H5_ITER_INC,
+            FALSE, NULL, target_obj_id, obj_copy_udata, NULL, req);
+    iter_data.async_op = TRUE;
+    iter_data.u.link_iter_data.u.link_iter_op_async = H5_daos_group_copy_cb;
+
+    if(H5_daos_link_iterate(src_grp, &iter_data, first_task, dep_task) < 0)
+        D_GOTO_ERROR(H5E_SYM, H5E_BADITER, FAIL, "can't iterate over group's links");
+
+    /* Initialize sched_loc if we created the first task here */
+    if(*sched_loc == H5_DAOS_SCHED_LOC_NONE && *dep_task)
+        *sched_loc = H5_DAOS_SCHED_LOC_SRC;
+
+done:
+    /* Release reference to group since link iteration task should own it now */
+    if(target_obj_id >= 0 && H5Idec_ref(target_obj_id) < 0)
+        D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, FAIL, "can't close object ID");
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_group_copy() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_group_copy_helper
+ *
+ * Purpose:     Helper routine to create an asynchronous task to do the
+ *              actual group copying. This routine is needed to split the
+ *              group copying logic away from the higher-level
+ *              H5_daos_group_copy, which also copies the immediate members
+ *              of a group during a shallow copy, or the entire hierarchy
+ *              during a deep copy.
+ *
+ *              When a shallow group copy is being done, this routine is
+ *              used on each of that group's sub-group members in turn to
+ *              copy those sub-groups without their members. During a deep
+ *              group copy, H5_daos_group_copy is used on each of that
+ *              group's sub-group members in turn instead. This will
+ *              recursively copy each of those members along with their own
+ *              sub-group members.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+static H5_daos_group_t *H5_daos_group_copy_helper(H5_daos_group_t *src_grp,
+    H5_daos_group_t *dst_grp, const char *name, unsigned obj_copy_options,
+    H5_daos_sched_loc_t *sched_loc, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
+{
+    H5_daos_group_t *copied_group = NULL;
+    int ret;
+    H5_daos_group_t *ret_value = NULL;
+
+    assert(src_grp);
+    assert(dst_grp);
+    assert(name);
+    assert(sched_loc);
+    assert(req);
+    assert(first_task);
+    assert(dep_task);
+
+    /* Switch to destination scheduler */
+    if(*sched_loc == H5_DAOS_SCHED_LOC_SRC) {
+        assert(*dep_task);
+        if(0 != (ret = H5_daos_sched_link(&src_grp->obj.item.file->sched, &dst_grp->obj.item.file->sched, dep_task)))
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, NULL, "failed to switch to destination scheduler");
+        *sched_loc = H5_DAOS_SCHED_LOC_DST;
+    } /* end if */
+
+    /* Copy the group */
+    if(NULL == (copied_group = H5_daos_group_create_helper(dst_grp->obj.item.file,
+            FALSE, src_grp->gcpl_id, src_grp->gapl_id, dst_grp, name,
+            strlen(name), TRUE, req, first_task, dep_task)))
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, NULL, "can't create new group");
+
+    /* Initialize sched_loc if we created the first task here */
+    if(*sched_loc == H5_DAOS_SCHED_LOC_NONE && *dep_task)
+        *sched_loc = H5_DAOS_SCHED_LOC_DST;
+
+    /* If the "without attribute copying" flag hasn't been specified,
+     * create a task to copy the group's attributes as well.
+     */
+    if((obj_copy_options & H5O_COPY_WITHOUT_ATTR_FLAG) == 0)
+        if(H5_daos_object_copy_attributes((H5_daos_obj_t *)src_grp, (H5_daos_obj_t *)copied_group,
+                sched_loc, req, first_task, dep_task) < 0)
+            D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, NULL, "can't copy group's attributes");
+
+    ret_value = copied_group;
+
+done:
+    if(!ret_value && copied_group)
+        if(H5_daos_group_close(copied_group, req->dxpl_id, NULL) < 0)
+            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, NULL, "can't close group");
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_group_copy_helper() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_group_copy_cb
+ *
+ * Purpose:     Helper routine to deal with the copying of a single link
+ *              during a group copy. Objects pointed to by hard links will
+ *              be copied to the destination (copy) group.
+ *
+ *              When dealing with soft links, the following will happen:
+ *
+ *                  - If the H5O_COPY_EXPAND_SOFT_LINK_FLAG flag was
+ *                    specified as part of the object copy options for
+ *                    H5Ocopy, soft links will be followed and the objects
+ *                    they point to will become new objects in the
+ *                    destination (copy) group.
+ *                  - If the H5O_COPY_EXPAND_SOFT_LINK_FLAG flag was not
+ *                    specified, soft links will be directly copied to the
+ *                    destination group and will have the same link value
+ *                    as the original link.
+ *
+ *              DSINC - Expansion of external links is currently not
+ *              supported and they will simply be directly copied to the
+ *              destination group, similar to soft link copying when the
+ *              H5O_COPY_EXPAND_SOFT_LINK_FLAG flag is not specified.
+ *
+ *              *dep_task exists within the source scheduler on entry and
+ *              must also on exit.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_group_copy_cb(hid_t group, const char *name, const H5L_info2_t *info,
+    void *op_data, herr_t *op_ret, tse_task_t **first_task, tse_task_t **dep_task)
+{
+    H5_daos_object_copy_ud_t *obj_copy_udata = (H5_daos_object_copy_ud_t *)op_data;
+    H5VL_loc_params_t sub_loc_params;
+    H5_daos_group_t *copied_group = NULL;
+    H5_daos_sched_loc_t sched_loc;
+    int ret;
+    herr_t ret_value = H5_ITER_CONT;
+
+    assert(first_task);
+    assert(dep_task);
+
+    /* Initialize sched_loc */
+    sched_loc = *dep_task ? H5_DAOS_SCHED_LOC_SRC : H5_DAOS_SCHED_LOC_NONE;
+
+    /* Silence compiler for unused parameter */
+    (void)group;
+
+    sub_loc_params.type = H5VL_OBJECT_BY_NAME;
+    sub_loc_params.loc_data.loc_by_name.name = name;
+    sub_loc_params.loc_data.loc_by_name.lapl_id = H5P_LINK_ACCESS_DEFAULT;
+
+    switch (info->type) {
+        case H5L_TYPE_HARD:
+        {
+            daos_obj_id_t oid;
+            H5I_type_t obj_type;
+
+            /* Determine the type of object pointed to by the link */
+            if(H5_daos_token_to_oid(&info->u.token, &oid) < 0)
+                D_GOTO_ERROR(H5E_OBJECT, H5E_CANTDECODE, H5_ITER_ERROR, "can't convert object token to OID");
+            obj_type = H5_daos_oid_to_type(oid);
+            if(H5I_BADID == obj_type || H5I_UNINIT == obj_type)
+                D_GOTO_ERROR(H5E_OBJECT, H5E_BADVALUE, H5_ITER_ERROR, "invalid object type");
+
+            /*
+             * If performing a shallow group copy, copy the group without its immediate members.
+             * Otherwise, continue on with a normal recursive object copy.
+             */
+            if((obj_type == H5I_GROUP) && (obj_copy_udata->obj_copy_options & H5O_COPY_SHALLOW_HIERARCHY_FLAG)) {
+                if(NULL == (copied_group = H5_daos_group_copy_helper((H5_daos_group_t *)obj_copy_udata->src_obj,
+                        (H5_daos_group_t *)obj_copy_udata->copied_obj, name, obj_copy_udata->obj_copy_options,
+                        &sched_loc, obj_copy_udata->req, first_task, dep_task)))
+                    D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, H5_ITER_ERROR, "failed to perform shallow copy of group");
+
+                /* Close group now that copying task owns it */
+                if(H5_daos_group_close(copied_group, obj_copy_udata->req->dxpl_id, NULL) < 0)
+                    D_GOTO_ERROR(H5E_SYM, H5E_CLOSEERROR, H5_ITER_ERROR, "can't close group");
+            }
+            else {
+                if(H5_daos_object_copy_helper(obj_copy_udata->src_obj, &sub_loc_params, name,
+                        obj_copy_udata->copied_obj, &sub_loc_params, name, obj_copy_udata->obj_copy_options,
+                        obj_copy_udata->lcpl_id, NULL, &sched_loc, obj_copy_udata->req,
+                        first_task, dep_task) < 0)
+                    D_GOTO_ERROR(H5E_OBJECT, H5E_CANTCOPY, H5_ITER_ERROR, "failed to copy object");
+            } /* end else */
+
+            break;
+        } /* H5L_TYPE_HARD */
+
+        case H5L_TYPE_SOFT:
+        {
+            /*
+             * If the H5O_COPY_EXPAND_SOFT_LINK_FLAG flag was specified,
+             * expand the soft link into a new object. Otherwise, the link
+             * will be copied as-is.
+             */
+            if(obj_copy_udata->obj_copy_options & H5O_COPY_EXPAND_SOFT_LINK_FLAG) {
+                /* Copy the object */
+                if(H5_daos_object_copy_helper(obj_copy_udata->src_obj, &sub_loc_params, name,
+                        obj_copy_udata->copied_obj, &sub_loc_params, name, obj_copy_udata->obj_copy_options,
+                        obj_copy_udata->lcpl_id, NULL, &sched_loc, obj_copy_udata->req,
+                        first_task, dep_task) < 0)
+                    D_GOTO_ERROR(H5E_OBJECT, H5E_CANTCOPY, H5_ITER_ERROR, "can't copy object");
+            } /* end if */
+            else {
+                /* Copy the link as is */
+                if(H5_daos_link_copy_move_int((H5_daos_item_t *)obj_copy_udata->src_obj, &sub_loc_params,
+                        (H5_daos_item_t *)obj_copy_udata->copied_obj, &sub_loc_params,
+                        obj_copy_udata->lcpl_id, FALSE, &sched_loc, obj_copy_udata->req,
+                        first_task, dep_task) < 0)
+                    D_GOTO_ERROR(H5E_LINK, H5E_CANTCOPY, H5_ITER_ERROR, "failed to copy link");
+            } /* end else */
+
+            break;
+        } /* H5L_TYPE_SOFT */
+
+        case H5L_TYPE_EXTERNAL:
+        {
+            /*
+             * If the H5O_COPY_EXPAND_EXT_LINK_FLAG flag was specified,
+             * expand the external link into a new object. Otherwise, the
+             * link will be copied as-is.
+             */
+            if(obj_copy_udata->obj_copy_options & H5O_COPY_EXPAND_EXT_LINK_FLAG) {
+                D_GOTO_ERROR(H5E_LINK, H5E_UNSUPPORTED, H5_ITER_ERROR, "H5O_COPY_EXPAND_EXT_LINK_FLAG flag is currently unsupported");
+            } /* end if */
+            else {
+                /* Copy the link as is */
+                if(H5_daos_link_copy_move_int((H5_daos_item_t *)obj_copy_udata->src_obj, &sub_loc_params,
+                        (H5_daos_item_t *)obj_copy_udata->dst_grp, &sub_loc_params,
+                        obj_copy_udata->lcpl_id, FALSE, &sched_loc, obj_copy_udata->req,
+                        first_task, dep_task) < 0)
+                    D_GOTO_ERROR(H5E_LINK, H5E_CANTCOPY, H5_ITER_ERROR, "failed to copy link");
+            } /* end else */
+
+            break;
+        } /* H5L_TYPE_EXTERNAL */
+
+        case H5L_TYPE_MAX:
+        case H5L_TYPE_ERROR:
+        default:
+            D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, H5_ITER_ERROR, "invalid link type");
+    } /* end switch */
+
+    /* Switch to source scheduler */
+    if(sched_loc == H5_DAOS_SCHED_LOC_DST) {
+        assert(*dep_task);
+        if(0 != (ret = H5_daos_sched_link(&obj_copy_udata->dst_grp->obj.item.file->sched, &obj_copy_udata->src_obj->item.file->sched, dep_task)))
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "failed to switch to source scheduler");
+        sched_loc = H5_DAOS_SCHED_LOC_SRC;
+    } /* end if */
+
+done:
+    if(ret_value < 0 && copied_group)
+        if(H5_daos_group_close(copied_group, obj_copy_udata->req->dxpl_id, NULL) < 0)
+            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, H5_ITER_ERROR, "can't close copied group");
+
+    *op_ret = ret_value;
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_group_copy_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_datatype_copy
+ *
+ * Purpose:     Helper routine to create asynchronous tasks for copying a
+ *              committed datatype to the given location specified by the
+ *              dst_obj/dst_name pair. The new committed datatype's name is
+ *              specified by the base portion of dst_name.
+ *
+ *              Copying of certain parts of the committed datatype, such as
+ *              its attributes, is controlled by the passed in object copy
+ *              options.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_datatype_copy(H5_daos_object_copy_ud_t *obj_copy_udata, H5_daos_sched_loc_t *sched_loc,
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
+{
+    H5_daos_dtype_t *src_dtype;
+    int ret;
+    herr_t ret_value = SUCCEED;
+
+    assert(obj_copy_udata);
+    assert(obj_copy_udata->req);
+    assert(obj_copy_udata->obj_copy_metatask);
+    assert(obj_copy_udata->src_obj);
+    assert(obj_copy_udata->new_obj_name);
+    assert(sched_loc);
+    assert(req);
+    assert(first_task);
+    assert(dep_task);
+
+    src_dtype = (H5_daos_dtype_t *)obj_copy_udata->src_obj;
+
+    /* Switch to destination scheduler */
+    if(*sched_loc == H5_DAOS_SCHED_LOC_SRC) {
+        assert(*dep_task);
+        if(0 != (ret = H5_daos_sched_link(&obj_copy_udata->dst_grp->obj.item.file->sched, &obj_copy_udata->src_obj->item.file->sched, dep_task)))
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "failed to switch to destination scheduler");
+        *sched_loc = H5_DAOS_SCHED_LOC_DST;
+    } /* end if */
+
+    /* Copy the datatype */
+    if(NULL == (obj_copy_udata->copied_obj = H5_daos_datatype_commit_helper(obj_copy_udata->dst_grp->obj.item.file,
+            src_dtype->type_id, src_dtype->tcpl_id, src_dtype->tapl_id, obj_copy_udata->dst_grp,
+            obj_copy_udata->new_obj_name, strlen(obj_copy_udata->new_obj_name), TRUE, req, first_task, dep_task)))
+        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTCOPY, FAIL, "can't commit new datatype");
+
+    /* Initialize sched_loc if we created the first task here */
+    if(*sched_loc == H5_DAOS_SCHED_LOC_NONE && *dep_task)
+        *sched_loc = H5_DAOS_SCHED_LOC_DST;
+
+    /* If the "without attribute copying" flag hasn't been specified,
+     * create a task to copy the datatype's attributes as well.
+     */
+    if((obj_copy_udata->obj_copy_options & H5O_COPY_WITHOUT_ATTR_FLAG) == 0)
+        if(H5_daos_object_copy_attributes((H5_daos_obj_t *)src_dtype, obj_copy_udata->copied_obj,
+                sched_loc, req, first_task, dep_task) < 0)
+            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTCOPY, FAIL, "can't copy datatype's attributes");
+
+done:
+    if(ret_value < 0 && obj_copy_udata->copied_obj)
+        if(H5_daos_datatype_close(obj_copy_udata->copied_obj, obj_copy_udata->req->dxpl_id, NULL) < 0)
+            D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, FAIL, "can't close datatype");
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_datatype_copy() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_dataset_copy
+ *
+ * Purpose:     Helper routine to create asynchronous tasks for copying a
+ *              dataset to the given location specified by the
+ *              dst_obj/dst_name pair. The new dataset's name is specified
+ *              by the base portion of dst_name.
+ *
+ *              Copying of certain parts of the dataset, such as its
+ *              attributes, is controlled by the passed in object copy
+ *              options.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_dataset_copy(H5_daos_object_copy_ud_t *obj_copy_udata, H5_daos_sched_loc_t *sched_loc,
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
+{
+    H5_daos_dset_t *src_dset;
+    int ret;
+    herr_t ret_value = SUCCEED;
+
+    assert(obj_copy_udata);
+    assert(obj_copy_udata->req);
+    assert(obj_copy_udata->obj_copy_metatask);
+    assert(obj_copy_udata->src_obj);
+    assert(obj_copy_udata->new_obj_name);
+    assert(sched_loc);
+    assert(req);
+    assert(first_task);
+    assert(dep_task);
+
+    src_dset = (H5_daos_dset_t *)obj_copy_udata->src_obj;
+
+    /* Switch to destination scheduler */
+    if(*sched_loc == H5_DAOS_SCHED_LOC_SRC) {
+        assert(*dep_task);
+        if(0 != (ret = H5_daos_sched_link(&obj_copy_udata->dst_grp->obj.item.file->sched, &obj_copy_udata->src_obj->item.file->sched, dep_task)))
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "failed to switch to destination scheduler");
+        *sched_loc = H5_DAOS_SCHED_LOC_DST;
+    } /* end if */
+
+    /* Copy the dataset */
+    if(NULL == (obj_copy_udata->copied_obj = H5_daos_dataset_create_helper(obj_copy_udata->dst_grp->obj.item.file,
+            src_dset->type_id, src_dset->space_id, src_dset->dcpl_id, src_dset->dapl_id,
+            obj_copy_udata->dst_grp, obj_copy_udata->new_obj_name, strlen(obj_copy_udata->new_obj_name),
+            TRUE, req, first_task, dep_task)))
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, FAIL, "can't create new dataset");
+
+    /* Initialize sched_loc if we created the first task here */
+    if(*sched_loc == H5_DAOS_SCHED_LOC_NONE && *dep_task)
+        *sched_loc = H5_DAOS_SCHED_LOC_DST;
+
+    /* Copy all data from the source dataset to the new dataset */
+    if(H5_daos_dataset_copy_data(src_dset, (H5_daos_dset_t *)obj_copy_udata->copied_obj,
+            sched_loc, req, first_task, dep_task) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, FAIL, "can't copy dataset data");
+
+    /* If the "without attribute copying" flag hasn't been specified,
+     * create a task to copy the dataset's attributes as well.
+     */
+    if((obj_copy_udata->obj_copy_options & H5O_COPY_WITHOUT_ATTR_FLAG) == 0)
+        if(H5_daos_object_copy_attributes((H5_daos_obj_t *)src_dset, obj_copy_udata->copied_obj,
+                sched_loc, req, first_task, dep_task) < 0)
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, FAIL, "can't copy dataset's attributes");
+
+done:
+    if(ret_value < 0 && obj_copy_udata->copied_obj)
+        if(H5_daos_dataset_close(obj_copy_udata->copied_obj, obj_copy_udata->req->dxpl_id, NULL) < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, FAIL, "can't close dataset");
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_dataset_copy() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_dataset_copy_data
+ *
+ * Purpose:     Creates an asynchronous task for copying data from a source
+ *              dataset to a target dataset. Currently just attempts to
+ *              read and write the data all at once.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_dataset_copy_data(H5_daos_dset_t *src_dset, H5_daos_dset_t *dst_dset,
+    H5_daos_sched_loc_t *sched_loc, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
+{
+    H5_daos_dataset_copy_data_ud_t *copy_ud = NULL;
+    tse_task_t *copy_task = NULL;
+    int ret;
+    herr_t ret_value = SUCCEED;
+
+    assert(src_dset);
+    assert(dst_dset);
+    assert(sched_loc);
+    assert(req);
+    assert(first_task);
+    assert(dep_task);
+
+    if(NULL == (copy_ud = (H5_daos_dataset_copy_data_ud_t *)DV_malloc(sizeof(H5_daos_dataset_copy_data_ud_t))))
+         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate user data struct for dataset data copy task");
+    copy_ud->req = req;
+    copy_ud->src_dset = src_dset;
+    copy_ud->dst_dset = dst_dset;
+    copy_ud->data_buf = NULL;
+
+    /* Switch to source scheduler */
+    if(*sched_loc == H5_DAOS_SCHED_LOC_DST) {
+        assert(*dep_task);
+        if(0 != (ret = H5_daos_sched_link(&dst_dset->obj.item.file->sched, &src_dset->obj.item.file->sched, dep_task)))
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "failed to switch to source scheduler");
+        *sched_loc = H5_DAOS_SCHED_LOC_SRC;
+    } /* end if */
+
+    /* Create task for dataset data copy */
+    if(0 != (ret = tse_task_create(H5_daos_dataset_copy_data_task, &src_dset->obj.item.file->sched, copy_ud, &copy_task)))
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create task to copy dataset data: %s", H5_daos_err_to_string(ret));
+
+    /* Register dependency on dep_task if present */
+    if(*dep_task && 0 != (ret = tse_task_register_deps(copy_task, 1, dep_task)))
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create dependencies for dataset data copy task: %s", H5_daos_err_to_string(ret));
+
+    /* Schedule dataset data copy task (or save it to be scheduled later) and give it
+     * a reference to req */
+    if(*first_task) {
+        if(0 != (ret = tse_task_schedule(copy_task, false)))
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't schedule task to copy dataset data: %s", H5_daos_err_to_string(ret));
+    }
+    else
+        *first_task = copy_task;
+    req->rc++;
+    src_dset->obj.item.rc++;
+    dst_dset->obj.item.rc++;
+    *dep_task = copy_task;
+    *sched_loc = H5_DAOS_SCHED_LOC_SRC;
+
+done:
+    if(ret_value < 0) {
+        DV_free(copy_ud);
+    }
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_dataset_copy_data() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_dataset_copy_data_task
+ *
+ * Purpose:     Asynchronous task for copying data from a source dataset to
+ *              a target dataset. Currently just attempts to read and write
+ *              the data all at once.
+ *
+ *              This task exists in the source file's scheduler.
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_dataset_copy_data_task(tse_task_t *task)
+{
+    H5_daos_dataset_copy_data_ud_t *udata;
+    hssize_t fspace_nelements = 0;
+    size_t buf_size = 0;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for dataset data copy task");
+
+    assert(udata->req);
+    assert(udata->src_dset);
+    assert(udata->dst_dset);
+
+    /* Check for previous errors */
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT)
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT)
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
+
+    /* Calculate size needed to store entirety of dataset's data */
+    if((fspace_nelements = H5Sget_simple_extent_npoints(udata->src_dset->space_id)) < 0)
+        D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, -H5_DAOS_H5_GET_ERROR, "can't get number of elements in source dataset's dataspace");
+    if(0 == (buf_size = H5Tget_size(udata->src_dset->type_id)))
+        D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, -H5_DAOS_H5_GET_ERROR, "can't get source dataset's datatype size");
+    buf_size *= fspace_nelements;
+
+    if(NULL == (udata->data_buf = DV_malloc(buf_size)))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate data buffer for dataset data copy");
+
+    if(H5_daos_dataset_read(udata->src_dset, udata->src_dset->type_id, H5S_ALL, H5S_ALL,
+            udata->req->dxpl_id, udata->data_buf, NULL) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_READERROR, -H5_DAOS_DAOS_GET_ERROR, "can't read data from source dataset");
+
+    if(H5_daos_dataset_write(udata->dst_dset, udata->src_dset->type_id, H5S_ALL, H5S_ALL,
+            udata->req->dxpl_id, udata->data_buf, NULL) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_WRITEERROR, -H5_DAOS_H5_COPY_ERROR, "can't write data to copied dataset");
+
+done:
+    if(udata) {
+        if(H5_daos_dataset_close(udata->src_dset, udata->req->dxpl_id, NULL) < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close dataset");
+
+        if(H5_daos_dataset_close(udata->dst_dset, udata->req->dxpl_id, NULL) < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close dataset");
+
+        /* Handle errors in this function */
+        /* Do not place any code that can issue errors after this block, except
+         * for H5_daos_req_free_int, which updates req->status if it sees an
+         * error */
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+            udata->req->status = ret_value;
+            udata->req->failed_task = "dataset data copy task";
+        } /* end if */
+
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(udata->req) < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+        if(udata->data_buf)
+            DV_free(udata->data_buf);
+
+        /* Free private data */
+        DV_free(udata);
+    }
+    else
+        assert(ret_value >= 0 || ret_value == -H5_DAOS_DAOS_GET_ERROR);
+
+    /* Complete this task */
+    tse_task_complete(task, ret_value);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_dataset_copy_data_task() */
 
 
 /*-------------------------------------------------------------------------
@@ -1151,17 +2837,25 @@ done:
  */
 herr_t
 H5_daos_object_get(void *_item, const H5VL_loc_params_t *loc_params,
-    H5VL_object_get_t get_type, hid_t H5VL_DAOS_UNUSED dxpl_id,
-    void H5VL_DAOS_UNUSED **req, va_list H5VL_DAOS_UNUSED arguments)
+    H5VL_object_get_t get_type, hid_t dxpl_id, void H5VL_DAOS_UNUSED **req,
+    va_list H5VL_DAOS_UNUSED arguments)
 {
     H5_daos_item_t *item = (H5_daos_item_t *) _item;
-    H5_daos_obj_t *target_obj = NULL;
+    H5_daos_obj_t  *target_obj = NULL;
+    H5_daos_req_t  *int_req = NULL;
+    tse_task_t     *first_task = NULL;
+    tse_task_t     *dep_task = NULL;
+    int             ret;
     herr_t          ret_value = SUCCEED;
 
     if(!_item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
     if(!loc_params)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "location parameters object is NULL");
+
+    /* Start H5 operation */
+    if(NULL == (int_req = H5_daos_req_create(item->file, dxpl_id)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTALLOC, FAIL, "can't create DAOS request");
 
     switch (get_type) {
         case H5VL_OBJECT_GET_FILE:
@@ -1238,31 +2932,36 @@ H5_daos_object_get(void *_item, const H5VL_loc_params_t *loc_params,
         {
             H5O_info2_t *oinfo = va_arg(arguments, H5O_info2_t *);
             unsigned fields = va_arg(arguments, unsigned);
+            H5_daos_obj_t ***target_obj_p = NULL;
 
             /* Determine target object */
             switch (loc_params->type) {
                 case H5VL_OBJECT_BY_SELF:
-                    /* Use item as attribute parent object, or the root group if item is a file */
+                    /* Use item as attribute parent object, or the root group if
+                     * item is a file */
                     if(item->type == H5I_FILE)
                         target_obj = (H5_daos_obj_t *)((H5_daos_file_t *)item)->root_grp;
                     else
                         target_obj = (H5_daos_obj_t *)item;
-
                     target_obj->item.rc++;
+
                     break;
 
                 case H5VL_OBJECT_BY_NAME:
                 case H5VL_OBJECT_BY_IDX:
                     /* Open target object */
-                    if(NULL == (target_obj = (H5_daos_obj_t *)H5_daos_object_open(item, loc_params, NULL, dxpl_id, req)))
+                    if(H5_daos_object_open_helper(item, loc_params, NULL, TRUE,
+                            &target_obj_p, NULL, int_req, &first_task, &dep_task) < 0)
                         D_GOTO_ERROR(H5E_OBJECT, H5E_CANTOPENOBJ, FAIL, "can't open object");
+
                     break;
 
                 default:
                     D_GOTO_ERROR(H5E_OBJECT, H5E_UNSUPPORTED, FAIL, "unsupported object operation location parameters type");
             } /* end switch */
 
-            if(H5_daos_object_get_info(target_obj, fields, oinfo) < 0)
+            if(H5_daos_object_get_info(target_obj_p, NULL, target_obj, fields, oinfo,
+                    &item->file->sched, int_req, &first_task, &dep_task) < 0)
                 D_GOTO_ERROR(H5E_OBJECT, H5E_CANTGET, FAIL, "can't retrieve info for object");
 
             break;
@@ -1273,14 +2972,119 @@ H5_daos_object_get(void *_item, const H5VL_loc_params_t *loc_params,
     } /* end switch */
 
 done:
+    if(int_req) {
+        /* Create task to finalize H5 operation */
+        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &item->file->sched, int_req, &int_req->finalize_task)))
+            D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        /* Register dependency (if any) */
+        else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
+            D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        /* Schedule finalize task */
+        else if(0 != (ret = tse_task_schedule(int_req->finalize_task, false)))
+            D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        else
+            /* finalize_task now owns a reference to req */
+            int_req->rc++;
+
+        /* If there was an error during setup, pass it to the request */
+        if(ret_value < 0)
+            int_req->status = -H5_DAOS_SETUP_ERROR;
+
+        /* Schedule first task */
+        if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
+            D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
+
+        /* Block until operation completes */
+        if(H5_daos_progress(&item->file->sched, int_req, H5_DAOS_PROGRESS_WAIT) < 0)
+            D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't progress scheduler");
+
+        /* Check for failure */
+        if(int_req->status < 0)
+            D_DONE_ERROR(H5E_OBJECT, H5E_CANTOPERATE, FAIL, "object get operation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status));
+
+        /* Close internal request */
+        if(H5_daos_req_free_int(int_req) < 0)
+            D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, FAIL, "can't free request");
+    } /* end if */
+
     if(target_obj) {
-        if(H5_daos_object_close(target_obj, dxpl_id, req) < 0)
+        if(H5_daos_object_close(target_obj, dxpl_id, NULL) < 0)
             D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, FAIL, "can't close object");
         target_obj = NULL;
-    } /* end else */
+    } /* end if */
 
     D_FUNC_LEAVE_API;
 } /* end H5_daos_object_get() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_object_lookup_task
+ *
+ * Purpose:     Asynchronous task for object token lookup.
+ *
+ * Return:      Success:        0
+ *              Failure:        Negative error code
+ *
+ * Programmer:  Neil Fortner
+ *              June, 2020
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_object_lookup_task(tse_task_t *task)
+{
+    H5_daos_object_lookup_ud_t *udata = NULL;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for object specific operation task");
+
+    assert(udata->req);
+
+    /* Handle errors in previous tasks */
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT)
+        ret_value = -H5_DAOS_PRE_ERROR;
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT)
+        ret_value = -H5_DAOS_SHORT_CIRCUIT;
+
+    assert(udata->target_obj);
+    assert(udata->token);
+
+    /* Get token */
+    if(H5_daos_oid_to_token(udata->target_obj->oid, udata->token) < 0)
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTENCODE, -H5_DAOS_H5_ENCODE_ERROR, "can't convert OID to object token");
+
+done:
+    /* Clean up */
+    if(udata) {
+        if(udata->target_obj) {
+            if(H5_daos_object_close(udata->target_obj, udata->req->dxpl_id, NULL) < 0)
+                D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
+            udata->target_obj = NULL;
+        } /* end if */
+
+        /* Handle errors in this function */
+        /* Do not place any code that can issue errors after this block, except
+         * for H5_daos_req_free_int, which updates req->status if it sees an
+         * error */
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+            udata->req->status = ret_value;
+            udata->req->failed_task = "object lookup task";
+        } /* end if */
+
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(udata->req) < 0)
+            D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+        /* Free udata */
+        udata = DV_free(udata);
+    } /* end if */
+
+    tse_task_complete(task, ret_value);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_object_lookup_task() */
 
 
 /*-------------------------------------------------------------------------
@@ -1298,18 +3102,20 @@ done:
  */
 herr_t
 H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
-    H5VL_object_specific_t specific_type, hid_t dxpl_id, void **req,
+    H5VL_object_specific_t specific_type, hid_t dxpl_id, void H5VL_DAOS_UNUSED **req,
     va_list arguments)
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
+    H5_daos_object_lookup_ud_t *lookup_udata = NULL;
+    H5_daos_obj_t ***target_obj_p = NULL;
     H5_daos_obj_t *target_obj = NULL;
     char *path_buf = NULL;
+    uint64_t *rc_buf = NULL;
     H5_daos_req_t *int_req = NULL;
     tse_task_t *first_task = NULL;
     tse_task_t *dep_task = NULL;
     const char *oexists_obj_name = NULL;
     size_t oexists_obj_name_len = 0;
-    hid_t target_obj_id = H5I_INVALID_HID;
     int ret;
     herr_t ret_value = SUCCEED;
 
@@ -1319,7 +3125,7 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "location parameters object is NULL");
 
     /* Start H5 operation */
-    if(NULL == (int_req = H5_daos_req_create(item->file, H5I_INVALID_HID)))
+    if(NULL == (int_req = H5_daos_req_create(item->file, dxpl_id)))
         D_GOTO_ERROR(H5E_OBJECT, H5E_CANTALLOC, FAIL, "can't create DAOS request");
 
     /* Determine target object */
@@ -1349,55 +3155,57 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
             if(NULL == (target_obj = H5_daos_group_traverse(item, loc_params->loc_data.loc_by_name.name,
                     H5P_LINK_CREATE_DEFAULT, int_req, FALSE, &path_buf, &oexists_obj_name, &oexists_obj_name_len, &first_task, &dep_task)))
                 D_GOTO_ERROR(H5E_SYM, H5E_CANTOPENOBJ, FAIL, "can't open group");
-        }
-        else {
-            if(NULL == (target_obj = (H5_daos_obj_t *)H5_daos_object_open(item, loc_params, NULL, dxpl_id, req)))
+        } /* end if */
+        else
+            /* Open the object */
+            if(H5_daos_object_open_helper(item, loc_params, NULL, TRUE,
+                    &target_obj_p, NULL, int_req, &first_task, &dep_task) < 0)
                 D_GOTO_ERROR(H5E_OBJECT, H5E_CANTOPENOBJ, FAIL, "can't open target object");
-        }
-    } /* end else */
+    } /* end if */
     else
         D_GOTO_ERROR(H5E_OBJECT, H5E_UNSUPPORTED, FAIL, "unsupported object operation location parameters type");
 
     switch (specific_type) {
         /* H5Oincr_refcount/H5Odecr_refcount */
         case H5VL_OBJECT_CHANGE_REF_COUNT:
-            D_GOTO_ERROR(H5E_OBJECT, H5E_UNSUPPORTED, FAIL, "H5Oincr_refcount/H5Odecr_refcount are unsupported");
+        {
+            int update_ref  = va_arg(arguments, int);
+
+            assert(loc_params->type == H5VL_OBJECT_BY_SELF);
+            assert(target_obj);
+
+            /* Allocate buffer to hold rc */
+            if(NULL == (rc_buf = DV_malloc(sizeof(uint64_t))))
+                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate user data struct for object reference count adjust task");
+
+            /* Read target object ref count */
+            if(0 != (ret = H5_daos_obj_read_rc(NULL, target_obj, rc_buf, NULL,
+                    &target_obj->item.file->sched, int_req, &first_task, &dep_task)))
+                D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't get object ref count: %s", H5_daos_err_to_string(ret));
+
+            /* Increment and write ref count */
+            if(0 != (ret = H5_daos_obj_write_rc(NULL, target_obj, rc_buf, (int64_t)update_ref,
+                    &target_obj->item.file->sched, int_req, &first_task, &dep_task)))
+                D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINC, FAIL, "can't write updated object ref count: %s", H5_daos_err_to_string(ret));
+
             break;
+        } /* H5VL_OBJECT_CHANGE_REF_COUNT */
 
         /* H5Oexists_by_name */
         case H5VL_OBJECT_EXISTS:
         {
-            daos_obj_id_t oid;
-            daos_obj_id_t **oid_ptr = NULL;
             htri_t *oexists_ret = va_arg(arguments, htri_t *);
-            hbool_t link_exists;
+
+            assert(target_obj);
 
             /* Check type of target_obj */
             if(target_obj->item.type != H5I_GROUP)
                 D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "target object is not a group");
 
-            /* Check if the link resolves */
-            if(H5_daos_link_follow((H5_daos_group_t *)target_obj, oexists_obj_name,
-                    oexists_obj_name_len, FALSE, int_req, &oid_ptr, &link_exists,
-                    &first_task, &dep_task) < 0)
-                D_GOTO_ERROR(H5E_OBJECT, H5E_TRAVERSE, FAIL, "can't follow link to object");
-
-            /* Retarget *oid_ptr so H5_daos_link_follow fills in the oid */
-            *oid_ptr = &oid;
-
-            /* Wait until everything is complete then check for errors
-             * (temporary code until the rest of this function is async) */
-            if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
-                D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
-            if(H5_daos_progress(&item->file->sched, NULL, H5_DAOS_PROGRESS_WAIT) < 0)
-                D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't progress scheduler");
-            first_task = NULL;
-            dep_task = NULL;
-            if(int_req->status < -H5_DAOS_INCOMPLETE)
-                D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "asynchronous task failed");
-
-            /* Set return value */
-            *oexists_ret = (htri_t)link_exists;
+            if(H5_daos_object_exists((H5_daos_group_t *)target_obj, oexists_obj_name,
+                    oexists_obj_name_len, oexists_ret, &item->file->sched,
+                    int_req, &first_task, &dep_task) < 0)
+                D_GOTO_ERROR(H5E_OBJECT, H5E_CANTGET, FAIL, "can't determine if object exists");
 
             break;
         } /* H5VL_OBJECT_EXISTS */
@@ -1405,12 +3213,38 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
         case H5VL_OBJECT_LOOKUP:
         {
             H5O_token_t *token = va_arg(arguments, H5O_token_t *);
+            tse_task_t *lookup_task = NULL;
 
             if(H5VL_OBJECT_BY_NAME != loc_params->type)
                 D_GOTO_ERROR(H5E_OBJECT, H5E_BADVALUE, FAIL, "invalid loc_params type");
 
-            if(H5_daos_oid_to_token(target_obj->oid, token) < 0)
-                D_GOTO_ERROR(H5E_OBJECT, H5E_CANTENCODE, FAIL, "can't convert OID to object token");
+            /* Allocate task udata struct and retarget target_obj_p to fill
+             * in target_obj in udata */
+             if(NULL == (lookup_udata = (H5_daos_object_lookup_ud_t *)DV_calloc(sizeof(H5_daos_object_lookup_ud_t))))
+                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate object specific user data");
+            lookup_udata->req = int_req;
+            *target_obj_p = &lookup_udata->target_obj;
+            lookup_udata->token = token;
+
+            /* Create task to finish this operation */
+            if(0 != (ret = tse_task_create(H5_daos_object_lookup_task, &item->file->sched, lookup_udata, &lookup_task)))
+                D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to look up object token: %s", H5_daos_err_to_string(ret));
+
+            /* Register dependency on dep_task if present */
+            if(dep_task && 0 != (ret = tse_task_register_deps(lookup_task, 1, &dep_task)))
+                D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create dependencies for task to look up object token: %s", H5_daos_err_to_string(ret));
+
+            /* Schedule operator callback function task (or save it to be scheduled
+             * later) and give it a reference to req and udata. */
+            if(first_task) {
+                if(0 != (ret = tse_task_schedule(lookup_task, false)))
+                    D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't schedule task to look up object token: %s", H5_daos_err_to_string(ret));
+            } /* end if */
+            else
+                first_task = lookup_task;
+            dep_task = lookup_task;
+            int_req->rc++;
+            lookup_udata = NULL;
 
             break;
         } /* H5VL_OBJECT_LOOKUP */
@@ -1425,19 +3259,15 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
             void *op_data = va_arg(arguments, void *);
             unsigned fields = va_arg(arguments, unsigned);
 
-            /* Register id for target_obj */
-            if((target_obj_id = H5VLwrap_register(target_obj, target_obj->item.type)) < 0)
-                D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, FAIL, "unable to atomize object handle");
-
             /* Initialize iteration data */
             H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_OBJ, idx_type, iter_order,
-                    FALSE, NULL, target_obj_id, op_data, dxpl_id, int_req, &first_task,
-                    &dep_task);
+                    FALSE, NULL, H5I_INVALID_HID, op_data, &ret_value, int_req);
             iter_data.u.obj_iter_data.fields = fields;
-            iter_data.u.obj_iter_data.obj_iter_op = iter_op;
+            iter_data.u.obj_iter_data.u.obj_iter_op = iter_op;
             iter_data.u.obj_iter_data.obj_name = ".";
 
-            if((ret_value = H5_daos_object_visit(target_obj, &iter_data)) < 0)
+            if(H5_daos_object_visit(target_obj_p, target_obj, &iter_data, &item->file->sched,
+                    int_req, &first_task, &dep_task) < 0)
                 D_GOTO_ERROR(H5E_OBJECT, H5E_BADITER, FAIL, "object visiting failed");
 
             break;
@@ -1446,6 +3276,8 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
         /* H5Oflush */
         case H5VL_OBJECT_FLUSH:
         {
+            assert(loc_params->type == H5VL_OBJECT_BY_SELF);
+
             switch(item->type) {
                 case H5I_FILE:
                     if(H5_daos_file_flush((H5_daos_file_t *)item) < 0)
@@ -1473,13 +3305,15 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
         /* H5Orefresh */
         case H5VL_OBJECT_REFRESH:
         {
+            assert(loc_params->type == H5VL_OBJECT_BY_SELF);
+
             switch(item->type) {
                 case H5I_FILE:
-                    if(H5_daos_group_refresh(item->file->root_grp, dxpl_id, req) < 0)
+                    if(H5_daos_group_refresh(item->file->root_grp, dxpl_id, NULL) < 0)
                         D_GOTO_ERROR(H5E_FILE, H5E_READERROR, FAIL, "failed to refresh file");
                     break;
                 case H5I_GROUP:
-                    if(H5_daos_group_refresh((H5_daos_group_t *)item, dxpl_id, req) < 0)
+                    if(H5_daos_group_refresh((H5_daos_group_t *)item, dxpl_id, NULL) < 0)
                         D_GOTO_ERROR(H5E_SYM, H5E_READERROR, FAIL, "failed to refresh group");
                     break;
                 case H5I_DATASET:
@@ -1487,7 +3321,7 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
                         D_GOTO_ERROR(H5E_DATASET, H5E_READERROR, FAIL, "failed to refresh dataset");
                     break;
                 case H5I_DATATYPE:
-                    if(H5_daos_datatype_refresh((H5_daos_dtype_t *)item, dxpl_id, req) < 0)
+                    if(H5_daos_datatype_refresh((H5_daos_dtype_t *)item, dxpl_id, NULL) < 0)
                         D_GOTO_ERROR(H5E_DATATYPE, H5E_READERROR, FAIL, "failed to refresh datatype");
                     break;
                 default:
@@ -1506,6 +3340,10 @@ done:
         /* Free path_buf if necessary */
         if(path_buf && H5_daos_free_async(item->file, path_buf, &first_task, &dep_task) < 0)
             D_DONE_ERROR(H5E_OBJECT, H5E_CANTFREE, FAIL, "can't free path buffer");
+
+        /* Free rc_buf if necessary */
+        if(rc_buf && H5_daos_free_async(item->file, rc_buf, &first_task, &dep_task) < 0)
+            D_DONE_ERROR(H5E_OBJECT, H5E_CANTFREE, FAIL, "can't free ref count buffer");
 
         /* Create task to finalize H5 operation */
         if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &item->file->sched, int_req, &int_req->finalize_task)))
@@ -1541,17 +3379,16 @@ done:
             D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, FAIL, "can't free request");
     } /* end if */
 
-    if(target_obj_id >= 0) {
-        if(H5Idec_ref(target_obj_id) < 0)
-            D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, FAIL, "can't close object ID");
-        target_obj_id = H5I_INVALID_HID;
-        target_obj = NULL;
-    } /* end if */
-    else if(target_obj) {
-        if(H5_daos_object_close(target_obj, dxpl_id, req) < 0)
+    if(target_obj) {
+        if(H5_daos_object_close(target_obj, dxpl_id, NULL) < 0)
             D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, FAIL, "can't close object");
         target_obj = NULL;
-    } /* end else */
+    } /* end if */
+
+    if(lookup_udata) {
+        assert(ret_value < 0);
+        lookup_udata = DV_free(lookup_udata);
+    } /* end if */
 
     D_FUNC_LEAVE_API;
 } /* end H5_daos_object_specific() */
@@ -1641,62 +3478,369 @@ done:
 
 
 /*-------------------------------------------------------------------------
+ * Function:    H5_daos_object_exists
+ *
+ * Purpose:     Creates an asynchronous task to check if an object exists
+ *              in a group according to a given link name.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_object_exists(H5_daos_group_t *target_grp, const char *link_name,
+    size_t link_name_len, htri_t *oexists_ret, tse_sched_t *sched,
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
+{
+    H5_daos_object_exists_ud_t *exists_udata = NULL;
+    daos_obj_id_t **oid_ptr = NULL;
+    tse_task_t *oexists_finish_task = NULL;
+    int ret;
+    herr_t ret_value = SUCCEED;
+
+    assert(target_grp);
+    assert(link_name);
+    assert(oexists_ret);
+    assert(sched);
+    assert(req);
+    assert(first_task);
+    assert(dep_task);
+
+    /* Allocate argument struct for object existence checking tasks */
+    if(NULL == (exists_udata = (H5_daos_object_exists_ud_t *)DV_calloc(sizeof(H5_daos_object_exists_ud_t))))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for object existence check task arguments");
+    exists_udata->req = req;
+    exists_udata->target_grp = target_grp;
+    exists_udata->link_name = link_name;
+    exists_udata->link_name_len = link_name_len;
+    exists_udata->oexists_ret = oexists_ret;
+
+    /* Create task to try to resolve link */
+    if(H5_daos_link_follow(exists_udata->target_grp, exists_udata->link_name,
+            exists_udata->link_name_len, FALSE, req, &oid_ptr,
+            &exists_udata->link_exists, first_task, dep_task) < 0)
+        D_GOTO_ERROR(H5E_OBJECT, H5E_TRAVERSE, FAIL, "can't follow link to object");
+
+    /* Retarget *oid_ptr so H5_daos_link_follow fills in the oid */
+    *oid_ptr = &exists_udata->oid;
+
+    /* Create task to set oexists_ret based on whether link resolves */
+    if(0 != (ret = tse_task_create(H5_daos_object_exists_finish, sched, exists_udata, &oexists_finish_task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to check if object exists: %s", H5_daos_err_to_string(ret));
+
+    /* Register dependency on link follow task for object existence check task */
+    if(*dep_task && 0 != (ret = tse_task_register_deps(oexists_finish_task, 1, dep_task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create dependencies for task to check if object exists: %s", H5_daos_err_to_string(ret));
+
+    /* Schedule object existence check task */
+    if(*first_task) {
+        if(0 != (ret = tse_task_schedule(oexists_finish_task, false)))
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't schedule task to check for object existence: %s", H5_daos_err_to_string(ret));
+    } /* end if */
+    else
+        *first_task = oexists_finish_task;
+    exists_udata->target_grp->obj.item.rc++;
+    req->rc++;
+    *dep_task = oexists_finish_task;
+
+    /* Relinquish control of udata to task's function body */
+    exists_udata = NULL;
+
+done:
+    if(exists_udata) {
+        assert(ret_value < 0);
+        exists_udata = DV_free(exists_udata);
+    }
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_object_exists() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_object_exists_finish
+ *
+ * Purpose:     Asynchronous task to return whether an object exists in a
+ *              group or not, based upon if the link name for that object
+ *              resolved. Also frees private data from object existence
+ *              check tasks.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_object_exists_finish(tse_task_t *task)
+{
+    H5_daos_object_exists_ud_t *udata;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for object existence check task");
+
+    assert(udata->req);
+    assert(udata->target_grp);
+    assert(udata->link_name);
+    assert(udata->oexists_ret);
+
+    /* Handle errors in previous tasks */
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    } /* end if */
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT) {
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
+    } /* end if */
+
+    *udata->oexists_ret = (htri_t)udata->link_exists;
+
+done:
+    if(udata) {
+        /* Close group */
+        if(H5_daos_group_close(udata->target_grp, H5I_INVALID_HID, NULL) < 0)
+            D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close group");
+
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(udata->req) < 0)
+            D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+        /* Free private data */
+        DV_free(udata);
+    }
+    else
+        assert(ret_value == -H5_DAOS_DAOS_GET_ERROR);
+
+    /* Complete this task */
+    tse_task_complete(task, ret_value);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_object_exists_finish() */
+
+
+/*-------------------------------------------------------------------------
  * Function:    H5_daos_object_visit
  *
- * Purpose:     Helper routine to recursively visit the specified object
- *              and all objects accessible from the specified object,
- *              calling the supplied callback function on each object,
- *              when H5Ovisit(_by_name) is called.
+ * Purpose:     Creates asynchronous tasks to recursively visit the
+ *              specified object and all objects accessible from the
+ *              specified object, calling the supplied callback function on
+ *              each object.
+ *
+ *              Excatly one of target_obj_prev_out and target_obj must be
+ *              provided.  If target_obj_prev_out is provided it should be
+ *              set to the location previously returned by the ret_obj_p
+ *              parameter for H5_daos_object_open_helper() (this function
+ *              will retarget that function's output to point into this
+ *              function's udata).  In this case, this function will own
+ *              the object and will close it at the end.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_object_visit(H5_daos_obj_t ***target_obj_prev_out, H5_daos_obj_t *target_obj,
+    H5_daos_iter_data_t *iter_data, tse_sched_t *sched, H5_daos_req_t *req,
+    tse_task_t **first_task, tse_task_t **dep_task)
+{
+    H5_daos_object_visit_ud_t *visit_udata = NULL;
+    tse_task_t *visit_task = NULL;
+    int ret;
+    herr_t ret_value = SUCCEED;
+
+    assert(target_obj_prev_out || target_obj);
+    assert(!(target_obj_prev_out && target_obj));
+    assert(iter_data);
+    assert(sched);
+    assert(req);
+    assert(first_task);
+    assert(dep_task);
+
+    if(NULL == (visit_udata = (H5_daos_object_visit_ud_t *)DV_malloc(sizeof(H5_daos_object_visit_ud_t))))
+         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate user data struct for object visit task");
+    visit_udata->req = req;
+    visit_udata->visit_metatask = NULL;
+    if(target_obj_prev_out)
+        *target_obj_prev_out = &visit_udata->target_obj;
+    else
+        visit_udata->target_obj = target_obj;
+    visit_udata->iter_data = *iter_data;
+
+    /* Retrieve the info of the target object */
+    if(H5_daos_object_get_info(NULL, &visit_udata->target_obj, NULL, iter_data->u.obj_iter_data.fields,
+            &visit_udata->obj_info, sched, req, first_task, dep_task) < 0)
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTGET, FAIL, "can't get info for object");
+
+    /* Create task to visit the specified target object first */
+    if(0 != (ret = tse_task_create(H5_daos_object_visit_task, sched, visit_udata, &visit_task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to call operator callback function: %s", H5_daos_err_to_string(ret));
+
+    /* Register dependency on dep_task if present */
+    if(*dep_task && 0 != (ret = tse_task_register_deps(visit_task, 1, dep_task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create dependencies for operator callback function task: %s", H5_daos_err_to_string(ret));
+
+    /* Schedule operator callback function task (or save it to be scheduled
+     * later).  It will share references to req and target_obj with all objects
+     * at this level of iteration, these references will be released by
+     * H5_daos_object_visit_finish(). */
+    if(*first_task) {
+        if(0 != (ret = tse_task_schedule(visit_task, false)))
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't schedule task to call operator callback function: %s", H5_daos_err_to_string(ret));
+    } /* end if */
+    else
+        *first_task = visit_task;
+    *dep_task = visit_task;
+
+    /* Create metatask to free object visiting udata. This task will be completed
+     * when the actual asynchronous object visiting is finished. This metatask
+     * is necessary because the initial visit task may generate other async
+     * tasks for visiting the submembers of a group object. */
+    if(0 != (ret = tse_task_create(H5_daos_object_visit_finish, sched, visit_udata, &visit_udata->visit_metatask)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create meta task for object visiting: %s", H5_daos_err_to_string(ret));
+
+    /* Register dependency on object visiting task for metatask */
+    if(*dep_task && 0 != (ret = tse_task_register_deps(visit_udata->visit_metatask, 1, dep_task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create dependencies for object visiting metatask: %s", H5_daos_err_to_string(ret));
+
+    /* Schedule meta task */
+    if(*first_task) {
+        if(0 != (ret = tse_task_schedule(visit_udata->visit_metatask, false)))
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't schedule meta task for object visiting: %s", H5_daos_err_to_string(ret));
+    } /* end if */
+    else
+        *first_task = visit_udata->visit_metatask;
+    if(target_obj)
+        target_obj->item.rc++;
+    req->rc++;
+
+    *dep_task = visit_udata->visit_metatask;
+
+    /* Relinquish control of iteration op udata to task. */
+    visit_udata = NULL;
+
+done:
+    if(ret_value < 0) {
+        visit_udata = DV_free(visit_udata);
+    }
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_object_visit() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_object_visit_task
+ *
+ * Purpose:     Asynchronous task to call a user-supplied operator callback
+ *              function during object iteration.
  *
  * Return:      Success:        0
  *              Failure:        -1
  *
  *-------------------------------------------------------------------------
  */
-herr_t
-H5_daos_object_visit(H5_daos_obj_t *target_obj, H5_daos_iter_data_t *iter_data)
+static int
+H5_daos_object_visit_task(tse_task_t *task)
 {
-    H5O_info_t target_obj_info;
-    herr_t op_ret = H5_ITER_CONT;
-    herr_t ret_value = SUCCEED;
+    H5_daos_object_visit_ud_t *udata;
+    tse_task_t *first_task = NULL;
+    tse_task_t *dep_task = NULL;
+    int ret;
+    int ret_value = 0;
 
-    assert(target_obj);
-    assert(iter_data);
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for operator function function task");
 
-    /* Retrieve the info of the target object */
-    if(H5_daos_object_get_info(target_obj, iter_data->u.obj_iter_data.fields, &target_obj_info) < 0)
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTGET, FAIL, "can't get info for object");
+    assert(udata->req);
+    assert(udata->iter_data.u.obj_iter_data.u.obj_iter_op);
 
-    /* Visit the specified target object first */
-    if((op_ret = iter_data->u.obj_iter_data.obj_iter_op(iter_data->iter_root_obj, iter_data->u.obj_iter_data.obj_name, &target_obj_info, iter_data->op_data)) < 0)
-        D_GOTO_ERROR(H5E_OBJECT, H5E_BADITER, op_ret, "operator function returned failure");
+    /* Check for previous errors */
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT || *udata->iter_data.op_ret_p < 0)
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT)
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
+
+    /* Determine if short-circuit success was returned in previous tasks */
+    if(*udata->iter_data.op_ret_p > 0)
+        D_GOTO_DONE(0);
+
+    /* Register ID for object to be visited */
+    if((udata->target_obj_id = H5VLwrap_register(udata->target_obj, udata->target_obj->item.type)) < 0)
+        D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, -H5_DAOS_SETUP_ERROR, "unable to atomize object handle");
+    udata->target_obj->item.rc++;
+
+    /* Make callback */
+    if(udata->iter_data.async_op) {
+        if(udata->iter_data.u.obj_iter_data.u.obj_iter_op_async(udata->target_obj_id,
+                udata->iter_data.u.obj_iter_data.obj_name, &udata->obj_info, udata->iter_data.op_data,
+                udata->iter_data.op_ret_p, &first_task, &dep_task) < 0)
+            D_GOTO_ERROR(H5E_OBJECT, H5E_BADITER, -H5_DAOS_CALLBACK_ERROR, "operator function returned failure");
+    }
+    else {
+        if((*udata->iter_data.op_ret_p = udata->iter_data.u.obj_iter_data.u.obj_iter_op(
+                udata->target_obj_id, udata->iter_data.u.obj_iter_data.obj_name,
+                &udata->obj_info, udata->iter_data.op_data)) < 0)
+            D_GOTO_ERROR(H5E_OBJECT, H5E_BADITER, -H5_DAOS_CALLBACK_ERROR, "operator function returned failure");
+    }
+
+    /* Check for short-circuit success */
+    if(*udata->iter_data.op_ret_p) {
+        udata->iter_data.req->status = -H5_DAOS_SHORT_CIRCUIT;
+        udata->iter_data.short_circuit_init = TRUE;
+
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
+    }
 
     /* If the object is a group, visit all objects below the group */
-    if(H5I_GROUP == target_obj->item.type) {
+    if(H5I_GROUP == udata->target_obj->item.type) {
         H5_daos_iter_data_t sub_iter_data;
+
+        assert(udata->visit_metatask);
 
         /*
          * Initialize the link iteration data with all of the fields from
-         * the passed in object iteration data, with the exception that the
+         * the previous object iteration data, with the exception that the
          * link iteration data's is_recursive field is set to FALSE. The link
          * iteration data's op_data will be a pointer to the passed in
          * object iteration data so that the correct object iteration callback
          * operator function can be called for each link during H5_daos_link_iterate().
          */
-        H5_DAOS_ITER_DATA_INIT(sub_iter_data, H5_DAOS_ITER_TYPE_LINK, iter_data->index_type, iter_data->iter_order,
-                FALSE, iter_data->idx_p, iter_data->iter_root_obj, iter_data, iter_data->dxpl_id, iter_data->req,
-                iter_data->first_task, iter_data->dep_task);
-        sub_iter_data.u.link_iter_data.link_iter_op = H5_daos_object_visit_link_iter_cb;
+        H5_DAOS_ITER_DATA_INIT(sub_iter_data, H5_DAOS_ITER_TYPE_LINK, udata->iter_data.index_type,
+                udata->iter_data.iter_order, FALSE, udata->iter_data.idx_p, udata->target_obj_id,
+                udata, NULL, udata->req);
+        sub_iter_data.async_op = TRUE;
+        sub_iter_data.u.link_iter_data.u.link_iter_op_async = H5_daos_object_visit_link_iter_cb;
 
-        if(H5_daos_link_iterate((H5_daos_group_t *) target_obj, &sub_iter_data) < 0)
-            D_GOTO_ERROR(H5E_SYM, H5E_BADITER, FAIL, "failed to iterate through group's links");
+        if(H5_daos_link_iterate((H5_daos_group_t *)udata->target_obj, &sub_iter_data,
+                &first_task, &dep_task) < 0)
+            D_GOTO_ERROR(H5E_SYM, H5E_BADITER, -H5_DAOS_H5_ITER_ERROR, "failed to iterate through group's links");
     } /* end if */
 
-    ret_value = op_ret;
+    /* Register dependency on dep_task for new link iteration task */
+    if(dep_task && 0 != (ret = tse_task_register_deps(udata->visit_metatask, 1, &dep_task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't create dependencies for object visiting metatask: %s", H5_daos_err_to_string(ret));
 
 done:
+    /* Schedule first task */
+    if(first_task && 0 != (ret = tse_task_schedule(first_task, false)))
+        D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't schedule task to iterate over object's links: %s", H5_daos_err_to_string(ret));
+
+    if(udata) {
+        /* Handle errors in this function */
+        /* Do not place any code that can issue errors after this block, except for
+         * H5_daos_req_free_int, which updates req->status if it sees an error */
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+            udata->req->status = ret_value;
+            udata->req->failed_task = "object visiting task";
+        } /* end if */
+    }
+    else
+        assert(ret_value == -H5_DAOS_DAOS_GET_ERROR);
+
+    /* Complete this task */
+    tse_task_complete(task, ret_value);
+
     D_FUNC_LEAVE;
-} /* end H5_daos_object_visit() */
+} /* end H5_daos_object_visit_task() */
 
 
 /*-------------------------------------------------------------------------
@@ -1717,107 +3861,361 @@ done:
  */
 static herr_t
 H5_daos_object_visit_link_iter_cb(hid_t group, const char *name, const H5L_info2_t *info,
-    void *op_data)
+    void *op_data, herr_t *op_ret, tse_task_t **first_task, tse_task_t **dep_task)
 {
-    H5_daos_iter_data_t *iter_data = (H5_daos_iter_data_t *)op_data;
+    H5_daos_object_visit_ud_t *visit_udata = (H5_daos_object_visit_ud_t *)op_data;
     H5_daos_group_t *target_grp;
-    H5_daos_obj_t *target_obj = NULL;
-    hbool_t link_resolves = TRUE;
-    int ret;
     herr_t ret_value = H5_ITER_CONT;
 
-    assert(iter_data);
-    assert(H5_DAOS_ITER_TYPE_OBJ == iter_data->iter_type);
+    assert(visit_udata);
+    assert(H5_DAOS_ITER_TYPE_OBJ == visit_udata->iter_data.iter_type);
 
     if(NULL == (target_grp = (H5_daos_group_t *) H5VLobject(group)))
         D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, H5_ITER_ERROR, "failed to retrieve VOL object for group ID");
 
     if(H5L_TYPE_SOFT == info->type) {
-        /* Temporary hack - create and finalize req within this block.  req
-         * should have wider scope once everything is async */
-        H5_daos_req_t *int_req = NULL;
-        tse_task_t *first_task = NULL;
-        tse_task_t *dep_task = NULL;
-        daos_obj_id_t oid;
-        daos_obj_id_t **oid_ptr = NULL;
-
-        /* Start H5 operation */
-        if(NULL == (int_req = H5_daos_req_create(target_grp->obj.item.file, H5I_INVALID_HID)))
-            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTALLOC, H5_ITER_ERROR, "can't create DAOS request");
-
-        /* Check that the soft link resolves before opening the target object */
-        if(H5_daos_link_follow(target_grp, name, strlen(name),
-                FALSE, int_req, &oid_ptr, &link_resolves, &first_task, &dep_task) < 0)
-            D_GOTO_ERROR(H5E_LINK, H5E_TRAVERSE, H5_ITER_ERROR, "can't follow link");
-
-        /* Retarget *oid_ptr so H5_daos_link_follow fills in the oid */
-        /* Use this to open object directly instead of traversing again? */
-        *oid_ptr = &oid;
-
-        /* Create task to finalize H5 operation */
-        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &target_grp->obj.item.file->sched, int_req, &int_req->finalize_task)))
-            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, H5_ITER_ERROR, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
-        /* Register dependency (if any) */
-        if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
-            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, H5_ITER_ERROR, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
-        /* Schedule finalize task */
-        if(0 != (ret = tse_task_schedule(int_req->finalize_task, false)))
-            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, H5_ITER_ERROR, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
-        /* finalize_task now owns a reference to req */
-        int_req->rc++;
-
-        /* Schedule first task */
-        if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
-            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, H5_ITER_ERROR, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
-
-        /* Block until operation completes */
-        if(H5_daos_progress(&target_grp->obj.item.file->sched, int_req, H5_DAOS_PROGRESS_WAIT) < 0)
-            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, H5_ITER_ERROR, "can't progress scheduler");
-
-        /* Check for failure */
-        if(int_req->status < 0)
-            D_GOTO_ERROR(H5E_LINK, H5E_CANTOPERATE, H5_ITER_ERROR, "group open failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status));
-
-        /* Close internal request */
-        if(H5_daos_req_free_int(int_req) < 0)
-            D_GOTO_ERROR(H5E_LINK, H5E_CLOSEERROR, H5_ITER_ERROR, "can't free request");
-    } /* end if */
-
-    if(link_resolves) {
+        /* Create task to check that soft link resolves
+         * before opening and visiting the object.
+         */
+        if(H5_daos_object_visit_soft(target_grp, name, &visit_udata->iter_data,
+                &target_grp->obj.item.file->sched, visit_udata->req, first_task, dep_task) < 0)
+            D_GOTO_ERROR(H5E_OBJECT, H5E_BADITER, H5_ITER_ERROR, "failed to visit object pointed to by soft link");
+    }
+    else if(H5L_TYPE_HARD == info->type) {
         H5VL_loc_params_t loc_params;
+        H5_daos_obj_t ***target_obj_p = NULL;
 
         /* Open the target object */
         loc_params.type = H5VL_OBJECT_BY_NAME;
         loc_params.loc_data.loc_by_name.name = name;
         loc_params.loc_data.loc_by_name.lapl_id = H5P_LINK_ACCESS_DEFAULT;
-        if(NULL == (target_obj = H5_daos_object_open(target_grp, &loc_params, NULL, iter_data->dxpl_id, NULL)))
+        if(H5_daos_object_open_helper(&target_grp->obj.item, &loc_params, NULL, TRUE,
+                &target_obj_p, NULL, visit_udata->req, first_task, dep_task) < 0)
             D_GOTO_ERROR(H5E_OBJECT, H5E_CANTOPENOBJ, H5_ITER_ERROR, "can't open object");
 
-        iter_data->u.obj_iter_data.obj_name = name;
-        if(H5_daos_object_visit(target_obj, iter_data) < 0)
+        /* Set name for next object and perform recursive object visit */
+        visit_udata->iter_data.u.obj_iter_data.obj_name = name;
+        if(H5_daos_object_visit(target_obj_p, NULL, &visit_udata->iter_data, &target_grp->obj.item.file->sched,
+                visit_udata->req, first_task, dep_task) < 0)
             D_GOTO_ERROR(H5E_OBJECT, H5E_BADITER, H5_ITER_ERROR, "failed to visit object");
-
-        if(H5_daos_object_close(target_obj, iter_data->dxpl_id, NULL) < 0)
-            D_GOTO_ERROR(H5E_OBJECT, H5E_CLOSEERROR, H5_ITER_ERROR, "can't close object");
-        target_obj = NULL;
-    } /* end if */
+    }
+    else
+        D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, H5_ITER_ERROR, "invalid link type");
 
 done:
-    if(target_obj) {
-        if(H5_daos_object_close(target_obj, iter_data->dxpl_id, NULL) < 0)
-            D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, H5_ITER_ERROR, "can't close object");
-        target_obj = NULL;
-    } /* end if */
+    *op_ret = ret_value;
 
     D_FUNC_LEAVE;
 } /* end H5_daos_object_visit_link_iter_cb() */
 
 
 /*-------------------------------------------------------------------------
+ * Function:    H5_daos_object_visit_soft
+ *
+ * Purpose:     Helper routine to recursively visit an object according to
+ *              a specified soft link name. Creates a task to try to
+ *              resolve the soft link before actually visiting the object
+ *              pointed to by the link.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_object_visit_soft(H5_daos_group_t *target_grp, const char *link_name,
+    H5_daos_iter_data_t *iter_data, tse_sched_t *sched, H5_daos_req_t *req,
+    tse_task_t **first_task, tse_task_t **dep_task)
+{
+    H5_daos_object_visit_soft_ud_t *soft_visit_udata = NULL;
+    daos_obj_id_t **oid_ptr = NULL;
+    tse_task_t *check_task = NULL;
+    int ret;
+    herr_t ret_value = SUCCEED;
+
+    assert(target_grp);
+    assert(link_name);
+    assert(iter_data);
+    assert(sched);
+    assert(req);
+    assert(first_task);
+    assert(dep_task);
+
+    if(NULL == (soft_visit_udata = (H5_daos_object_visit_soft_ud_t *)DV_malloc(sizeof(H5_daos_object_visit_soft_ud_t))))
+         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate user data struct for object visit task");
+    soft_visit_udata->req = req;
+    soft_visit_udata->target_grp = target_grp;
+    soft_visit_udata->visit_metatask = NULL;
+    soft_visit_udata->link_name = link_name;
+    soft_visit_udata->iter_data = iter_data;
+    soft_visit_udata->link_resolves = FALSE;
+
+    /* Check that the soft link resolves before opening the target object */
+    if(H5_daos_link_follow(target_grp, link_name, strlen(link_name), FALSE,
+            req, &oid_ptr, &soft_visit_udata->link_resolves, first_task, dep_task) < 0)
+        D_GOTO_ERROR(H5E_LINK, H5E_TRAVERSE, FAIL, "can't follow link");
+
+    /* Retarget *oid_ptr so H5_daos_link_follow fills in the oid */
+    *oid_ptr = &soft_visit_udata->oid;
+
+    /* Create task for checking if the link resolves */
+    if(0 != (ret = tse_task_create(H5_daos_object_visit_soft_task, sched, soft_visit_udata, &check_task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to check if object exists: %s", H5_daos_err_to_string(ret));
+
+    /* Register dependency on dep_task if present */
+    if(*dep_task && 0 != (ret = tse_task_register_deps(check_task, 1, dep_task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create dependencies for task to check if object exists: %s", H5_daos_err_to_string(ret));
+
+    /* Schedule object existence check task (or save it to be scheduled later) and
+     * give it a reference to req */
+    if(*first_task) {
+        if(0 != (ret = tse_task_schedule(check_task, false)))
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't schedule task to check if object exists: %s", H5_daos_err_to_string(ret));
+    } /* end if */
+    else
+        *first_task = check_task;
+    req->rc++;
+    target_grp->obj.item.rc++;
+    *dep_task = check_task;
+
+    /* Create metatask for soft link visit. This empty task will be completed
+     * when the actual asynchronous object visit call is finished. This metatask
+     * is necessary because the object existence check task will generate other
+     * async tasks for actually opening and visiting the object if the soft link
+     * resolves. */
+    if(0 != (ret = tse_task_create(H5_daos_metatask_autocomplete,sched, NULL, &soft_visit_udata->visit_metatask)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create metatask for object visit: %s", H5_daos_err_to_string(ret));
+
+    /* Register dependency on object open task for metatask */
+    if(0 != (ret = tse_task_register_deps(soft_visit_udata->visit_metatask, 1, &check_task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create dependencies for object visit metatask: %s", H5_daos_err_to_string(ret));
+
+    /* Schedule meta task */
+    assert(*first_task);
+    if(0 != (ret = tse_task_schedule(soft_visit_udata->visit_metatask, false)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't schedule metatask for object visit: %s", H5_daos_err_to_string(ret));
+
+    *dep_task = soft_visit_udata->visit_metatask;
+
+    /* Relinquish control of udata to task's function body */
+    soft_visit_udata = NULL;
+
+done:
+    if(soft_visit_udata) {
+        assert(ret_value < 0);
+        soft_visit_udata = DV_free(soft_visit_udata);
+    }
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_object_visit_soft() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_object_visit_soft_task
+ *
+ * Purpose:     Asynchronous task to delay visiting of an object pointed to
+ *              by a soft link until it is determined that the link
+ *              actually resolves to an object.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_object_visit_soft_task(tse_task_t *task)
+{
+    H5_daos_object_visit_soft_ud_t *udata;
+    H5_daos_obj_t *target_obj = NULL;
+    tse_task_t *first_task = NULL;
+    tse_task_t *dep_task = NULL;
+    int ret;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for object existence check task");
+
+    assert(udata->req);
+    assert(udata->iter_data);
+    assert(udata->visit_metatask);
+
+    /* Check for previous errors */
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT)
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT)
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
+
+    /* If link resolved, open the object and visit it */
+    if(udata->link_resolves) {
+        H5I_type_t obj_type = H5_daos_oid_to_type(udata->oid);
+
+        /* Open object according to object type */
+        switch(obj_type) {
+            case H5I_FILE:
+            case H5I_GROUP:
+                if(NULL == (target_obj = (H5_daos_obj_t *)H5_daos_group_open_helper(udata->req->file,
+                        H5P_GROUP_ACCESS_DEFAULT, TRUE, udata->req, &first_task, &dep_task)))
+                    D_GOTO_ERROR(H5E_OBJECT, H5E_CANTOPENOBJ, -H5_DAOS_H5_OPEN_ERROR, "can't open group");
+                break;
+            case H5I_DATASET:
+                if(NULL == (target_obj = (H5_daos_obj_t *)H5_daos_dataset_open_helper(udata->req->file,
+                        H5P_DATASET_ACCESS_DEFAULT, TRUE, udata->req, &first_task, &dep_task)))
+                    D_GOTO_ERROR(H5E_OBJECT, H5E_CANTOPENOBJ, -H5_DAOS_H5_OPEN_ERROR, "can't open dataset");
+                break;
+            case H5I_DATATYPE:
+                if(NULL == (target_obj = (H5_daos_obj_t *)H5_daos_datatype_open_helper(udata->req->file,
+                        H5P_DATATYPE_ACCESS_DEFAULT, TRUE, udata->req, &first_task, &dep_task)))
+                    D_GOTO_ERROR(H5E_OBJECT, H5E_CANTOPENOBJ, -H5_DAOS_H5_OPEN_ERROR, "can't open datatype");
+                break;
+            case H5I_MAP:
+                if(NULL == (target_obj = (H5_daos_obj_t *)H5_daos_map_open_helper(udata->req->file,
+                        H5P_MAP_ACCESS_DEFAULT, TRUE, udata->req, &first_task, &dep_task)))
+                    D_GOTO_ERROR(H5E_OBJECT, H5E_CANTOPENOBJ, -H5_DAOS_H5_OPEN_ERROR, "can't open map");
+                break;
+            default:
+                D_GOTO_ERROR(H5E_OBJECT, H5E_BADVALUE, -H5_DAOS_BAD_VALUE, "invalid object type");
+        } /* end switch */
+
+        /* Fill in object's OID */
+        target_obj->oid = udata->oid;
+
+        /* Set name for object and visit it */
+        udata->iter_data->u.obj_iter_data.obj_name = udata->link_name;
+        if(H5_daos_object_visit(NULL, target_obj, udata->iter_data, &udata->target_grp->obj.item.file->sched,
+                udata->req, &first_task, &dep_task) < 0)
+            D_GOTO_ERROR(H5E_OBJECT, H5E_BADITER, -H5_DAOS_H5_ITER_ERROR, "failed to visit object");
+
+        /* Register dependency on dep_task for soft link visiting metatask */
+        if(dep_task && 0 != (ret = tse_task_register_deps(udata->visit_metatask, 1, &dep_task)))
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't set dependencies for object visit metatask: %s", H5_daos_err_to_string(ret));
+    } /* end if */
+
+done:
+    /* Schedule first task */
+    if(first_task && 0 != (ret = tse_task_schedule(first_task, false)))
+        D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't schedule task to visit object: %s", H5_daos_err_to_string(ret));
+
+    /* Close object since object visiting task should now own it */
+    if(target_obj && H5_daos_object_close(target_obj, H5I_INVALID_HID, NULL) < 0)
+        D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
+
+    if(udata) {
+        /* Close group */
+        if(H5_daos_group_close(udata->target_grp, H5I_INVALID_HID, NULL) < 0)
+            D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close group");
+
+        /* Handle errors in this function */
+        /* Do not place any code that can issue errors after this block, except for
+         * H5_daos_req_free_int, which updates req->status if it sees an error */
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+            udata->req->status = ret_value;
+            udata->req->failed_task = "object existence check task (soft link visit)";
+        } /* end if */
+
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(udata->req) < 0)
+            D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+        /* Free private data */
+        DV_free(udata);
+    }
+    else
+        assert(ret_value == -H5_DAOS_DAOS_GET_ERROR);
+
+    /* Complete this task */
+    tse_task_complete(task, ret_value);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_object_visit_soft_task() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_object_visit_finish
+ *
+ * Purpose:     Asynchronous task to free private object visiting data
+ *              after the visiting has completed.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_object_visit_finish(tse_task_t *task)
+{
+    H5_daos_object_visit_ud_t *udata;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for object visiting task");
+
+    assert(udata->req);
+    assert(udata->target_obj);
+    assert(task == udata->visit_metatask);
+
+    /* Iteration is complete, we are no longer short-circuiting (if this
+     * iteration caused the short circuit) */
+    if(udata->iter_data.short_circuit_init) {
+        if(udata->iter_data.req->status == -H5_DAOS_SHORT_CIRCUIT)
+            udata->iter_data.req->status = -H5_DAOS_INCOMPLETE;
+        udata->iter_data.short_circuit_init = FALSE;
+    } /* end if */
+
+    /* Set *op_ret_p if present */
+    if(udata->iter_data.op_ret_p)
+        *udata->iter_data.op_ret_p = udata->iter_data.op_ret;
+
+    if(udata->target_obj_id >= 0 && H5Idec_ref(udata->target_obj_id) < 0)
+        D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object ID");
+
+    /* Close object */
+    if(H5_daos_object_close(udata->target_obj, H5I_INVALID_HID, NULL) < 0)
+        D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
+
+    /* Handle errors in this function */
+    /* Do not place any code that can issue errors after this block, except for
+     * H5_daos_req_free_int, which updates req->status if it sees an error */
+    if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+        udata->req->status = ret_value;
+        udata->req->failed_task = "object visiting udata free task";
+    } /* end if */
+
+    /* Release our reference to req */
+    if(H5_daos_req_free_int(udata->req) < 0)
+        D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+    /* Free private data */
+    DV_free(udata);
+
+done:
+    /* Complete this task */
+    tse_task_complete(task, ret_value);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_object_visit_finish() */
+
+
+/*-------------------------------------------------------------------------
  * Function:    H5_daos_object_get_info
  *
- * Purpose:     Helper routine to retrieve the info for an object when
- *              H5Oget_info(_by_name/_by_idx) is called.
+ * Purpose:     Creates an asynchronous task for retrieving the info for
+ *              an object.  Exactly one of target_obj_prev_out,
+ *              target_obj_p, or target_obj must be provided.
+ *
+ *              If target_obj_prev_out is provided it should be set to the
+ *              location previously  returned by the ret_obj_p parameter
+ *              for H5_daos_object_open_helper() (this function will
+ *              retarget that function's output to point into this
+ *              function's udata).  In this case, this function will own
+ *              the object and will close it at the end.
+ *
+ *              If target_obj_p is provided it should point to the
+ *              location of a H5_daos_obj_t * that will be valid for the
+ *              target object while tasks scheduled by this funciton are
+ *              executed.  In this case this function will not close the
+ *              object.
+ *
+ *              If target_obj is provided it should be valid immediately
  *
  * Return:      Success:        0
  *              Failure:        -1
@@ -1825,172 +4223,546 @@ done:
  *-------------------------------------------------------------------------
  */
 static herr_t
-H5_daos_object_get_info(H5_daos_obj_t *target_obj, unsigned fields, H5O_info2_t *obj_info_out)
+H5_daos_object_get_info(H5_daos_obj_t ***target_obj_prev_out,
+    H5_daos_obj_t **target_obj_p, H5_daos_obj_t *target_obj, unsigned fields,
+    H5O_info2_t *obj_info_out, tse_sched_t *sched, H5_daos_req_t *req,
+    tse_task_t **first_task, tse_task_t **dep_task)
 {
-    hssize_t num_attrs = 0;
+    H5_daos_object_get_info_ud_t *get_info_udata = NULL;
+    int ret;
     herr_t ret_value = SUCCEED;
 
-    assert(target_obj);
+    assert(!!target_obj_prev_out + !!target_obj_p + !!target_obj == 1);
     assert(obj_info_out);
+    assert(sched);
+    assert(req);
+    assert(first_task);
+    assert(dep_task);
 
-    /*
-     * Initialize object info - most fields are not valid and will
-     * simply be set to 0.
-     */
-    memset(obj_info_out, 0, sizeof(*obj_info_out));
+    if(NULL == (get_info_udata = (H5_daos_object_get_info_ud_t *)DV_calloc(sizeof(H5_daos_object_get_info_ud_t))))
+         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate user data struct for object info retrieval task");
+    get_info_udata->req = req;
+    if(target_obj_p)
+        get_info_udata->target_obj_p = target_obj_p;
+    else {
+        get_info_udata->target_obj_p = &get_info_udata->target_obj;
+        if(target_obj_prev_out)
+            *target_obj_prev_out = get_info_udata->target_obj_p;
+        else
+            get_info_udata->target_obj = target_obj;
+    } /* end else */
 
-    /* Fill in fields of object info */
+    get_info_udata->fields = fields;
+    get_info_udata->info_out = obj_info_out;
 
-    /* Basic fields */
-    if(fields & H5O_INFO_BASIC) {
-        uint64_t fileno64;
-        uint8_t *uuid_p = (uint8_t *)&target_obj->item.file->uuid;
+    /* Create task for retrieving object info */
+    if(0 != (ret = tse_task_create(H5_daos_object_get_info_task, sched, get_info_udata, &get_info_udata->get_info_task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to get object info: %s", H5_daos_err_to_string(ret));
 
-        /* Use the lower <sizeof(unsigned long)> bytes of the file uuid
-         * as the fileno.  Ideally we would write separate 32 and 64 bit
-         * hash functions but this should work almost as well. */
-        UINT64DECODE(uuid_p, fileno64)
-        obj_info_out->fileno = (unsigned long)fileno64;
+    /* Register dependency on dep_task if present */
+    if(*dep_task && 0 != (ret = tse_task_register_deps(get_info_udata->get_info_task, 1, dep_task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't register dependencies for object info retrieval task: %s", H5_daos_err_to_string(ret));
 
-        /* Get token */
-        if(H5_daos_oid_to_token(target_obj->oid, &obj_info_out->token) < 0)
-            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTGET, FAIL, "can't get object token");
-
-        /* Set object type */
-        switch(target_obj->item.type) {
-            case H5I_GROUP:
-                obj_info_out->type = H5O_TYPE_GROUP;
-                break;
-            case H5I_DATASET:
-                obj_info_out->type = H5O_TYPE_DATASET;
-                break;
-            case H5I_DATATYPE:
-                obj_info_out->type = H5O_TYPE_NAMED_DATATYPE;
-                break;
-            case H5I_MAP:
-                obj_info_out->type = H5O_TYPE_MAP;
-                break;
-            default:
-                obj_info_out->type = H5O_TYPE_UNKNOWN;
-                break;
-        }
-
-        /* Reference count is always 1 - change this when
-         * H5Lcreate_hard() is implemented DSINC */
-        obj_info_out->rc = 1;
+    /* Schedule object info retrieval task (or save it to be scheduled later) and
+     * give it a reference to req */
+    if(*first_task) {
+        if(0 != (ret = tse_task_schedule(get_info_udata->get_info_task, false)))
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't schedule task to get object info: %s", H5_daos_err_to_string(ret));
     } /* end if */
+    else
+        *first_task = get_info_udata->get_info_task;
+    req->rc++;
+    if(target_obj)
+        target_obj->item.rc++;
+    *dep_task = get_info_udata->get_info_task;
 
-    /* Set the number of attributes. */
-    if(fields & H5O_INFO_NUM_ATTRS) {
-        if((num_attrs = H5_daos_object_get_num_attrs(target_obj)) < 0)
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't retrieve the number of attributes attached to object");
-        obj_info_out->num_attrs = (hsize_t)num_attrs;
-    } /* end if */
-
-    /* Investigate collisions with links, etc DSINC */
+    /* Relinquish control of udata to task's function body */
+    get_info_udata = NULL;
 
 done:
+    /* Cleanup on failure */
+    if(get_info_udata) {
+        assert(ret_value < 0);
+        get_info_udata = DV_free(get_info_udata);
+    } /* end if */
+
     D_FUNC_LEAVE;
 } /* end H5_daos_object_get_info() */
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_object_get_num_attrs
+ * Function:    H5_daos_object_get_info_task
  *
- * Purpose:     Helper routine to retrieve the number of attributes
- *              attached to a given object.
+ * Purpose:     Asynchronous task for retrieving the info for an object.
  *
- * Return:      Success:        The number of attributes attached to the
- *                              given object.
- *              Failure:        Negative
+ * Return:      Success:        0
+ *              Failure:        -1
  *
  *-------------------------------------------------------------------------
  */
-hssize_t
-H5_daos_object_get_num_attrs(H5_daos_obj_t *target_obj)
+static int
+H5_daos_object_get_info_task(tse_task_t *task)
 {
-    uint64_t nattrs = 0;
-    hid_t target_obj_id = -1;
-    hssize_t ret_value = 0;
+    H5_daos_object_get_info_ud_t *udata = NULL;
+    H5_daos_req_t *req = NULL;
+    tse_task_t *first_task = NULL;
+    tse_task_t *dep_task = NULL;
+    int ret;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for object info retrieval task");
+
+    assert(udata->req);
+    assert(udata->target_obj_p);
+    assert(*udata->target_obj_p);
+    assert(udata->info_out);
+    assert(task == udata->get_info_task);
+
+    /* Assign req convenience pointer.  We do this so we can still handle errors
+     * after transfering ownership of udata.  This should be safe since we
+     * increase the ref count on req when we transfer ownership. */
+    req = udata->req;
+
+    /* Check for previous errors */
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT)
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT)
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
+
+    /*
+     * Initialize object info - most fields are not valid and will
+     * simply be set to 0.
+     */
+    memset(udata->info_out, 0, sizeof(*udata->info_out));
+
+    /* Basic fields */
+    if(udata->fields & H5O_INFO_BASIC) {
+        uint64_t fileno64;
+        uint8_t *uuid_p = (uint8_t *)&(*udata->target_obj_p)->item.file->uuid;
+
+        /* Use the lower <sizeof(unsigned long)> bytes of the file uuid
+         * as the fileno.  Ideally we would write separate 32 and 64 bit
+         * hash functions but this should work almost as well. */
+        UINT64DECODE(uuid_p, fileno64)
+        udata->info_out->fileno = (unsigned long)fileno64;
+
+        /* Get token */
+        if(H5_daos_oid_to_token((*udata->target_obj_p)->oid, &udata->info_out->token) < 0)
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTGET, -H5_DAOS_H5_GET_ERROR, "can't get object token");
+
+        /* Set object type */
+        switch((*udata->target_obj_p)->item.type) {
+            case H5I_GROUP:
+                udata->info_out->type = H5O_TYPE_GROUP;
+                break;
+            case H5I_DATASET:
+                udata->info_out->type = H5O_TYPE_DATASET;
+                break;
+            case H5I_DATATYPE:
+                udata->info_out->type = H5O_TYPE_NAMED_DATATYPE;
+                break;
+            case H5I_MAP:
+                udata->info_out->type = H5O_TYPE_MAP;
+                break;
+            default:
+                udata->info_out->type = H5O_TYPE_UNKNOWN;
+                break;
+        } /* end switch */
+
+        /* Read target object ref count */
+        /* Could run this in parallel with get_num_attrs DSINC */
+        if(0 != (ret = H5_daos_obj_read_rc(udata->target_obj_p, NULL, NULL, &udata->info_out->rc,
+                &(*udata->target_obj_p)->item.file->sched, udata->req, &first_task, &dep_task)))
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't get object ref count: %s", H5_daos_err_to_string(ret));
+    } /* end if */
+
+    /* Set the number of attributes. */
+    if(udata->fields & H5O_INFO_NUM_ATTRS) {
+        if(H5_daos_object_get_num_attrs(*udata->target_obj_p, &udata->info_out->num_attrs, FALSE,
+                NULL, NULL, &udata->req->file->sched, udata->req, &first_task, &dep_task) < 0)
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTGET, -H5_DAOS_SETUP_ERROR, "can't create task to retrieve the number of attributes attached to object");
+    } /* end if */
+
+    /* Investigate collisions with links, etc DSINC */
+
+done:
+    /* Schedule task to complete this task and free private data */
+    if(udata) {
+        tse_task_t *end_task;
+        /* Schedule task to complete this task and free path buf */
+        if(0 != (ret = tse_task_create(H5_daos_object_get_info_end, &(*udata->target_obj_p)->item.file->sched, udata, &end_task))) {
+            tse_task_complete(task, ret_value);
+            D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't create task to finish getting object info: %s", H5_daos_err_to_string(ret));
+        } /* end if */
+        else {
+            /* Register dependency for task */
+            if(0 != (ret = tse_task_register_deps(end_task, 1, &dep_task)))
+                D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't create dependencies for object get info end task: %s", H5_daos_err_to_string(ret));
+
+            /* Schedule end task and give it ownership of udata, while
+             * keeping a reference to req for ourselves */
+            req->rc++;
+            if(first_task) {
+                if(0 != (ret = tse_task_schedule(end_task, false)))
+                    D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't schedule task to finish getting object info: %s", H5_daos_err_to_string(ret));
+            } /* end if */
+            else
+                first_task = end_task;
+            udata = NULL;
+            dep_task = end_task;
+        } /* end else */
+    } /* end if */
+
+    /* Schedule first task */
+    if(first_task && 0 != (ret = tse_task_schedule(first_task, false)))
+        D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't schedule task to retrieve number of attributes attached to object: %s", H5_daos_err_to_string(ret));
+
+    /* Free private data if we haven't released ownership */
+    if(udata) {
+        assert(ret_value < 0);
+
+        if(udata->target_obj && H5_daos_object_close(udata->target_obj, H5I_INVALID_HID, NULL) < 0)
+            D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
+
+        udata = DV_free(udata);
+
+        tse_task_complete(task, ret_value);
+    } /* end if */
+
+    if(req) {
+        /* Handle errors in this function */
+        /* Do not place any code that can issue errors after this block, except for
+         * H5_daos_req_free_int, which updates req->status if it sees an error */
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+            req->status = ret_value;
+            req->failed_task = "get object info task";
+        } /* end if */
+
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(req) < 0)
+            D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+    } /* end if */
+    else
+        assert(ret_value == -H5_DAOS_DAOS_GET_ERROR);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_object_get_info_task() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_object_get_info_end
+ *
+ * Purpose:     Asynchronous task for finalizing H5_daos_object_get_info.
+ *              Cleans up udata and completes the get info task.
+ *
+ * Return:      Success:        SUCCEED
+ *              Failure:        Error code
+ *
+ * Programmer:  Neil Fortner
+ *              July, 2020
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_object_get_info_end(tse_task_t *task)
+{
+    H5_daos_object_get_info_ud_t *udata = NULL;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for MPI broadcast task");
+
+    assert(udata->req);
+    assert(udata->req->file);
+
+    /* Close target object */
+    if(udata->target_obj && H5_daos_object_close(udata->target_obj, H5I_INVALID_HID, NULL) < 0)
+        D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
+
+    /* Handle errors in this function */
+    /* Do not place any code that can issue errors after this block, except for
+     * H5_daos_req_free_int, which updates req->status if it sees an error */
+    if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+        udata->req->status = ret_value;
+        udata->req->failed_task = "object get info end task";
+    } /* end if */
+
+    /* Release our reference to req */
+    if(H5_daos_req_free_int(udata->req) < 0)
+        D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+    /* Complete get info task */
+    tse_task_complete(udata->get_info_task, ret_value);
+
+    /* Free private data struct */
+    DV_free(udata);
+
+done:
+    /* Complete this task */
+    tse_task_complete(task, ret_value);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_object_get_info_end() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_object_get_num_attrs
+ *
+ * Purpose:     Creates an asynchronous task for retrieving the number of
+ *              attributes attached to a given object.
+ *
+ * Return       Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_object_get_num_attrs(H5_daos_obj_t *target_obj, hsize_t *num_attrs,
+    hbool_t post_decrement, tse_task_cb_t prep_cb, tse_task_cb_t comp_cb,
+    tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
+{
+    H5_daos_object_get_num_attrs_ud_t *get_num_attr_udata = NULL;
+    tse_task_t *get_num_attrs_task;
+    int ret;
+    herr_t ret_value = SUCCEED;
 
     assert(target_obj);
+    assert(num_attrs);
+    assert(sched);
+    assert(req);
+    assert(first_task);
+    assert(dep_task);
     H5daos_compile_assert(H5_DAOS_ENCODED_NUM_ATTRS_SIZE == 8);
 
     if(target_obj->ocpl_cache.track_acorder) {
-        daos_sg_list_t sgl;
-        daos_key_t dkey;
-        daos_iod_t iod;
-        daos_iov_t sg_iov;
-        uint8_t *p;
-        uint8_t nattrs_buf[H5_DAOS_ENCODED_NUM_ATTRS_SIZE];
-        int ret;
+        /* Allocate argument struct for fetch task */
+        if(NULL == (get_num_attr_udata = (H5_daos_object_get_num_attrs_ud_t *)DV_calloc(sizeof(H5_daos_object_get_num_attrs_ud_t))))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for fetch callback arguments");
+        get_num_attr_udata->num_attrs_out = num_attrs;
+        get_num_attr_udata->post_decr = post_decrement;
 
-        /* Read the "number of attributes" key from the target object */
+        /* Set up main ud struct */
+        get_num_attr_udata->md_rw_cb_ud.req = req;
+        get_num_attr_udata->md_rw_cb_ud.obj = target_obj;
 
         /* Set up dkey */
-        daos_iov_set(&dkey, (void *)H5_daos_attr_key_g, H5_daos_attr_key_size_g);
+        daos_iov_set(&get_num_attr_udata->md_rw_cb_ud.dkey, (void *)H5_daos_attr_key_g, H5_daos_attr_key_size_g);
+        get_num_attr_udata->md_rw_cb_ud.free_dkey = FALSE;
 
         /* Set up iod */
-        memset(&iod, 0, sizeof(iod));
-        daos_iov_set(&iod.iod_name, (void *)H5_daos_nattr_key_g, H5_daos_nattr_key_size_g);
-        iod.iod_nr = 1u;
-        iod.iod_size = (daos_size_t)H5_DAOS_ENCODED_NUM_ATTRS_SIZE;
-        iod.iod_type = DAOS_IOD_SINGLE;
+        daos_iov_set(&get_num_attr_udata->md_rw_cb_ud.iod[0].iod_name, (void *)H5_daos_nattr_key_g, H5_daos_nattr_key_size_g);
+        get_num_attr_udata->md_rw_cb_ud.iod[0].iod_nr = 1u;
+        get_num_attr_udata->md_rw_cb_ud.iod[0].iod_size = (daos_size_t)H5_DAOS_ENCODED_NUM_ATTRS_SIZE;
+        get_num_attr_udata->md_rw_cb_ud.iod[0].iod_type = DAOS_IOD_SINGLE;
+
+        get_num_attr_udata->md_rw_cb_ud.free_akeys = FALSE;
 
         /* Set up sgl */
-        daos_iov_set(&sg_iov, nattrs_buf, (daos_size_t)H5_DAOS_ENCODED_NUM_ATTRS_SIZE);
-        sgl.sg_nr = 1;
-        sgl.sg_nr_out = 0;
-        sgl.sg_iovs = &sg_iov;
+        daos_iov_set(&get_num_attr_udata->md_rw_cb_ud.sg_iov[0], get_num_attr_udata->nattrs_buf, (daos_size_t)H5_DAOS_ENCODED_NUM_ATTRS_SIZE);
+        get_num_attr_udata->md_rw_cb_ud.sgl[0].sg_nr = 1;
+        get_num_attr_udata->md_rw_cb_ud.sgl[0].sg_nr_out = 0;
+        get_num_attr_udata->md_rw_cb_ud.sgl[0].sg_iovs = &get_num_attr_udata->md_rw_cb_ud.sg_iov[0];
 
-        /* Read number of attributes */
-        if(0 != (ret = daos_obj_fetch(target_obj->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, (-1), "can't read number of attributes attached to object: %s", H5_daos_err_to_string(ret));
+        get_num_attr_udata->md_rw_cb_ud.nr = 1u;
 
-        p = nattrs_buf;
-        /* Check for no num attributes found, in this case it must be 0 */
-        if(iod.iod_size == (uint64_t)0) {
-            nattrs = 0;
+        get_num_attr_udata->md_rw_cb_ud.task_name = "attribute count retrieval task";
+
+        /* Create task to fetch object's current number of attributes counter */
+        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, sched,
+                *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &get_num_attrs_task)))
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to get number of attributes attached to object: %s", H5_daos_err_to_string(ret));
+
+        /* Set callback functions for task to read number of attributes */
+        if(0 != (ret = tse_task_register_cbs(get_num_attrs_task,
+                prep_cb ? prep_cb : H5_daos_get_num_attrs_prep_cb, NULL, 0,
+                comp_cb ? comp_cb : H5_daos_get_num_attrs_comp_cb, NULL, 0)))
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't register callbacks for attribute count read task: %s", H5_daos_err_to_string(ret));
+
+        /* Set private data for attribute count read task */
+        (void)tse_task_set_priv(get_num_attrs_task, get_num_attr_udata);
+
+        /* Schedule task to read number of attributes attached to object (or save
+         * it to be scheduled later) and give it a reference to req.
+         */
+        if(*first_task) {
+            if(0 != (ret = tse_task_schedule(get_num_attrs_task, false)))
+                D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't schedule task to read number of attributes attached to object: %s", H5_daos_err_to_string(ret));
         } /* end if */
         else
-            /* Decode num attributes */
-            UINT64DECODE(p, nattrs);
+            *first_task = get_num_attrs_task;
+        req->rc++;
+        target_obj->item.rc++;
+        *dep_task = get_num_attrs_task;
+
+        get_num_attr_udata = NULL;
     } /* end if */
     else {
         H5_daos_iter_data_t iter_data;
 
-        /* Iterate through attributes */
-
-        /* Register id for target object */
-        if((target_obj_id = H5VLwrap_register(target_obj, target_obj->item.type)) < 0)
-            D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, FAIL, "unable to atomize object handle");
-        target_obj->item.rc++;
-
         /* Initialize iteration data */
         H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_ATTR, H5_INDEX_NAME, H5_ITER_NATIVE,
-                FALSE, NULL, target_obj_id, &nattrs, H5P_DATASET_XFER_DEFAULT, NULL, NULL, NULL);
-        iter_data.u.attr_iter_data.attr_iter_op = H5_daos_attribute_iterate_count_attrs_cb;
+                FALSE, NULL, H5I_INVALID_HID, num_attrs, NULL, req);
+        iter_data.u.attr_iter_data.u.attr_iter_op = H5_daos_attribute_iterate_count_attrs_cb;
 
         /* Retrieve the number of attributes attached to the object */
-        if(H5_daos_attribute_iterate(target_obj, &iter_data) < 0)
+        if(H5_daos_attribute_iterate(target_obj, &iter_data, sched, req, first_task, dep_task) < 0)
             D_GOTO_ERROR(H5E_ATTR, H5E_BADITER, FAIL, "attribute iteration failed");
     } /* end else */
 
-    ret_value = (hssize_t)nattrs; /* DSINC - no check for overflow */
-
 done:
-    if((target_obj_id >= 0) && (H5Idec_ref(target_obj_id) < 0))
-        D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close attribute's parent object");
+    if(ret_value < 0) {
+        get_num_attr_udata = DV_free(get_num_attr_udata);
+    } /* end if */
 
     D_FUNC_LEAVE;
 } /* end H5_daos_object_get_num_attrs() */
 
 
 /*-------------------------------------------------------------------------
+ * Function:    H5_daos_get_num_attrs_prep_cb
+ *
+ * Purpose:     Prepare callback for asynchronous task to retrieve the
+ *              number of attributes attached to an object. Currently
+ *              checks for errors from previous tasks and then sets
+ *              arguments for the DAOS operation.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_get_num_attrs_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_object_get_num_attrs_ud_t *udata;
+    daos_obj_rw_t *fetch_args;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for attribute count fetch task");
+
+    assert(udata->md_rw_cb_ud.obj);
+    assert(udata->md_rw_cb_ud.req);
+    assert(udata->md_rw_cb_ud.req->file);
+    assert(!udata->md_rw_cb_ud.req->file->closed);
+
+    /* Handle errors */
+    if(udata->md_rw_cb_ud.req->status < -H5_DAOS_SHORT_CIRCUIT) {
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    } /* end if */
+    else if(udata->md_rw_cb_ud.req->status == -H5_DAOS_SHORT_CIRCUIT) {
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
+    } /* end if */
+
+    /* Set update task arguments */
+    if(NULL == (fetch_args = daos_task_get_args(task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for metadata I/O task");
+    fetch_args->oh = udata->md_rw_cb_ud.obj->obj_oh;
+    fetch_args->th = DAOS_TX_NONE;
+    fetch_args->flags = 0;
+    fetch_args->dkey = &udata->md_rw_cb_ud.dkey;
+    fetch_args->nr = udata->md_rw_cb_ud.nr;
+    fetch_args->iods = udata->md_rw_cb_ud.iod;
+    fetch_args->sgls = udata->md_rw_cb_ud.sgl;
+
+done:
+    if(ret_value < 0)
+        tse_task_complete(task, ret_value);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_get_num_attrs_prep_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_get_num_attrs_comp_cb
+ *
+ * Purpose:     Complete callback for asynchronous task to retrieve the
+ *              number of attributes attached to an object. Currently
+ *              checks for a failed task then decodes the number of
+ *              attributes and frees private data.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_get_num_attrs_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_object_get_num_attrs_ud_t *udata;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for attribute count fetch task");
+
+    assert(!udata->md_rw_cb_ud.req->file->closed);
+
+    /* Handle errors in fetch task.  Only record error in udata->req_status if
+     * it does not already contain an error (it could contain an error if
+     * another task this task is not dependent on also failed). */
+    if(task->dt_result < -H5_DAOS_PRE_ERROR
+            && udata->md_rw_cb_ud.req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+        udata->md_rw_cb_ud.req->status = task->dt_result;
+        udata->md_rw_cb_ud.req->failed_task = udata->md_rw_cb_ud.task_name;
+    } /* end if */
+    else if(task->dt_result == 0) {
+        /* Check for no num attributes found, in this case it must be 0 */
+        if(udata->md_rw_cb_ud.iod[0].iod_size == (uint64_t)0)
+            *udata->num_attrs_out = (hsize_t)0;
+        else {
+            uint64_t nattrs;
+            uint8_t *p = udata->nattrs_buf;
+
+            /* Decode num attributes */
+            UINT64DECODE(p, nattrs);
+
+            if(udata->post_decr && nattrs > 0)
+                nattrs--;
+
+            *udata->num_attrs_out = (hsize_t)nattrs;
+        } /* end else */
+    } /* end else */
+
+done:
+    if(udata) {
+        if(H5_daos_object_close(udata->md_rw_cb_ud.obj, H5I_INVALID_HID, NULL) < 0)
+            D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
+
+        /* Handle errors in this function */
+        /* Do not place any code that can issue errors after this block, except
+         * for H5_daos_req_free_int, which updates req->status if it sees an
+         * error */
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->md_rw_cb_ud.req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+            udata->md_rw_cb_ud.req->status = ret_value;
+            udata->md_rw_cb_ud.req->failed_task = "attribute count retrieval task completion callback";
+        } /* end if */
+
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(udata->md_rw_cb_ud.req) < 0)
+            D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+        /* Free private data */
+        DV_free(udata);
+    }
+    else
+        assert(ret_value >= 0 || ret_value == -H5_DAOS_DAOS_GET_ERROR);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_get_num_attrs_comp_cb() */
+
+
+/*-------------------------------------------------------------------------
  * Function:    H5_daos_object_update_num_attrs_key
  *
- * Purpose:     Updates the target object's attribute number tracking akey
- *              by setting its value to the specified value.
+ * Purpose:     Creates an asynchronous task to update the target object's
+ *              attribute number tracking akey by setting its value to the
+ *              specified value.
  *
  *              CAUTION: This routine is 'dangerous' in that the attribute
  *              number tracking akey is used in various places. Only call
@@ -2003,44 +4775,77 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_object_update_num_attrs_key(H5_daos_obj_t *target_obj, uint64_t new_nattrs)
+H5_daos_object_update_num_attrs_key(H5_daos_obj_t *target_obj, hsize_t *new_nattrs,
+    tse_task_cb_t prep_cb, tse_task_cb_t comp_cb, tse_sched_t *sched,
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
-    daos_sg_list_t sgl;
-    daos_key_t dkey;
-    daos_iod_t iod;
-    daos_iov_t sg_iov;
-    uint8_t nattrs_new_buf[H5_DAOS_ENCODED_NUM_ATTRS_SIZE];
-    uint8_t *p;
+    H5_daos_object_update_num_attrs_key_ud_t *update_udata = NULL;
+    tse_task_t *update_task;
     int ret;
     herr_t ret_value = SUCCEED;
 
     assert(target_obj);
-    assert(target_obj->ocpl_cache.track_acorder);
+    assert(new_nattrs);
+    assert(sched);
+    assert(req);
+    assert(first_task);
+    assert(dep_task);
     H5daos_compile_assert(H5_DAOS_ENCODED_NUM_ATTRS_SIZE == 8);
 
-    /* Encode buffer */
-    p = nattrs_new_buf;
-    UINT64ENCODE(p, new_nattrs);
+    /* Allocate argument struct for update task */
+    if(NULL == (update_udata = (H5_daos_object_update_num_attrs_key_ud_t *)DV_calloc(sizeof(H5_daos_object_update_num_attrs_key_ud_t))))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for update callback arguments");
+    update_udata->new_nattrs = new_nattrs;
+    update_udata->update_ud.req = req;
+    update_udata->update_ud.obj = target_obj;
 
     /* Set up dkey */
-    daos_iov_set(&dkey, (void *)H5_daos_attr_key_g, H5_daos_attr_key_size_g);
+    daos_iov_set(&update_udata->update_ud.dkey, (void *)H5_daos_attr_key_g, H5_daos_attr_key_size_g);
+    update_udata->update_ud.free_dkey = FALSE;
 
     /* Set up iod */
-    memset(&iod, 0, sizeof(iod));
-    daos_iov_set(&iod.iod_name, (void *)H5_daos_nattr_key_g, H5_daos_nattr_key_size_g);
-    iod.iod_nr = 1u;
-    iod.iod_size = (daos_size_t)H5_DAOS_ENCODED_NUM_ATTRS_SIZE;
-    iod.iod_type = DAOS_IOD_SINGLE;
+    memset(&update_udata->update_ud.iod[0], 0, sizeof(update_udata->update_ud.iod[0]));
+    daos_iov_set(&update_udata->update_ud.iod[0].iod_name, (void *)H5_daos_nattr_key_g, H5_daos_nattr_key_size_g);
+    update_udata->update_ud.iod[0].iod_nr = 1u;
+    update_udata->update_ud.iod[0].iod_size = (daos_size_t)H5_DAOS_ENCODED_NUM_ATTRS_SIZE;
+    update_udata->update_ud.iod[0].iod_type = DAOS_IOD_SINGLE;
+
+    update_udata->update_ud.free_akeys = FALSE;
 
     /* Set up sgl */
-    daos_iov_set(&sg_iov, nattrs_new_buf, (daos_size_t)H5_DAOS_ENCODED_NUM_ATTRS_SIZE);
-    sgl.sg_nr = 1;
-    sgl.sg_nr_out = 0;
-    sgl.sg_iovs = &sg_iov;
+    daos_iov_set(&update_udata->update_ud.sg_iov[0], update_udata->nattrs_new_buf, (daos_size_t)H5_DAOS_ENCODED_NUM_ATTRS_SIZE);
+    update_udata->update_ud.sgl[0].sg_nr = 1;
+    update_udata->update_ud.sgl[0].sg_nr_out = 0;
+    update_udata->update_ud.sgl[0].sg_iovs = &update_udata->update_ud.sg_iov[0];
 
-    /* Issue write */
-    if(0 != (ret = daos_obj_update(target_obj->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod, &sgl, NULL /*event*/)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_WRITEERROR, FAIL, "can't write number of attributes to object: %s", H5_daos_err_to_string(ret));
+    update_udata->update_ud.nr = 1u;
+
+    update_udata->update_ud.task_name = "object attribute number tracking akey update";
+
+    /* Create task for akey update */
+    if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_UPDATE, sched, *dep_task ? 1 : 0,
+            *dep_task ? dep_task : NULL, &update_task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to update object's attribute number tracking akey: %s", H5_daos_err_to_string(ret));
+
+    /* Set callback functions for akey update task*/
+    if(0 != (ret = tse_task_register_cbs(update_task,
+            prep_cb ? prep_cb : H5_daos_object_update_num_attrs_key_prep_cb, NULL, 0,
+            comp_cb ? comp_cb : H5_daos_object_update_num_attrs_key_comp_cb, NULL, 0)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't register callbacks for akey update task: %s", H5_daos_err_to_string(ret));
+
+    /* Set private data for akey update task */
+    (void)tse_task_set_priv(update_task, update_udata);
+
+    /* Schedule akey update task (or save it to be scheduled later) */
+    if(*first_task) {
+        if(0 != (ret = tse_task_schedule(update_task, false)))
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't schedule task to update object's attribute number tracking akey: %s", H5_daos_err_to_string(ret));
+    } /* end if */
+    else
+        *first_task = update_task;
+    req->rc++;
+    target_obj->item.rc++;
+    *dep_task = update_task;
 
 done:
     D_FUNC_LEAVE;
@@ -2048,492 +4853,684 @@ done:
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_group_copy_cb
+ * Function:    H5_daos_object_update_num_attrs_key_prep_cb
  *
- * Purpose:     Helper routine to deal with the copying of a single link
- *              during a group copy. Objects pointed to by hard links will
- *              be copied to the destination (copy) group.
+ * Purpose:     Prepare callback for async task to update the attribute
+ *              number tracking akey for an object. Currently checks for
+ *              errors from previous tasks, then encodes the new value into
+ *              a buffer and sets arguments for the DAOS operation.
  *
- *              When dealing with soft links, the following will happen:
- *
- *                  - If the H5O_COPY_EXPAND_SOFT_LINK_FLAG flag was
- *                    specified as part of the object copy options for
- *                    H5Ocopy, soft links will be followed and the objects
- *                    they point to will become new objects in the
- *                    destination (copy) group.
- *                  - If the H5O_COPY_EXPAND_SOFT_LINK_FLAG flag was not
- *                    specified, soft links will be directly copied to the
- *                    destination group and will have the same link value
- *                    as the original link.
- *
- *              DSINC - Expansion of external links is currently not
- *              supported and they will simply be directly copied to the
- *              destination group, similar to soft link copying when the
- *              H5O_COPY_EXPAND_SOFT_LINK_FLAG flag is not specified.
- *
- * Return:      Non-negative on success/Negative on failure
+ * Return:      Success:        0
+ *              Failure:        Error code
  *
  *-------------------------------------------------------------------------
  */
-static herr_t
-H5_daos_group_copy_cb(hid_t group, const char *name,
-    const H5L_info2_t *info, void *op_data)
+static int
+H5_daos_object_update_num_attrs_key_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
-    group_copy_op_data *copy_op_data = (group_copy_op_data *) op_data;
-    H5VL_loc_params_t sub_loc_params;
-    H5_daos_group_t *copied_group = NULL;
-    H5_daos_obj_t *grp_obj = NULL;
-    H5_daos_obj_t *obj_to_copy = NULL;
-    H5I_type_t opened_obj_type;
-    herr_t ret_value = H5_ITER_CONT;
+    H5_daos_object_update_num_attrs_key_ud_t *udata;
+    daos_obj_rw_t *update_args;
+    uint8_t *p;
+    int ret_value = 0;
 
-    if(NULL == (grp_obj = H5VLobject(group)))
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, H5_ITER_ERROR, "can't retrieve VOL object for group");
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for object attribute number tracking akey update task");
 
-    sub_loc_params.type = H5VL_OBJECT_BY_NAME;
-    sub_loc_params.loc_data.loc_by_name.name = name;
-    sub_loc_params.loc_data.loc_by_name.lapl_id = H5P_LINK_ACCESS_DEFAULT;
+    assert(udata->update_ud.obj);
+    assert(udata->update_ud.req);
+    assert(udata->update_ud.req->file);
+    assert(!udata->update_ud.req->file->closed);
 
-    switch (info->type) {
-        case H5L_TYPE_HARD:
-        {
-            /* Open the object being copied */
-            if(NULL == (obj_to_copy = H5_daos_object_open(grp_obj, &sub_loc_params, &opened_obj_type,
-                    copy_op_data->dxpl_id, NULL)))
-                D_GOTO_ERROR(H5E_OBJECT, H5E_CANTOPENOBJ, H5_ITER_ERROR, "failed to open object");
+    /* Handle errors */
+    if(udata->update_ud.req->status < -H5_DAOS_SHORT_CIRCUIT) {
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    } /* end if */
+    else if(udata->update_ud.req->status == -H5_DAOS_SHORT_CIRCUIT) {
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
+    } /* end if */
 
-            /*
-             * If performing a shallow group copy, copy the group without its immediate members.
-             * Otherwise, continue on with a normal recursive object copy.
-             */
-            if((opened_obj_type == H5I_GROUP) && (copy_op_data->object_copy_opts & H5O_COPY_SHALLOW_HIERARCHY_FLAG)) {
-                if(NULL == (copied_group = H5_daos_group_copy_helper((H5_daos_group_t *) obj_to_copy,
-                        copy_op_data->new_group, name, copy_op_data->object_copy_opts,
-                        copy_op_data->lcpl_id, copy_op_data->dxpl_id, NULL)))
-                    D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, H5_ITER_ERROR, "failed to perform shallow copy of group");
-            } /* end if */
-            else {
-                if(H5_daos_object_copy_helper(obj_to_copy, opened_obj_type, copy_op_data->new_group, name,
-                        copy_op_data->object_copy_opts, copy_op_data->lcpl_id,
-                        copy_op_data->req, copy_op_data->first_task, copy_op_data->dep_task) < 0)
-                    D_GOTO_ERROR(H5E_OBJECT, H5E_CANTCOPY, H5_ITER_ERROR, "failed to copy object");
-            } /* end else */
+    /* Encode new value into buffer */
+    p = udata->nattrs_new_buf;
+    UINT64ENCODE(p, (uint64_t)*udata->new_nattrs);
 
-            break;
-        } /* H5L_TYPE_HARD */
-
-        case H5L_TYPE_SOFT:
-        {
-            /*
-             * If the H5O_COPY_EXPAND_SOFT_LINK_FLAG flag was specified,
-             * expand the soft link into a new object. Otherwise, the link
-             * will be copied as-is.
-             */
-            if (copy_op_data->object_copy_opts & H5O_COPY_EXPAND_SOFT_LINK_FLAG) {
-                /* Open the object being copied */
-                if(NULL == (obj_to_copy = H5_daos_object_open(grp_obj, &sub_loc_params, &opened_obj_type,
-                        copy_op_data->dxpl_id, NULL)))
-                    D_GOTO_ERROR(H5E_OBJECT, H5E_CANTOPENOBJ, H5_ITER_ERROR, "failed to open object");
-
-                /* Copy the object */
-                if(H5_daos_object_copy_helper(obj_to_copy, opened_obj_type, copy_op_data->new_group, name,
-                        copy_op_data->object_copy_opts, copy_op_data->lcpl_id,
-                        copy_op_data->req, copy_op_data->first_task,
-                        copy_op_data->dep_task) < 0)
-                    D_GOTO_ERROR(H5E_OBJECT, H5E_CANTCOPY, H5_ITER_ERROR, "failed to copy object");
-            } /* end if */
-            else {
-                /* Copy the link as is */
-                if(H5_daos_link_copy(grp_obj, &sub_loc_params, copy_op_data->new_group, &sub_loc_params,
-                        copy_op_data->lcpl_id, H5P_LINK_ACCESS_DEFAULT, copy_op_data->dxpl_id, NULL) < 0)
-                    D_GOTO_ERROR(H5E_LINK, H5E_CANTCOPY, H5_ITER_ERROR, "failed to copy link");
-            } /* end else */
-
-            break;
-        } /* H5L_TYPE_SOFT */
-
-        case H5L_TYPE_EXTERNAL:
-        {
-            /*
-             * If the H5O_COPY_EXPAND_EXT_LINK_FLAG flag was specified,
-             * expand the external link into a new object. Otherwise, the
-             * link will be copied as-is.
-             */
-            if (copy_op_data->object_copy_opts & H5O_COPY_EXPAND_EXT_LINK_FLAG) {
-                /* TODO: Copy the object */
-                D_GOTO_ERROR(H5E_LINK, H5E_UNSUPPORTED, H5_ITER_ERROR, "H5O_COPY_EXPAND_EXT_LINK_FLAG flag is currently unsupported");
-            } /* end if */
-            else {
-                /* Copy the link as is */
-                if(H5_daos_link_copy(grp_obj, &sub_loc_params, copy_op_data->new_group, &sub_loc_params,
-                        copy_op_data->lcpl_id, H5P_LINK_ACCESS_DEFAULT, copy_op_data->dxpl_id, NULL) < 0)
-                    D_GOTO_ERROR(H5E_LINK, H5E_CANTCOPY, H5_ITER_ERROR, "failed to copy link");
-            } /* end else */
-
-            break;
-        } /* H5L_TYPE_EXTERNAL */
-
-        case H5L_TYPE_MAX:
-        case H5L_TYPE_ERROR:
-        default:
-            D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, H5_ITER_ERROR, "invalid link type");
-    } /* end switch */
+    /* Set update task arguments */
+    if(NULL == (update_args = daos_task_get_args(task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for metadata I/O task");
+    update_args->oh = udata->update_ud.obj->obj_oh;
+    update_args->th = DAOS_TX_NONE;
+    update_args->flags = 0;
+    update_args->dkey = &udata->update_ud.dkey;
+    update_args->nr = 1;
+    update_args->iods = udata->update_ud.iod;
+    update_args->sgls = udata->update_ud.sgl;
+    update_args->ioms = NULL;
 
 done:
-    if(copied_group)
-        if(H5_daos_group_close(copied_group, copy_op_data->dxpl_id, NULL) < 0)
-            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, H5_ITER_ERROR, "can't close group");
-    if(obj_to_copy)
-        if(H5_daos_object_close(obj_to_copy, copy_op_data->dxpl_id, NULL) < 0)
-            D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, H5_ITER_ERROR, "can't close object");
+    if(ret_value < 0)
+        tse_task_complete(task, ret_value);
 
     D_FUNC_LEAVE;
-} /* end H5_daos_group_copy_cb() */
+} /* end H5_daos_object_update_num_attrs_key_prep_cb() */
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_group_copy
+ * Function:    H5_daos_object_update_num_attrs_key_comp_cb
  *
- * Purpose:     Helper routine to copy a specified group to the given
- *              location specified by the dst_obj/dst_name pair. The new
- *              group's name is specified by the base portion of dst_name.
+ * Purpose:     Complete callback for async task to update the attribute
+ *              number tracking akey for an object. Currently checks for
+ *              a failed task then frees private data.
  *
- *              Copying of certain parts of the group, such as its
- *              attributes, is controlled by the passed in object copy
- *              options.
- *
- * Return:      Non-negative on success/Negative on failure
+ * Return:      Success:        0
+ *              Failure:        Error code
  *
  *-------------------------------------------------------------------------
  */
-static herr_t
-H5_daos_group_copy(H5_daos_group_t *src_obj, H5_daos_group_t *dst_obj, const char *dst_name,
-    unsigned obj_copy_options, hid_t lcpl_id, H5_daos_req_t *req,
+static int
+H5_daos_object_update_num_attrs_key_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_object_update_num_attrs_key_ud_t *udata;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for object attribute number tracking akey update task");
+
+    assert(!udata->update_ud.req->file->closed);
+
+    /* Handle errors in update task.  Only record error in udata->req_status if
+     * it does not already contain an error (it could contain an error if
+     * another task this task is not dependent on also failed). */
+    if(task->dt_result < -H5_DAOS_PRE_ERROR
+            && udata->update_ud.req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+        udata->update_ud.req->status = task->dt_result;
+        udata->update_ud.req->failed_task = udata->update_ud.task_name;
+    } /* end if */
+
+done:
+    if(udata) {
+        if(H5_daos_object_close(udata->update_ud.obj, H5I_INVALID_HID, NULL) < 0)
+            D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
+
+        /* Handle errors in this function */
+        /* Do not place any code that can issue errors after this block, except
+         * for H5_daos_req_free_int, which updates req->status if it sees an
+         * error */
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->update_ud.req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+            udata->update_ud.req->status = ret_value;
+            udata->update_ud.req->failed_task = "completion callback for object attribute number tracking akey update task";
+        } /* end if */
+
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(udata->update_ud.req) < 0)
+            D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+        /* Free private data */
+        DV_free(udata);
+    }
+    else
+        assert(ret_value >= 0 || ret_value == -H5_DAOS_DAOS_GET_ERROR);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_object_update_num_attrs_key_comp_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_obj_read_rc_prep_cb
+ *
+ * Purpose:     Prepare callback for asynchronous fetch of object
+ *              reference count.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ * Programmer:  Neil Fortner
+ *              June, 2020
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_obj_read_rc_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_obj_rw_rc_ud_t *udata;
+    daos_obj_rw_t *rw_args;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for metadata I/O task");
+
+    assert(udata->obj_p);
+    assert(udata->req);
+    assert(udata->req->file);
+    assert(!udata->req->file->closed);
+
+    /* Handle errors */
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
+        tse_task_complete(task, -H5_DAOS_PRE_ERROR);
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    } /* end if */
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT) {
+        tse_task_complete(task, -H5_DAOS_SHORT_CIRCUIT);
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
+    } /* end if */
+
+    /* Set update task arguments */
+    if(NULL == (rw_args = daos_task_get_args(task))) {
+        tse_task_complete(task, -H5_DAOS_DAOS_GET_ERROR);
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for object ref count read task");
+    } /* end if */
+    rw_args->oh = (*udata->obj_p)->obj_oh;
+    rw_args->th = udata->req->th;
+    rw_args->flags = 0;
+
+    /* Set up dkey */
+    daos_iov_set(&udata->dkey, (void *)H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
+    rw_args->dkey = &udata->dkey;
+
+    /* Set nr */
+    rw_args->nr = 1;
+
+    /* Set up iod */
+    daos_iov_set(&udata->iod.iod_name, (void *)H5_daos_rc_key_g, H5_daos_rc_key_size_g);
+    udata->iod.iod_nr = 1u;
+    udata->iod.iod_size = (daos_size_t)H5_DAOS_ENCODED_RC_SIZE;
+    udata->iod.iod_type = DAOS_IOD_SINGLE;
+    rw_args->iods = &udata->iod;
+
+    /* Set up sgl */
+    daos_iov_set(&udata->sg_iov, udata->rc_buf, (daos_size_t)H5_DAOS_ENCODED_RC_SIZE);
+    udata->sgl.sg_nr = 1;
+    udata->sgl.sg_nr_out = 0;
+    udata->sgl.sg_iovs = &udata->sg_iov;
+    rw_args->sgls = &udata->sgl;
+
+done:
+    D_FUNC_LEAVE;
+} /* end H5_daos_obj_read_rc_prep_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_obj_read_rc_comp_cb
+ *
+ * Purpose:     Complete callback for asynchronous fetch of object
+ *              reference count.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ * Programmer:  Neil Fortner
+ *              June, 2020
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_obj_read_rc_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_obj_rw_rc_ud_t *udata;
+    uint64_t rc_val;
+    uint8_t *p;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for metadata I/O task");
+    assert(!udata->req->file->closed);
+
+    /* Handle errors in fetch task.  Only record error in udata->req_status if
+     * it does not already contain an error (it could contain an error if
+     * another task this task is not dependent on also failed). */
+    if(task->dt_result < -H5_DAOS_PRE_ERROR
+            && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+        udata->req->status = task->dt_result;
+        udata->req->failed_task = "object fetch ref count";
+    } /* end if */
+    else if(task->dt_result == 0) {
+        /* Set output */
+        /* Check for no rc found, in this case the rc is 0 */
+        if(udata->iod.iod_size == 0) {
+            if(udata->rc)
+                *udata->rc = (uint64_t)1;
+            if(udata->rc_uint)
+                *udata->rc_uint = 1u;
+        } /* end if */
+        else {
+            /* Decode read rc value */
+            p = udata->rc_buf;
+            UINT64DECODE(p, rc_val);
+
+            if(udata->rc)
+                *udata->rc = rc_val;
+            if(udata->rc_uint)
+                *udata->rc_uint = (unsigned)rc_val;
+        } /* end else */
+    } /* end if */
+
+done:
+    /* Clean up */
+    if(udata) {
+        /* Close object if a direct pointer was provided */
+        if(udata->obj && H5_daos_object_close(udata->obj, udata->req->dxpl_id, NULL) < 0)
+            D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
+
+        /* Handle errors in this function */
+        /* Do not place any code that can issue errors after this block, except for
+         * H5_daos_req_free_int, which updates req->status if it sees an error */
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+            udata->req->status = ret_value;
+            udata->req->failed_task = "read object ref count completion callback";
+        } /* end if */
+
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(udata->req) < 0)
+            D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+        /* Free udata */
+        udata = DV_free(udata);
+    } /* end if */
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_obj_read_rc_comp_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_obj_read_rc
+ *
+ * Purpose:     Retrieves the object's reference count.  Exactly one of
+ *              obj_p or obj must be provided.  Use obj_p if the object
+ *              struct is not yet allocated when this function is called.
+ *              *obj_p / *obj and *rc do not need to be valid until after
+ *              dep_task (as passed to this function) completes.
+ *
+ * Return:      0 on success/Negative error code on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+int
+H5_daos_obj_read_rc(H5_daos_obj_t **obj_p, H5_daos_obj_t *obj, uint64_t *rc,
+    unsigned *rc_uint, tse_sched_t *sched, H5_daos_req_t *req,
     tse_task_t **first_task, tse_task_t **dep_task)
 {
-    H5_daos_iter_data_t iter_data;
-    group_copy_op_data copy_op_data;
-    H5_daos_group_t *new_group = NULL;
-    H5_index_t iter_index_type;
-    hid_t target_group_id = H5I_INVALID_HID;
-    herr_t ret_value = SUCCEED;
+    H5_daos_obj_rw_rc_ud_t *fetch_udata = NULL;
+    tse_task_t *fetch_task = NULL;
+    int ret;
+    int ret_value = 0;
 
-    assert(src_obj);
-    assert(dst_obj);
-    assert(dst_name);
+    assert(obj || obj_p);
+    assert(!(obj_p && obj));
+    assert(sched);
+    assert(req);
+    assert(req->file);
+    assert(first_task);
+    assert(dep_task);
+    H5daos_compile_assert(H5_DAOS_ENCODED_RC_SIZE == H5_DAOS_ENCODED_UINT64_T_SIZE);
 
-    /* Copy the group */
-    if(NULL == (new_group = H5_daos_group_copy_helper(src_obj, dst_obj, dst_name,
-            obj_copy_options, lcpl_id, req->dxpl_id, NULL)))
-        D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, FAIL, "failed to copy group");
+    /* Allocate task udata struct */
+    if(NULL == (fetch_udata = (H5_daos_obj_rw_rc_ud_t *)DV_calloc(sizeof(H5_daos_obj_rw_rc_ud_t))))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate read ref count user data");
+    fetch_udata->req = req;
+    if(obj_p)
+        fetch_udata->obj_p = obj_p;
+    else {
+        fetch_udata->obj = obj;
+        obj->item.rc++;
+        fetch_udata->obj_p = &fetch_udata->obj;
+    } /* end else */
+    fetch_udata->rc = rc;
+    fetch_udata->rc_uint = rc_uint;
 
-    /* Register an ID for the group to iterate over */
-    if((target_group_id = H5VLwrap_register(src_obj, H5I_GROUP)) < 0)
-        D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, FAIL, "unable to atomize object handle");
-    src_obj->obj.item.rc++;
+    /* Create task for rc fetch */
+    if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, sched, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &fetch_task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't create task to read object ref count: %s", H5_daos_err_to_string(ret));
 
-    /* Setup group copying op_data to pass to the link iteration callback function */
-    copy_op_data.new_group = new_group;
-    copy_op_data.object_copy_opts = obj_copy_options;
-    copy_op_data.lcpl_id = lcpl_id;
-    copy_op_data.dxpl_id = req->dxpl_id;
-    copy_op_data.req = req;
-    copy_op_data.first_task = first_task;
-    copy_op_data.dep_task = dep_task;
+    /* Set callback functions for rc fetch */
+    if(0 != (ret = tse_task_register_cbs(fetch_task, H5_daos_obj_read_rc_prep_cb, NULL, 0, H5_daos_obj_read_rc_comp_cb, NULL, 0)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't register callbacks for task to read object ref count: %s", H5_daos_err_to_string(ret));
 
-    /*
-     * Determine whether to iterate by name order or creation order, based
-     * upon whether creation order is tracked for the group.
-     */
-    iter_index_type = (src_obj->gcpl_cache.track_corder) ? H5_INDEX_CRT_ORDER : H5_INDEX_NAME;
+    /* Set private data for rc fetch */
+    (void)tse_task_set_priv(fetch_task, fetch_udata);
 
-    /* Initialize iteration data */
-    H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_LINK, iter_index_type, H5_ITER_INC,
-            FALSE, NULL, target_group_id, &copy_op_data, req->dxpl_id, req, first_task, dep_task);
-    iter_data.u.link_iter_data.link_iter_op = H5_daos_group_copy_cb;
-
-    /* Copy the immediate members of the group. If the H5O_COPY_SHALLOW_HIERARCHY_FLAG wasn't
-     * specified, this will also recursively copy the members of any groups found. */
-    if(H5_daos_link_iterate(src_obj, &iter_data) < 0)
-        D_GOTO_ERROR(H5E_SYM, H5E_BADITER, FAIL, "failed to iterate over group's links");
-
-done:
-    if(new_group) {
-        if(H5_daos_group_close(new_group, req->dxpl_id, NULL) < 0)
-            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group");
-        new_group = NULL;
+    /* Schedule fetch task (or save it to be scheduled later) and give it a
+     * reference to req and udata */
+    if(*first_task) {
+        if(0 != (ret = tse_task_schedule(fetch_task, false)))
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't schedule task for object read ref count: %s", H5_daos_err_to_string(ret));
     } /* end if */
-
-    if(target_group_id >= 0)
-        if(H5Idec_ref(target_group_id) < 0)
-            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group ID");
-
-    D_FUNC_LEAVE;
-} /* end H5_daos_group_copy() */
-
-
-/*-------------------------------------------------------------------------
- * Function:    H5_daos_group_copy_helper
- *
- * Purpose:     Helper routine for H5_daos_group_copy that actually copies
- *              the specified group. This routine is needed to split the
- *              group copying logic away from the higher-level
- *              H5_daos_group_copy, which also copies the immediate members
- *              of a group during a shallow copy, or the entire hierarchy
- *              during a deep copy.
- *
- *              When a shallow group copy is being done, the group copying
- *              callback for link iteration can simply call this routine to
- *              just copy the group. Otherwise, during a deep copy, it can
- *              call H5_daos_group_copy to copy the group and its members
- *              as well.
- *
- * Return:      Non-negative on success/NULL on failure
- *
- *-------------------------------------------------------------------------
- */
-static H5_daos_group_t *
-H5_daos_group_copy_helper(H5_daos_group_t *src_obj, H5_daos_group_t *dst_obj, const char *dst_name,
-    unsigned obj_copy_options, hid_t lcpl_id, hid_t dxpl_id, void **req)
-{
-    H5VL_loc_params_t dest_loc_params;
-    H5_daos_group_t *copied_group = NULL;
-    H5_daos_group_t *ret_value = NULL;
-
-    /* Copy the group */
-    dest_loc_params.type = H5VL_OBJECT_BY_SELF;
-    dest_loc_params.obj_type = H5I_GROUP;
-    if(NULL == (copied_group = H5_daos_group_create(dst_obj, &dest_loc_params, dst_name, lcpl_id,
-            src_obj->gcpl_id, src_obj->gapl_id, dxpl_id, req)))
-        D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, NULL, "failed to create new group");
-
-    /*
-     * If the "without attribute copying" flag hasn't been specified,
-     * copy the group's attributes as well.
-     */
-    if((obj_copy_options & H5O_COPY_WITHOUT_ATTR_FLAG) == 0)
-        if(H5_daos_object_copy_attributes((H5_daos_obj_t *) src_obj, (H5_daos_obj_t *) copied_group, dxpl_id, req) < 0)
-            D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, NULL, "failed to copy group's attributes");
-
-    ret_value = copied_group;
+    else
+        *first_task = fetch_task;
+    *dep_task = fetch_task;
+    req->rc++;
+    fetch_udata = NULL;
 
 done:
-    if(!ret_value && copied_group)
-        if(H5_daos_group_close(copied_group, dxpl_id, req) < 0)
-            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, NULL, "can't close group");
-
-    D_FUNC_LEAVE;
-} /* end H5_daos_group_copy_helper() */
-
-
-/*-------------------------------------------------------------------------
- * Function:    H5_daos_datatype_copy
- *
- * Purpose:     Helper routine to copy a specified committed datatype to
- *              the given location specified by the dst_obj/dst_name pair.
- *              The new committed datatype's name is specified by the base
- *              portion of dst_name.
- *
- *              Copying of certain parts of the committed datatype, such as
- *              its attributes, is controlled by the passed in object copy
- *              options.
- *
- * Return:      Non-negative on success/Negative on failure
- *
- *-------------------------------------------------------------------------
- */
-static herr_t
-H5_daos_datatype_copy(H5_daos_dtype_t *src_obj, H5_daos_group_t *dst_obj, const char *dst_name,
-    unsigned obj_copy_options, hid_t lcpl_id, hid_t dxpl_id, void **req)
-{
-    H5VL_loc_params_t dest_loc_params;
-    H5_daos_dtype_t *new_dtype = NULL;
-    herr_t ret_value = SUCCEED;
-
-    assert(src_obj);
-    assert(dst_obj);
-    assert(dst_name);
-
-    /*
-     * Copy the datatype
-     */
-    dest_loc_params.type = H5VL_OBJECT_BY_SELF;
-    dest_loc_params.obj_type = H5I_GROUP;
-    if(NULL == (new_dtype = H5_daos_datatype_commit(dst_obj, &dest_loc_params, dst_name, src_obj->type_id,
-            lcpl_id, src_obj->tcpl_id, src_obj->tapl_id, dxpl_id, req)))
-        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTCOPY, FAIL, "failed to commit new datatype");
-
-    /*
-     * If the "without attribute copying" flag hasn't been specified,
-     * copy the datatype's attributes as well.
-     */
-    if((obj_copy_options & H5O_COPY_WITHOUT_ATTR_FLAG) == 0)
-        if(H5_daos_object_copy_attributes((H5_daos_obj_t *) src_obj, (H5_daos_obj_t *) new_dtype, dxpl_id, req) < 0)
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTCOPY, FAIL, "failed to copy datatype's attributes");
-
-done:
-    if(new_dtype) {
-        if(H5_daos_datatype_close(new_dtype, dxpl_id, req) < 0)
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, FAIL, "can't close datatype");
-        new_dtype = NULL;
+    /* Clean up */
+    if(fetch_udata) {
+        assert(ret_value < 0);
+        fetch_udata = DV_free(fetch_udata);
     } /* end if */
 
     D_FUNC_LEAVE;
-} /* end H5_daos_datatype_copy() */
+} /* end H5_daos_obj_read_rc() */
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_dataset_copy
+ * Function:    H5_daos_obj_write_rc_task
  *
- * Purpose:     Helper routine to copy a specified dataset to the given
- *              location specified by the dst_obj/dst_name pair. The new
- *              dataset's name is specified by the base portion of
- *              dst_name.
+ * Purpose:     Asynchronous task for object reference count write.
  *
- *              Copying of certain parts of the dataset, such as its
- *              attributes, is controlled by the passed in object copy
- *              options.
+ * Return:      Success:        0
+ *              Failure:        Error code
  *
- * Return:      Non-negative on success/Negative on failure
+ * Programmer:  Neil Fortner
+ *              June, 2020
  *
  *-------------------------------------------------------------------------
  */
-static herr_t
-H5_daos_dataset_copy(H5_daos_dset_t *src_obj, H5_daos_group_t *dst_obj, const char *dst_name,
-    unsigned obj_copy_options, hid_t lcpl_id, hid_t dxpl_id, void **req)
+static int
+H5_daos_obj_write_rc_task(tse_task_t *task)
 {
-    H5VL_loc_params_t dest_loc_params;
-    H5_daos_dset_t *new_dset = NULL;
-    herr_t ret_value = SUCCEED;
+    H5_daos_obj_rw_rc_ud_t *udata;
+    H5_daos_req_t *req = NULL;
+    uint64_t cur_rc;
+    uint64_t new_rc;
+    int ret;
+    int ret_value = 0;
 
-    assert(src_obj);
-    assert(dst_obj);
-    assert(dst_name);
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for object ref count write task");
 
-    /*
-     * Copy the dataset
-     */
-    dest_loc_params.type = H5VL_OBJECT_BY_SELF;
-    dest_loc_params.obj_type = H5I_GROUP;
-    if(NULL == (new_dset = H5_daos_dataset_create(dst_obj, &dest_loc_params, dst_name, lcpl_id,
-            src_obj->type_id, src_obj->space_id, src_obj->dcpl_id, src_obj->dapl_id, dxpl_id, req)))
-        D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, FAIL, "failed to create new dataset");
+    assert(udata->obj_p);
+    assert(*udata->obj_p);
+    assert(udata->req);
+    assert(udata->req->file);
+    assert(!udata->req->file->closed);
+    assert(task == udata->op_task);
 
-    /*
-     * If the "without attribute copying" flag hasn't been specified,
-     * copy the dataset's attributes as well.
-     */
-    if((obj_copy_options & H5O_COPY_WITHOUT_ATTR_FLAG) == 0)
-        if(H5_daos_object_copy_attributes((H5_daos_obj_t *) src_obj, (H5_daos_obj_t *) new_dset, dxpl_id, req) < 0)
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, FAIL, "failed to copy dataset's attributes");
+    /* Assign req convenience pointer and take a refernce to it */
+    req = udata->req;
+    req->rc++;
+
+    /* Handle errors */
+    if(req->status < -H5_DAOS_SHORT_CIRCUIT) {
+        tse_task_complete(task, -H5_DAOS_PRE_ERROR);
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    } /* end if */
+    else if(req->status == -H5_DAOS_SHORT_CIRCUIT) {
+        tse_task_complete(task, -H5_DAOS_SHORT_CIRCUIT);
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
+    } /* end if */
+
+    /* Determine current ref count */
+    cur_rc = udata->rc ? *udata->rc : 0;
+    assert((int64_t)cur_rc + udata->adjust >= 0);
+
+    /* Check if we're deleting the object */
+    new_rc = (uint64_t)((int64_t)cur_rc + udata->adjust);
+    if(udata->adjust < 0 && new_rc == 0) {
+        tse_task_t *punch_task;
+        daos_obj_punch_t *punch_args;
+
+        /* Create task for object punch */
+        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_PUNCH, &(*udata->obj_p)->item.file->sched, 0, NULL, &punch_task)))
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't create task to delete object: %s", H5_daos_err_to_string(ret));
+
+        /* Set callback functions for object punch */
+        if(0 != (ret = tse_task_register_cbs(punch_task, NULL, NULL, 0, H5_daos_obj_write_rc_comp_cb, NULL, 0)))
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't register callbacks for task to delete object: %s", H5_daos_err_to_string(ret));
+
+        /* Set private data for object punch */
+        (void)tse_task_set_priv(punch_task, udata);
+
+        /* Set punch task arguments */
+        if(NULL == (punch_args = daos_task_get_args(punch_task)))
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for object ref count write task");
+        punch_args->oh = (*udata->obj_p)->obj_oh;
+        punch_args->th = udata->req->th;
+        punch_args->flags = 0;
+        punch_args->dkey = NULL;
+        punch_args->akeys = NULL;
+        punch_args->akey_nr = 0;
+
+        udata->task_name = "object punch due to ref count dropping to 0";
+
+        /* Schedule punch_task task and transfer ownership of udata */
+        if(0 != (ret = tse_task_schedule(punch_task, false)))
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't schedule task for object delete: %s", H5_daos_err_to_string(ret));
+        udata = NULL;
+    } /* end if */
+    else {
+        tse_task_t *update_task;
+        daos_obj_rw_t *rw_args;
+        uint8_t *p;
+
+        /* Encode rc */
+        p = udata->rc_buf;
+        UINT64ENCODE(p, new_rc);
+
+        /* Create task for rc update */
+        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_UPDATE, &(*udata->obj_p)->item.file->sched, 0, NULL, &update_task)))
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't create task to write object ref count: %s", H5_daos_err_to_string(ret));
+
+        /* Set callback functions for rc update */
+        if(0 != (ret = tse_task_register_cbs(update_task, NULL, NULL, 0, H5_daos_obj_write_rc_comp_cb, NULL, 0)))
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't register callbacks for task to write object ref count: %s", H5_daos_err_to_string(ret));
+
+        /* Set private data for rc fetch */
+        (void)tse_task_set_priv(update_task, udata);
+
+        /* Set update task arguments */
+        if(NULL == (rw_args = daos_task_get_args(update_task)))
+            D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for object ref count write task");
+        rw_args->oh = (*udata->obj_p)->obj_oh;
+        rw_args->th = udata->req->th;
+        rw_args->flags = 0;
+
+        /* Set up dkey */
+        daos_iov_set(&udata->dkey, (void *)H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
+        rw_args->dkey = &udata->dkey;
+
+        /* Set nr */
+        rw_args->nr = 1;
+
+        /* Set up iod */
+        daos_iov_set(&udata->iod.iod_name, (void *)H5_daos_rc_key_g, H5_daos_rc_key_size_g);
+        udata->iod.iod_nr = 1u;
+        udata->iod.iod_size = (daos_size_t)H5_DAOS_ENCODED_RC_SIZE;
+        udata->iod.iod_type = DAOS_IOD_SINGLE;
+        rw_args->iods = &udata->iod;
+
+        /* Set up sgl */
+        daos_iov_set(&udata->sg_iov, udata->rc_buf, (daos_size_t)H5_DAOS_ENCODED_RC_SIZE);
+        udata->sgl.sg_nr = 1;
+        udata->sgl.sg_nr_out = 0;
+        udata->sgl.sg_iovs = &udata->sg_iov;
+        rw_args->sgls = &udata->sgl;
+
+        udata->task_name = "object update ref count";
+
+        /* Schedule update_task task and transfer ownership of udata */
+        if(0 != (ret = tse_task_schedule(update_task, false)))
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't schedule task for object write ref count: %s", H5_daos_err_to_string(ret));
+        udata = NULL;
+    } /* end else */
 
 done:
-    if(new_dset) {
-        if(H5_daos_dataset_close(new_dset, dxpl_id, req) < 0)
-            D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, FAIL, "can't close dataset");
-        new_dset = NULL;
+    /* Handle errors */
+    if(ret_value < 0 && req) {
+        /* Handle errors in this function */
+        /* Do not place any code that can issue errors after this block, except for
+         * H5_daos_req_free_int, which updates req->status if it sees an error */
+        if(ret_value != -H5_DAOS_SHORT_CIRCUIT && req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+            req->status = ret_value;
+            req->failed_task = "object ref count write task";
+        } /* end if */
+    } /* end if */
+
+    /* Release req */
+    if(req && H5_daos_req_free_int(req) < 0)
+        D_DONE_ERROR(H5E_LINK, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+    /* Cleanup */
+    if(udata) {
+        assert(ret_value < 0);
+
+        tse_task_complete(task, ret_value);
+        udata = DV_free(udata);
     } /* end if */
 
     D_FUNC_LEAVE;
-} /* end H5_daos_dataset_copy() */
+} /* end H5_daos_obj_write_rc_task() */
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_object_copy_attributes_cb
+ * Function:    H5_daos_obj_write_rc_comp_cb
  *
- * Purpose:     Attribute iteration callback to copy a single attribute
- *              from one DAOS object to another.
+ * Purpose:     Complete callback for asynchronous write of object
+ *              reference count.
  *
- *              DSINC - currently no provision for dxpl_id or req.
+ * Return:      Success:        0
+ *              Failure:        Error code
  *
- * Return:      Non-negative on success/Negative on failure
+ * Programmer:  Neil Fortner
+ *              June, 2020
  *
  *-------------------------------------------------------------------------
  */
-static herr_t
-H5_daos_object_copy_attributes_cb(hid_t location_id, const char *attr_name,
-    const H5A_info_t H5VL_DAOS_UNUSED *ainfo, void *op_data)
+static int
+H5_daos_obj_write_rc_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
-    H5VL_loc_params_t sub_loc_params;
-    H5_daos_obj_t *src_loc_obj = NULL;
-    H5_daos_obj_t *destination_obj = (H5_daos_obj_t *)op_data;
-    H5_daos_attr_t *cur_attr = NULL;
-    H5_daos_attr_t *new_attr = NULL;
-    herr_t ret_value = H5_ITER_CONT;
+    H5_daos_obj_rw_rc_ud_t *udata;
+    int ret_value = 0;
 
-    sub_loc_params.obj_type = H5I_ATTR;
-    sub_loc_params.type = H5VL_OBJECT_BY_SELF;
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for metadata I/O task");
+    assert(!udata->req->file->closed);
 
-    if(NULL == (src_loc_obj = H5VLobject(location_id)))
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, H5_ITER_ERROR, "failed to retrieve VOL object for source location ID");
-
-    if(NULL == (cur_attr = H5_daos_attribute_open(src_loc_obj, &sub_loc_params, attr_name,
-            H5P_ATTRIBUTE_ACCESS_DEFAULT, H5P_DATASET_XFER_DEFAULT, NULL)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, H5_ITER_ERROR, "failed to open attribute");
-
-    if(NULL == (new_attr = H5_daos_attribute_create(destination_obj, &sub_loc_params,
-            attr_name, cur_attr->type_id, cur_attr->space_id, cur_attr->acpl_id,
-            H5P_ATTRIBUTE_ACCESS_DEFAULT, H5P_DATASET_XFER_DEFAULT, NULL)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTCOPY, H5_ITER_ERROR, "failed to create new attribute");
+    /* Handle errors in update task.  Only record error in udata->req_status if
+     * it does not already contain an error (it could contain an error if
+     * another task this task is not dependent on also failed). */
+    if(task->dt_result < -H5_DAOS_PRE_ERROR
+            && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+        udata->req->status = task->dt_result;
+        udata->req->failed_task = udata->task_name;
+    } /* end if */
 
 done:
-    if(new_attr)
-        if(H5_daos_attribute_close(new_attr, H5P_DATASET_XFER_DEFAULT, NULL) < 0)
-            D_DONE_ERROR(H5E_ATTR, H5E_CANTCLOSEOBJ, H5_ITER_ERROR, "failed to close attribute");
-    if(cur_attr)
-        if(H5_daos_attribute_close(cur_attr, H5P_DATASET_XFER_DEFAULT, NULL) < 0)
-            D_DONE_ERROR(H5E_ATTR, H5E_CANTCLOSEOBJ, H5_ITER_ERROR, "failed to close attribute");
+    /* Clean up */
+    if(udata) {
+        /* Close object if a direct pointer was provided */
+        if(udata->obj && H5_daos_object_close(udata->obj, udata->req->dxpl_id, NULL) < 0)
+            D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
+
+        /* Handle errors in this function */
+        /* Do not place any code that can issue errors after this block, except for
+         * H5_daos_req_free_int, which updates req->status if it sees an error */
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+            udata->req->status = ret_value;
+            udata->req->failed_task = "write object ref count completion callback";
+        } /* end if */
+
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(udata->req) < 0)
+            D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+        /* Complete op task */
+        if(udata->op_task)
+            tse_task_complete(udata->op_task, ret_value);
+
+        /* Free udata */
+        udata = DV_free(udata);
+    } /* end if */
 
     D_FUNC_LEAVE;
-} /* end H5_daos_object_copy_attributes_cb() */
+} /* end H5_daos_obj_write_rc_comp_cb() */
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_object_copy_attributes
+ * Function:    H5_daos_obj_write_rc
  *
- * Purpose:     Helper routine to copy all of the attributes from a given
- *              object to the specified destination object.
+ * Purpose:     Writes the provided reference count to the object, after
+ *              adding adjust.  Exactly one of obj_p or obj must be
+ *              provided.  Use obj_p if the object struct is not yet
+ *              allocated when this function is called.  *obj_p / *obj and
+ *              *rc do not need to be valid until after dep_task (as
+ *              passed to this function) completes.  If rc is passed as
+ *              NULL *rc is taken to be 0.  If the object's ref count
+ *              drops to 0 it will be deleted from the file.  If *rc and
+ *              adjust are both 0 the object will not be deleted (this is
+ *              used for anonymous object creation).
  *
- * Return:      Non-negative on success/Negative on failure
+ * Return:      0 on success/Negative error code on failure
  *
  *-------------------------------------------------------------------------
  */
-static herr_t
-H5_daos_object_copy_attributes(H5_daos_obj_t *src_obj, H5_daos_obj_t *dst_obj,
-    hid_t dxpl_id, void H5VL_DAOS_UNUSED **req)
+int
+H5_daos_obj_write_rc(H5_daos_obj_t **obj_p, H5_daos_obj_t *obj, uint64_t *rc,
+    int64_t adjust, tse_sched_t *sched, H5_daos_req_t *req,
+    tse_task_t **first_task, tse_task_t **dep_task)
 {
-    H5_daos_iter_data_t iter_data;
-    H5_index_t iter_index_type;
-    hid_t target_obj_id = H5I_INVALID_HID;
-    herr_t ret_value = SUCCEED;
+    H5_daos_obj_rw_rc_ud_t *task_udata = NULL;
+    int ret;
+    int ret_value = 0;
 
-    assert(src_obj);
-    assert(dst_obj);
+    assert(obj_p || obj);
+    assert(!(obj_p && obj));
+    assert(sched);
+    assert(req);
+    assert(req->file);
+    assert(first_task);
+    assert(dep_task);
+    H5daos_compile_assert(H5_DAOS_ENCODED_RC_SIZE == H5_DAOS_ENCODED_UINT64_T_SIZE);
 
-    /* Register ID for source object */
-    if((target_obj_id = H5VLwrap_register(src_obj, src_obj->item.type)) < 0)
-        D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, FAIL, "unable to atomize object handle");
-    src_obj->item.rc++;
+    /* Allocate task udata struct */
+    if(NULL == (task_udata = (H5_daos_obj_rw_rc_ud_t *)DV_calloc(sizeof(H5_daos_obj_rw_rc_ud_t))))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate write ref count user data");
+    task_udata->req = req;
+    if(obj_p)
+        task_udata->obj_p = obj_p;
+    else {
+        task_udata->obj = obj;
+        obj->item.rc++;
+        task_udata->obj_p = &task_udata->obj;
+    } /* end else */
+    task_udata->rc = rc;
+    task_udata->adjust = adjust;
 
-    /*
-     * Determine whether to iterate by name order or creation order, based
-     * upon whether attribute creation order is tracked for the object.
-     */
-    iter_index_type = (src_obj->ocpl_cache.track_acorder) ? H5_INDEX_CRT_ORDER : H5_INDEX_NAME;
+    /* Create task to finish this operation */
+    if(0 !=  (ret = tse_task_create(H5_daos_obj_write_rc_task, sched, task_udata, &task_udata->op_task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't create task for object write ref count: %s", H5_daos_err_to_string(ret));
 
-    /* Initialize iteration data. Attributes are re-created by creation order if possible */
-    H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_ATTR, iter_index_type, H5_ITER_INC,
-            FALSE, NULL, target_obj_id, dst_obj, dxpl_id, NULL, NULL, NULL);
-    iter_data.u.attr_iter_data.attr_iter_op = H5_daos_object_copy_attributes_cb;
+    /* Register task dependency */
+    if(*dep_task && 0 != (ret = tse_task_register_deps(task_udata->op_task, 1, dep_task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't create dependencies for object write ref count task: %s", H5_daos_err_to_string(ret));
 
-    if(H5_daos_attribute_iterate(src_obj, &iter_data) < 0)
-        D_GOTO_ERROR(H5E_ATTR, H5E_BADITER, FAIL, "failed to iterate over object's attributes");
+    /* Schedule task (or save it to be scheduled later) and give it a
+     * reference to req and udata */
+    if(*first_task) {
+        if(0 != (ret = tse_task_schedule(task_udata->op_task, false)))
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't schedule task for object write ref count: %s", H5_daos_err_to_string(ret));
+    } /* end if */
+    else
+        *first_task = task_udata->op_task;
+    *dep_task = task_udata->op_task;
+    req->rc++;
+    task_udata = NULL;
 
 done:
-    if(target_obj_id >= 0)
-        if(H5Idec_ref(target_obj_id) < 0)
-            D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, FAIL, "can't close object ID");
+    /* Clean up */
+    if(task_udata) {
+        assert(ret_value < 0);
+        task_udata = DV_free(task_udata);
+    } /* end if */
 
     D_FUNC_LEAVE;
-} /* end H5_daos_object_copy_attributes() */
+} /* end H5_daos_obj_write_rc() */
 

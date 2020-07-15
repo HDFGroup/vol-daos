@@ -37,6 +37,8 @@ H5_daos_err_to_string(int ret)
          */
         case -H5_DAOS_INCOMPLETE:
             return "object open incomplete (should not see this) (H5_DAOS_INCOMPLETE)";
+        case -H5_DAOS_SHORT_CIRCUIT:
+            return "operation completed successfully earlier than expected (should not see this) (H5_DAOS_SHORT_CIRCUIT)";
         case -H5_DAOS_PRE_ERROR:
             return "error in earlier task (should not see this) (H5_DAOS_PRE_ERROR)";
         case -H5_DAOS_CANCELED:
@@ -61,6 +63,8 @@ H5_daos_err_to_string(int ret)
             return "HDF5 copy operation failed (H5_DAOS_H5_COPY_ERROR)";
         case -H5_DAOS_H5_UNSUPPORTED_ERROR:
             return "Unsupported HDF5 operation (H5_DAOS_H5_UNSUPPORTED_ERROR)";
+        case -H5_DAOS_H5_ITER_ERROR:
+            return "Error occured during iteration (H5_DAOS_H5_ITER_ERROR)";
         case -H5_DAOS_H5PSET_ERROR:
             return "failed to set info on HDF5 property list (H5_DAOS_H5PSET_ERROR)";
         case -H5_DAOS_H5PGET_ERROR:
@@ -93,6 +97,8 @@ H5_daos_err_to_string(int ret)
             return "error during operation setup (H5_DAOS_SETUP_ERROR)";
         case -H5_DAOS_FILE_EXISTS:
             return "file already exists (H5_DAOS_FILE_EXISTS)";
+        case -H5_DAOS_LINK_EXISTS:
+            return "link already exists (H5_DAOS_LINK_EXISTS)";
 
         /*
          * GURT errors

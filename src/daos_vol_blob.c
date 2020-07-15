@@ -134,7 +134,7 @@ H5_daos_blob_get(void *_file, const void *blob_id, void *buf, size_t size,
         sgl.sg_iovs = &sg_iov;
 
         /* Read blob */
-        if(0 != (ret = daos_obj_fetch(file->glob_md_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
+        if(0 != (ret = daos_obj_fetch(file->glob_md_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod, &sgl, NULL /*ioms*/, NULL /*event*/)))
             D_GOTO_ERROR(H5E_VOL, H5E_READERROR, FAIL, "can't read blob from object: %s", H5_daos_err_to_string(ret));
     } /* end if */
 

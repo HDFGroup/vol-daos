@@ -49,7 +49,7 @@ H5_daos_req_wait(void *_req, uint64_t timeout, H5ES_status_t *status)
     if(status) {
         if(req->status > -H5_DAOS_INCOMPLETE)
             *status = H5ES_STATUS_SUCCEED;
-        else if(req->status == -H5_DAOS_INCOMPLETE)
+        else if(req->status >= -H5_DAOS_SHORT_CIRCUIT)
             *status = H5ES_STATUS_IN_PROGRESS;
         else if(req->status == -H5_DAOS_CANCELED)
             *status = H5ES_STATUS_CANCELED;
@@ -173,8 +173,8 @@ H5_daos_req_create(H5_daos_file_t *file, hid_t dxpl_id)
     ret_value->th = DAOS_TX_NONE;
     ret_value->th_open = FALSE;
     ret_value->file = file;
-    if(dxpl_id == H5I_INVALID_HID)
-        ret_value->dxpl_id = H5I_INVALID_HID;
+    if(dxpl_id == H5I_INVALID_HID || dxpl_id == H5P_DATASET_XFER_DEFAULT)
+        ret_value->dxpl_id = dxpl_id;
     else
         if((ret_value->dxpl_id = H5Pcopy(dxpl_id)) < 0) {
             DV_free(ret_value);
@@ -212,7 +212,7 @@ H5_daos_req_free_int(H5_daos_req_t *req)
     assert(req);
 
     if(--req->rc == 0) {
-        if(req->dxpl_id >= 0)
+        if(req->dxpl_id >= 0 && req->dxpl_id != H5P_DATASET_XFER_DEFAULT)
             if(H5Pclose(req->dxpl_id) < 0) {
                 /* If H5Pclose failed we must update the request status, since
                  * the calling function can't access the request after calling

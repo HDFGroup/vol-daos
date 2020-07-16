@@ -626,10 +626,14 @@ H5_daos_dataset_create_helper(H5_daos_file_t *file, hid_t type_id, hid_t space_i
         for(i = 0; i < ndims; i++)
             extent_size *= (uint64_t)extent_dims[i];
 
-        /* If the dataset is larger than the max contig size calculate auto
-         * chunk size */
-        if(extent_size > H5_DAOS_MAX_CONTIG_SIZE) {
+        /* If the dataset is larger than the max contig size and there are at
+         * least two elements calculate auto chunk size */
+        if(extent_size > H5_DAOS_MAX_CONTIG_SIZE && extent_size > type_size) {
             extent_size = (uint64_t)type_size;
+
+            /* Scalar dataspaces have only one element and so (total)
+             * extent_size == type size, so they should not get this far */
+            assert(ndims > 0);
 
             /* Loop over dimensions */
             i = ndims;
@@ -2563,10 +2567,13 @@ H5_daos_dataset_io_types_equal(H5_daos_dset_t *dset, daos_key_t *dkey, hssize_t 
     /* Set private data for raw data I/O */
     (void)tse_task_set_priv(io_task, chunk_io_ud);
 
-    /* Set first_task and dep_task pointers.  first_task should have been NULL
-     * when calling this function.  Do not schedule task. */
-    assert(!*first_task);
-    *first_task = io_task;
+    /* Schedule IO task (or save it to be scheduled later) */
+    if(*first_task) {
+        if(0 != (ret = tse_task_schedule(io_task, false)))
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't schedule dataset I/O task");
+    } /* end if */
+    else
+        *first_task = io_task;
     *dep_task = io_task;
 
     /* Task will be scheduled, give it a reference to req */
@@ -3108,26 +3115,25 @@ done:
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_dataset_read
+ * Function:    H5_daos_dataset_read_int
  *
- * Purpose:     Reads raw data from a dataset into a buffer.
+ * Purpose:     Internal version of H5_daos_dataset_read().
  *`
  * Return:      Success:        0
  *              Failure:        -1, dataset not read.
  *
  * Programmer:  Neil Fortner
- *              November, 2016
+ *              July. 2020
  *
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
-    hid_t file_space_id, hid_t dxpl_id, void *buf, void H5VL_DAOS_UNUSED **req)
+H5_daos_dataset_read_int(H5_daos_dset_t *dset, hid_t mem_type_id,
+    hid_t mem_space_id, hid_t file_space_id, void *buf, H5_daos_req_t *req,
+    tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_select_chunk_info_t *chunk_info = NULL; /* Array of info for each chunk selected in the file */
     H5_daos_chunk_io_func single_chunk_read_func;
-    H5_daos_dset_t *dset = (H5_daos_dset_t *)_dset;
-    hssize_t num_elem_file = -1, num_elem_mem;
     uint64_t i;
     uint8_t dkey_buf[1 + (sizeof(uint64_t) * H5S_MAX_RANK)];
     htri_t need_tconv;
@@ -3136,19 +3142,17 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
     hid_t real_file_space_id;
     hid_t real_mem_space_id;
     int ndims;
-    int ntasks = 0;
-    tse_task_t *first_task = NULL;
-    tse_task_t **first_tasks = &first_task;
-    tse_task_t *finalize_dep = NULL;
-    tse_task_t **finalize_deps = &finalize_dep;
-    H5_daos_req_t *int_req = NULL;
+    hssize_t num_elem_file = -1, num_elem_mem;
+    tse_task_t *io_task;
+    tse_task_t *end_task = NULL;
     int ret;
     herr_t ret_value = SUCCEED;
 
-    if(!_dset)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "dataset object is NULL");
-    if(H5I_DATASET != dset->obj.item.type)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a dataset");
+    assert(dset);
+    assert(buf);
+    assert(req);
+    assert(first_task);
+    assert(dep_task);
 
     /* Get dataspace extent */
     if((ndims = H5Sget_simple_extent_ndims(dset->space_id)) < 0)
@@ -3210,9 +3214,10 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
         default:
             D_GOTO_ERROR(H5E_DATASET, H5E_UNSUPPORTED, FAIL, "invalid, unknown or unsupported dataset storage layout type");
     } /* end switch */
+    assert(nchunks_sel > 0);
 
     /* Setup the appropriate function for reading the selected chunks */
-    /* Check if the type conversion is needed */
+    /* Check if type conversion is needed */
     if((need_tconv = H5_daos_need_tconv(dset->file_type_id, mem_type_id)) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOMPARE, FAIL, "can't check if type conversion is needed");
     if(need_tconv)
@@ -3222,17 +3227,16 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
         /* No type conversion necessary */
         single_chunk_read_func = H5_daos_dataset_io_types_equal;
 
-    /* Start H5 operation */
-    if(NULL == (int_req = H5_daos_req_create(dset->obj.item.file, dxpl_id)))
-        D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't create DAOS request");
-
-    /* Set up chunk I/O task arrays if there is more than one chunk selected */
+    /* Set up coordination metatasks if there is more than one chunk selected */
     if(nchunks_sel > 1) {
-        /* Allocate arrays of tasks */
-        if(NULL == (first_tasks = (tse_task_t **)DV_calloc(nchunks_sel * sizeof(tse_task_t *))))
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't allocate IO first task array");
-        if(NULL == (finalize_deps = (tse_task_t **)DV_calloc(nchunks_sel * sizeof(tse_task_t *))))
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't allocate IO task array");
+        /* Set up empty first task for coordination if there isn't one already */
+        if(!*first_task)
+            if(0 != (ret = tse_task_create(H5_daos_metatask_autocomplete, &dset->obj.item.file->sched, NULL, first_task)))
+                D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create first metatask for dataset read");
+
+        /* Set up empty end task for coordination */
+        if(0 != (ret = tse_task_create(H5_daos_metatask_autocomplete, &dset->obj.item.file->sched, NULL, &end_task)))
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create last metatask for dataset read");
     } /* end if */
 
     /* Perform I/O on each chunk selected */
@@ -3254,13 +3258,85 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
         if((num_elem_file = H5Sget_select_npoints(chunk_info[i].fspace_id)) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get number of points in selection");
 
+        io_task = *dep_task;
         if(single_chunk_read_func(dset, &dkey, num_elem_file, mem_type_id,
                 chunk_info[i].mspace_id, chunk_info[i].fspace_id, IO_READ, buf,
-                int_req, &first_tasks[ntasks], &finalize_deps[ntasks]) < 0)
+                req, first_task, &io_task) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_READERROR, FAIL, "dataset read failed");
-        if(finalize_deps[ntasks]) /* Remove this check once full async support is implemented or make it an assert DSINC */
-            ntasks++;
+
+        /* Set up dependency on io_task for end task */
+        assert(io_task);
+        if(end_task && 0 != (ret = tse_task_register_deps(end_task, 1, &io_task)))
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create dependency on chunk I/O task: %s", H5_daos_err_to_string(ret));
     } /* end for */
+
+    /* Schedule end_task if appropriate and update *dep_task */
+    if(end_task) {
+        if(0 != (ret = tse_task_schedule(end_task, false)))
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't schedule end task for IO operation: %s", H5_daos_err_to_string(ret));
+        *dep_task = end_task;
+    } /* end if */
+    else
+        *dep_task = io_task;
+
+done:
+    /* Free memory */
+    if(chunk_info) {
+        if(close_spaces) {
+            for(i = 0; i < nchunks_sel; i++) {
+                if((chunk_info[i].mspace_id >= 0) && (H5Sclose(chunk_info[i].mspace_id) < 0))
+                    D_DONE_ERROR(H5E_DATASPACE, H5E_CANTCLOSEOBJ, FAIL, "can't close memory space");
+                if((chunk_info[i].fspace_id >= 0) && (H5Sclose(chunk_info[i].fspace_id) < 0))
+                    D_DONE_ERROR(H5E_DATASPACE, H5E_CANTCLOSEOBJ, FAIL, "can't close file space");
+            } /* end for */
+        } /* end if */
+
+        DV_free(chunk_info);
+    } /* end if */
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_dataset_read_int() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_dataset_read
+ *
+ * Purpose:     Reads raw data from a dataset into a buffer.
+ *`
+ * Return:      Success:        0
+ *              Failure:        -1, dataset not read.
+ *
+ * Programmer:  Neil Fortner
+ *              November, 2016
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
+    hid_t file_space_id, hid_t dxpl_id, void *buf, void H5VL_DAOS_UNUSED **req)
+{
+    H5_daos_dset_t *dset = (H5_daos_dset_t *)_dset;
+    tse_task_t *first_task = NULL;
+    tse_task_t *dep_task = NULL;
+    H5_daos_req_t *int_req = NULL;
+    int ret;
+    herr_t ret_value = SUCCEED;
+
+    if(!_dset)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "dataset object is NULL");
+    if(H5I_DATASET != dset->obj.item.type)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a dataset");
+    if(!buf)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "no buffer supplied");
+
+    /* Start H5 operation */
+    if(NULL == (int_req = H5_daos_req_create(dset->obj.item.file, dxpl_id)))
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't create DAOS request");
+
+    /* Call internal routine */
+    if(H5_daos_dataset_read_int(dset, mem_type_id, mem_space_id, file_space_id,
+            buf, int_req, &first_task, &dep_task) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_READERROR, FAIL, "failed to read data from dataset");
 
 done:
     if(int_req) {
@@ -3268,7 +3344,7 @@ done:
         if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &dset->obj.item.file->sched, int_req, &int_req->finalize_task)))
             D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
         /* Register dependencies (if any) */
-        else if(ntasks > 0 && 0 != (ret = tse_task_register_deps(int_req->finalize_task, ntasks, finalize_deps)))
+        else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
             D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
         /* Schedule finalize task */
         else if(0 != (ret = tse_task_schedule(int_req->finalize_task, false)))
@@ -3281,12 +3357,9 @@ done:
         if(ret_value < 0)
             int_req->status = -H5_DAOS_SETUP_ERROR;
 
-        /* Schedule first tasks */
-        for(i = 0; (int)i < ntasks; i++) {
-            assert(first_tasks[i]);
-            if(0 != (ret = tse_task_schedule(first_tasks[i], false)))
-                D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
-        } /* end for */
+        /* Schedule first task */
+        if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
 
         /* Check for external async */
         if(req) {
@@ -3312,51 +3385,30 @@ done:
         } /* end else */
     } /* end if */
 
-    /* Free memory */
-    if(chunk_info) {
-        if(close_spaces) {
-            for(i = 0; i < nchunks_sel; i++) {
-                if((chunk_info[i].mspace_id >= 0) && (H5Sclose(chunk_info[i].mspace_id) < 0))
-                    D_DONE_ERROR(H5E_DATASPACE, H5E_CANTCLOSEOBJ, FAIL, "can't close memory space");
-                if((chunk_info[i].fspace_id >= 0) && (H5Sclose(chunk_info[i].fspace_id) < 0))
-                    D_DONE_ERROR(H5E_DATASPACE, H5E_CANTCLOSEOBJ, FAIL, "can't close file space");
-            } /* end for */
-        } /* end if */
-
-        DV_free(chunk_info);
-    } /* end if */
-    if(first_tasks != &first_task) {
-        assert(finalize_deps != &finalize_dep);
-        DV_free(first_tasks);
-        DV_free(finalize_deps);
-    } /* end if */
-
     D_FUNC_LEAVE_API;
 } /* end H5_daos_dataset_read() */
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_dataset_write
+ * Function:    H5_daos_dataset_write_int
  *
- * Purpose:     Writes raw data from a buffer into a dataset.
+ * Purpose:     Internal version of H5_daos_dataset_write().
  *
  * Return:      Success:        0
  *              Failure:        -1, dataset not written.
  *
  * Programmer:  Neil Fortner
- *              November, 2016
+ *              July, 2020
  *
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
-    hid_t file_space_id, hid_t dxpl_id,
-    const void *buf, void H5VL_DAOS_UNUSED **req)
+H5_daos_dataset_write_int(H5_daos_dset_t *dset, hid_t mem_type_id,
+    hid_t mem_space_id, hid_t file_space_id, const void *buf,
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_select_chunk_info_t *chunk_info = NULL; /* Array of info for each chunk selected in the file */
     H5_daos_chunk_io_func single_chunk_write_func;
-    H5_daos_dset_t *dset = (H5_daos_dset_t *)_dset;
-    hssize_t num_elem_file = -1, num_elem_mem;
     uint64_t i;
     uint8_t dkey_buf[1 + (sizeof(uint64_t) * H5S_MAX_RANK)];
     htri_t need_tconv;
@@ -3365,23 +3417,18 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
     hid_t real_file_space_id;
     hid_t real_mem_space_id;
     int ndims;
-    int ntasks = 0;
-    tse_task_t *first_task = NULL;
-    tse_task_t **first_tasks = &first_task;
-    tse_task_t *finalize_dep = NULL;
-    tse_task_t **finalize_deps = &finalize_dep;
-    H5_daos_req_t *int_req = NULL;
+    hssize_t num_elem_file = -1, num_elem_mem;
+    tse_task_t *io_task;
+    tse_task_t *end_task = NULL;
     int ret;
     herr_t ret_value = SUCCEED;
 
-    if(!_dset)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "dataset object is NULL");
-    if(H5I_DATASET != dset->obj.item.type)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a dataset");
-
-    /* Check for write access */
-    if(!(dset->obj.item.file->flags & H5F_ACC_RDWR))
-        D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, FAIL, "no write intent on file");
+    assert(dset);
+    assert(buf);
+    assert(req);
+    assert(first_task);
+    assert(dep_task);
+    assert(dset->obj.item.file->flags & H5F_ACC_RDWR);
 
     /* Get dataspace extent */
     if((ndims = H5Sget_simple_extent_ndims(dset->space_id)) < 0)
@@ -3417,7 +3464,7 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
     switch(dset->dcpl_cache.layout) {
         case H5D_COMPACT:
         case H5D_CONTIGUOUS:
-            if (NULL == (chunk_info = (H5_daos_select_chunk_info_t *) DV_malloc(sizeof(H5_daos_select_chunk_info_t))))
+            if(NULL == (chunk_info = (H5_daos_select_chunk_info_t *)DV_malloc(sizeof(H5_daos_select_chunk_info_t))))
                 D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't allocate single chunk info buffer");
             nchunks_sel = 1;
 
@@ -3443,9 +3490,10 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
         default:
             D_GOTO_ERROR(H5E_DATASET, H5E_UNSUPPORTED, FAIL, "invalid, unknown or unsupported dataset storage layout type");
     } /* end switch */
+    assert(nchunks_sel > 0);
 
     /* Setup the appropriate function for reading the selected chunks */
-        /* Check if the type conversion is needed */
+    /* Check if type conversion is needed */
     if((need_tconv = H5_daos_need_tconv(mem_type_id, dset->file_type_id)) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOMPARE, FAIL, "can't check if type conversion is needed");
     if(need_tconv)
@@ -3455,19 +3503,17 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
         /* No type conversion necessary */
         single_chunk_write_func = H5_daos_dataset_io_types_equal;
 
-    /* Start H5 operation */
-    if(NULL == (int_req = H5_daos_req_create(dset->obj.item.file, dxpl_id)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, FAIL, "can't create DAOS request");
-
-    /* Set up chunk I/O task arrays if there is more than one chunk selected */
+    /* Set up coordination metatasks if there is more than one chunk selected */
     if(nchunks_sel > 1) {
-        /* Allocate arrays of tasks */
-        if(NULL == (first_tasks = (tse_task_t **)DV_calloc(nchunks_sel * sizeof(tse_task_t *))))
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't allocate IO first task array");
-        if(NULL == (finalize_deps = (tse_task_t **)DV_calloc(nchunks_sel * sizeof(tse_task_t *))))
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't allocate IO task array");
-    } /* end if */
+        /* Set up empty first task for coordination if there isn't one already */
+        if(!*first_task)
+            if(0 != (ret = tse_task_create(H5_daos_metatask_autocomplete, &dset->obj.item.file->sched, NULL, first_task)))
+                D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create first metatask for dataset read");
 
+        /* Set up empty end task for coordination */
+        if(0 != (ret = tse_task_create(H5_daos_metatask_autocomplete, &dset->obj.item.file->sched, NULL, &end_task)))
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create last metatask for dataset read");
+    } /* end if */
 
     /* Perform I/O on each chunk selected */
     for(i = 0; i < nchunks_sel; i++) {
@@ -3488,14 +3534,90 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
         if((num_elem_file = H5Sget_select_npoints(chunk_info[i].fspace_id)) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get number of points in selection");
 
+        io_task = *dep_task;
         if(single_chunk_write_func(dset, &dkey, num_elem_file, mem_type_id,
                 chunk_info[i].mspace_id, chunk_info[i].fspace_id, IO_WRITE,
-                (void *)buf, int_req, &first_tasks[ntasks],
-                &finalize_deps[ntasks]) < 0)
+                (void *)buf, req, first_task, &io_task) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_WRITEERROR, FAIL, "dataset write failed");
-        if(finalize_deps[ntasks]) /* Remove this check once full async support is implemented or make it an assert DSINC */
-            ntasks++;
+
+        /* Set up dependency on io_task for end task */
+        assert(io_task);
+        if(end_task && 0 != (ret = tse_task_register_deps(end_task, 1, &io_task)))
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create dependency on chunk I/O task: %s", H5_daos_err_to_string(ret));
     } /* end for */
+
+    /* Schedule end_task if appropriate and update *dep_task */
+    if(end_task) {
+        if(0 != (ret = tse_task_schedule(end_task, false)))
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't schedule end task for IO operation: %s", H5_daos_err_to_string(ret));
+        *dep_task = end_task;
+    } /* end if */
+    else
+        *dep_task = io_task;
+
+done:
+    /* Free memory */
+    if(chunk_info) {
+        if(close_spaces) {
+            for(i = 0; i < nchunks_sel; i++) {
+                if((chunk_info[i].mspace_id >= 0) && (H5Sclose(chunk_info[i].mspace_id) < 0))
+                    D_DONE_ERROR(H5E_DATASPACE, H5E_CANTCLOSEOBJ, FAIL, "can't close memory space");
+                if((chunk_info[i].fspace_id >= 0) && (H5Sclose(chunk_info[i].fspace_id) < 0))
+                    D_DONE_ERROR(H5E_DATASPACE, H5E_CANTCLOSEOBJ, FAIL, "can't close file space");
+            } /* end for */
+        } /* end if */
+
+        DV_free(chunk_info);
+    } /* end if */
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_dataset_write_int() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_dataset_write
+ *
+ * Purpose:     Writes raw data from a buffer into a dataset.
+ *
+ * Return:      Success:        0
+ *              Failure:        -1, dataset not written.
+ *
+ * Programmer:  Neil Fortner
+ *              November, 2016
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
+    hid_t file_space_id, hid_t dxpl_id,
+    const void *buf, void H5VL_DAOS_UNUSED **req)
+{
+    H5_daos_dset_t *dset = (H5_daos_dset_t *)_dset;
+    tse_task_t *first_task = NULL;
+    tse_task_t *dep_task = NULL;
+    H5_daos_req_t *int_req = NULL;
+    int ret;
+    herr_t ret_value = SUCCEED;
+
+    if(!_dset)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "dataset object is NULL");
+    if(H5I_DATASET != dset->obj.item.type)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a dataset");
+    if(!buf)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "no buffer supplied");
+
+    /* Check for write access */
+    if(!(dset->obj.item.file->flags & H5F_ACC_RDWR))
+        D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, FAIL, "no write intent on file");
+
+    /* Start H5 operation */
+    if(NULL == (int_req = H5_daos_req_create(dset->obj.item.file, dxpl_id)))
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, FAIL, "can't create DAOS request");
+
+    /* Call internal routine */
+    if(H5_daos_dataset_write_int(dset, mem_type_id, mem_space_id, file_space_id,
+            buf, int_req, &first_task, &dep_task) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_WRITEERROR, FAIL, "failed to write data to dataset");
 
 done:
     if(int_req) {
@@ -3503,7 +3625,7 @@ done:
         if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &dset->obj.item.file->sched, int_req, &int_req->finalize_task)))
             D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
         /* Register dependencies (if any) */
-        else if(ntasks > 0 && 0 != (ret = tse_task_register_deps(int_req->finalize_task, ntasks, finalize_deps)))
+        else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
             D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
         /* Schedule finalize task */
         else if(0 != (ret = tse_task_schedule(int_req->finalize_task, false)))
@@ -3516,12 +3638,9 @@ done:
         if(ret_value < 0)
             int_req->status = -H5_DAOS_SETUP_ERROR;
 
-        /* Schedule first tasks */
-        for(i = 0; (int)i < ntasks; i++) {
-            assert(first_tasks[i]);
-            if(0 != (ret = tse_task_schedule(first_tasks[i], false)))
-                D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
-        } /* end for */
+        /* Schedule first task */
+        if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
 
         /* Check for external async */
         if(req) {
@@ -3545,25 +3664,6 @@ done:
             if(H5_daos_req_free_int(int_req) < 0)
                 D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, FAIL, "can't free request");
         } /* end else */
-    } /* end if */
-
-    /* Free memory */
-    if(chunk_info) {
-        if(close_spaces) {
-            for(i = 0; i < nchunks_sel; i++) {
-                if((chunk_info[i].mspace_id >= 0) && (H5Sclose(chunk_info[i].mspace_id) < 0))
-                    D_DONE_ERROR(H5E_DATASPACE, H5E_CANTCLOSEOBJ, FAIL, "can't close memory space");
-                if((chunk_info[i].fspace_id >= 0) && (H5Sclose(chunk_info[i].fspace_id) < 0))
-                    D_DONE_ERROR(H5E_DATASPACE, H5E_CANTCLOSEOBJ, FAIL, "can't close file space");
-            } /* end for */
-        } /* end if */
-
-        DV_free(chunk_info);
-    } /* end if */
-    if(first_tasks != &first_task) {
-        assert(finalize_deps != &finalize_dep);
-        DV_free(first_tasks);
-        DV_free(finalize_deps);
     } /* end if */
 
     D_FUNC_LEAVE_API;

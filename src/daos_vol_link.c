@@ -4571,8 +4571,10 @@ H5_daos_link_iterate_op_task(tse_task_t *task)
     int ret_value = 0;
 
     /* Get private data */
-    if(NULL == (udata = tse_task_get_priv(task)))
+    if(NULL == (udata = tse_task_get_priv(task))) {
+        tse_task_complete(task, -H5_DAOS_DAOS_GET_ERROR);
         D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for iteration operation task");
+    } /* end if */
 
     /* Assign req convenience pointer.  We do this so we can still handle errors
      * after transfering ownership of udata.  This should be safe since the

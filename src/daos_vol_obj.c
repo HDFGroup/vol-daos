@@ -83,6 +83,7 @@ typedef struct H5_daos_dataset_copy_data_ud_t {
     H5_daos_dset_t *src_dset;
     H5_daos_dset_t *dst_dset;
     void *data_buf;
+    tse_task_t *data_copy_task;
 } H5_daos_dataset_copy_data_ud_t;
 
 /* Task user data for copying attribute from a
@@ -248,6 +249,7 @@ static herr_t H5_daos_dataset_copy(H5_daos_object_copy_ud_t *obj_copy_udata, H5_
 static herr_t H5_daos_dataset_copy_data(H5_daos_dset_t *src_dset, H5_daos_dset_t *dst_dset,
     H5_daos_sched_loc_t *sched_loc, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 static int H5_daos_dataset_copy_data_task(tse_task_t *task);
+static int H5_daos_dset_copy_data_end_task(tse_task_t *task);
 
 static int H5_daos_object_lookup_task(tse_task_t *task);
 static herr_t H5_daos_object_exists(H5_daos_group_t *target_grp, const char *link_name,
@@ -2674,7 +2676,6 @@ H5_daos_dataset_copy_data(H5_daos_dset_t *src_dset, H5_daos_dset_t *dst_dset,
     H5_daos_sched_loc_t *sched_loc, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_dataset_copy_data_ud_t *copy_ud = NULL;
-    tse_task_t *copy_task = NULL;
     int ret;
     herr_t ret_value = SUCCEED;
 
@@ -2701,25 +2702,25 @@ H5_daos_dataset_copy_data(H5_daos_dset_t *src_dset, H5_daos_dset_t *dst_dset,
     } /* end if */
 
     /* Create task for dataset data copy */
-    if(0 != (ret = tse_task_create(H5_daos_dataset_copy_data_task, &src_dset->obj.item.file->sched, copy_ud, &copy_task)))
+    if(0 != (ret = tse_task_create(H5_daos_dataset_copy_data_task, &src_dset->obj.item.file->sched, copy_ud, &copy_ud->data_copy_task)))
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create task to copy dataset data: %s", H5_daos_err_to_string(ret));
 
     /* Register dependency on dep_task if present */
-    if(*dep_task && 0 != (ret = tse_task_register_deps(copy_task, 1, dep_task)))
+    if(*dep_task && 0 != (ret = tse_task_register_deps(copy_ud->data_copy_task, 1, dep_task)))
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create dependencies for dataset data copy task: %s", H5_daos_err_to_string(ret));
 
     /* Schedule dataset data copy task (or save it to be scheduled later) and give it
      * a reference to req */
     if(*first_task) {
-        if(0 != (ret = tse_task_schedule(copy_task, false)))
+        if(0 != (ret = tse_task_schedule(copy_ud->data_copy_task, false)))
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't schedule task to copy dataset data: %s", H5_daos_err_to_string(ret));
     }
     else
-        *first_task = copy_task;
+        *first_task = copy_ud->data_copy_task;
     req->rc++;
     src_dset->obj.item.rc++;
     dst_dset->obj.item.rc++;
-    *dep_task = copy_task;
+    *dep_task = copy_ud->data_copy_task;
     *sched_loc = H5_DAOS_SCHED_LOC_SRC;
 
 done:
@@ -2741,7 +2742,7 @@ done:
  *              This task exists in the source file's scheduler.
  *
  * Return:      Success:        0
- *              Failure:        -1
+ *              Failure:        Negative error code
  *
  *-------------------------------------------------------------------------
  */
@@ -2751,15 +2752,29 @@ H5_daos_dataset_copy_data_task(tse_task_t *task)
     H5_daos_dataset_copy_data_ud_t *udata;
     hssize_t fspace_nelements = 0;
     size_t buf_size = 0;
+    H5_daos_req_t *req = NULL;
+    H5_daos_sched_loc_t sched_loc = H5_DAOS_SCHED_LOC_NONE;
+    tse_task_t *first_task = NULL;
+    tse_task_t *dep_task = NULL;
+    int ret;
     int ret_value = 0;
 
     /* Get private data */
-    if(NULL == (udata = tse_task_get_priv(task)))
+    if(NULL == (udata = tse_task_get_priv(task))) {
+        tse_task_complete(task, -H5_DAOS_DAOS_GET_ERROR);
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for dataset data copy task");
+    } /* end if */
 
     assert(udata->req);
     assert(udata->src_dset);
     assert(udata->dst_dset);
+    assert(task == udata->data_copy_task);
+
+    /* Assign req convenience pointer.  We do this so we can still handle errors
+     * after transfering ownership of udata.  This should be safe since we
+     * increment the reference count on req when we transfer ownership of udata.
+     */
+    req = udata->req;
 
     /* Check for previous errors */
     if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT)
@@ -2774,52 +2789,149 @@ H5_daos_dataset_copy_data_task(tse_task_t *task)
         D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, -H5_DAOS_H5_GET_ERROR, "can't get source dataset's datatype size");
     buf_size *= fspace_nelements;
 
+    /* Allocate buffer */
     if(NULL == (udata->data_buf = DV_malloc(buf_size)))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate data buffer for dataset data copy");
 
-    if(H5_daos_dataset_read(udata->src_dset, udata->src_dset->type_id, H5S_ALL, H5S_ALL,
-            udata->req->dxpl_id, udata->data_buf, NULL) < 0)
+    /* Read data from source */
+    if(H5_daos_dataset_read_int(udata->src_dset, udata->src_dset->type_id, H5S_ALL, H5S_ALL,
+            udata->data_buf, udata->req, &first_task, &dep_task) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_READERROR, -H5_DAOS_DAOS_GET_ERROR, "can't read data from source dataset");
+    assert(dep_task);
+    sched_loc = H5_DAOS_SCHED_LOC_SRC;
 
-    if(H5_daos_dataset_write(udata->dst_dset, udata->src_dset->type_id, H5S_ALL, H5S_ALL,
-            udata->req->dxpl_id, udata->data_buf, NULL) < 0)
+    /* Switch to dsetination scheduler */
+    assert(dep_task);
+    if(0 != (ret = H5_daos_sched_link(&udata->src_dset->obj.item.file->sched, &udata->dst_dset->obj.item.file->sched, &dep_task)))
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "failed to switch to destination scheduler");
+    sched_loc = H5_DAOS_SCHED_LOC_DST;
+
+    /* Write data to destination */
+    if(H5_daos_dataset_write_int(udata->dst_dset, udata->src_dset->type_id, H5S_ALL, H5S_ALL,
+            udata->data_buf, udata->req, &first_task, &dep_task) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_WRITEERROR, -H5_DAOS_H5_COPY_ERROR, "can't write data to copied dataset");
 
 done:
-    if(udata) {
-        if(H5_daos_dataset_close(udata->src_dset, udata->req->dxpl_id, NULL) < 0)
-            D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close dataset");
+    /* Check for tasks scheduled, in this case we need to schedule a task to
+     * mark this task complete and free udata */
+    if(dep_task) {
+        tse_task_t *end_task;
 
-        if(H5_daos_dataset_close(udata->dst_dset, udata->req->dxpl_id, NULL) < 0)
-            D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close dataset");
+        assert(udata);
 
+        /* Schedule task to finish this operation */
+        if(0 != (ret = tse_task_create(H5_daos_dset_copy_data_end_task,
+                sched_loc == H5_DAOS_SCHED_LOC_DST ? &udata->dst_dset->obj.item.file->sched : &udata->src_dset->obj.item.file->sched,
+                udata, &end_task)))
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, ret, "can't create task to finish data copy: %s", H5_daos_err_to_string(ret));
+        else {
+            /* Register dependency for task */
+            if(0 != (ret = tse_task_register_deps(end_task, 1, &dep_task)))
+                D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, ret, "can't create dependencies for data copy end task: %s", H5_daos_err_to_string(ret));
+
+            /* Schedule end task and give it ownership of udata */
+            assert(first_task);
+            req->rc++;
+            if(0 != (ret = tse_task_schedule(end_task, false)))
+                D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, ret, "can't schedule task to data copy: %s", H5_daos_err_to_string(ret));
+            udata = NULL;
+            dep_task = end_task;
+        } /* end else */
+
+        /* Schedule first task */
+        assert(first_task);
+        if(0 != (ret = tse_task_schedule(first_task, false)))
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, ret, "can't schedule initial task for data copy: %s", H5_daos_err_to_string(ret));
+    } /* end if */
+    else
+        assert(!first_task);
+
+    if(req) {
         /* Handle errors in this function */
-        /* Do not place any code that can issue errors after this block, except
-         * for H5_daos_req_free_int, which updates req->status if it sees an
-         * error */
-        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
-            udata->req->status = ret_value;
-            udata->req->failed_task = "dataset data copy task";
+        /* Do not place any code that can issue errors after this block, except for
+         * H5_daos_req_free_int, which updates req->status if it sees an error */
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+            req->status = ret_value;
+            req->failed_task = "dataset data copy task";
         } /* end if */
 
         /* Release our reference to req */
-        if(H5_daos_req_free_int(udata->req) < 0)
+        if(H5_daos_req_free_int(req) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
-
-        if(udata->data_buf)
-            DV_free(udata->data_buf);
-
-        /* Free private data */
-        DV_free(udata);
-    }
+    } /* end if */
     else
-        assert(ret_value >= 0 || ret_value == -H5_DAOS_DAOS_GET_ERROR);
+        assert(ret_value == -H5_DAOS_DAOS_GET_ERROR);
 
+    /* Complete task if we still own udata */
+    if(udata) {
+        assert(ret_value < 0);
+        tse_task_complete(task, ret_value);
+    } /* end if */
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_dataset_copy_data_task() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_dset_copy_data_end_task
+ *
+ * Purpose:     Asynchronous task to release resources used for dataset
+ *              data copy.
+ *
+ * Return:      Success:        0
+ *              Failure:        Negative error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_dset_copy_data_end_task(tse_task_t *task)
+{
+    H5_daos_dataset_copy_data_ud_t *udata;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for task");
+
+    /* Close datasets (note we could instead close these in
+     * H5_daos_dataset_copy_data_task() since the I/O tasks hold references to
+     * their datasets */
+    if(H5_daos_dataset_close(udata->src_dset, udata->req->dxpl_id, NULL) < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close dataset");
+
+    if(H5_daos_dataset_close(udata->dst_dset, udata->req->dxpl_id, NULL) < 0)
+        D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close dataset");
+
+    /* Handle errors in this function */
+    /* Do not place any code that can issue errors after this block, except
+     * for H5_daos_req_free_int, which updates req->status if it sees an
+     * error */
+    if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+        udata->req->status = ret_value;
+        udata->req->failed_task = "dataset data copy end task";
+    } /* end if */
+
+    /* Release our reference to req */
+    if(H5_daos_req_free_int(udata->req) < 0)
+        D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+    /* Free data buffer */
+    if(udata->data_buf)
+        DV_free(udata->data_buf);
+
+    /* Complete data copy task */
+    tse_task_complete(udata->data_copy_task, ret_value);
+
+    /* Free private data */
+    DV_free(udata);
+
+done:
     /* Complete this task */
     tse_task_complete(task, ret_value);
 
     D_FUNC_LEAVE;
-} /* end H5_daos_dataset_copy_data_task() */
+} /* end H5_daos_dset_copy_data_end_task() */
+
 
 
 /*-------------------------------------------------------------------------

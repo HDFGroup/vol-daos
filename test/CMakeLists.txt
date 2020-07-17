@@ -124,6 +124,14 @@ add_subdirectory(daos_vol)
 #------------------------------------------------------------------------------
 # VOL tests
 #------------------------------------------------------------------------------
+
+# Disable automatic chunk sizing for VOL tests
+set(DAOS_CLIENT_ENV_VARS
+  ${DAOS_CLIENT_ENV_VARS}
+  "H5_DAOS_CHUNK_TARGET_SIZE=1073741824 "
+)
+set(H5VL_TEST_ENV_VARS "env ${DAOS_CLIENT_ENV_VARS}")
+
 set(HDF5_VOL_TEST_EXTERNALLY_CONFIGURED TRUE)
 set(HDF5_VOL_TEST_ENABLE_PARALLEL "ON" CACHE BOOL "Enable testing in parallel (requires MPI).")
 if(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/vol/CMakeLists.txt)

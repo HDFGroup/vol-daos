@@ -1277,7 +1277,7 @@ done:
 herr_t
 H5_daos_object_copy(void *src_loc_obj, const H5VL_loc_params_t *src_loc_params,
     const char *src_name, void *dst_loc_obj, const H5VL_loc_params_t *dst_loc_params,
-    const char *dst_name, hid_t ocpypl_id, hid_t lcpl_id, hid_t H5VL_DAOS_UNUSED dxpl_id,
+    const char *dst_name, hid_t ocpypl_id, hid_t lcpl_id, hid_t dxpl_id,
     void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_item_t *item = (H5_daos_item_t *)src_loc_obj;
@@ -1325,8 +1325,7 @@ H5_daos_object_copy(void *src_loc_obj, const H5VL_loc_params_t *src_loc_params,
             D_GOTO_ERROR(H5E_OBJECT, H5E_CANTGET, FAIL, "failed to retrieve object copy options");
 
     /* Start H5 operation */
-    /* Make work for cross file copies DSINC */
-    if(NULL == (int_req = H5_daos_req_create(item->file, H5I_INVALID_HID)))
+    if(NULL == (int_req = H5_daos_req_create(item->file, dxpl_id)))
         D_GOTO_ERROR(H5E_OBJECT, H5E_CANTALLOC, FAIL, "can't create DAOS request");
 
 #ifdef H5_DAOS_USE_TRANSACTIONS
@@ -2887,17 +2886,24 @@ static int
 H5_daos_dset_copy_data_end_task(tse_task_t *task)
 {
     H5_daos_dataset_copy_data_ud_t *udata;
+    htri_t is_vl_ref;
     int ret_value = 0;
 
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for task");
 
-    /* Close datasets (note we could instead close these in
-     * H5_daos_dataset_copy_data_task() since the I/O tasks hold references to
-     * their datasets */
+    /* Check for vlen or reference type */
+    if((is_vl_ref = H5_daos_detect_vl_vlstr_ref(udata->src_dset->type_id)) < 0)
+        D_DONE_ERROR(H5E_DATASET, H5E_CANTGET, -H5_DAOS_H5_TCONV_ERROR, "can't check for vl or reference type");
+
+    /* If there's a vlen or reference type, reclaim any memory in the buffer */
+    if(is_vl_ref && H5Treclaim(udata->src_dset->type_id, udata->src_dset->space_id, udata->req->dxpl_id, udata->data_buf) < 0)
+        D_DONE_ERROR(H5E_DATASET, H5E_CANTGC, -H5_DAOS_FREE_ERROR, "can't reclaim memory from fill value conversion buffer");
+
+    /* Close datasets */
     if(H5_daos_dataset_close(udata->src_dset, udata->req->dxpl_id, NULL) < 0)
-            D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close dataset");
+        D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close dataset");
 
     if(H5_daos_dataset_close(udata->dst_dset, udata->req->dxpl_id, NULL) < 0)
         D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close dataset");
@@ -2931,7 +2937,6 @@ done:
 
     D_FUNC_LEAVE;
 } /* end H5_daos_dset_copy_data_end_task() */
-
 
 
 /*-------------------------------------------------------------------------

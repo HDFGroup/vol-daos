@@ -52,28 +52,36 @@ typedef struct {
 typedef enum {
   GROUP_CREATE_NUM 	= 0,
   GROUP_INFO_NUM 	= 1,
-  GROUP_CLOSE_NUM	= 2,
-  GROUP_REMOVE_NUM 	= 3,
-  DSET_CREATE_NUM 	= 4,
-  DSET_READ_NUM 	= 5,
-  DSET_CLOSE_NUM	= 6,
-  DSET_REMOVE_NUM 	= 7,
-  ATTR_CREATE_NUM 	= 8,
-  ATTR_CLOSE_NUM	= 9,
-  ATTR_REMOVE_NUM 	= 10,
-  DTYPE_COMMIT_NUM      = 11,
-  DTYPE_CLOSE_NUM	= 12,
-  MAP_CREATE_NUM 	= 13,
-  MAP_CLOSE_NUM 	= 14,
-  MAP_REMOVE_NUM 	= 15,
+  GROUP_OPEN_NUM 	= 2,
+  GROUP_CLOSE_NUM	= 3,
+  GROUP_REMOVE_NUM 	= 4,
+  DSET_CREATE_NUM 	= 5,
+  DSET_OPEN_NUM		= 6,
+  DSET_READ_NUM 	= 7,
+  DSET_CLOSE_NUM	= 8,
+  DSET_REMOVE_NUM 	= 9,
+  ATTR_CREATE_NUM 	= 10,
+  ATTR_OPEN_NUM		= 11,
+  ATTR_CLOSE_NUM	= 12,
+  ATTR_REMOVE_NUM 	= 13,
+  DTYPE_COMMIT_NUM      = 14,
+  DTYPE_OPEN_NUM	= 15,
+  DTYPE_CLOSE_NUM	= 16,
+  MAP_CREATE_NUM 	= 17,
+  MAP_OPEN_NUM 		= 18,
+  MAP_CLOSE_NUM 	= 19,
+  MAP_REMOVE_NUM 	= 20,
+  LINK_ITERATE_NUM	= 21,
+  LINK_EXIST_NUM	= 22,
   ENTRY_NUM
 } test_num_t;
 
 /* List of file operations */
 typedef enum {
   FILE_CREATE_NUM 	= 0,
-  FILE_CLOSE_NUM 	= 1,
-  FILE_REMOVE_NUM 	= 2,
+  FILE_OPEN_NUM 	= 1,
+  FILE_CLOSE_NUM 	= 2,
+  FILE_REMOVE_NUM 	= 3,
   FILE_ENTRY_NUM
 } file_num_t;
 
@@ -112,10 +120,10 @@ parse_command_line(int argc, char *argv[])
     int opt;
 
     /* Initialize the command line options */
-    hand.numbOfTrees = 1;
-    hand.depthOfTree = 1;
-    hand.numbOfBranches = 1;
-    hand.numbOfObjs = 1;
+    hand.numbOfTrees = 4;
+    hand.depthOfTree = 4;
+    hand.numbOfBranches = 3;
+    hand.numbOfObjs = 3;
     hand.uniqueGroupPerRank = FALSE;
     hand.runMPIIO = FALSE;
     hand.daosObjClass = strdup("S1");
@@ -224,11 +232,17 @@ parse_command_line(int argc, char *argv[])
         }
     }
 
-    if(hand.numbOfTrees < 1 || hand.depthOfTree < 0 || hand.numbOfBranches < 1 || hand.numbOfObjs < 0 || 
+    if (hand.numbOfTrees < 1 || hand.depthOfTree < 0 || hand.numbOfBranches < 1 || hand.numbOfObjs < 0 || 
         strcmp(hand.daosObjClass, "S1") || strcmp(hand.collMetadata, "collective")) {
             H5_FAILED(); AT();
-            printf("failed to do preorder tree traversal \n");
+            printf("invalid command-line option value \n");
             goto error;
+    }
+
+    if (hand.uniqueGroupPerRank == TRUE && !strcmp(hand.collMetadata, "collective")) { 
+        H5_FAILED(); AT();
+        printf("unique group per rank must use independent write \n");
+        goto error;
     }
 
     return 0;
@@ -315,6 +329,8 @@ calculate_results()
 	    overall_mean_time[GROUP_CREATE_NUM]);  
         printf("Group info time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[GROUP_INFO_NUM], max_time[GROUP_INFO_NUM], 
 	    overall_mean_time[GROUP_INFO_NUM]);  
+        printf("Group open time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[GROUP_OPEN_NUM], max_time[GROUP_OPEN_NUM], 
+	    overall_mean_time[GROUP_OPEN_NUM]);  
         printf("Group close time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[GROUP_CLOSE_NUM], max_time[GROUP_CLOSE_NUM], 
 	    overall_mean_time[GROUP_CLOSE_NUM]);  
         printf("Group removal time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[GROUP_REMOVE_NUM], max_time[GROUP_REMOVE_NUM], 
@@ -323,6 +339,8 @@ calculate_results()
 	    overall_mean_time[DSET_CREATE_NUM]);  
         printf("Dataset read time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[DSET_READ_NUM], max_time[DSET_READ_NUM], 
 	    overall_mean_time[DSET_READ_NUM]);  
+        printf("Dataset open time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[DSET_OPEN_NUM], max_time[DSET_OPEN_NUM], 
+	    overall_mean_time[DSET_OPEN_NUM]);  
         printf("Dataset close time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[DSET_CLOSE_NUM], max_time[DSET_CLOSE_NUM], 
 	    overall_mean_time[DSET_CLOSE_NUM]);  
         printf("Dataset removal time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[DSET_REMOVE_NUM], max_time[DSET_REMOVE_NUM], 
@@ -331,22 +349,34 @@ calculate_results()
 	    overall_mean_time[ATTR_CREATE_NUM]);  
         printf("Attribute close time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[ATTR_CLOSE_NUM], max_time[ATTR_CLOSE_NUM], 
 	    overall_mean_time[ATTR_CLOSE_NUM]);  
+        printf("Attribute open time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[ATTR_OPEN_NUM], max_time[ATTR_OPEN_NUM], 
+	    overall_mean_time[ATTR_OPEN_NUM]);  
         printf("Attribute removal time: 	min %lf, 	max %lf, 	mean %lf\n", min_time[ATTR_REMOVE_NUM], max_time[ATTR_REMOVE_NUM], 
 	    overall_mean_time[ATTR_REMOVE_NUM]);  
         printf("Datatype commit time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[DTYPE_COMMIT_NUM], max_time[DTYPE_COMMIT_NUM], 
 	    overall_mean_time[DTYPE_COMMIT_NUM]);  
+        printf("Datatype open time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[DTYPE_OPEN_NUM], max_time[DTYPE_OPEN_NUM], 
+	    overall_mean_time[DTYPE_OPEN_NUM]);  
         printf("Datatype close time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[DTYPE_CLOSE_NUM], max_time[DTYPE_CLOSE_NUM], 
 	    overall_mean_time[DTYPE_CLOSE_NUM]);  
         printf("Map creation time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[MAP_CREATE_NUM], max_time[MAP_CREATE_NUM], 
 	    overall_mean_time[MAP_CREATE_NUM]);  
+        printf("Map open time: 			min %lf, 	max %lf, 	mean %lf\n", min_time[MAP_OPEN_NUM], max_time[MAP_OPEN_NUM], 
+	    overall_mean_time[MAP_OPEN_NUM]);  
         printf("Map close time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[MAP_CLOSE_NUM], max_time[MAP_CLOSE_NUM], 
 	    overall_mean_time[MAP_CLOSE_NUM]);  
         printf("Map removal time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[MAP_REMOVE_NUM], max_time[MAP_REMOVE_NUM], 
 	    overall_mean_time[MAP_REMOVE_NUM]);  
+        printf("Link iterate time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[LINK_ITERATE_NUM], max_time[LINK_ITERATE_NUM], 
+	    overall_mean_time[LINK_ITERATE_NUM]);  
+        printf("Link exist time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[LINK_EXIST_NUM], max_time[LINK_EXIST_NUM], 
+	    overall_mean_time[LINK_EXIST_NUM]);  
         printf("File creation time: 		min %lf, 	max %lf, 	mean %lf\n", file_min_time[FILE_CREATE_NUM], file_max_time[FILE_CREATE_NUM], 
 	    file_mean_time[FILE_CREATE_NUM]);  
         printf("File close time: 		min %lf, 	max %lf, 	mean %lf\n", file_min_time[FILE_CLOSE_NUM], file_max_time[FILE_CLOSE_NUM], 
 	    file_mean_time[FILE_CLOSE_NUM]);  
+        printf("File open time: 		min %lf, 	max %lf, 	mean %lf\n", file_min_time[FILE_OPEN_NUM], file_max_time[FILE_OPEN_NUM], 
+	    file_mean_time[FILE_OPEN_NUM]);  
         printf("File removal time: 		min %lf, 	max %lf, 	mean %lf\n", file_min_time[FILE_REMOVE_NUM], file_max_time[FILE_REMOVE_NUM], 
 	    file_mean_time[FILE_REMOVE_NUM]);  
 
@@ -354,6 +384,8 @@ calculate_results()
 	    1 / overall_mean_time[GROUP_CREATE_NUM]);  
         printf("Group info rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[GROUP_INFO_NUM], 1 / max_time[GROUP_INFO_NUM], 
 	    1 / overall_mean_time[GROUP_INFO_NUM]);  
+        printf("Group open rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[GROUP_OPEN_NUM], 1 / max_time[GROUP_OPEN_NUM], 
+	    1 / overall_mean_time[GROUP_OPEN_NUM]);  
         printf("Group close rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[GROUP_CLOSE_NUM], 1 / max_time[GROUP_CLOSE_NUM], 
 	    1 / overall_mean_time[GROUP_CLOSE_NUM]);  
         printf("Group removal rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[GROUP_REMOVE_NUM], 1 / max_time[GROUP_REMOVE_NUM], 
@@ -362,6 +394,8 @@ calculate_results()
 	    1 / overall_mean_time[DSET_CREATE_NUM]);  
         printf("Dataset read rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[DSET_READ_NUM], 1 / max_time[DSET_READ_NUM], 
 	    1 / overall_mean_time[DSET_READ_NUM]);  
+        printf("Dataset open rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[DSET_OPEN_NUM], 1 / max_time[DSET_OPEN_NUM], 
+	    1 / overall_mean_time[DSET_OPEN_NUM]);  
         printf("Dataset close rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[DSET_CLOSE_NUM], 1 / max_time[DSET_CLOSE_NUM], 
 	    1 / overall_mean_time[DSET_CLOSE_NUM]);  
         printf("Dataset removal rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[DSET_REMOVE_NUM], 1 / max_time[DSET_REMOVE_NUM], 
@@ -370,20 +404,32 @@ calculate_results()
 	    1 / overall_mean_time[ATTR_CREATE_NUM]);  
         printf("Attribute close rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[ATTR_CLOSE_NUM], 1 / max_time[ATTR_CLOSE_NUM], 
 	    1 / overall_mean_time[ATTR_CLOSE_NUM]);  
+        printf("Attribute open rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[ATTR_OPEN_NUM], 1 / max_time[ATTR_OPEN_NUM], 
+	    1 / overall_mean_time[ATTR_OPEN_NUM]);  
         printf("Attribute removal rate: 	max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[ATTR_REMOVE_NUM], 1 / max_time[ATTR_REMOVE_NUM], 
 	    1 / overall_mean_time[ATTR_REMOVE_NUM]); 
         printf("Datatype commit rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[DTYPE_COMMIT_NUM], 1 / max_time[DTYPE_COMMIT_NUM], 
 	    1 / overall_mean_time[DTYPE_COMMIT_NUM]);  
+        printf("Datatype open rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[DTYPE_OPEN_NUM], 1 / max_time[DTYPE_OPEN_NUM], 
+	    1 / overall_mean_time[DTYPE_OPEN_NUM]);  
         printf("Datatype close rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[DTYPE_CLOSE_NUM], 1 / max_time[DTYPE_CLOSE_NUM], 
 	    1 / overall_mean_time[DTYPE_CLOSE_NUM]);  
         printf("Map creation rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[MAP_CREATE_NUM], 1 / max_time[MAP_CREATE_NUM], 
 	    1 / overall_mean_time[MAP_CREATE_NUM]);  
+        printf("Map open rate: 			max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[MAP_OPEN_NUM], 1 / max_time[MAP_OPEN_NUM], 
+	    1 / overall_mean_time[MAP_OPEN_NUM]);  
         printf("Map close rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[MAP_CLOSE_NUM], 1 / max_time[MAP_CLOSE_NUM], 
 	    1 / overall_mean_time[MAP_CLOSE_NUM]);  
         printf("Map removal rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[MAP_REMOVE_NUM], 1 / max_time[MAP_REMOVE_NUM], 
 	    1 / overall_mean_time[MAP_REMOVE_NUM]);  
+        printf("Link iterate rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[LINK_ITERATE_NUM], 1 / max_time[LINK_ITERATE_NUM], 
+	    1 / overall_mean_time[LINK_ITERATE_NUM]);  
+        printf("Link exist rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[LINK_EXIST_NUM], 1 / max_time[LINK_EXIST_NUM], 
+	    1 / overall_mean_time[LINK_EXIST_NUM]);  
         printf("File creation rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / file_min_time[FILE_CREATE_NUM], 1 / file_max_time[FILE_CREATE_NUM], 
 	    1 / file_mean_time[FILE_CREATE_NUM]);  
+        printf("File open rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / file_min_time[FILE_OPEN_NUM], 1 / file_max_time[FILE_OPEN_NUM], 
+	    1 / file_mean_time[FILE_OPEN_NUM]);  
         printf("File close rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / file_min_time[FILE_CLOSE_NUM], 1 / file_max_time[FILE_CLOSE_NUM], 
 	    1 / file_mean_time[FILE_CLOSE_NUM]);  
         printf("File removal rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / file_min_time[FILE_REMOVE_NUM], 1 / file_max_time[FILE_REMOVE_NUM], 
@@ -403,6 +449,13 @@ free_time_struct()
         free(op_time[i]);
 }
 
+/* Callback function for H5Litereate2 */
+static herr_t
+link_iter_cb(hid_t group_id, const char *name, const H5L_info2_t *info, void *op_data)
+{
+    return 0;
+}
+
 static int 
 create_objects_in_tree_node(hid_t tree_node_gid)
 {
@@ -413,6 +466,7 @@ create_objects_in_tree_node(hid_t tree_node_gid)
     H5G_info_t group_info;
     hsize_t dim[DSET_RANK] = {DSET_DIM};
     int rbuf[DSET_DIM];
+    hsize_t op_data;
     int i;
     double start, end, time;
 
@@ -485,6 +539,72 @@ create_objects_in_tree_node(hid_t tree_node_gid)
         if (MAINPROCESS)
             printf("\nGroup info time: %lf", time);
 #endif
+    }
+
+    /* Link traversal */
+    {
+        op_data = 0;
+        start = MPI_Wtime();
+
+        if (H5Literate2(loc_id, H5_INDEX_NAME, H5_ITER_INC, NULL, link_iter_cb, &op_data) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to traverse the links\n");
+            goto error;
+        }
+
+        end = MPI_Wtime();
+        time = end - start;
+        op_time[LINK_ITERATE_NUM][tree_order] += time;
+
+#ifdef DEBUG
+        if (MAINPROCESS)
+            printf("\nLink iterate time: %lf", time);
+#endif
+    }
+
+    /* Link existence and group open */
+    for (i = 0; i < hand.numbOfObjs; i++) {
+        sprintf(gname, "group_object_%d", i + 1);
+
+        start = MPI_Wtime();
+
+        if (H5Lexists(loc_id, gname, H5P_DEFAULT) < 0) { 
+            H5_FAILED(); AT();
+            printf("failed to check the existence of the group '%s'\n", gname);
+            goto error;
+        }
+
+        end = MPI_Wtime();
+        time = end - start;
+        op_time[LINK_EXIST_NUM][tree_order] += time;
+
+#ifdef DEBUG
+        if (MAINPROCESS)
+            printf("\nLink exist time: %lf", time);
+#endif
+
+        start = MPI_Wtime();
+
+        if ((gid = H5Gopen2(loc_id, gname, H5P_DEFAULT)) < 0) { 
+            H5_FAILED(); AT();
+            printf("failed to open the group '%s'\n", gname);
+            goto error;
+        }
+
+        end = MPI_Wtime();
+        time = end - start;
+        op_time[GROUP_OPEN_NUM][tree_order] += time;
+
+#ifdef DEBUG
+        if (MAINPROCESS)
+            printf("\nGroup open time: %lf", time);
+#endif
+
+        if (H5Gclose(gid) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to close the group '%s'\n", gname);
+            goto error;
+        }
     }
 
     /* Group removal */
@@ -572,6 +692,33 @@ create_objects_in_tree_node(hid_t tree_node_gid)
 #endif
     }
 
+    /*  Dataset open */
+    for (i = 0; i < hand.numbOfObjs; i++) {
+        sprintf(dset_name, "dset_object_%d", i + 1);
+        start = MPI_Wtime();
+
+        if ((dset_id = H5Dopen2(loc_id, dset_name, H5P_DEFAULT)) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to open dataset object '%s'\n", dset_name);
+            goto error;
+        }
+
+        end = MPI_Wtime();
+        time = end - start;
+        op_time[DSET_OPEN_NUM][tree_order] += time;
+
+#ifdef DEBUG
+        if (MAINPROCESS)
+            printf("\nDset open time: %lf", time);
+#endif
+
+        if (H5Dclose(dset_id) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to close the dataset '%s'\n", dset_name);
+            goto error;
+        }
+    }
+
     /* Dataset removal */
     for (i = 0; i < hand.numbOfObjs; i++) {
         sprintf(dset_name, "dset_object_%d", i + 1);
@@ -636,6 +783,35 @@ create_objects_in_tree_node(hid_t tree_node_gid)
         H5_FAILED(); AT();
         printf("failed to close the data space\n");
         goto error;
+    }
+
+    /* Attribute open */
+    for (i = 0; i < hand.numbOfObjs; i++) {
+        sprintf(attr_name, "attribute_object_%d", i + 1);
+        start = MPI_Wtime();
+
+        if ((attr_id = H5Aopen(loc_id, attr_name, H5P_DEFAULT)) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to open attribute object '%s'\n", attr_name);
+            goto error;
+        }
+
+        end = MPI_Wtime();
+        time = end - start;
+        op_time[ATTR_OPEN_NUM][tree_order] += time;
+
+#ifdef DEBUG
+        if (MAINPROCESS)
+            printf("\nAttr open time: %lf", time);
+#endif
+
+        start = MPI_Wtime();
+
+        if(H5Aclose(attr_id) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to close the attribure\n");
+            goto error;
+        } 
     }
 
     /* Attribute removal */
@@ -703,6 +879,33 @@ create_objects_in_tree_node(hid_t tree_node_gid)
 #endif
     }
 
+    /* Datatype open */
+    for (i = 0; i < hand.numbOfObjs; i++) {
+        sprintf(dtype_name, "dtype_object_%d", i + 1);
+        start = MPI_Wtime();
+
+        if ((dtype_id = H5Topen(loc_id, dtype_name, H5P_DEFAULT)) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to open datatype object '%s'\n", dtype_name);
+            goto error;
+        }
+
+        end = MPI_Wtime();
+        time = end - start;
+        op_time[DTYPE_OPEN_NUM][tree_order] += time;
+
+#ifdef DEBUG
+        if (MAINPROCESS)
+            printf("\nDtype open time: %lf", time);
+#endif
+
+        if (H5Tclose(dtype_id) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to close the datatype\n");
+            goto error;
+        } 
+    }
+
     if(!hand.runMPIIO) {
         /* Map creation (only works for H5VOL) */
         for (i = 0; i < hand.numbOfObjs; i++) {
@@ -740,6 +943,33 @@ create_objects_in_tree_node(hid_t tree_node_gid)
             if (MAINPROCESS)
                 printf("\nMap close time: %lf", time);
 #endif
+        }
+
+        /* Map open */
+        for (i = 0; i < hand.numbOfObjs; i++) {
+            sprintf(map_name, "map_object_%d", i + 1);
+            start = MPI_Wtime();
+
+            if ((map_id = H5Mopen(loc_id, map_name, H5P_DEFAULT)) < 0) {
+                H5_FAILED(); AT();
+                printf("failed to open map object '%s'\n", map_name);
+                goto error;
+            }
+
+            end = MPI_Wtime();
+            time = end - start;
+            op_time[MAP_OPEN_NUM][tree_order] += time;
+
+#ifdef DEBUG
+            if (MAINPROCESS)
+                printf("\nMap open time: %lf", time);
+#endif
+
+            if(H5Mclose(map_id) < 0) {
+                H5_FAILED(); AT();
+                printf("failed to close the map\n");
+                goto error;
+            } 
         }
 
         /* Map removal */
@@ -823,6 +1053,33 @@ operate_on_files(hid_t fapl_id)
         if (MAINPROCESS)
             printf("\nFile close time: %lf", time);
 #endif
+    }
+
+    /* File open */
+    for (i = 0; i < hand.numbOfObjs; i++) {
+        sprintf(filename, "%s_%d", hand.fileName, i + 1);
+        start = MPI_Wtime();
+
+        if((file_id = H5Fopen(filename, H5F_ACC_RDWR, fapl_id)) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to open the file '%s'\n", filename);
+            goto error;
+        }
+
+        end = MPI_Wtime();
+        time = end - start;
+        file_op_time[FILE_OPEN_NUM][i] = time;
+
+#ifdef DEBUG
+        if (MAINPROCESS)
+            printf("\nFile open time: %lf", time);
+#endif
+
+        if(H5Fclose(file_id) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to close the file\n");
+            goto error;
+        } 
     }
 
     /* File delete */

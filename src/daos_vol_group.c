@@ -538,10 +538,11 @@ H5_daos_group_create(void *_item,
         D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, NULL, "no write intent on file");
  
     /*
-     * Like HDF5, all metadata writes are collective by default. Once independent
-     * metadata writes are implemented, we will need to check for this property.
+     * Determine if independent metadata writes have been requested. Otherwise,
+     * like HDF5, metadata writes are collective by default.
      */
-    collective = TRUE;
+    H5_DAOS_GET_METADATA_WRITE_MODE(item->file, gapl_id, H5P_GROUP_ACCESS_DEFAULT,
+            collective, H5E_SYM, NULL);
 
     /* Start H5 operation */
     if(NULL == (int_req = H5_daos_req_create(item->file, H5I_INVALID_HID)))
@@ -1418,10 +1419,8 @@ H5_daos_group_open(void *_item, const H5VL_loc_params_t *loc_params,
      * Like HDF5, metadata reads are independent by default. If the application has specifically
      * requested collective metadata reads, they will be enabled here.
      */
-    collective = item->file->fapl_cache.is_collective_md_read;
-    if(!collective && (H5P_GROUP_ACCESS_DEFAULT != gapl_id))
-        if(H5Pget_all_coll_metadata_ops(gapl_id, &collective) < 0)
-            D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, NULL, "can't get collective metadata reads property");
+    H5_DAOS_GET_METADATA_READ_MODE(item->file, gapl_id, H5P_GROUP_ACCESS_DEFAULT,
+            collective, H5E_SYM, NULL);
 
     /* Start H5 operation */
     if(NULL == (int_req = H5_daos_req_create(item->file, dxpl_id)))

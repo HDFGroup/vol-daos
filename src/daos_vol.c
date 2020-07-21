@@ -111,6 +111,8 @@ static int H5_daos_str_prop_compare(const void *_value1, const void *_value2,
     size_t size);
 static herr_t H5_daos_str_prop_close(const char *name, size_t size,
     void *_value);
+static int H5_daos_bool_prop_compare(const void *_value1, const void *_value2,
+    size_t size);
 static herr_t H5_daos_init(hid_t vipl_id);
 static herr_t H5_daos_term(void);
 static herr_t H5_daos_pool_create(uuid_t uuid, const char **pool_grp, d_rank_list_t **svcl);
@@ -856,6 +858,107 @@ done:
 
 
 /*-------------------------------------------------------------------------
+ * Function:    H5daos_set_all_ind_metadata_ops
+ *
+ * Purpose:     Modifies the access property list to indicate that all
+ *              metadata I/O operations should be performed independently.
+ *              By default, metadata reads are independent and metadata
+ *              writes are collective.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5daos_set_all_ind_metadata_ops(hid_t accpl_id, hbool_t is_independent)
+{
+    htri_t is_fapl;
+    htri_t is_lapl;
+    htri_t is_rapl;
+    htri_t prop_exists;
+    herr_t ret_value = SUCCEED;
+
+    if(accpl_id == H5P_DEFAULT)
+        D_GOTO_ERROR(H5E_PLIST, H5E_BADVALUE, FAIL, "can't set values in default property list");
+
+    if((is_fapl = H5Pisa_class(accpl_id, H5P_FILE_ACCESS)) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "couldn't determine property list class");
+    if((is_lapl = H5Pisa_class(accpl_id, H5P_LINK_ACCESS)) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "couldn't determine property list class");
+    if((is_rapl = H5Pisa_class(accpl_id, H5P_REFERENCE_ACCESS)) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "couldn't determine property list class");
+    if(!is_fapl && !is_lapl && !is_rapl)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "not an access property list");
+
+    /* Check if the independent metadata writes property already exists on the property list */
+    if((prop_exists = H5Pexist(accpl_id, H5_DAOS_IND_MD_IO_PROP_NAME)) < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "can't check for independent metadata I/O property");
+
+    /* Set the property, or insert it if it does not exist */
+    if(prop_exists) {
+        if(H5Pset(accpl_id, H5_DAOS_IND_MD_IO_PROP_NAME, &is_independent) < 0)
+            D_GOTO_ERROR(H5E_PLIST, H5E_CANTSET, FAIL, "can't set independent metadata I/O property");
+    } /* end if */
+    else
+        if(H5Pinsert2(accpl_id, H5_DAOS_IND_MD_IO_PROP_NAME, sizeof(hbool_t),
+                &is_independent, NULL, NULL, NULL, NULL,
+                H5_daos_bool_prop_compare, NULL) < 0)
+            D_GOTO_ERROR(H5E_PLIST, H5E_CANTINSERT, FAIL, "can't insert property into list");
+
+done:
+    D_FUNC_LEAVE_API;
+} /* end H5daos_set_all_ind_metadata_ops() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5daos_get_all_ind_metadata_ops
+ *
+ * Purpose:     Retrieves the independent metadata I/O setting from the
+ *              access property list accpl_id.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5daos_get_all_ind_metadata_ops(hid_t accpl_id, hbool_t *is_independent)
+{
+    htri_t is_fapl;
+    htri_t is_lapl;
+    htri_t is_rapl;
+    htri_t prop_exists;
+    herr_t ret_value = SUCCEED;
+
+    if((is_fapl = H5Pisa_class(accpl_id, H5P_FILE_ACCESS)) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "couldn't determine property list class");
+    if((is_lapl = H5Pisa_class(accpl_id, H5P_LINK_ACCESS)) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "couldn't determine property list class");
+    if((is_rapl = H5Pisa_class(accpl_id, H5P_REFERENCE_ACCESS)) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "couldn't determine property list class");
+    if(!is_fapl && !is_lapl && !is_rapl)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "not an access property list");
+
+    /* Check if the independent metadata writes property exists on the property list */
+    if((prop_exists = H5Pexist(accpl_id, H5_DAOS_IND_MD_IO_PROP_NAME)) < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "can't check for independent metadata I/O property");
+
+    if(prop_exists) {
+        /* Get the property */
+        if(H5Pget(accpl_id, H5_DAOS_IND_MD_IO_PROP_NAME, is_independent) < 0)
+            D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, FAIL, "can't get independent metadata I/O property");
+    } /* end if */
+    else {
+        /* Simply return FALSE as not all metadata I/O
+         * operations are independent by default. */
+        *is_independent = FALSE;
+    } /* end else */
+
+done:
+    D_FUNC_LEAVE_API;
+} /* end H5daos_get_all_ind_metadata_ops() */
+
+
+/*-------------------------------------------------------------------------
  * Function:    H5_daos_str_prop_delete
  *
  * Purpose:     Property list callback for deleting a string property.
@@ -961,6 +1064,27 @@ H5_daos_str_prop_close(const char H5VL_DAOS_UNUSED *name,
 
     return SUCCEED;
 } /* end H5_daos_str_prop_close() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_bool_prop_compare
+ *
+ * Purpose:     Property list callback for comparing boolean properties.
+ *              Compares the boolean values directly.
+ *
+ * Return:      SUCCEED (never fails)
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_bool_prop_compare(const void *_value1, const void *_value2,
+    size_t H5VL_DAOS_UNUSED size)
+{
+    const hbool_t *bool1 = (const hbool_t *)_value1;
+    const hbool_t *bool2 = (const hbool_t *)_value2;
+
+    return *bool1 == *bool2;
+} /* end H5_daos_bool_prop_compare() */
 
 
 /*-------------------------------------------------------------------------

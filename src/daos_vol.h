@@ -216,6 +216,9 @@ do { \
  */
 #define H5_DAOS_ROOT_OPEN_OCLASS_NAME "root_open_daos_oclass"
 
+/* Property to specify independent metadata I/O */
+#define H5_DAOS_IND_MD_IO_PROP_NAME "h5daos_independent_md_writes"
+
 /* DSINC - There are serious problems in HDF5 when trying to call
  * H5Pregister2/H5Punregister on the H5P_FILE_ACCESS class.
  */
@@ -268,6 +271,64 @@ do {                                                                \
                 "can't progress scheduler");                        \
 } while(0)
 
+/* Macro to retrieve the metadata I/O mode setting (collective vs. independent)
+ * for metadata reads and metadata writes.
+ */
+#define H5_DAOS_GET_METADATA_IO_MODES(file, apl_id, default_apl_id,                                          \
+    collective_md_read, collective_md_write, err_maj, ret_value)                                             \
+do {                                                                                                         \
+    /* Set initial collective metadata read/write status from file FAPL cache */                             \
+    collective_md_read = file->fapl_cache.is_collective_md_read;                                             \
+    collective_md_write = file->fapl_cache.is_collective_md_write;                                           \
+    if(apl_id != default_apl_id) {                                                                           \
+        hbool_t all_independent_md_io = FALSE;                                                               \
+                                                                                                             \
+        /* Determine if independent metadata I/O was requested for the operation */                          \
+        if(H5daos_get_all_ind_metadata_ops(apl_id, &all_independent_md_io) < 0)                              \
+            D_GOTO_ERROR(err_maj, H5E_CANTGET, ret_value, "can't get independent metadata I/O property");    \
+                                                                                                             \
+        if(all_independent_md_io) {                                                                          \
+            /* Override all metadata I/O to be independent */                                                \
+            collective_md_read = FALSE;                                                                      \
+            collective_md_write = FALSE;                                                                     \
+        }                                                                                                    \
+        else {                                                                                               \
+            hbool_t all_collective_md_io = FALSE;                                                            \
+                                                                                                             \
+            /* If all collective metadata I/O has not already been set by the file,                          \
+             * determine if collective metadata I/O was requested for the operation */                       \
+            if((!collective_md_read || !collective_md_write) &&                                              \
+                    H5Pget_all_coll_metadata_ops(apl_id, &all_collective_md_io) < 0)                         \
+                D_GOTO_ERROR(err_maj, H5E_CANTGET, ret_value, "can't get collective metadata I/O property"); \
+                                                                                                             \
+            if(all_collective_md_io) {                                                                       \
+                /* Override all metadata I/O to be collective */                                             \
+                collective_md_read = TRUE;                                                                   \
+                collective_md_write = TRUE;                                                                  \
+            }                                                                                                \
+        }                                                                                                    \
+    }                                                                                                        \
+} while(0)
+
+/* Macro to retrieve the metadata I/O mode setting just for metadata reads. */
+#define H5_DAOS_GET_METADATA_READ_MODE(file, apl_id, default_apl_id, \
+    collective, err_maj, ret_value)                                  \
+do {                                                                 \
+    hbool_t is_collective_md_write = TRUE;                           \
+    H5_DAOS_GET_METADATA_IO_MODES(file, apl_id, default_apl_id,      \
+            collective, is_collective_md_write, err_maj, ret_value); \
+} while(0)
+
+/* Macro to retrieve the metadata I/O mode setting just for metadata writes. */
+#define H5_DAOS_GET_METADATA_WRITE_MODE(file, apl_id, default_apl_id, \
+    collective, err_maj, ret_value)                                   \
+do {                                                                  \
+    hbool_t is_collective_md_read = FALSE;                            \
+    H5_DAOS_GET_METADATA_IO_MODES(file, apl_id, default_apl_id,       \
+            is_collective_md_read, collective, err_maj, ret_value);   \
+} while(0)
+
+
 /********************/
 /* Private Typedefs */
 /********************/
@@ -304,6 +365,7 @@ typedef struct H5_daos_obj_t {
 typedef struct H5_daos_fapl_cache_t {
     daos_oclass_id_t default_object_class;
     hbool_t is_collective_md_read;
+    hbool_t is_collective_md_write;
 } H5_daos_fapl_cache_t;
 
 /* The file struct */
@@ -789,11 +851,11 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_link_create(H5VL_link_create_type_t create_type
     const H5VL_loc_params_t *loc_params, hid_t lcpl_id, hid_t lapl_id,
     hid_t dxpl_id, void **req, va_list arguments);
 H5VL_DAOS_PRIVATE herr_t H5_daos_link_copy(void *src_obj, const H5VL_loc_params_t *loc_params1,
-    void *dst_obj, const H5VL_loc_params_t *loc_params2, hid_t lcpl,
-    hid_t lapl, hid_t dxpl_id, void **req);
+    void *dst_obj, const H5VL_loc_params_t *loc_params2, hid_t lcpl_id,
+    hid_t lapl_id, hid_t dxpl_id, void **req);
 H5VL_DAOS_PRIVATE herr_t H5_daos_link_move(void *src_obj, const H5VL_loc_params_t *loc_params1,
-    void *dst_obj, const H5VL_loc_params_t *loc_params2, hid_t lcpl,
-    hid_t lapl, hid_t dxpl_id, void **req);
+    void *dst_obj, const H5VL_loc_params_t *loc_params2, hid_t lcpl_id,
+    hid_t lapl_id, hid_t dxpl_id, void **req);
 H5VL_DAOS_PRIVATE herr_t H5_daos_link_get(void *_item, const H5VL_loc_params_t *loc_params,
     H5VL_link_get_t get_type, hid_t dxpl_id, void **req, va_list arguments);
 H5VL_DAOS_PRIVATE herr_t H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
@@ -806,9 +868,9 @@ H5VL_DAOS_PRIVATE int H5_daos_link_write(H5_daos_group_t *grp, const char *name,
     tse_task_t **first_task, tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE herr_t H5_daos_link_copy_move_int(H5_daos_item_t *src_item,
     const H5VL_loc_params_t *loc_params1, H5_daos_item_t *dst_item,
-    const H5VL_loc_params_t *loc_params2, hid_t lcpl, hbool_t move,
-    H5_daos_sched_loc_t *sched_loc, H5_daos_req_t *req, tse_task_t **first_task,
-    tse_task_t **dep_task);
+    const H5VL_loc_params_t *loc_params2, hid_t lcpl_id, hbool_t move,
+    H5_daos_sched_loc_t *sched_loc, hbool_t collective, H5_daos_req_t *req,
+    tse_task_t **first_task, tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE herr_t H5_daos_link_exists(H5_daos_item_t *item,
     const char *link_path, htri_t ***exists_p, htri_t *exists,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
@@ -988,7 +1050,7 @@ H5VL_DAOS_PRIVATE void *H5_daos_attribute_create_helper(H5_daos_item_t *item,
     tse_task_t **first_task, tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE H5_daos_attr_t *H5_daos_attribute_open_helper(H5_daos_item_t *item,
     const H5VL_loc_params_t *loc_params, const char *attr_name, hid_t aapl_id,
-    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
+    hbool_t collective, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE herr_t H5_daos_attribute_iterate(H5_daos_obj_t *attr_container_obj,
     H5_daos_iter_data_t *attr_iter_data, tse_sched_t *sched, H5_daos_req_t *req,
     tse_task_t **first_task, tse_task_t **dep_task);

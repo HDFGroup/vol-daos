@@ -126,7 +126,7 @@ static int H5_daos_map_iterate_op_task(tse_task_t *task);
 static int H5_daos_map_iter_op_end(tse_task_t *task);
 
 static herr_t H5_daos_map_delete_key(H5_daos_map_t *map, hid_t key_mem_type_id, const void *key,
-    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
+    hbool_t collective, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 static int H5_daos_map_delete_key_prep_cb(tse_task_t *task, void *args);
 static int H5_daos_map_delete_key_comp_cb(tse_task_t *task, void *args);
 
@@ -206,10 +206,11 @@ H5_daos_map_create(void *_item,
         D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, NULL, "no write intent on file");
 
     /*
-     * Like HDF5, all metadata writes are collective by default. Once independent
-     * metadata writes are implemented, we will need to check for this property.
+     * Determine if independent metadata writes have been requested. Otherwise,
+     * like HDF5, metadata writes are collective by default.
      */
-    collective = TRUE;
+    H5_DAOS_GET_METADATA_WRITE_MODE(item->file, mapl_id, H5P_MAP_ACCESS_DEFAULT,
+            collective, H5E_MAP, NULL);
 
     /* Start H5 operation */
     if(NULL == (int_req = H5_daos_req_create(item->file, H5I_INVALID_HID)))
@@ -400,7 +401,7 @@ H5_daos_map_create(void *_item,
         } /* end if */
         else {
             /* No link to map, write a ref count of 0 */
-             finalize_deps[finalize_ndeps] = dep_task;
+            finalize_deps[finalize_ndeps] = dep_task;
             if(0 != (ret = H5_daos_obj_write_rc(NULL, &map->obj, NULL, 0, &item->file->sched,
                     int_req, &first_task, &finalize_deps[finalize_ndeps])))
                 D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't write object ref count: %s", H5_daos_err_to_string(ret));
@@ -541,11 +542,12 @@ H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
 
     H5_DAOS_MAKE_ASYNC_PROGRESS(item->file->sched, NULL);
 
-    /* Check for collective access, if not already set by the file */
-    collective = item->file->fapl_cache.is_collective_md_read;
-    if(!collective && (H5P_MAP_ACCESS_DEFAULT != mapl_id))
-        if(H5Pget_all_coll_metadata_ops(mapl_id, &collective) < 0)
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, NULL, "can't get collective access property");
+    /*
+     * Like HDF5, metadata reads are independent by default. If the application has specifically
+     * requested collective metadata reads, they will be enabled here.
+     */
+    H5_DAOS_GET_METADATA_READ_MODE(item->file, mapl_id, H5P_MAP_ACCESS_DEFAULT,
+            collective, H5E_MAP, NULL);
 
     /* Start H5 operation */
     if(NULL == (int_req = H5_daos_req_create(item->file, dxpl_id)))
@@ -3004,8 +3006,11 @@ H5_daos_map_specific(void *_item, const H5VL_loc_params_t *loc_params,
     H5_daos_req_t *int_req = NULL;
     tse_task_t *first_task = NULL;
     tse_task_t *dep_task = NULL;
+    hbool_t collective_md_read;
+    hbool_t collective_md_write;
     herr_t iter_ret = 0;
     hid_t map_id = H5I_INVALID_HID;
+    hid_t mapl_id = H5P_MAP_ACCESS_DEFAULT;
     int ret;
     herr_t ret_value = SUCCEED;
 
@@ -3015,6 +3020,12 @@ H5_daos_map_specific(void *_item, const H5VL_loc_params_t *loc_params,
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "location parameters object is NULL");
 
     H5_DAOS_MAKE_ASYNC_PROGRESS(item->file->sched, FAIL);
+
+    /* Determine metadata I/O mode setting (collective vs. independent)
+     * for metadata reads and writes according to file-wide setting on FAPL.
+     */
+    H5_DAOS_GET_METADATA_IO_MODES(item->file, mapl_id, H5P_MAP_ACCESS_DEFAULT,
+            collective_md_read, collective_md_write, H5E_MAP, FAIL);
 
     /* Start H5 operation */
     if(NULL == (int_req = H5_daos_req_create(item->file, dxpl_id)))
@@ -3099,7 +3110,7 @@ H5_daos_map_specific(void *_item, const H5VL_loc_params_t *loc_params,
 
             /* Perform key delete */
             if((ret_value = H5_daos_map_delete_key(map, key_mem_type_id, key,
-                    int_req, &first_task, &dep_task)) < 0)
+                    collective_md_write, int_req, &first_task, &dep_task)) < 0)
                 D_GOTO_ERROR(H5E_MAP, H5E_CANTREMOVE, FAIL, "map key delete failed");
 
             break;
@@ -3712,7 +3723,7 @@ done:
  */
 static herr_t 
 H5_daos_map_delete_key(H5_daos_map_t *map, hid_t key_mem_type_id, const void *key,
-    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
+    hbool_t collective, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_map_delete_key_ud_t *delete_udata = NULL;
     tse_task_t *delete_task;
@@ -3732,65 +3743,67 @@ H5_daos_map_delete_key(H5_daos_map_t *map, hid_t key_mem_type_id, const void *ke
     if(!(map->obj.item.file->flags & H5F_ACC_RDWR))
         D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, FAIL, "no write intent on file");
 
-    /* Allocate argument struct for deletion task */
-    if(NULL == (delete_udata = (H5_daos_map_delete_key_ud_t *)DV_calloc(sizeof(H5_daos_map_delete_key_ud_t))))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for map key deletion task callback arguments");
-    delete_udata->req = req;
-    delete_udata->map = map;
+    if(!collective || (map->obj.item.file->my_rank == 0)) {
+        /* Allocate argument struct for deletion task */
+        if(NULL == (delete_udata = (H5_daos_map_delete_key_ud_t *)DV_calloc(sizeof(H5_daos_map_delete_key_ud_t))))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for map key deletion task callback arguments");
+        delete_udata->req = req;
+        delete_udata->map = map;
 
-    /* Convert key (if necessary) */
-    if(H5_daos_map_key_conv(key_mem_type_id, map->key_file_type_id, key, &delete_udata->key_buf,
-            &delete_udata->key_size, &delete_udata->key_buf_alloc, req->dxpl_id) < 0)
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't convert key");
+        /* Convert key (if necessary) */
+        if(H5_daos_map_key_conv(key_mem_type_id, map->key_file_type_id, key, &delete_udata->key_buf,
+                &delete_udata->key_size, &delete_udata->key_buf_alloc, req->dxpl_id) < 0)
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't convert key");
 
-    /* Set up dkey */
-    daos_iov_set(&delete_udata->dkey, (void *)delete_udata->key_buf, (daos_size_t)delete_udata->key_size);
+        /* Set up dkey */
+        daos_iov_set(&delete_udata->dkey, (void *)delete_udata->key_buf, (daos_size_t)delete_udata->key_size);
 
-    /* Check for key sharing dkey with other metadata.  If dkey is shared, only
-     * delete akey, otherwise delete dkey. */
-    if(((delete_udata->key_size == H5_daos_int_md_key_size_g)
-            && !memcmp(key, H5_daos_int_md_key_g, H5_daos_int_md_key_size_g))
-            || ((delete_udata->key_size == H5_daos_attr_key_size_g)
-            && !memcmp(key, H5_daos_attr_key_g, H5_daos_attr_key_size_g))) {
-        /* Set up akey */
-        daos_iov_set(&delete_udata->akey, (void *)H5_daos_map_key_g, H5_daos_map_key_size_g);
+        /* Check for key sharing dkey with other metadata.  If dkey is shared, only
+         * delete akey, otherwise delete dkey. */
+        if(((delete_udata->key_size == H5_daos_int_md_key_size_g)
+                && !memcmp(key, H5_daos_int_md_key_g, H5_daos_int_md_key_size_g))
+                || ((delete_udata->key_size == H5_daos_attr_key_size_g)
+                && !memcmp(key, H5_daos_attr_key_g, H5_daos_attr_key_size_g))) {
+            /* Set up akey */
+            daos_iov_set(&delete_udata->akey, (void *)H5_daos_map_key_g, H5_daos_map_key_size_g);
 
-        delete_udata->shared_dkey = TRUE;
+            delete_udata->shared_dkey = TRUE;
 
-        /* Create task to remove akey */
-        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_PUNCH_AKEYS, &map->obj.item.file->sched,
-                *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &delete_task)))
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create task to delete map key: %s", H5_daos_err_to_string(ret));
+            /* Create task to remove akey */
+            if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_PUNCH_AKEYS, &map->obj.item.file->sched,
+                    *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &delete_task)))
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create task to delete map key: %s", H5_daos_err_to_string(ret));
+        } /* end if */
+        else {
+            /* Create task to remove dkey */
+            if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_PUNCH_DKEYS, &map->obj.item.file->sched,
+                    *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &delete_task)))
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create task to delete map key: %s", H5_daos_err_to_string(ret));
+        } /* end else */
+
+        /* Set callback functions for task to delete map akey */
+        if(0 != (ret = tse_task_register_cbs(delete_task, H5_daos_map_delete_key_prep_cb, NULL, 0,
+                H5_daos_map_delete_key_comp_cb, NULL, 0)))
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't register callbacks for map key deletion task: %s", H5_daos_err_to_string(ret));
+
+        /* Set private data for map key deletion task */
+        (void)tse_task_set_priv(delete_task, delete_udata);
+
+        /* Schedule task to delete map key (or save it to be scheduled later)
+         * and give it a reference to req.
+         */
+        if(*first_task) {
+            if(0 != (ret = tse_task_schedule(delete_task, false)))
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't schedule task to delete map key: %s", H5_daos_err_to_string(ret));
+        } /* end if */
+        else
+            *first_task = delete_task;
+        req->rc++;
+        map->obj.item.rc++;
+        *dep_task = delete_task;
+
+        delete_udata = NULL;
     } /* end if */
-    else {
-        /* Create task to remove dkey */
-        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_PUNCH_DKEYS, &map->obj.item.file->sched,
-                *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &delete_task)))
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create task to delete map key: %s", H5_daos_err_to_string(ret));
-    } /* end else */
-
-    /* Set callback functions for task to delete map akey */
-    if(0 != (ret = tse_task_register_cbs(delete_task, H5_daos_map_delete_key_prep_cb, NULL, 0,
-            H5_daos_map_delete_key_comp_cb, NULL, 0)))
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't register callbacks for map key deletion task: %s", H5_daos_err_to_string(ret));
-
-    /* Set private data for map key deletion task */
-    (void)tse_task_set_priv(delete_task, delete_udata);
-
-    /* Schedule task to delete map key (or save it to be scheduled later)
-     * and give it a reference to req.
-     */
-    if(*first_task) {
-        if(0 != (ret = tse_task_schedule(delete_task, false)))
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't schedule task to delete map key: %s", H5_daos_err_to_string(ret));
-    } /* end if */
-    else
-        *first_task = delete_task;
-    req->rc++;
-    map->obj.item.rc++;
-    *dep_task = delete_task;
-
-    delete_udata = NULL;
 
 done:
     if(ret_value < 0) {

@@ -45,8 +45,13 @@ if(HDF5_VOL_TEST_ENABLE_PARALLEL)
       ${CMAKE_CURRENT_SOURCE_DIR}/h5daos_test_${vol_parallel_test}_parallel.c
     )
     target_link_libraries(h5daos_test_${vol_parallel_test}_parallel
-      hdf5_vol_daos m
+      hdf5_vol_daos
     )
+    if(h5daos_test_${vol_parallel_test}_parallel STREQUAL "h5daos_test_metadata_parallel")
+      target_link_libraries(h5daos_test_${vol_parallel_test}_parallel
+        m
+      )
+    endif()
     set(HDF5_VOL_EXT_PARALLEL_TESTS_EXE
       ${HDF5_VOL_EXT_PARALLEL_TESTS_EXE}
       h5daos_test_${vol_parallel_test}_parallel

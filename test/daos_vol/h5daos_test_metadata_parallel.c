@@ -1168,7 +1168,7 @@ error:
     return -1;
 }
 
-static hbool_t create_trees(hid_t file) {
+static int create_trees(hid_t file) {
     hid_t       tree_root_id;
     char        tree_root_name[NAME_LENGTH];
     int         i;

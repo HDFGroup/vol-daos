@@ -233,7 +233,7 @@ parse_command_line(int argc, char *argv[])
     }
 
     if (hand.numbOfTrees < 1 || hand.depthOfTree < 0 || hand.numbOfBranches < 1 || hand.numbOfObjs < 0 || 
-        strcmp(hand.daosObjClass, "S1") || strcmp(hand.collMetadata, "collective")) {
+        strcmp(hand.daosObjClass, "S1")) {
             H5_FAILED(); AT();
             printf("invalid command-line option value \n");
             goto error;
@@ -1246,9 +1246,17 @@ main( int argc, char** argv )
         goto error;
     }
 
-    if(H5Pset_all_coll_metadata_ops(fapl_id, TRUE) < 0) {
-        nerrors++;
-        goto error;
+    if(hand.uniqueGroupPerRank) {
+        if(H5daos_set_all_ind_metadata_ops(fapl_id, TRUE) < 0) {
+            nerrors++;
+            goto error;
+        }
+    }
+    else {
+        if(H5Pset_all_coll_metadata_ops(fapl_id, TRUE) < 0) {
+            nerrors++;
+            goto error;
+        }
     }
 
     if (H5Pset_coll_metadata_write(fapl_id, TRUE) < 0) {

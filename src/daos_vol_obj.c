@@ -1090,6 +1090,7 @@ H5_daos_object_oid_bcast(H5_daos_file_t *file, daos_obj_id_t *oid,
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "failed to allocate buffer for MPI broadcast user data");
     oid_bcast_udata->bcast_udata.req = req;
     oid_bcast_udata->bcast_udata.obj = NULL;
+    oid_bcast_udata->bcast_udata.sched = &file->sched;
     oid_bcast_udata->bcast_udata.bcast_metatask = NULL;
     oid_bcast_udata->bcast_udata.buffer = oid_bcast_udata->oid_buf;
     oid_bcast_udata->bcast_udata.buffer_len = H5_DAOS_ENCODED_OID_SIZE;

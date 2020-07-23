@@ -963,6 +963,10 @@ done:
             *first_task = dataset_metatask;
             *dep_task = dataset_metatask;
         } /* end else */
+
+        if(collective && (file->num_procs > 1))
+            if(H5_daos_collective_error_check(&dset->obj, &file->sched, req, first_task, dep_task) < 0)
+                D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't perform collective error check");
     } /* end else */
 
     /* Close temporary DCPL */
@@ -4433,6 +4437,11 @@ H5_daos_dataset_set_extent(H5_daos_dset_t *dset, const hsize_t *size,
     } /* end if */
 
 done:
+    if(collective && (dset->obj.item.file->num_procs > 1))
+        if(H5_daos_collective_error_check(&dset->obj, &dset->obj.item.file->sched,
+                req, first_task, dep_task) < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't perform collective error check");
+
     /* Cleanup on failure */
     if(ret_value < 0) {
         space_buf = DV_free(space_buf);

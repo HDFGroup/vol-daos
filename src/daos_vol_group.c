@@ -433,7 +433,6 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hbool_t is_root,
         assert(*dep_task);
         gmt_deps[gmt_ndeps] = *dep_task;
         gmt_ndeps++;
-        /* Check for failure of process 0 DSINC */
     } /* end else */
 
     /* Finish setting up group struct */
@@ -471,6 +470,10 @@ done:
             *first_task = group_metatask;
             *dep_task = group_metatask;
         } /* end else */
+
+        if(collective && (file->num_procs > 1))
+            if(H5_daos_collective_error_check(&grp->obj, &file->sched, req, first_task, dep_task) < 0)
+                D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't perform collective error check");
     } /* end else */
 
     /* Cleanup on failure */

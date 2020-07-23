@@ -2483,8 +2483,8 @@ H5_daos_link_copy_move_int(H5_daos_item_t *src_item, const H5VL_loc_params_t *lo
     tse_task_t *dep_tasks[2] = {NULL, NULL};
     tse_task_t *delete_task = NULL;
     H5_daos_sched_loc_t sched_locs[2];
-    tse_sched_t *src_sched;
-    tse_sched_t *dst_sched;
+    tse_sched_t *src_sched = NULL;
+    tse_sched_t *dst_sched = NULL;
     int ret;
     herr_t ret_value = SUCCEED;
 
@@ -2494,6 +2494,10 @@ H5_daos_link_copy_move_int(H5_daos_item_t *src_item, const H5VL_loc_params_t *lo
     assert(loc_params2);
     assert(loc_params2->type == H5VL_OBJECT_BY_NAME);
 
+    /* Determine source and destination schedulers */
+    src_sched = src_item ? &src_item->file->sched : &dst_item->file->sched;
+    dst_sched = dst_item ? &dst_item->file->sched : &src_item->file->sched;
+
     if(!collective || (req->file->my_rank == 0)) {
         /* Allocate task udata struct */
          if(NULL == (cm_udata = (H5_daos_link_copy_move_ud_t *)DV_calloc(sizeof(H5_daos_link_copy_move_ud_t))))
@@ -2501,10 +2505,6 @@ H5_daos_link_copy_move_int(H5_daos_item_t *src_item, const H5VL_loc_params_t *lo
         cm_udata->req = req;
         cm_udata->link_val.type = H5L_TYPE_ERROR;
         cm_udata->move = move;
-
-        /* Determine source and destination schedulers */
-        src_sched = src_item ? &src_item->file->sched : &dst_item->file->sched;
-        dst_sched = dst_item ? &dst_item->file->sched : &src_item->file->sched;
 
         /* Create first task if necessary (so we don't have to keep track of
          * mulptiple first tasks */
@@ -2643,6 +2643,10 @@ H5_daos_link_copy_move_int(H5_daos_item_t *src_item, const H5VL_loc_params_t *lo
     } /* end if */
 
 done:
+    if(collective && ((src_item ? src_item->file->num_procs : dst_item->file->num_procs) > 1))
+        if(H5_daos_collective_error_check(NULL, src_sched, req, first_task, dep_task) < 0)
+            D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't perform collective error check");
+
     /* Close source object */
     if(src_obj && H5_daos_object_close(src_obj, req->dxpl_id, NULL) < 0)
         D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close source object");
@@ -6061,6 +6065,10 @@ H5_daos_link_delete(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
     delete_udata = NULL;
 
 done:
+    if(collective && (item->file->num_procs > 1))
+        if(H5_daos_collective_error_check(NULL, &item->file->sched, req, first_task, dep_task) < 0)
+            D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't perform collective error check");
+
     if(ret_value < 0) {
         if(delete_udata && delete_udata->target_obj)
             if(H5_daos_object_close(delete_udata->target_obj, req->dxpl_id, NULL) < 0)

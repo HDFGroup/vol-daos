@@ -808,8 +808,6 @@ H5_daos_datatype_commit_helper(H5_daos_file_t *file, hid_t type_id,
         assert(*dep_task);
         finalize_deps[0] = *dep_task;
         finalize_ndeps = 1;
-
-        /* TODO: Check for failure of process 0 */
     } /* end else */
 
     /* Finish setting up datatype struct */
@@ -845,6 +843,10 @@ done:
             *first_task = datatype_metatask;
             *dep_task = datatype_metatask;
         } /* end else */
+
+        if(collective && (file->num_procs > 1))
+            if(H5_daos_collective_error_check(&dtype->obj, &file->sched, req, first_task, dep_task) < 0)
+                D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't perform collective error check");
     } /* end else */
 
     /* Cleanup on failure */

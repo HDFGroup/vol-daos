@@ -742,6 +742,10 @@ H5_daos_attribute_create_helper(H5_daos_item_t *item, const H5VL_loc_params_t *l
     ret_value = (void *)attr;
 
 done:
+    if(collective && (item->file->num_procs > 1))
+        if(H5_daos_collective_error_check(attr->parent, &item->file->sched, req, first_task, dep_task) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't perform collective error check");
+
     /* Cleanup on failure */
     /* Destroy DAOS object if created before failure DSINC */
     if(NULL == ret_value) {
@@ -1339,6 +1343,7 @@ H5_daos_attribute_open_helper(H5_daos_item_t *item, const H5VL_loc_params_t *loc
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "failed to allocate buffer for MPI broadcast user data");
         bcast_udata->bcast_ud.req = req;
         bcast_udata->bcast_ud.obj = NULL; /* Set later after parent object is opened */
+        bcast_udata->bcast_ud.sched = &item->file->sched;
         bcast_udata->bcast_ud.buffer = NULL;
         bcast_udata->bcast_ud.buffer_len = 0;
         bcast_udata->bcast_ud.count = 0;
@@ -3300,6 +3305,10 @@ H5_daos_attribute_delete(H5_daos_obj_t *attr_container_obj, const H5VL_loc_param
     } /* end if */
 
 done:
+    if(collective && (attr_container_obj->item.file->num_procs > 1))
+        if(H5_daos_collective_error_check(attr_container_obj, sched, req, first_task, dep_task) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't perform collective error check");
+
     if(ret_value < 0) {
         if(delete_udata->attr_name_buf)
             DV_free(delete_udata->attr_name_buf);
@@ -4733,6 +4742,10 @@ H5_daos_attribute_rename(H5_daos_obj_t *attr_container_obj, const char *cur_attr
     H5_DAOS_WAIT_ON_ASYNC_CHAIN(sched, req, *first_task, *dep_task, H5E_ATTR, H5E_CANTINIT, FAIL);
 
 done:
+    if(collective && (attr_container_obj->item.file->num_procs > 1))
+        if(H5_daos_collective_error_check(attr_container_obj, sched, req, first_task, dep_task) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't perform collective error check");
+
     attr_data_buf = DV_free(attr_data_buf);
 
     if(new_attr) {

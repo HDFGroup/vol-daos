@@ -490,26 +490,8 @@ typedef enum {
     H5_DAOS_TCONV_REUSE_BKG      /* Use buffer as background buffer */
 } H5_daos_tconv_reuse_t;
 
-/* Generic request struct */
-typedef struct H5_daos_req_t {
-    daos_handle_t th;
-    hbool_t th_open;
-    H5_daos_file_t *file;
-    hid_t dxpl_id;
-    tse_task_t *finalize_task;
-    H5VL_request_notify_t notify_cb;
-    void *notify_ctx;
-    int rc;
-    int status;
-    const char *failed_task; /* Add more error info? DSINC */
-} H5_daos_req_t;
-
-/* Enum for denoting scheduler location for cross file operations */
-typedef enum {
-    H5_DAOS_SCHED_LOC_NONE,
-    H5_DAOS_SCHED_LOC_SRC,
-    H5_DAOS_SCHED_LOC_DST,
-} H5_daos_sched_loc_t;
+/* Forward declaration for generic request struct */
+typedef struct H5_daos_req_t H5_daos_req_t;
 
 /* Task user data for asynchronous MPI broadcast */
 typedef struct H5_daos_mpi_ibcast_ud_t {
@@ -521,6 +503,31 @@ typedef struct H5_daos_mpi_ibcast_ud_t {
     int buffer_len;
     int count;
 } H5_daos_mpi_ibcast_ud_t;
+
+/* Generic request struct */
+struct H5_daos_req_t {
+    daos_handle_t th;
+    hbool_t th_open;
+    H5_daos_file_t *file;
+    hid_t dxpl_id;
+    tse_task_t *finalize_task;
+    H5VL_request_notify_t notify_cb;
+    void *notify_ctx;
+    int rc;
+    int status;
+    const char *failed_task; /* Add more error info? DSINC */
+    struct {
+        H5_daos_mpi_ibcast_ud_t err_check_ud;
+        int coll_status;
+    } collective;
+};
+
+/* Enum for denoting scheduler location for cross file operations */
+typedef enum {
+    H5_DAOS_SCHED_LOC_NONE,
+    H5_DAOS_SCHED_LOC_SRC,
+    H5_DAOS_SCHED_LOC_DST,
+} H5_daos_sched_loc_t;
 
 /* Task user data for generic operations that need no special handling (only for
  * error tracking) */
@@ -1130,6 +1137,8 @@ H5VL_DAOS_PRIVATE int H5_daos_list_key_init(H5_daos_iter_data_t *iter_data,
 H5VL_DAOS_PRIVATE herr_t H5_daos_mpi_ibcast(H5_daos_mpi_ibcast_ud_t *_bcast_udata, tse_sched_t *sched,
     H5_daos_obj_t *obj, size_t buffer_size, hbool_t empty, tse_task_cb_t bcast_prep_cb, tse_task_cb_t bcast_comp_cb,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
+H5VL_DAOS_PRIVATE herr_t H5_daos_collective_error_check(H5_daos_obj_t *obj,
+    tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 
 /* Asynchronous task routines */
 H5VL_DAOS_PRIVATE int H5_daos_h5op_finalize(tse_task_t *task);

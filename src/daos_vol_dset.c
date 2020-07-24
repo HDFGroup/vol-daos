@@ -3745,6 +3745,25 @@ H5_daos_dataset_get(void *_dset, H5VL_dataset_get_t get_type,
                 break;
             } /* end block */
         case H5VL_DATASET_GET_STORAGE_SIZE:
+            {
+                hsize_t     *ret = va_arg(arguments, hsize_t *);
+                hssize_t    nelements = 0;
+                size_t      dtype_size = 0;
+
+                *ret = 0;
+
+                if(H5I_INVALID_HID == dset->space_id || H5I_INVALID_HID == dset->type_id)
+                    D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get dataset's dataspace or datatype");
+
+                /* Return the in-memory size of the data */
+                if((nelements = H5Sget_simple_extent_npoints(dset->space_id)) < 0)
+                    D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, FAIL, "can't get number of elements in dataset's dataspace");
+                if(0 == (dtype_size = H5Tget_size(dset->type_id)))
+                    D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't get dataset's type size");
+                *ret = nelements * dtype_size;
+
+                break;
+            }
         default:
             D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "can't get this type of information from dataset");
     } /* end switch */

@@ -1101,6 +1101,7 @@ H5_daos_group_open_helper(H5_daos_file_t *file, hid_t gapl_id,
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "failed to allocate buffer for MPI broadcast user data");
         bcast_udata->req = req;
         bcast_udata->obj = &grp->obj;
+        bcast_udata->sched = &file->sched;
         bcast_udata->buffer = NULL;
         bcast_udata->buffer_len = 0;
         bcast_udata->count = 0;
@@ -1182,7 +1183,7 @@ H5_daos_group_open_helper(H5_daos_file_t *file, hid_t gapl_id,
         if(0 != (ret = tse_task_schedule(fetch_udata->fetch_metatask, false)))
             D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't schedule meta task for group metadata read: %s", H5_daos_err_to_string(ret));
 
-        /* Schedule group metadata write task (or save it to be scheduled later)
+        /* Schedule group metadata read task (or save it to be scheduled later)
          * and give it a reference to req and the group */
         assert(*first_task);
         if(0 != (ret = tse_task_schedule(fetch_task, false)))

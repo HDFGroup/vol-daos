@@ -933,7 +933,7 @@ H5_daos_str_prop_compare(const void *_value1, const void *_value2,
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_str_prop_delete
+ * Function:    H5_daos_str_prop_close
  *
  * Purpose:     Property list callback for deleting a string property.
  *              Frees the string.
@@ -1146,9 +1146,13 @@ H5_daos_init(hid_t H5VL_DAOS_UNUSED vipl_id)
         H5_daos_bypass_duns_g = TRUE;
 
     /* Determine automatic chunking target size */
-    if(NULL != (auto_chunk_str = getenv("H5_DAOS_CHUNK_TARGET_SIZE")))
-        if(0 == (H5_daos_chunk_target_size_g = (uint64_t)strtoll(auto_chunk_str, NULL, 10)))
-            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "failed to parse automatic chunking target size from environment (H5_DAOS_CHUNK_TARGET_SIZE)");
+    if(NULL != (auto_chunk_str = getenv("H5_DAOS_CHUNK_TARGET_SIZE"))) {
+        long long chunk_target_size_ll;
+
+        if((chunk_target_size_ll = strtoll(auto_chunk_str, NULL, 10)) <= 0)
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "failed to parse automatic chunking target size from environment or invalid value (H5_DAOS_CHUNK_TARGET_SIZE)");
+        H5_daos_chunk_target_size_g = (uint64_t)chunk_target_size_ll;
+    } /* end if */
 
     /* First connect to the pool */
     if((pool_rank == 0) && H5_daos_pool_connect_global() < 0)
@@ -4353,7 +4357,9 @@ H5_daos_mpi_ibcast(H5_daos_mpi_ibcast_ud_t *_bcast_udata, tse_sched_t *sched, H5
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "failed to allocate buffer for MPI broadcast user data");
         bcast_udata->req = req;
         bcast_udata->obj = obj;
+        bcast_udata->sched = sched;
     } /* end if */
+    assert(bcast_udata->sched);
 
     /* Allocate bcast_udata's buffer if necessary */
     if(!bcast_udata->buffer) {

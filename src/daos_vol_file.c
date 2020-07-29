@@ -489,6 +489,7 @@ H5_daos_handles_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     assert(udata->req);
     assert(udata->req->file);
     assert(!udata->req->file->closed);
+    assert(udata->sched);
 
     /* Handle errors in bcast task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if
@@ -511,7 +512,7 @@ H5_daos_handles_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
                 udata->count = udata->buffer_len;
 
                 /* Create task for second bcast */
-                if(0 !=  (ret = tse_task_create(H5_daos_mpi_ibcast_task, &udata->req->file->sched, udata, &bcast_task)))
+                if(0 !=  (ret = tse_task_create(H5_daos_mpi_ibcast_task, udata->sched, udata, &bcast_task)))
                     D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't create task for second global handles broadcast: %s", H5_daos_err_to_string(ret));
 
                 /* Set callback functions for second bcast */
@@ -559,7 +560,7 @@ H5_daos_handles_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
                 udata->count = udata->buffer_len;
 
                 /* Create task for second bcast */
-                if(0 !=  (ret = tse_task_create(H5_daos_mpi_ibcast_task, &udata->obj->item.file->sched, udata, &bcast_task)))
+                if(0 !=  (ret = tse_task_create(H5_daos_mpi_ibcast_task, udata->sched, udata, &bcast_task)))
                     D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't create task for second global handles broadcast: %s", H5_daos_err_to_string(ret));
 
                 /* Set callback functions for second bcast */
@@ -842,6 +843,7 @@ H5_daos_cont_handle_bcast(H5_daos_file_t *file, H5_daos_req_t *req,
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "failed to allocate buffer for MPI broadcast user data");
     bcast_udata->req = req;
     bcast_udata->obj = NULL;
+    bcast_udata->sched = &file->sched;
     bcast_udata->bcast_metatask = NULL;
     bcast_udata->buffer = NULL;
     bcast_udata->buffer_len = 0;

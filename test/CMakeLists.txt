@@ -128,7 +128,7 @@ add_subdirectory(daos_vol)
 # Disable automatic chunk sizing for VOL tests
 set(DAOS_CLIENT_ENV_VARS
   ${DAOS_CLIENT_ENV_VARS}
-  "H5_DAOS_CHUNK_TARGET_SIZE=1073741824 "
+  "H5_DAOS_CHUNK_TARGET_SIZE=1073741824"
 )
 set(H5VL_TEST_ENV_VARS "env ${DAOS_CLIENT_ENV_VARS}")
 

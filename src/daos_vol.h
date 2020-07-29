@@ -70,7 +70,6 @@ typedef d_sg_list_t daos_sg_list_t;
 
 /* Initial allocation sizes */
 #define H5_DAOS_GH_BUF_SIZE 1024
-#define H5_DAOS_FOI_BUF_SIZE 1024
 #define H5_DAOS_LINK_NAME_BUF_SIZE 2048
 #define H5_DAOS_LINK_VAL_BUF_SIZE 256
 #define H5_DAOS_GINFO_BUF_SIZE 1024
@@ -468,10 +467,11 @@ typedef enum {
     H5_DAOS_SCHED_LOC_DST,
 } H5_daos_sched_loc_t;
 
-/* Task user data for MPI broadcast of group info for group open */
+/* Task user data for asynchronous MPI broadcast */
 typedef struct H5_daos_mpi_ibcast_ud_t {
     H5_daos_req_t *req;
     H5_daos_obj_t *obj;
+    tse_sched_t *sched;
     tse_task_t *bcast_metatask;
     void *buffer;
     int buffer_len;

@@ -9,7 +9,7 @@ source $SPACK_ROOT/share/spack/setup-env.sh
 spack load -r daos@master
 spack load -r hdf5
 spack load -r cmake
-spack load -r gcc@9.2.0
+spack load -r gcc
 
 # store the current directory in a local variable to get back to it later
 export HDF5_VOL_DAOS_ROOT=/scr/jsoumagne/daos

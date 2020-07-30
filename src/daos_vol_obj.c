@@ -5361,8 +5361,6 @@ H5_daos_obj_write_rc_task(tse_task_t *task)
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for object ref count write task");
 
-    assert(udata->obj_p);
-    assert(*udata->obj_p);
     assert(udata->req);
     assert(udata->req->file);
     assert(!udata->req->file->closed);
@@ -5383,6 +5381,9 @@ H5_daos_obj_write_rc_task(tse_task_t *task)
         udata = NULL;
         D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
     } /* end if */
+
+    assert(udata->obj_p);
+    assert(*udata->obj_p);
 
     /* Determine current ref count */
     cur_rc = udata->rc ? *udata->rc : 0;

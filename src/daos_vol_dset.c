@@ -2707,11 +2707,6 @@ H5_daos_chunk_io_tconv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     /* If reading we must perform type conversion on the read data */
     if(udata->io_type == IO_READ) {
-        /* Gather data to background buffer if necessary */
-        if(udata->fill_bkg && (udata->reuse != H5_DAOS_TCONV_REUSE_BKG))
-            if(H5Dgather(udata->mem_space_id, udata->buf, udata->mem_type_id, (size_t)udata->num_elem * udata->mem_type_size, udata->bkg_buf, NULL, NULL) < 0)
-                D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, H5_DAOS_H5_SCATGATH_ERROR, "can't gather data to background buffer");
-
         /* Perform type conversion */
         if(H5Tconvert(udata->dset->file_type_id, udata->mem_type_id, (size_t)udata->num_elem, udata->tconv_buf, udata->bkg_buf, udata->req->dxpl_id) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTCONVERT, H5_DAOS_H5_TCONV_ERROR, "can't perform type conversion");
@@ -2755,8 +2750,10 @@ done:
         DV_free(udata->dkey.iov_buf);
         if(udata->recxs != &udata->recx)
             DV_free(udata->recxs);
-        DV_free(udata->tconv_buf);
-        DV_free(udata->bkg_buf);
+        if(udata->reuse != H5_DAOS_TCONV_REUSE_TCONV)
+            DV_free(udata->tconv_buf);
+        if(udata->reuse != H5_DAOS_TCONV_REUSE_BKG)
+            DV_free(udata->bkg_buf);
         DV_free(udata);
     } /* end if */
 
@@ -2899,7 +2896,7 @@ H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t *dkey,
     H5_daos_chunk_io_tconv_ud_t *chunk_io_ud = NULL;
     hbool_t contig = FALSE;
     size_t tot_nseq;
-    tse_task_t *io_task;
+    tse_task_t *io_task = NULL;
     tse_task_t *fill_bkg_task = NULL;
     hid_t sel_iter = H5I_INVALID_HID;
     int ret;
@@ -2915,8 +2912,11 @@ H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t *dkey,
     if(NULL == (chunk_io_ud = (H5_daos_chunk_io_tconv_ud_t *)DV_calloc(sizeof(H5_daos_chunk_io_tconv_ud_t))))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for I/O callback arguments");
     chunk_io_ud->num_elem = num_elem;
-    chunk_io_ud->mem_type_id = mem_type_id;
-    chunk_io_ud->mem_space_id = mem_space_id;
+    chunk_io_ud->mem_space_id = H5I_INVALID_HID;
+    if((chunk_io_ud->mem_type_id = H5Tcopy(mem_type_id)) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, FAIL, "can't copy memory datatype");
+    if((chunk_io_ud->mem_space_id = H5Scopy(mem_space_id)) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, FAIL, "can't copy memory dataspace");
     chunk_io_ud->buf = buf;
     chunk_io_ud->io_type = io_type;
     chunk_io_ud->recxs = &chunk_io_ud->recx;
@@ -3021,6 +3021,11 @@ H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t *dkey,
     chunk_io_ud->sgl.sg_iovs = &chunk_io_ud->sg_iov;
 
     if(io_type == IO_READ) {
+        /* Gather data to background buffer if necessary */
+        if(chunk_io_ud->fill_bkg && (chunk_io_ud->reuse != H5_DAOS_TCONV_REUSE_BKG))
+            if(H5Dgather(mem_space_id, buf, mem_type_id, (size_t)num_elem * chunk_io_ud->mem_type_size, chunk_io_ud->bkg_buf, NULL, NULL) < 0)
+                D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't gather data to background buffer");
+
         /* Handle fill values */
         if(dset->dcpl_cache.fill_method == H5_DAOS_ZERO_FILL) {
             /* H5_daos_tconv_init() will have cleared the tconv buf, but not if
@@ -3061,8 +3066,8 @@ H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t *dkey,
 
             /* Save bkg fill task to be scheduled later */
             assert(!*first_task);
-            *first_task = io_task;
-            *dep_task = io_task;
+            *first_task = fill_bkg_task;
+            *dep_task = fill_bkg_task;
         } /* end if */
 
         /* Create task to write data to dataset */
@@ -3086,18 +3091,17 @@ H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t *dkey,
         *first_task = io_task;
     *dep_task = io_task;
 
-    /* Task will be scheduled, give it a reference to req, the dataset, and open
-     * dataspace and datatype IDs */
+    /* Task will be scheduled, give it a reference to req and the dataset */
     chunk_io_ud->req->rc++;
     chunk_io_ud->dset->obj.item.rc++;
-    if(H5Iinc_ref(mem_type_id) < 0)
-        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't increment ref count on memory type ID");
-    if(H5Iinc_ref(mem_space_id) < 0)
-        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't increment ref count on memory space ID");
 
 done:
     /* Cleanup on failure */
     if(ret_value < 0 && chunk_io_ud && !fill_bkg_task) {
+        if(chunk_io_ud->mem_type_id >= 0 && H5Tclose(chunk_io_ud->mem_type_id) < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, FAIL, "can't close memory datatype");
+        if(chunk_io_ud->mem_space_id >= 0 && H5Sclose(chunk_io_ud->mem_space_id) < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, FAIL, "can't close memory dataspace");
         if(chunk_io_ud->recxs != &chunk_io_ud->recx)
             DV_free(chunk_io_ud->recxs);
         DV_free(chunk_io_ud->dkey.iov_buf);

@@ -163,6 +163,7 @@ typedef struct H5_daos_link_follow_ud_t {
     hbool_t crt_missing_grp;
     H5_daos_link_val_t link_val;
     daos_obj_id_t *oid;
+    H5_daos_group_t *target_grp;
     hbool_t link_read;
     hbool_t *link_exists;
     char *path_buf;
@@ -3279,6 +3280,15 @@ H5_daos_link_follow_end(tse_task_t *task)
     assert(udata->req->file);
     assert(udata->grp);
 
+    /* If we saved a pointer to target_grp, use it to set the oid, and close
+     * target_grp */
+    if(udata->target_grp) {
+        *udata->oid = udata->target_grp->obj.oid;
+
+        if(H5_daos_group_close(udata->target_grp, udata->req->dxpl_id, NULL) < 0)
+            D_DONE_ERROR(H5E_LINK, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close target group");
+    } /* end if */
+
     /* Close group */
     if(H5_daos_object_close(udata->grp, H5I_INVALID_HID, NULL) < 0)
         D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
@@ -3393,8 +3403,16 @@ H5_daos_link_follow_task(tse_task_t *task)
 
                     /* Check for no target_name, in this case just return target_grp */
                     if(target_name_len == 0) {
-                        /* Output oid of target_grp */
-                        *udata->oid = target_grp->obj.oid;
+                        if(dep_task) {
+                            /* target_grp may be incomplete at this point, save
+                             * a pointer to it so the oid can be set by
+                             * link_follow_end, and don't close it here */
+                            udata->target_grp = target_grp;
+                            target_grp = NULL;
+                        } /* end if */
+                        else
+                            /* target_grp is complete, just return oid */
+                            *udata->oid = target_grp->obj.oid;
                     } /* end if */
                     else {
                         /* Follow link to group */
@@ -3408,10 +3426,12 @@ H5_daos_link_follow_task(tse_task_t *task)
                         *oid_ptr = udata->oid;
                     } /* end else */
 
-                    /* Close target_grp */
-                    if(H5_daos_group_close(target_grp, req->dxpl_id, NULL) < 0)
-                        D_GOTO_ERROR(H5E_LINK, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close group");
-                    target_grp = NULL;
+                    if(target_grp) {
+                        /* Close target_grp */
+                        if(H5_daos_group_close(target_grp, req->dxpl_id, NULL) < 0)
+                            D_GOTO_ERROR(H5E_LINK, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close group");
+                        target_grp = NULL;
+                    } /* end if */
 
                     break;
                 } /* end block */
@@ -3434,13 +3454,22 @@ H5_daos_link_follow_task(tse_task_t *task)
                     udata->name_len, FALSE, req, &first_task, &dep_task)))
                 D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't create missing group");
 
-            /* Output oid of target_grp */
-            *udata->oid = target_grp->obj.oid;
+            if(dep_task) {
+                /* target_grp may be incomplete at this point, save a pointer to
+                 * it so the oid can be set by link_follow_end, and don't close
+                 * it here */
+                udata->target_grp = target_grp;
+                target_grp = NULL;
+            } /* end if */
+            else {
+                /* target_grp is complete, just return oid */
+                *udata->oid = target_grp->obj.oid;
 
-            /* Close target_grp */
-            if(H5_daos_group_close(target_grp, req->dxpl_id, NULL) < 0)
-                D_GOTO_ERROR(H5E_LINK, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close group");
-            target_grp = NULL;
+                /* Close target_grp */
+                if(H5_daos_group_close(target_grp, req->dxpl_id, NULL) < 0)
+                    D_GOTO_ERROR(H5E_LINK, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close group");
+                target_grp = NULL;
+            } /* end else */
 
             assert(!udata->link_exists);
         } /* end if */
@@ -3517,6 +3546,8 @@ done:
 
     /* Complete task and free udata if we still own udata */
     if(udata) {
+        assert(!udata->target_grp);
+
         /* Complete this task */
         tse_task_complete(task, ret_value);
 
@@ -3567,7 +3598,7 @@ H5_daos_link_follow(H5_daos_group_t *grp, const char *name, size_t name_len,
     assert(oid_ptr);
 
     /* Allocate private data for follow task */
-    if(NULL == (follow_udata = (H5_daos_link_follow_ud_t *)DV_malloc(sizeof(H5_daos_link_follow_ud_t))))
+    if(NULL == (follow_udata = (H5_daos_link_follow_ud_t *)DV_calloc(sizeof(H5_daos_link_follow_ud_t))))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate user data struct for object open task");
 
     /* Read link to group */
@@ -3590,7 +3621,6 @@ H5_daos_link_follow(H5_daos_group_t *grp, const char *name, size_t name_len,
     follow_udata->name_len = name_len;
     follow_udata->crt_missing_grp = crt_missing_grp;
     follow_udata->link_exists = link_exists;
-    follow_udata->path_buf = NULL;
     follow_udata->link_val.type = H5L_TYPE_ERROR;
 
     /* Set *oid_ptr so calling function can direct output of link follow task */

@@ -3577,7 +3577,7 @@ done:
 herr_t
 H5_daos_fill_ocpl_cache(H5_daos_obj_t *obj, hid_t ocpl_id)
 {
-    unsigned acorder_flags;
+    unsigned acorder_flags = 0;
     herr_t ret_value = SUCCEED;
 
     assert(obj);

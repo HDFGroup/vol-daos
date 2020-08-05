@@ -1068,7 +1068,7 @@ H5_daos_dset_open_end(H5_daos_dset_t *dset, uint8_t *p, uint64_t type_buf_len,
         if(is_vl_ref) {
             size_t fill_val_size;
             size_t fill_val_mem_size;
-            hbool_t fill_bkg;
+            hbool_t fill_bkg = FALSE;
 
             /* Initialize type conversion */
             if(H5_daos_tconv_init(dset->file_type_id, &fill_val_size,
@@ -1781,7 +1781,7 @@ H5_daos_dataset_open(void *_item,
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, NULL, "can't get collective metadata reads property");
 
     /* Start H5 operation */
-    if(NULL == (int_req = H5_daos_req_create(item->file, H5I_INVALID_HID)))
+    if(NULL == (int_req = H5_daos_req_create(item->file, dxpl_id)))
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, NULL, "can't create DAOS request");
 
 #ifdef H5_DAOS_USE_TRANSACTIONS
@@ -3065,8 +3065,12 @@ H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t *dkey,
             (void)tse_task_set_priv(fill_bkg_task, chunk_io_ud);
 
             /* Save bkg fill task to be scheduled later */
-            assert(!*first_task);
-            *first_task = fill_bkg_task;
+            if(*first_task) {
+                if(0 != (ret = tse_task_schedule(fill_bkg_task, false)))
+                    D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't schedule background buffer fill task");
+            } /* end if */
+            else
+                *first_task = fill_bkg_task;
             *dep_task = fill_bkg_task;
         } /* end if */
 

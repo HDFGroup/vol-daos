@@ -7471,7 +7471,7 @@ H5_daos_link_gnbi_alloc_task(tse_task_t *task)
 
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
-        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for link get name by creation order task");
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for link get name by index task");
 
     /* Handle errors in previous tasks */
     if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
@@ -7563,7 +7563,7 @@ H5_daos_link_get_name_by_idx_alloc(H5_daos_group_t *target_grp,
     herr_t ret_value = SUCCEED;
 
     /* Allocate task udata struct */
-     if(NULL == (gnbi_udata = (H5_daos_link_gnbi_alloc_ud_t *)DV_calloc(sizeof(H5_daos_link_gnbi_alloc_ud_t))))
+    if(NULL == (gnbi_udata = (H5_daos_link_gnbi_alloc_ud_t *)DV_calloc(sizeof(H5_daos_link_gnbi_alloc_ud_t))))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate get name by index user data");
     gnbi_udata->req = req;
     gnbi_udata->target_grp = target_grp;

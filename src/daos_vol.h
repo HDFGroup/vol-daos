@@ -71,6 +71,7 @@ typedef d_sg_list_t daos_sg_list_t;
 /* Initial allocation sizes */
 #define H5_DAOS_GH_BUF_SIZE 1024
 #define H5_DAOS_LINK_NAME_BUF_SIZE 2048
+#define H5_DAOS_ATTR_NAME_BUF_SIZE 2048
 #define H5_DAOS_LINK_VAL_BUF_SIZE 256
 #define H5_DAOS_GINFO_BUF_SIZE 1024
 #define H5_DAOS_TYPE_BUF_SIZE 1024
@@ -968,8 +969,8 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_object_visit(H5_daos_obj_t ***target_obj_prev_o
 H5VL_DAOS_PRIVATE herr_t H5_daos_object_close(void *_obj, hid_t dxpl_id, void **req);
 H5VL_DAOS_PRIVATE herr_t H5_daos_fill_ocpl_cache(H5_daos_obj_t *obj, hid_t ocpl_id);
 H5VL_DAOS_PRIVATE herr_t H5_daos_object_get_num_attrs(H5_daos_obj_t *target_obj, hsize_t *num_attrs,
-    hbool_t post_decrement, tse_task_cb_t prep_cb, tse_task_cb_t comp_cb, tse_sched_t *sched,
-    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
+    hbool_t post_decrement, tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task,
+    tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE herr_t H5_daos_object_update_num_attrs_key(H5_daos_obj_t *target_obj, hsize_t *new_nattrs,
     tse_task_cb_t prep_cb, tse_task_cb_t comp_cb, tse_sched_t *sched,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);

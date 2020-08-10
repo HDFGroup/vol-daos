@@ -2545,9 +2545,12 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
         /* H5Freopen */
         case H5VL_FILE_REOPEN:
         {
+            unsigned reopen_flags = file->flags;
             void **ret_file = va_arg(arguments, void **);
 
-            if(NULL == (*ret_file = H5_daos_file_open(file->file_name, file->flags, file->fapl_id, dxpl_id, req)))
+            /* Strip any file creation-related flags */
+            reopen_flags &= ~(H5F_ACC_TRUNC | H5F_ACC_EXCL | H5F_ACC_CREAT);
+            if(NULL == (*ret_file = H5_daos_file_open(file->file_name, reopen_flags, file->fapl_id, dxpl_id, req)))
                 D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENOBJ, FAIL, "can't reopen file");
 
             break;

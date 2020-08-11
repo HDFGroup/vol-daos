@@ -1160,9 +1160,10 @@ H5_daos_cont_create(daos_handle_t poh, H5_daos_file_t *file, unsigned flags,
     create_udata->duns_attr.da_props = NULL;
     create_udata->duns_attr.da_oclass_id = file->fapl_cache.default_object_class;
     memset(&create_udata->pool_info, 0, sizeof(daos_pool_info_t));
-    uuid_copy(create_udata->duns_attr.da_cuuid, file->uuid);
 
     if(!H5_daos_bypass_duns_g) {
+        uuid_copy(create_udata->duns_attr.da_cuuid, file->uuid);
+
         /* Create task to attempt to resolve DUNS path. This task will handle
          * the H5F_ACC_EXCL and H5F_ACC_TRUNC flags. */
         if(H5_daos_duns_resolve_path(create_udata, &file->sched, NULL, H5_daos_duns_resolve_path_comp_cb,
@@ -1715,6 +1716,10 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     if(H5_daos_cont_set_mpi_info(file, &fapl_info) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTSET, NULL, "can't set MPI container info");
 
+    /* Hash file name to create uuid if bypassing DUNS */
+    if(H5_daos_bypass_duns_g)
+        H5_daos_hash128(name, &file->uuid);
+
 #ifdef DV_HAVE_SNAP_OPEN_ID
     if(H5Pget(fapl_id, H5_DAOS_SNAP_OPEN_ID, &snap_id) < 0)
         D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, NULL, "can't get property value for snap ID");
@@ -2239,8 +2244,9 @@ H5_daos_cont_open_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
     } /* end if */
 
-    /* Set file's UUID */
-    uuid_copy(udata->req->file->uuid, udata->duns_attr.da_cuuid);
+    /* Set file's UUID if necessary */
+    if(!H5_daos_bypass_duns_g)
+        uuid_copy(udata->req->file->uuid, udata->duns_attr.da_cuuid);
 
     /* Set daos_cont_open task args */
     if(NULL == (open_args = daos_task_get_args(task))) {

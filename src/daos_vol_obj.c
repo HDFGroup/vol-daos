@@ -3577,7 +3577,7 @@ done:
 herr_t
 H5_daos_fill_ocpl_cache(H5_daos_obj_t *obj, hid_t ocpl_id)
 {
-    unsigned acorder_flags;
+    unsigned acorder_flags = 0;
     herr_t ret_value = SUCCEED;
 
     assert(obj);
@@ -4498,7 +4498,7 @@ H5_daos_object_get_info_task(tse_task_t *task)
     /* Set the number of attributes. */
     if(udata->fields & H5O_INFO_NUM_ATTRS) {
         if(H5_daos_object_get_num_attrs(*udata->target_obj_p, &udata->info_out->num_attrs, FALSE,
-                NULL, NULL, &udata->req->file->sched, udata->req, &first_task, &dep_task) < 0)
+                &udata->req->file->sched, udata->req, &first_task, &dep_task) < 0)
             D_GOTO_ERROR(H5E_OBJECT, H5E_CANTGET, -H5_DAOS_SETUP_ERROR, "can't create task to retrieve the number of attributes attached to object");
     } /* end if */
 
@@ -4637,8 +4637,8 @@ done:
  */
 herr_t
 H5_daos_object_get_num_attrs(H5_daos_obj_t *target_obj, hsize_t *num_attrs,
-    hbool_t post_decrement, tse_task_cb_t prep_cb, tse_task_cb_t comp_cb,
-    tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
+    hbool_t post_decrement, tse_sched_t *sched, H5_daos_req_t *req,
+    tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_object_get_num_attrs_ud_t *get_num_attr_udata = NULL;
     tse_task_t *get_num_attrs_task;
@@ -4692,9 +4692,8 @@ H5_daos_object_get_num_attrs(H5_daos_obj_t *target_obj, hsize_t *num_attrs,
             D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to get number of attributes attached to object: %s", H5_daos_err_to_string(ret));
 
         /* Set callback functions for task to read number of attributes */
-        if(0 != (ret = tse_task_register_cbs(get_num_attrs_task,
-                prep_cb ? prep_cb : H5_daos_get_num_attrs_prep_cb, NULL, 0,
-                comp_cb ? comp_cb : H5_daos_get_num_attrs_comp_cb, NULL, 0)))
+        if(0 != (ret = tse_task_register_cbs(get_num_attrs_task, H5_daos_get_num_attrs_prep_cb,
+                NULL, 0, H5_daos_get_num_attrs_comp_cb, NULL, 0)))
             D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't register callbacks for attribute count read task: %s", H5_daos_err_to_string(ret));
 
         /* Set private data for attribute count read task */

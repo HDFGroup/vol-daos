@@ -55,11 +55,11 @@ typedef struct H5_daos_attr_delete_ud_t {
     H5_daos_obj_t *attr_parent_obj;
     daos_key_t dkey;
     daos_key_t akeys[H5_DAOS_ATTR_NUM_AKEYS];
-    char *attr_name;
-    char attr_name_buf_static[H5_DAOS_ATTR_NAME_BUF_SIZE];
-    hbool_t free_attr_name;
+    const char *target_attr_name;
+    size_t target_attr_name_len;
     hsize_t cur_num_attrs;
     void *akeys_buf;
+    char *attr_name_buf;
 } H5_daos_attr_delete_ud_t;
 
 /* Task user data for iterating over attributes on an object */
@@ -92,6 +92,22 @@ typedef struct H5_daos_attr_iterate_op_ud_t {
     H5_daos_iter_data_t *iter_data;
 } H5_daos_attr_iterate_op_ud_t;
 
+/* User data struct for attribute get name by index
+ * with automatic asynchronous name buffer allocation */
+typedef struct H5_daos_attr_gnbi_alloc_ud_t {
+    H5_daos_req_t *req;
+    tse_task_t *gnbi_task;
+    H5_daos_obj_t *target_obj;
+    H5_index_t index_type;
+    H5_iter_order_t iter_order;
+    uint64_t idx;
+    const char **attr_name;
+    size_t *attr_name_size;
+    char **attr_name_buf;
+    size_t *attr_name_buf_size;
+    size_t cur_attr_name_size;
+} H5_daos_attr_gnbi_alloc_ud_t;
+
 /* Task user data for retrieving an attribute's name
  * by an index value according to name or creation order.
  */
@@ -104,7 +120,7 @@ typedef struct H5_daos_attr_get_name_by_idx_ud_t {
     hsize_t obj_nattrs;
     char *attr_name_out;
     size_t attr_name_out_size;
-    ssize_t *attr_name_size_ret;
+    size_t *attr_name_size_ret;
     union {
         struct {
             uint64_t cur_attr_idx;
@@ -147,7 +163,7 @@ static int H5_daos_attribute_open_end(H5_daos_attr_t *attr, uint8_t *p, uint64_t
     uint64_t space_buf_len);
 static int H5_daos_ainfo_read_comp_cb(tse_task_t *task, void *args);
 static herr_t H5_daos_attribute_get_name(H5_daos_obj_t *target_obj, const H5VL_loc_params_t *loc_params,
-    char *attr_name_out, size_t attr_name_out_size, ssize_t *size_ret, tse_sched_t *sched, H5_daos_req_t *req,
+    char *attr_name_out, size_t attr_name_out_size, size_t *size_ret, tse_sched_t *sched, H5_daos_req_t *req,
     tse_task_t **first_task, tse_task_t **dep_task);
 static herr_t H5_daos_attribute_get_info(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
     const char *attr_name, H5A_info_t *attr_info, tse_task_cb_t prep_cb, tse_task_cb_t comp_cb,
@@ -178,21 +194,29 @@ static herr_t H5_daos_attribute_iterate_by_crt_order(H5_daos_attr_iterate_ud_t *
 static herr_t H5_daos_attribute_get_iter_op_task(H5_daos_attr_iterate_ud_t *iterate_udata, const char *attr_name,
     tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 static int H5_daos_attribute_iterate_op_task(tse_task_t *task);
+static int H5_daos_attribute_iterate_finish(tse_task_t *task);
+
 static herr_t H5_daos_attribute_rename(H5_daos_obj_t *attr_container_obj, const char *cur_attr_name,
     const char *new_attr_name, tse_sched_t *sched, H5_daos_req_t *req,
     tse_task_t **first_task, tse_task_t **dep_task);
+
+static int H5_daos_attr_gnbi_alloc_task(tse_task_t *task);
+static herr_t H5_daos_attribute_get_name_by_idx_alloc(H5_daos_obj_t *target_obj,
+    H5_index_t index_type, H5_iter_order_t iter_order, uint64_t idx, const char **attr_name,
+    size_t *attr_name_size, char **attr_name_buf, size_t *attr_name_buf_size, H5_daos_req_t *req,
+    tse_task_t **first_task, tse_task_t **dep_task);
 static herr_t H5_daos_attribute_get_name_by_idx(H5_daos_obj_t *target_obj, H5_index_t index_type,
     H5_iter_order_t iter_order, uint64_t idx, char *attr_name_out, size_t attr_name_out_size,
-    ssize_t *size_ret, tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
+    size_t *attr_name_size, tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 static herr_t H5_daos_attribute_get_name_by_name_order(H5_daos_attr_get_name_by_idx_ud_t *get_name_udata,
     tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 static herr_t H5_daos_attribute_get_name_by_name_order_cb(hid_t loc_id, const char *attr_name,
     const H5A_info_t *attr_info, void *op_data);
+static int H5_daos_attribute_gnbno_no_attrs_check_task(tse_task_t *task);
 static herr_t H5_daos_attribute_get_name_by_crt_order(H5_daos_attr_get_name_by_idx_ud_t *get_name_udata,
     tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 static int H5_daos_attribute_get_name_by_crt_order_prep_cb(tse_task_t *task, void *args);
 static int H5_daos_attribute_get_name_by_crt_order_comp_cb(tse_task_t *task, void *args);
-static int H5_daos_attribute_iterate_finish(tse_task_t *task);
 static herr_t H5_daos_attribute_get_name_by_idx_free_udata(H5_daos_attr_get_name_by_idx_ud_t *udata,
     tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 static int H5_daos_attribute_get_name_by_idx_free_udata_task(tse_task_t *task);
@@ -1472,10 +1496,9 @@ H5_daos_attribute_open_by_idx_helper(H5_daos_obj_t *target_obj, const H5VL_loc_p
 {
     H5VL_loc_params_t sub_loc_params;
     H5_daos_obj_t *attr_parent_obj = NULL;
-    ssize_t attr_name_size;
-    char *target_name = NULL;
-    char *attr_name_buf_dyn = NULL;
-    char attr_name_buf_static[H5_DAOS_ATTR_NAME_BUF_SIZE];
+    const char *target_attr_name = NULL;
+    size_t target_attr_name_len = 0;
+    char *attr_name_buf = NULL;
     herr_t ret_value = SUCCEED;
 
     assert(target_obj);
@@ -1499,39 +1522,22 @@ H5_daos_attribute_open_by_idx_helper(H5_daos_obj_t *target_obj, const H5VL_loc_p
     H5_DAOS_WAIT_ON_ASYNC_CHAIN(sched, req, *first_task, *dep_task, H5E_ATTR, H5E_CANTINIT, FAIL);
 
     /* Retrieve the attribute's name by index */
-    if(H5_daos_attribute_get_name_by_idx(attr_parent_obj, loc_params->loc_data.loc_by_idx.idx_type,
-            loc_params->loc_data.loc_by_idx.order, (uint64_t)loc_params->loc_data.loc_by_idx.n,
-            attr_name_buf_static, H5_DAOS_ATTR_NAME_BUF_SIZE, &attr_name_size, sched, req, first_task, dep_task) < 0)
+    if(H5_daos_attribute_get_name_by_idx_alloc(attr_parent_obj,
+            loc_params->loc_data.loc_by_idx.idx_type, loc_params->loc_data.loc_by_idx.order,
+            (uint64_t)loc_params->loc_data.loc_by_idx.n, &target_attr_name,
+            &target_attr_name_len, &attr_name_buf, NULL, req, first_task, dep_task) < 0)
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute name");
 
     H5_DAOS_WAIT_ON_ASYNC_CHAIN(sched, req, *first_task, *dep_task, H5E_ATTR, H5E_CANTINIT, FAIL);
 
-    /* Check that buffer was large enough to fit attribute's name */
-    if(attr_name_size > H5_DAOS_ATTR_NAME_BUF_SIZE - 1) {
-        if(NULL == (attr_name_buf_dyn = DV_malloc((size_t)attr_name_size + 1)))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate attribute name buffer");
-
-        /* Re-issue the call with a larger buffer */
-        if(H5_daos_attribute_get_name_by_idx(attr_parent_obj, loc_params->loc_data.loc_by_idx.idx_type,
-                loc_params->loc_data.loc_by_idx.order, (uint64_t)loc_params->loc_data.loc_by_idx.n,
-                attr_name_buf_dyn, (size_t)attr_name_size + 1, &attr_name_size, sched, req, first_task, dep_task) < 0)
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute name");
-
-        H5_DAOS_WAIT_ON_ASYNC_CHAIN(sched, req, *first_task, *dep_task, H5E_ATTR, H5E_CANTINIT, FAIL);
-
-        target_name = attr_name_buf_dyn;
-    } /* end if */
-    else
-        target_name = attr_name_buf_static;
-
     /* Setup attribute's parent object and name fields */
-    if(NULL == (attr_out->name = strdup(target_name)))
+    if(NULL == (attr_out->name = strdup(target_attr_name)))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't copy attribute name");
     attr_out->parent = attr_parent_obj;
 
 done:
-    if(attr_name_buf_dyn)
-        attr_name_buf_dyn = DV_free(attr_name_buf_dyn);
+    if(attr_name_buf)
+        attr_name_buf = DV_free(attr_name_buf);
 
     /* Cleanup on failure */
     if(ret_value < 0)
@@ -2120,10 +2126,14 @@ H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
                 H5VL_loc_params_t *loc_params = va_arg(arguments, H5VL_loc_params_t *);
                 size_t buf_size = va_arg(arguments, size_t);
                 char *buf = va_arg(arguments, char *);
-                ssize_t *ret_val = va_arg(arguments, ssize_t *);
+                ssize_t *ret_size = va_arg(arguments, ssize_t *);
 
+                /* Pass ret_size as size_t * - this should be fine since if the call
+                 * fails the HDF5 library will assign -1 to the return value anyways
+                 */
                 if(H5_daos_attribute_get_name((H5_daos_obj_t *)_item, loc_params,
-                        buf, buf_size, ret_val, &item->file->sched, int_req, &first_task, &dep_task) < 0)
+                        buf, buf_size, (size_t *)ret_size, &item->file->sched,
+                        int_req, &first_task, &dep_task) < 0)
                     D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute name");
 
                 break;
@@ -2439,7 +2449,7 @@ done:
  */
 static herr_t
 H5_daos_attribute_get_name(H5_daos_obj_t *target_obj, const H5VL_loc_params_t *loc_params,
-    char *attr_name_out, size_t attr_name_out_size, ssize_t *size_ret, tse_sched_t *sched,
+    char *attr_name_out, size_t attr_name_out_size, size_t *size_ret, tse_sched_t *sched,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_obj_t *parent_obj = NULL;
@@ -2474,7 +2484,7 @@ H5_daos_attribute_get_name(H5_daos_obj_t *target_obj, const H5VL_loc_params_t *l
                 attr_name_out[copy_len] = '\0';
             } /* end if */
 
-            *size_ret = (ssize_t)nbytes;
+            *size_ret = nbytes;
 
             break;
         } /* H5VL_OBJECT_BY_SELF */
@@ -2841,43 +2851,22 @@ H5_daos_attribute_delete(H5_daos_obj_t *attr_container_obj, const H5VL_loc_param
     delete_udata->req = req;
     delete_udata->attr_parent_obj = attr_container_obj;
     delete_udata->akeys_buf = NULL;
-    delete_udata->free_attr_name = FALSE;
 
     /* Set up dkey */
     daos_iov_set(&delete_udata->dkey, (void *)H5_daos_attr_key_g, H5_daos_attr_key_size_g);
 
     if(H5VL_OBJECT_BY_IDX == loc_params->type) {
-        ssize_t attr_name_size;
-
-        /* Retrieve the name of the attribute at the given index */
-        if(H5_daos_attribute_get_name_by_idx(attr_container_obj, loc_params->loc_data.loc_by_idx.idx_type,
-                loc_params->loc_data.loc_by_idx.order, (uint64_t)loc_params->loc_data.loc_by_idx.n,
-                delete_udata->attr_name_buf_static, H5_DAOS_ATTR_NAME_BUF_SIZE, &attr_name_size,
-                sched, req, first_task, dep_task) < 0)
+        if(H5_daos_attribute_get_name_by_idx_alloc(attr_container_obj,
+                loc_params->loc_data.loc_by_idx.idx_type, loc_params->loc_data.loc_by_idx.order,
+                (uint64_t)loc_params->loc_data.loc_by_idx.n, &delete_udata->target_attr_name,
+                &delete_udata->target_attr_name_len, &delete_udata->attr_name_buf,
+                NULL, req, first_task, dep_task) < 0)
             D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute name");
 
         H5_DAOS_WAIT_ON_ASYNC_CHAIN(sched, req, *first_task, *dep_task, H5E_ATTR, H5E_CANTINIT, FAIL);
-
-        /* Check that the buffer was large enough to fit attribute name */
-        if(attr_name_size > H5_DAOS_ATTR_NAME_BUF_SIZE - 1) {
-            if(NULL == (delete_udata->attr_name = DV_malloc((size_t)attr_name_size + 1)))
-                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for attribute name");
-
-            /* Re-issue the call with a larger buffer */
-            if(H5_daos_attribute_get_name_by_idx(attr_container_obj, loc_params->loc_data.loc_by_idx.idx_type,
-                    loc_params->loc_data.loc_by_idx.order, (uint64_t)loc_params->loc_data.loc_by_idx.n,
-                    delete_udata->attr_name, (size_t)attr_name_size + 1, &attr_name_size, sched, req, first_task, dep_task) < 0)
-                D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute name");
-
-            H5_DAOS_WAIT_ON_ASYNC_CHAIN(sched, req, *first_task, *dep_task, H5E_ATTR, H5E_CANTINIT, FAIL);
-
-            delete_udata->free_attr_name = TRUE;
-        } /* end if */
-        else
-            delete_udata->attr_name = delete_udata->attr_name_buf_static;
     } /* end if */
     else
-        delete_udata->attr_name = attr_name;
+        delete_udata->target_attr_name = attr_name;
 
     /* If attribute creation order is tracked for the attribute's parent
      * object, create some extra tasks to do creation order-related
@@ -2886,7 +2875,7 @@ H5_daos_attribute_delete(H5_daos_obj_t *attr_container_obj, const H5VL_loc_param
     if(attr_container_obj->ocpl_cache.track_acorder) {
         /* Retrieve the current number of attributes attached to the object and decrement it */
         if(H5_daos_object_get_num_attrs(delete_udata->attr_parent_obj, &delete_udata->cur_num_attrs,
-                TRUE, NULL, NULL, sched, req, first_task, dep_task) < 0)
+                TRUE, sched, req, first_task, dep_task) < 0)
             D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to retrieve number of attributes attached to object");
 
         /* Update the "number of attributes" key on the object */
@@ -2896,7 +2885,7 @@ H5_daos_attribute_delete(H5_daos_obj_t *attr_container_obj, const H5VL_loc_param
 
         /* Remove the attribute from the object's attribute creation order index */
         if(H5_daos_attribute_remove_from_crt_idx(delete_udata->attr_parent_obj, loc_params,
-                delete_udata->attr_name, sched, req, first_task, dep_task) < 0)
+                delete_udata->target_attr_name, sched, req, first_task, dep_task) < 0)
             D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to remove attribute from object's creation order index");
     } /* end if */
 
@@ -2975,7 +2964,7 @@ H5_daos_attribute_delete_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     } /* end if */
 
     /* Set up akeys */
-    if(H5_daos_attribute_get_akeys(udata->attr_name, &udata->akeys[0], &udata->akeys[1],
+    if(H5_daos_attribute_get_akeys(udata->target_attr_name, &udata->akeys[0], &udata->akeys[1],
             &udata->akeys[2], &udata->akeys[3], &udata->akeys[4], &udata->akeys_buf) < 0)
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, -H5_DAOS_H5_GET_ERROR, "can't get akey strings");
 
@@ -3049,8 +3038,8 @@ done:
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
 
         /* Free private data */
-        if(udata->free_attr_name)
-            DV_free(udata->attr_name);
+        if(udata->attr_name_buf)
+            DV_free(udata->attr_name_buf);
         DV_free(udata->akeys_buf);
         DV_free(udata);
     }
@@ -3097,7 +3086,7 @@ H5_daos_attribute_remove_from_crt_idx(H5_daos_obj_t *target_obj,
 
     /* Retrieve the current number of attributes attached to the object */
     if(H5_daos_object_get_num_attrs(target_obj, &obj_nattrs_remaining, FALSE,
-            NULL, NULL, sched, req, first_task, dep_task) < 0)
+            sched, req, first_task, dep_task) < 0)
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get the number of attributes attached to object");
 
     H5_DAOS_WAIT_ON_ASYNC_CHAIN(sched, req, *first_task, *dep_task,
@@ -3166,9 +3155,36 @@ H5_daos_attribute_remove_from_crt_idx(H5_daos_obj_t *target_obj,
      * maintains the ability to directly index into the attribute creation order
      * index.
      */
-    if((obj_nattrs_remaining > 0) && (delete_idx < (uint64_t)obj_nattrs_remaining))
+    if((obj_nattrs_remaining > 0) && (delete_idx < (uint64_t)obj_nattrs_remaining)) {
         if(H5_daos_attribute_shift_crt_idx_keys_down(target_obj, delete_idx + 1, (uint64_t)obj_nattrs_remaining) < 0)
             D_GOTO_ERROR(H5E_ATTR, H5E_CANTMODIFY, FAIL, "failed to update attribute creation order index");
+    } /* end if */
+    else if(obj_nattrs_remaining == 0) {
+        uint8_t max_corder_buf[H5_DAOS_ENCODED_CRT_ORDER_SIZE];
+        daos_iod_t iod;
+        daos_sg_list_t sgl;
+        daos_iov_t sg_iov;
+
+        /* If the last attribute was removed from the object,
+         * reset the max. attribute creation order value.
+         */
+
+        memset(max_corder_buf, 0, sizeof(max_corder_buf));
+        daos_iov_set(&iod.iod_name, (void *)H5_daos_max_attr_corder_key_g, H5_daos_max_attr_corder_key_size_g);
+        iod.iod_nr = 1u;
+        iod.iod_size = (uint64_t)8;
+        iod.iod_type = DAOS_IOD_SINGLE;
+
+        daos_iov_set(&sg_iov, max_corder_buf, (daos_size_t)H5_DAOS_ENCODED_CRT_ORDER_SIZE);
+        sgl.sg_nr = 1;
+        sgl.sg_nr_out = 0;
+        sgl.sg_iovs = &sg_iov;
+
+        /* Reset the max. attribute creation order key */
+        if(0 != (ret = daos_obj_update(target_obj->obj_oh, DAOS_TX_NONE, 0 /*flags*/,
+                &dkey, 1, &iod, &sgl, NULL /*event*/)))
+            D_GOTO_ERROR(H5E_ATTR, H5E_WRITEERROR, FAIL, "failed to reset max. attribute creation order akey: %s", H5_daos_err_to_string(ret));
+    } /* end if */
 
 done:
     D_FUNC_LEAVE;
@@ -3897,10 +3913,9 @@ H5_daos_attribute_iterate_by_crt_order(H5_daos_attr_iterate_ud_t *iterate_udata,
     tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     uint64_t cur_idx;
-    size_t attr_name_buf_size = H5_DAOS_ATTR_NAME_BUF_SIZE;
-    char *attr_name = NULL;
-    char *attr_name_buf_dyn = NULL;
-    char attr_name_buf_static[H5_DAOS_ATTR_NAME_BUF_SIZE];
+    const char *target_attr_name = NULL;
+    size_t target_attr_name_len = 0;
+    char *attr_name_buf = NULL;
     herr_t ret_value = SUCCEED;
 
     assert(iterate_udata);
@@ -3919,7 +3934,7 @@ H5_daos_attribute_iterate_by_crt_order(H5_daos_attr_iterate_ud_t *iterate_udata,
 
     /* Retrieve the number of attributes attached to the target object */
     if(H5_daos_object_get_num_attrs(iterate_udata->attr_container_obj, &iterate_udata->u.crt_order_data.obj_nattrs,
-            FALSE, NULL, NULL, sched, req, first_task, dep_task) < 0)
+            FALSE, sched, req, first_task, dep_task) < 0)
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get number of attributes attached to object");
 
     H5_DAOS_WAIT_ON_ASYNC_CHAIN(sched, req, *first_task, *dep_task, H5E_ATTR, H5E_CANTINIT, FAIL);
@@ -3934,50 +3949,32 @@ H5_daos_attribute_iterate_by_crt_order(H5_daos_attr_iterate_ud_t *iterate_udata,
         D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, FAIL, "unable to atomize object handle");
     iterate_udata->attr_container_obj->item.rc++;
 
-    attr_name = attr_name_buf_static;
     for(cur_idx = 0; cur_idx < (uint64_t)iterate_udata->u.crt_order_data.obj_nattrs; cur_idx++) {
-        ssize_t attr_name_size;
-
-        /* Retrieve the attribute's name length + the attribute's name if the buffer is large enough */
-        if(H5_daos_attribute_get_name_by_idx(iterate_udata->attr_container_obj, iterate_udata->iter_data.index_type,
-                iterate_udata->iter_data.iter_order, cur_idx, attr_name, attr_name_buf_size,
-                &attr_name_size, sched, req, first_task, dep_task) < 0)
+        if(H5_daos_attribute_get_name_by_idx_alloc(iterate_udata->attr_container_obj,
+                iterate_udata->iter_data.index_type, iterate_udata->iter_data.iter_order,
+                cur_idx, &target_attr_name, &target_attr_name_len, &attr_name_buf,
+                NULL, req, first_task, dep_task) < 0)
             D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute name");
 
         H5_DAOS_WAIT_ON_ASYNC_CHAIN(sched, req, *first_task, *dep_task, H5E_ATTR, H5E_CANTINIT, FAIL);
 
-        /* Check if the buffer was large enough */
-        if((size_t)attr_name_size > attr_name_buf_size - 1) {
-            char *tmp_realloc;
-
-            /*
-             * Double the buffer size or re-allocate to fit the current
-             * attribute's name, depending on which allocation is larger.
-             */
-            attr_name_buf_size = ((size_t)attr_name_size > (2 * attr_name_buf_size)) ?
-                    (size_t)attr_name_size + 1 : (2 * attr_name_buf_size);
-
-            if(NULL == (tmp_realloc = DV_realloc(attr_name_buf_dyn, attr_name_buf_size)))
-                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "failed to allocate attribute name buffer");
-            attr_name = attr_name_buf_dyn = tmp_realloc;
-
-            /* Re-issue the call to fetch the attribute's name with a larger buffer */
-            if(H5_daos_attribute_get_name_by_idx(iterate_udata->attr_container_obj, iterate_udata->iter_data.index_type,
-                    iterate_udata->iter_data.iter_order, cur_idx, attr_name, attr_name_buf_size,
-                    &attr_name_size, sched, req, first_task, dep_task) < 0)
-                D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute name");
-
-            H5_DAOS_WAIT_ON_ASYNC_CHAIN(sched, req, *first_task, *dep_task, H5E_ATTR, H5E_CANTINIT, FAIL);
-        } /* end if */
+        /* TODO: Temporarily needed to avoid queuing up user-supplied operator
+         * callback function when short-circuiting from a previous operation.
+         */
+        if(req->status == -H5_DAOS_SHORT_CIRCUIT)
+            break;
 
         /* Create task to call user-supplied operator callback function */
-        if(H5_daos_attribute_get_iter_op_task(iterate_udata, attr_name, sched, req, first_task, dep_task) < 0)
+        if(H5_daos_attribute_get_iter_op_task(iterate_udata, target_attr_name, sched, req, first_task, dep_task) < 0)
             D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to call operator callback function");
+
+        if(attr_name_buf)
+            attr_name_buf = DV_free(attr_name_buf);
     } /* end for */
 
 done:
-    if(attr_name_buf_dyn)
-        attr_name_buf_dyn = DV_free(attr_name_buf_dyn);
+    if(attr_name_buf)
+        attr_name_buf = DV_free(attr_name_buf);
 
     D_FUNC_LEAVE;
 } /* end H5_daos_attribute_iterate_by_crt_order() */
@@ -4125,12 +4122,12 @@ H5_daos_attribute_iterate_op_task(tse_task_t *task)
         D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
     }
 
-    /* Advance saved index pointer */
-    if(udata->iter_data->idx_p)
-        (*udata->iter_data->idx_p)++;
-
 done:
     if(udata) {
+        /* Advance saved index pointer */
+        if(udata->iter_data->idx_p)
+            (*udata->iter_data->idx_p)++;
+
         /* Create metatask to complete this task after dep_task if necessary */
         if(dep_task) {
             /* Create metatask */
@@ -4367,6 +4364,184 @@ done:
 
 
 /*-------------------------------------------------------------------------
+ * Function:    H5_daos_attr_gnbi_alloc_task
+ *
+ * Purpose:     Asynchronous task for
+ *              H5_daos_attribute_get_name_by_idx_alloc(). Executes once
+ *              all parameters are valid.
+ *
+ * Return:      Success:        0
+ *              Failure:        Negative
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_attr_gnbi_alloc_task(tse_task_t *task)
+{
+    H5_daos_attr_gnbi_alloc_ud_t *udata = NULL;
+    tse_task_t *first_task = NULL;
+    tse_task_t *dep_task = NULL;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR,
+                "can't get private data for attribute get name by index task");
+
+    /* Handle errors in previous tasks */
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    } /* end if */
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT) {
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
+    } /* end if */
+
+    /* Check if we need to issue another get operation */
+    if(*udata->attr_name_size > udata->cur_attr_name_size - 1) {
+        /* Reallocate buffer */
+        DV_free(*udata->attr_name_buf);
+        if(NULL == (*udata->attr_name_buf = DV_malloc(*udata->attr_name_size + 1)))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate attribute name buffer");
+        udata->cur_attr_name_size = *udata->attr_name_size + 1;
+
+        /* Reissue call with larger buffer and transfer ownership of udata */
+        if(H5_daos_attribute_get_name_by_idx(udata->target_obj, udata->index_type,
+                udata->iter_order, udata->idx, *udata->attr_name_buf, udata->cur_attr_name_size,
+                udata->attr_name_size, &udata->target_obj->item.file->sched, udata->req,
+                &first_task, &dep_task) < 0)
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, -H5_DAOS_H5_GET_ERROR, "can't get attribute name by index");
+        udata = NULL;
+    } /* end if */
+
+done:
+    /* Finish task if we still own udata */
+    if(udata) {
+        /* Assign attr_name */
+        *udata->attr_name = *udata->attr_name_buf;
+
+        /* Return attr_name_buf_size */
+        if(udata->attr_name_buf_size)
+            *udata->attr_name_buf_size = udata->cur_attr_name_size;
+
+        /* Close target_obj */
+        if(H5_daos_object_close(udata->target_obj, H5I_INVALID_HID, NULL) < 0)
+            D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
+        udata->target_obj = NULL;
+
+        /* Handle errors in this function */
+        /* Do not place any code that can issue errors after this block, except for
+         * H5_daos_req_free_int, which updates req->status if it sees an error */
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+            udata->req->status = ret_value;
+            udata->req->failed_task = "attribute get name by index end task";
+        } /* end if */
+
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(udata->req) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+        /* Complete main task if different from this task */
+        if(udata->gnbi_task != task)
+            tse_task_complete(udata->gnbi_task, ret_value);
+
+        /* Complete this task */
+        tse_task_complete(task, ret_value);
+
+        /* Free udata */
+        udata = DV_free(udata);
+    } /* end if */
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_attr_gnbi_alloc_task() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_attribute_get_name_by_idx_alloc
+ *
+ * Purpose:     Like H5_daos_attribute_get_name_by_idx, but automatically
+ *              allocates the attr_name buffer.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_attribute_get_name_by_idx_alloc(H5_daos_obj_t *target_obj,
+    H5_index_t index_type, H5_iter_order_t iter_order, uint64_t idx,
+    const char **attr_name, size_t *attr_name_size, char **attr_name_buf,
+    size_t *attr_name_buf_size, H5_daos_req_t *req, tse_task_t **first_task,
+    tse_task_t **dep_task)
+{
+    H5_daos_attr_gnbi_alloc_ud_t *gnbi_udata = NULL;
+    int ret;
+    herr_t ret_value = SUCCEED;
+
+    /* Allocate task udata struct */
+    if(NULL == (gnbi_udata = (H5_daos_attr_gnbi_alloc_ud_t *)DV_calloc(sizeof(H5_daos_attr_gnbi_alloc_ud_t))))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate get name by index user data");
+    gnbi_udata->req = req;
+    gnbi_udata->target_obj = target_obj;
+    gnbi_udata->index_type = index_type;
+    gnbi_udata->iter_order = iter_order;
+    gnbi_udata->idx = idx;
+    gnbi_udata->attr_name = attr_name;
+    gnbi_udata->attr_name_size = attr_name_size;
+    gnbi_udata->attr_name_buf = attr_name_buf;
+    gnbi_udata->attr_name_buf_size = attr_name_buf_size;
+
+    /* Check for preexisting name buffer */
+    if(*attr_name_buf) {
+        assert(attr_name_buf_size);
+        assert(*attr_name_buf_size);
+        gnbi_udata->cur_attr_name_size = *attr_name_buf_size;
+    } /* end if */
+    else {
+        /* Allocate initial name buffer */
+        if(NULL == (*gnbi_udata->attr_name_buf = DV_malloc(H5_DAOS_ATTR_NAME_BUF_SIZE)))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate attribute name buffer");
+        gnbi_udata->cur_attr_name_size = H5_DAOS_ATTR_NAME_BUF_SIZE;
+    } /* end else */
+
+    /* Call underlying function */
+    if(H5_daos_attribute_get_name_by_idx(target_obj, index_type, iter_order, idx,
+            *gnbi_udata->attr_name_buf, gnbi_udata->cur_attr_name_size,
+            gnbi_udata->attr_name_size, &target_obj->item.file->sched, req,
+            first_task, dep_task) < 0)
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get link name by index");
+
+    /* Create task to finish this operation */
+    if(0 !=  (ret = tse_task_create(H5_daos_attr_gnbi_alloc_task, &target_obj->item.file->sched, gnbi_udata, &gnbi_udata->gnbi_task)))
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task for attribute get name by index: %s", H5_daos_err_to_string(ret));
+
+    /* Register task dependency */
+    if(*dep_task && 0 != (ret = tse_task_register_deps(gnbi_udata->gnbi_task, 1, dep_task)))
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create dependencies for attribute get name by index task: %s", H5_daos_err_to_string(ret));
+
+    /* Schedule gnbi task (or save it to be scheduled later) and give it a
+     * reference to the group, req and udata */
+    if(*first_task) {
+        if(0 != (ret = tse_task_schedule(gnbi_udata->gnbi_task, false)))
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't schedule task for attribute get name by index: %s", H5_daos_err_to_string(ret));
+    } /* end if */
+    else
+        *first_task = gnbi_udata->gnbi_task;
+    *dep_task = gnbi_udata->gnbi_task;
+    target_obj->item.rc++;
+    req->rc++;
+    gnbi_udata = NULL;
+
+done:
+    /* Clean up */
+    if(gnbi_udata) {
+        assert(ret_value < 0);
+        gnbi_udata = DV_free(gnbi_udata);
+    } /* end if */
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_attribute_get_name_by_idx_alloc() */
+
+
+/*-------------------------------------------------------------------------
  * Function:    H5_daos_attribute_get_name_by_idx
  *
  * Purpose:     Given an index type, index iteration order and index value,
@@ -4387,7 +4562,8 @@ done:
 static herr_t
 H5_daos_attribute_get_name_by_idx(H5_daos_obj_t *target_obj, H5_index_t index_type,
     H5_iter_order_t iter_order, uint64_t idx, char *attr_name_out, size_t attr_name_out_size,
-    ssize_t *size_ret, tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
+    size_t *attr_name_size, tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task,
+    tse_task_t **dep_task)
 {
     H5_daos_attr_get_name_by_idx_ud_t *get_name_udata = NULL;
     herr_t ret_value = SUCCEED;
@@ -4408,7 +4584,7 @@ H5_daos_attribute_get_name_by_idx(H5_daos_obj_t *target_obj, H5_index_t index_ty
     get_name_udata->idx = idx;
     get_name_udata->attr_name_out = attr_name_out;
     get_name_udata->attr_name_out_size = attr_name_out_size;
-    get_name_udata->attr_name_size_ret = size_ret;
+    get_name_udata->attr_name_size_ret = attr_name_size;
 
     if(H5_INDEX_NAME == index_type) {
         if(H5_daos_attribute_get_name_by_name_order(get_name_udata, sched, req, first_task, dep_task) < 0)
@@ -4453,6 +4629,8 @@ H5_daos_attribute_get_name_by_name_order(H5_daos_attr_get_name_by_idx_ud_t *get_
     tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_iter_data_t iter_data;
+    tse_task_t *no_attrs_check_task = NULL;
+    int ret;
     ssize_t ret_value = 0;
 
     assert(get_name_udata);
@@ -4466,8 +4644,30 @@ H5_daos_attribute_get_name_by_name_order(H5_daos_attr_get_name_by_idx_ud_t *get_
 
     /* Retrieve the current number of attributes attached to the target object */
     if(H5_daos_object_get_num_attrs(get_name_udata->target_obj, &get_name_udata->obj_nattrs, FALSE,
-            NULL, NULL, sched, req, first_task, dep_task) < 0)
+            sched, req, first_task, dep_task) < 0)
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get number of attributes attached to object");
+
+    /* Create task to check that requested index value is within range
+     * of the number of attributes attached to the object.
+     */
+    if(0 != (ret = tse_task_create(H5_daos_attribute_gnbno_no_attrs_check_task, sched,
+            get_name_udata, &no_attrs_check_task)))
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to check for no attributes on object: %s", H5_daos_err_to_string(ret));
+
+    /* Register dependency on dep_task if present */
+    if(*dep_task && 0 != (ret = tse_task_register_deps(no_attrs_check_task, 1, dep_task)))
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't register dependencies for attribute count check task: %s", H5_daos_err_to_string(ret));
+
+    /* Schedule attribute count check task (or save it to be scheduled later) and
+     * give it a reference to req */
+    if(*first_task) {
+        if(0 != (ret = tse_task_schedule(no_attrs_check_task, false)))
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't schedule task to check for no attributes on object: %s", H5_daos_err_to_string(ret));
+    } /* end if */
+    else
+        *first_task = no_attrs_check_task;
+    *dep_task = no_attrs_check_task;
+    req->rc++;
 
     /* Initialize iteration data */
     get_name_udata->u.by_name_data.cur_attr_idx = 0;
@@ -4522,7 +4722,7 @@ H5_daos_attribute_get_name_by_name_order_cb(hid_t H5VL_DAOS_UNUSED loc_id, const
             udata->attr_name_out[copy_len] = '\0';
         }
 
-        *udata->attr_name_size_ret = (ssize_t)attr_name_len;
+        *udata->attr_name_size_ret = attr_name_len;
 
         D_GOTO_DONE(H5_ITER_STOP);
     }
@@ -4532,6 +4732,66 @@ H5_daos_attribute_get_name_by_name_order_cb(hid_t H5VL_DAOS_UNUSED loc_id, const
 done:
     D_FUNC_LEAVE;
 } /* end H5_daos_attribute_get_name_by_name_order_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_attribute_gnbno_no_attrs_check_task
+ *
+ * Purpose:     Asynchronous task to check that an object has attributes
+ *              attached to it before attempting to retrieve the name of an
+ *              attribute on that object according to an index value.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_attribute_gnbno_no_attrs_check_task(tse_task_t *task)
+{
+    H5_daos_attr_get_name_by_idx_ud_t *udata = NULL;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR,
+                "can't get private data for attribute count check task");
+
+    /* Handle errors in previous tasks */
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    } /* end if */
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT) {
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
+    } /* end if */
+
+    /* Ensure the index is within range */
+    if(udata->idx >= (uint64_t)udata->obj_nattrs)
+        D_GOTO_ERROR(H5E_ATTR, H5E_BADVALUE, -H5_DAOS_BAD_VALUE, "index value out of range");
+
+done:
+    if(udata) {
+        /* Handle errors in this function */
+        /* Do not place any code that can issue errors after this block, except
+         * for H5_daos_req_free_int, which updates req->status if it sees an
+         * error */
+        if(ret_value < 0) {
+            udata->req->status = ret_value;
+            udata->req->failed_task = "attribute count check";
+        }
+
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(udata->req) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+    }
+    else
+        assert(ret_value == -H5_DAOS_DAOS_GET_ERROR);
+
+    /* Complete this task */
+    tse_task_complete(task, ret_value);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_attribute_gnbno_no_attrs_check_task() */
 
 
 /*-------------------------------------------------------------------------
@@ -4565,7 +4825,7 @@ H5_daos_attribute_get_name_by_crt_order(H5_daos_attr_get_name_by_idx_ud_t *get_n
 
     /* Retrieve the current number of attributes attached to the target object */
     if(H5_daos_object_get_num_attrs(get_name_udata->target_obj, &get_name_udata->obj_nattrs, FALSE,
-            NULL, NULL, sched, req, first_task, dep_task) < 0)
+            sched, req, first_task, dep_task) < 0)
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get number of attributes attached to object");
 
     get_name_udata->u.by_crt_order_data.md_rw_cb_ud.obj = get_name_udata->target_obj;
@@ -4747,7 +5007,7 @@ H5_daos_attribute_get_name_by_crt_order_comp_cb(tse_task_t *task, void H5VL_DAOS
             udata->attr_name_out[nul_term_pos] = '\0';
         }
 
-        *udata->attr_name_size_ret = (ssize_t)udata->u.by_crt_order_data.md_rw_cb_ud.iod[0].iod_size;
+        *udata->attr_name_size_ret = (size_t)udata->u.by_crt_order_data.md_rw_cb_ud.iod[0].iod_size;
     } /* end else */
 
 done:

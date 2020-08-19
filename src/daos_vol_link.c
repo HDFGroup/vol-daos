@@ -6676,7 +6676,7 @@ H5_daos_link_delete_corder_bookkeep_task(tse_task_t *task)
      * creation order value to the link's name and one akey that maps the link's
      * creation order value to the link's target.
      */
-    if(NULL == (udata->index_data.iods = DV_malloc(2 * udata->index_data.nlinks_shift * sizeof(daos_iod_t))))
+    if(NULL == (udata->index_data.iods = DV_calloc(2 * udata->index_data.nlinks_shift * sizeof(daos_iod_t))))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate IOD buffer");
     if(NULL == (udata->index_data.sgls = DV_malloc(2 * udata->index_data.nlinks_shift * sizeof(daos_sg_list_t))))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate SGL buffer");
@@ -6871,7 +6871,6 @@ H5_daos_link_bookkeep_phase1_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *ar
         UINT64ENCODE(p, tmp_uint);
 
         /* Set up iods for the current 'creation order -> link name' akey */
-        memset(&udata->index_data.iods[2 * i], 0, sizeof(daos_iod_t));
         daos_iov_set(&udata->index_data.iods[2 * i].iod_name,
                 &udata->index_data.crt_order_link_name_buf[i * H5_DAOS_ENCODED_CRT_ORDER_SIZE],
                 H5_DAOS_ENCODED_CRT_ORDER_SIZE);
@@ -6885,7 +6884,6 @@ H5_daos_link_bookkeep_phase1_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *ar
         *p++ = 0;
 
         /* Set up iods for the current 'creation order -> link target' akey */
-        memset(&udata->index_data.iods[(2 * i) + 1], 0, sizeof(daos_iod_t));
         daos_iov_set(&udata->index_data.iods[(2 * i) + 1].iod_name,
                 &udata->index_data.crt_order_link_trgt_buf[i * (H5_DAOS_ENCODED_CRT_ORDER_SIZE + 1)],
                 H5_DAOS_ENCODED_CRT_ORDER_SIZE + 1);

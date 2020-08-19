@@ -2154,7 +2154,11 @@ H5_daos_duns_resolve_path_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
              * trip up the error handling in this connector. */
             udata->req->status = -H5_DAOS_BAD_VALUE;
             udata->req->failed_task = "DUNS path resolve";
-            if(ENODATA == task->dt_result)
+            if(ENOENT == task->dt_result) {
+                udata->req->status = -H5_DAOS_H5_OPEN_ERROR;
+                D_DONE_ERROR(H5E_FILE, H5E_CANTOPENFILE, -H5_DAOS_H5_OPEN_ERROR, "file '%s' does not exist", udata->path);
+            }
+            else if(ENODATA == task->dt_result)
                 D_DONE_ERROR(H5E_FILE, H5E_NOTHDF5, -H5_DAOS_BAD_VALUE, "file '%s' is not a valid HDF5 DAOS file", udata->path);
         } /* end if */
     } /* end if */
@@ -2642,6 +2646,9 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
         {
             H5_daos_file_t *file2 = (H5_daos_file_t *)va_arg(arguments, void *);
             hbool_t *is_equal = va_arg(arguments, hbool_t *);
+
+            if(file2->item.type != H5I_FILE)
+                D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, FAIL, "object is not a file!");
 
             if(!file || !file2)
                 *is_equal = FALSE;

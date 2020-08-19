@@ -2158,6 +2158,10 @@ H5_daos_duns_resolve_path_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
                 udata->req->status = -H5_DAOS_H5_OPEN_ERROR;
                 D_DONE_ERROR(H5E_FILE, H5E_CANTOPENFILE, -H5_DAOS_H5_OPEN_ERROR, "file '%s' does not exist", udata->path);
             }
+            if(EOPNOTSUPP == task->dt_result) {
+                udata->req->status = -H5_DAOS_H5_UNSUPPORTED_ERROR;
+                D_DONE_ERROR(H5E_FILE, H5E_UNSUPPORTED, -H5_DAOS_H5_UNSUPPORTED_ERROR, "can't create/resolve DUNS path - DUNS not supported on file system");
+            }
             else if(ENODATA == task->dt_result)
                 D_DONE_ERROR(H5E_FILE, H5E_NOTHDF5, -H5_DAOS_BAD_VALUE, "file '%s' is not a valid HDF5 DAOS file", udata->path);
         } /* end if */

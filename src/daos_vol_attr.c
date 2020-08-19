@@ -3170,6 +3170,7 @@ H5_daos_attribute_remove_from_crt_idx(H5_daos_obj_t *target_obj,
          */
 
         memset(max_corder_buf, 0, sizeof(max_corder_buf));
+        memset(&iod, 0, sizeof(iod));
         daos_iov_set(&iod.iod_name, (void *)H5_daos_max_attr_corder_key_g, H5_daos_max_attr_corder_key_size_g);
         iod.iod_nr = 1u;
         iod.iod_size = (uint64_t)8;
@@ -3286,7 +3287,7 @@ H5_daos_attribute_shift_crt_idx_keys_down(H5_daos_obj_t *target_obj,
      * Allocate space for the 1 akey per attribute: the akey that maps the
      * attribute's creation order value to the attribute's name.
      */
-    if(NULL == (iods = DV_malloc(nattrs_shift * sizeof(*iods))))
+    if(NULL == (iods = DV_calloc(nattrs_shift * sizeof(*iods))))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate IOD buffer");
     if(NULL == (sgls = DV_malloc(nattrs_shift * sizeof(*sgls))))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate SGL buffer");
@@ -3308,7 +3309,6 @@ H5_daos_attribute_shift_crt_idx_keys_down(H5_daos_obj_t *target_obj,
         UINT64ENCODE(p, tmp_uint);
 
         /* Set up iods for the current 'creation order -> attribute name' akey */
-        memset(&iods[i], 0, sizeof(*iods));
         daos_iov_set(&iods[i].iod_name, &crt_order_attr_name_buf[i * (H5_DAOS_ENCODED_CRT_ORDER_SIZE + 1)], H5_DAOS_ENCODED_CRT_ORDER_SIZE + 1);
         iods[i].iod_nr = 1u;
         iods[i].iod_size = DAOS_REC_ANY;

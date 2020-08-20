@@ -88,6 +88,13 @@ typedef struct H5_daos_obj_open_ud_t {
     daos_obj_id_t *oid;
 } H5_daos_obj_open_ud_t;
 
+typedef struct H5_daos_pool_connect_info {
+    uuid_t pool_uuid;
+    char pool_grp[H5_DAOS_MAX_GRP_NAME + 1];
+    d_rank_list_t svcl;
+    hbool_t globals_set;
+} H5_daos_pool_connect_info;
+
 /********************/
 /* Local Prototypes */
 /********************/
@@ -108,6 +115,7 @@ static herr_t H5_daos_pool_destroy(uuid_t uuid);
 static herr_t H5_daos_pool_connect_global(void);
 static herr_t H5_daos_pool_disconnect_global(void);
 static herr_t H5_daos_pool_handle_bcast_global(int rank);
+static herr_t H5_daos_bcast_pool_connection_info(int rank);
 static void *H5_daos_fapl_copy(const void *_old_fa);
 static herr_t H5_daos_fapl_free(void *_fa);
 static herr_t H5_daos_get_conn_cls(void *item, H5VL_get_conn_lvl_t lvl,
@@ -276,10 +284,10 @@ daos_handle_t H5_daos_poh_g = DAOS_HDL_INVAL;
 MPI_Comm H5_daos_pool_comm_g = MPI_COMM_NULL;       /* Pool communicator */
 static hbool_t H5_daos_pool_globals_set_g = FALSE;  /* Pool config set */
 static hbool_t H5_daos_pool_is_mine_g = FALSE;      /* Pool created internally */
-static uuid_t  H5_daos_pool_uuid_g;                 /* Pool UUID */
+uuid_t  H5_daos_pool_uuid_g;                        /* Pool UUID */
 static char H5_daos_pool_grp_g[H5_DAOS_MAX_GRP_NAME + 1] = {'\0'}; /* Pool Group */
 static d_rank_t H5_daos_pool_ranks_g[H5_DAOS_MAX_SVC_REPLICAS]; /* Pool ranks */
-static d_rank_list_t H5_daos_pool_svcl_g = {0};                  /* Pool svc list */
+d_rank_list_t H5_daos_pool_svcl_g = {0};                  /* Pool svc list */
 static const unsigned int   H5_daos_pool_default_mode_g          = 0731;         /* Default Mode */
 static const daos_size_t    H5_daos_pool_default_scm_size_g      = (1ULL << 31); /*   2GB */
 static const daos_size_t    H5_daos_pool_default_nvme_size_g     = (1ULL << 33); /*   8GB */
@@ -1158,9 +1166,15 @@ H5_daos_init(hid_t H5VL_DAOS_UNUSED vipl_id)
     if((pool_rank == 0) && H5_daos_pool_connect_global() < 0)
         D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't connect to DAOS pool");
 
-    /* Broadcast pool handle to other procs if any */
-    if((pool_num_procs > 1) && (H5_daos_pool_handle_bcast_global(pool_rank) < 0))
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTSET, FAIL, "can't broadcast DAOS pool handle");
+    if(pool_num_procs > 1) {
+        /* Broadcast pool handle to other procs */
+        if(H5_daos_pool_handle_bcast_global(pool_rank) < 0)
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTSET, FAIL, "can't broadcast DAOS pool handle");
+
+        /* Broadcast pool connection info, such as pool UUID and pool service rank list */
+        if(H5_daos_bcast_pool_connection_info(pool_rank) < 0)
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTSET, FAIL, "can't broadcast DAOS pool connection info");
+    }
 
     /* Initialized */
     H5_daos_initialized_g = TRUE;
@@ -1354,6 +1368,8 @@ H5_daos_pool_connect(const uuid_t *pool_uuid, char *pool_grp, d_rank_list_t *svc
         } /* end if */
         else if(H5_daos_pool_globals_set_g)
             connect_udata->svc = &H5_daos_pool_svcl_g;
+        else
+            D_GOTO_ERROR(H5E_VOL, H5E_BADVALUE, FAIL, "invalid service rank list\n");
     } /* end if */
 
     if(connect_udata->svc->rl_nr == 0)
@@ -1571,6 +1587,8 @@ H5_daos_pool_connect_sync(const uuid_t pool_uuid, char *pool_grp, d_rank_list_t 
         } /* end if */
         else if(H5_daos_pool_globals_set_g)
             svcl = &H5_daos_pool_svcl_g;
+        else
+            D_GOTO_ERROR(H5E_VOL, H5E_BADVALUE, FAIL, "invalid service rank list");
     } /* end if */
 
     if(svcl->rl_nr == 0)
@@ -1940,6 +1958,91 @@ done:
 
     D_FUNC_LEAVE;
 } /* end H5_daos_pool_handle_bcast_global() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_bcast_pool_connection_info
+ *
+ * Purpose:     Broadcasts global pool connection info, such as the pool
+ *              UUID and pool replica service rank list, to other ranks
+ *              from rank 0.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_bcast_pool_connection_info(int rank)
+{
+    H5_daos_pool_connect_info pool_connect_info;
+    MPI_Datatype pci_struct_type = MPI_DATATYPE_NULL;
+    MPI_Datatype struct_types[4];
+    MPI_Aint displacements[4];
+    int blocklens[4];
+    herr_t ret_value = SUCCEED;
+
+    memset(&pool_connect_info, 0, sizeof(H5_daos_pool_connect_info));
+
+    if(rank == 0 && H5_daos_pool_is_mine_g) {
+        /* If pool was created internally, broadcast global pool connection info, such
+         * as pool UUID and pool service rank list, to other ranks. Otherwise, rank 0
+         * will broadcast an empty buffer to the other ranks.
+         */
+        uuid_copy(pool_connect_info.pool_uuid, H5_daos_pool_uuid_g);
+        strncpy(pool_connect_info.pool_grp, H5_daos_pool_grp_g, H5_DAOS_MAX_GRP_NAME);
+        pool_connect_info.pool_grp[H5_DAOS_MAX_GRP_NAME] = '\0';
+        pool_connect_info.svcl = H5_daos_pool_svcl_g;
+        pool_connect_info.globals_set = H5_daos_pool_globals_set_g;
+    }
+
+    /* Create MPI struct type to broadcast pool connection info */
+    blocklens[0] = 16;
+    blocklens[1] = H5_DAOS_MAX_GRP_NAME + 1;
+    blocklens[2] = 1;
+    blocklens[3] = 1;
+    displacements[0] = offsetof(H5_daos_pool_connect_info, pool_uuid);
+    displacements[1] = offsetof(H5_daos_pool_connect_info, pool_grp);
+    displacements[2] = offsetof(H5_daos_pool_connect_info, svcl.rl_nr);
+    displacements[3] = offsetof(H5_daos_pool_connect_info, globals_set);
+    struct_types[0] = MPI_CHAR;
+    struct_types[1] = MPI_CHAR;
+    struct_types[2] = MPI_UINT32_T;
+    struct_types[3] = MPI_C_BOOL;
+    if(MPI_SUCCESS != MPI_Type_create_struct(4, blocklens, displacements,
+            struct_types, &pci_struct_type))
+        D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't create MPI struct type");
+
+    if(MPI_SUCCESS != MPI_Type_commit(&pci_struct_type))
+        D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't commit MPI struct type");
+
+    /* Broadcast pool connection info */
+    if(MPI_SUCCESS != MPI_Bcast(&pool_connect_info, 1, pci_struct_type, 0, H5_daos_pool_comm_g))
+        D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't broadcast global pool connection info");
+
+    /* Set globals on non-zero ranks only if rank 0 had set them */
+    if(pool_connect_info.globals_set) {
+        if(rank != 0) {
+            /* Set various global variables related to pool connection */
+            uuid_copy(H5_daos_pool_uuid_g, pool_connect_info.pool_uuid);
+            strncpy(H5_daos_pool_grp_g, pool_connect_info.pool_grp, H5_DAOS_MAX_GRP_NAME);
+            H5_daos_pool_grp_g[H5_DAOS_MAX_GRP_NAME] = '\0';
+            H5_daos_pool_svcl_g.rl_nr = pool_connect_info.svcl.rl_nr;
+            H5_daos_pool_svcl_g.rl_ranks = H5_daos_pool_ranks_g;
+            H5_daos_pool_globals_set_g = pool_connect_info.globals_set;
+        }
+
+        /* Broadcast pool replica service rank list */
+        if(MPI_SUCCESS != MPI_Bcast(H5_daos_pool_svcl_g.rl_ranks, (int)H5_daos_pool_svcl_g.rl_nr,
+                MPI_UINT32_T, 0, H5_daos_pool_comm_g))
+            D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't broadcast global pool connection info");
+    }
+
+done:
+    if(MPI_DATATYPE_NULL != pci_struct_type)
+        MPI_Type_free(&pci_struct_type);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_bcast_pool_connection_info() */
 
 
 /*-------------------------------------------------------------------------
@@ -4857,28 +4960,4 @@ H5PLget_plugin_type(void) {
 const void*
 H5PLget_plugin_info(void) {
     return &H5_daos_g;
-}
-
-
-/*-------------------------------------------------------------------------
- * Function:    H5daos_get_poh
- *
- * Purpose:     Internal API function to return the pool object handle 
- *              for the recovery test.
- *
- * Return:      Success:    Non-negative.
- *
- *              Failure:    Negative.
- *
- *-------------------------------------------------------------------------
- */
-herr_t H5daos_get_poh(daos_handle_t *poh) {
-    herr_t ret_value = SUCCEED;
-
-    if(!poh)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "poh pointer is NULL");
-    poh->cookie = H5_daos_poh_g.cookie;
-
-done:
-    D_FUNC_LEAVE;
 }

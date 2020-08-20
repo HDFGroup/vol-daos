@@ -147,6 +147,7 @@ set(HDF5_VOL_DAOS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/daos_vol_obj.c
   ${CMAKE_CURRENT_SOURCE_DIR}/daos_vol_req.c
   ${CMAKE_CURRENT_SOURCE_DIR}/daos_vol_type.c
+  ${CMAKE_CURRENT_SOURCE_DIR}/daos_vol_testing.c
   ${CMAKE_CURRENT_SOURCE_DIR}/util/daos_vol_mem.c
   ${CMAKE_CURRENT_SOURCE_DIR}/util/daos_vol_err.c
   ${CMAKE_CURRENT_SOURCE_DIR}/util/daos_vol_hash_table.c

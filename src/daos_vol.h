@@ -684,6 +684,8 @@ extern H5VL_DAOS_PRIVATE daos_handle_t H5_daos_poh_g;
 
 /* Global variables used to open the pool */
 extern H5VL_DAOS_PRIVATE MPI_Comm H5_daos_pool_comm_g;
+extern H5VL_DAOS_PRIVATE uuid_t H5_daos_pool_uuid_g;
+extern H5VL_DAOS_PRIVATE d_rank_list_t H5_daos_pool_svcl_g;
 
 /* Global variable used for bypassing the DUNS when requested. */
 extern H5VL_DAOS_PRIVATE hbool_t H5_daos_bypass_duns_g;

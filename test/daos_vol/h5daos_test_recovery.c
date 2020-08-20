@@ -1093,15 +1093,20 @@ static int figure_out_op(const char *str)
 int
 main( int argc, char** argv )
 {
-    char    filename[NAME_LENGTH];
-    hid_t   fapl_id = -1, file_id = -1;
-    char   *pool_string = NULL;
-    char   *pool_svcl_string = NULL;
-    int     nerrors = 0;
+    d_rank_list_t  glob_svcl = {0};
+    char           glob_pool_uuid[256];
+    char           filename[NAME_LENGTH];
+    hid_t          fapl_id = -1, file_id = -1;
+    char          *pool_string = NULL;
+    char          *pool_svcl_string = NULL;
+    int            nerrors = 0;
 
     MPI_Init(&argc, &argv);
     MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
     MPI_Comm_size(MPI_COMM_WORLD,&mpi_size);
+
+    /* Ensure that connector and HDF5 library are initialized */
+    H5open();
 
     parse_command_line(argc, argv);
 
@@ -1111,14 +1116,38 @@ main( int argc, char** argv )
         goto error;
     }
 
-    if (NULL == (pool_string = getenv("DAOS_POOL"))) {
-        printf("DAOS_POOL is not set! Tests cannot proceed.\n\n");
-        goto error;
+    if (NULL != (pool_string = getenv("DAOS_POOL"))) {
+        if (0 != uuid_parse(pool_string, pool_uuid)) {
+            printf("Could not parse pool UUID\n\n");
+            goto error;
+        }
+    }
+    else {
+        /* Try to retrieve global pool UUID from the connector */
+        if(H5daos_get_global_pool_uuid(&pool_uuid) < 0) {
+            printf("Can't retrieve global pool UUID\n\n");
+            goto error;
+        }
+
+        uuid_unparse(pool_uuid, glob_pool_uuid);
+        pool_string = glob_pool_uuid;
     }
 
-    if (NULL == (pool_svcl_string = getenv("DAOS_SVCL"))) {
-        printf("DAOS_SVCL is not set! Tests cannot proceed.\n\n");
-        goto error;
+    if (NULL != (pool_svcl_string = getenv("DAOS_SVCL"))) {
+        /* Generate a rank list from a string with a seprator argument */
+        if((svcl = daos_rank_list_parse(pool_svcl_string, ":")) == NULL) {
+            printf("Could not parse pool service list\n\n");
+            goto error;
+        }
+    }
+    else {
+        /* Try to retrieve the global SVCL from the connector */
+        if(H5daos_get_global_svcl(&glob_svcl) < 0) {
+            printf("Can't retrieve global SVCL\n\n");
+            goto error;
+        }
+
+        svcl = &glob_svcl;
     }
 
     snprintf(filename, NAME_LENGTH, "%s", FILENAME);
@@ -1129,17 +1158,6 @@ main( int argc, char** argv )
         fprintf(stdout, "  - POOL SVCL: %s\n", pool_svcl_string);
         fprintf(stdout, "  - Test File name: %s\n", filename);
         fprintf(stdout, "\n\n");
-    }
-
-    if (0 != uuid_parse(pool_string, pool_uuid)) {
-        printf("Could not parse pool UUID\n\n");
-        goto error;
-    }
-
-    /* Generate a rank list from a string with a seprator argument */
-    if((svcl = daos_rank_list_parse(pool_svcl_string, ":")) == NULL) {
-        printf("Could not parse pool service list\n\n");
-        goto error;
     }
 
     if((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0) {

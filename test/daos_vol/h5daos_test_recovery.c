@@ -73,7 +73,7 @@ typedef struct {
 } handler_t;
 
 typedef struct {
-    int *daos_server_ranks;
+    d_rank_t *daos_server_ranks;
     int *fault_groups;
     int *fault_ops;
 } command_line_info_t;
@@ -108,7 +108,7 @@ static int figure_out_op(const char *);
 /*
  * Reusable private function to kill and exclude a certain server
  */
-static void inject_fault(int which_server)
+static void inject_fault(d_rank_t which_server)
 {
     struct d_tgt_list        targets;
     int			     tgt = -1;
@@ -139,8 +139,8 @@ static void initialize_data() {
     int         i, j;    
 
     /* Allocate the memory for the dataset write and read */
-    wdata = (int *)malloc((hand.dset_dim1/mpi_size) * hand.dset_dim2 * sizeof(int));
-    rdata = (int *)malloc((hand.dset_dim1/mpi_size) * hand.dset_dim2 * sizeof(int));
+    wdata = (int *)malloc( (size_t)((hand.dset_dim1/mpi_size) * hand.dset_dim2) * sizeof(int));
+    rdata = (int *)malloc( (size_t)((hand.dset_dim1/mpi_size) * hand.dset_dim2) * sizeof(int));
 
     /* Initialize the data for the dataset */
     for(i = 0; i < hand.dset_dim1/mpi_size; i++)
@@ -148,9 +148,9 @@ static void initialize_data() {
             *(wdata + i * hand.dset_dim2 + j) = i + j;
 
     /* Allocate the memory for the map entries */
-    map_keys = (int *)malloc(hand.numbOfMapEntries * sizeof(int));
-    map_vals = (int *)malloc(hand.numbOfMapEntries * sizeof(int));
-    map_vals_out = (int *)malloc(hand.numbOfMapEntries * sizeof(int));
+    map_keys = (int *)malloc((size_t)hand.numbOfMapEntries * sizeof(int));
+    map_vals = (int *)malloc((size_t)hand.numbOfMapEntries * sizeof(int));
+    map_vals_out = (int *)malloc((size_t)hand.numbOfMapEntries * sizeof(int));
 
     /* Generate random keys and values for the map */
     for(i = 0; i < hand.numbOfMapEntries; i++) {
@@ -159,8 +159,8 @@ static void initialize_data() {
     } /* end for */
 
     /* Allocate the memory for the attribute write and read */
-    attr_write = (int *)malloc(hand.attr_dim * sizeof(int));
-    attr_read = (int *)malloc(hand.attr_dim * sizeof(int));
+    attr_write = (int *)malloc((size_t)hand.attr_dim * sizeof(int));
+    attr_read = (int *)malloc((size_t)hand.attr_dim * sizeof(int));
 
     /* Initialize the data for the attribute */
     for(i = 0; i < hand.attr_dim; i++) 
@@ -173,8 +173,8 @@ static int create_dataspace() {
     hsize_t     count[DATA_RANK], stride[DATA_RANK];    		/* for hyperslab setting */
     hsize_t     attr_dim[ATTR_RANK];
 
-    dimsf[0] = hand.dset_dim1;
-    dimsf[1] = hand.dset_dim2;
+    dimsf[0] = (hsize_t)hand.dset_dim1;
+    dimsf[1] = (hsize_t)hand.dset_dim2;
     if((file_dspace = H5Screate_simple(DATA_RANK, dimsf, NULL)) < 0) {
         H5_FAILED(); AT();
         printf("failed to create the data space\n");
@@ -188,9 +188,9 @@ static int create_dataspace() {
     } 
 
     /* set up dimensions of the slab this process accesses */
-    start[0] = mpi_rank*dimsf[0]/mpi_size;
+    start[0] = (hsize_t)mpi_rank * dimsf[0] / (hsize_t)mpi_size;
     start[1] = 0;
-    count[0] = dimsf[0]/mpi_size;
+    count[0] = dimsf[0] / (hsize_t)mpi_size;
     count[1] = dimsf[1];
     stride[0] = 1;
     stride[1] =1;
@@ -207,7 +207,7 @@ static int create_dataspace() {
         goto error;
     } 
 
-    attr_dim[0] = hand.attr_dim;
+    attr_dim[0] = (hsize_t)hand.attr_dim;
     if((attr_space = H5Screate_simple(ATTR_RANK, attr_dim, NULL)) < 0) {
         H5_FAILED(); AT();
         printf("failed to create memory space\n");
@@ -318,7 +318,7 @@ static htri_t create_objects(hid_t file) {
 
         /* Dimension for the array datatype */
         for(j = 0; j < ARRAY_DTYPE_RANK; j++)
-            array_dtype_dims[j] = i + 1;
+            array_dtype_dims[j] = (hsize_t)(i + 1);
 
         /* Create an array datatype */
         if((datatype = H5Tarray_create2(H5T_STD_I32LE, ARRAY_DTYPE_RANK, array_dtype_dims)) < 0) {
@@ -950,18 +950,25 @@ static int get_command_line_info()
         if(hand.server_ranks_str)
             opt_str_cp = strdup(hand.server_ranks_str);
 
-        cl_info.daos_server_ranks = malloc(hand.nFaults * sizeof(int));
+        cl_info.daos_server_ranks = malloc((size_t)hand.nFaults * sizeof(d_rank_t));
 
         if(opt_str_cp) {
+            int rank_number;
+
             token_str = strtok(opt_str_cp, ",");
 
-            cl_info.daos_server_ranks[0] = atoi(token_str);
+            if((rank_number = atoi(token_str)) < 0)
+                return -1;
+            cl_info.daos_server_ranks[0] = (d_rank_t)rank_number;
 
             i = 1;
             while(token_str) {
                 token_str = strtok(NULL, ",");
-                if(token_str && i < hand.nFaults)
-                    cl_info.daos_server_ranks[i] = atoi(token_str);
+                if(token_str && i < hand.nFaults) {
+                    if((rank_number = atoi(token_str)) < 0)
+                        return -1;
+                    cl_info.daos_server_ranks[i] = (d_rank_t)rank_number;
+                }
                 i++;
             }
 
@@ -977,14 +984,14 @@ static int get_command_line_info()
             daos_pool_query(poh, NULL, &info, NULL, NULL);
 
             for(i = 0; i < hand.nFaults; i++)
-                cl_info.daos_server_ranks[i] = info.pi_nnodes - 1 - i;
+                cl_info.daos_server_ranks[i] = (d_rank_t)(info.pi_nnodes - 1 - (uint32_t)i);
         }
 
         /* Figure out the list of iterations for fault injection */
         if(hand.fault_groups_str)
             opt_str_cp = strdup(hand.fault_groups_str);
 
-        cl_info.fault_groups = (int *)malloc(hand.nFaults * sizeof(int));
+        cl_info.fault_groups = (int *)malloc((size_t)hand.nFaults * sizeof(int));
 
         /* Default value is the first group */
         for(i = 0; i < hand.nFaults; i++)
@@ -1011,7 +1018,7 @@ static int get_command_line_info()
         if(hand.fault_op_str)
             opt_str_cp = strdup(hand.fault_op_str);
 
-        cl_info.fault_ops = (int *)malloc(hand.nFaults * sizeof(int));
+        cl_info.fault_ops = (int *)malloc((size_t)hand.nFaults * sizeof(int));
 
         /* Default value is the first group */
         for(i = 0; i < hand.nFaults; i++)

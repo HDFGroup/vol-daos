@@ -346,8 +346,8 @@ H5_daos_bcast_fill_val(H5_daos_dset_t *dset, H5_daos_req_t *req,
     bcast_udata->sched = &dset->obj.item.file->sched;
     bcast_udata->bcast_metatask = NULL;
     bcast_udata->buffer = dset->fill_val;
-    bcast_udata->buffer_len = fill_val_size;
-    bcast_udata->count = fill_val_size;
+    bcast_udata->buffer_len = (int)fill_val_size;
+    bcast_udata->count = (int)fill_val_size;
 
     /* Create task for fill value bcast */
     if(0 != (ret = tse_task_create(H5_daos_mpi_ibcast_task, &dset->obj.item.file->sched, bcast_udata, &bcast_task)))
@@ -1307,8 +1307,8 @@ H5_daos_dset_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
             DV_free(udata->buffer);
             if(NULL == (udata->buffer = DV_malloc(dinfo_len)))
                 D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "failed to allocate memory for dataset info buffer");
-            udata->buffer_len = dinfo_len;
-            udata->count = dinfo_len;
+            udata->buffer_len = (int)dinfo_len;
+            udata->count = (int)dinfo_len;
 
             /* Create task for second bcast */
             if(0 !=  (ret = tse_task_create(H5_daos_mpi_ibcast_task, &udata->obj->item.file->sched, udata, &bcast_task)))
@@ -1427,7 +1427,7 @@ H5_daos_dinfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
                 udata->bcast_udata->buffer = DV_free(udata->bcast_udata->buffer);
                 if(NULL == (udata->bcast_udata->buffer = DV_malloc(daos_info_len + 6 * H5_DAOS_ENCODED_UINT64_T_SIZE)))
                     D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate buffer for serialized dataset info");
-                udata->bcast_udata->buffer_len = daos_info_len + 6 * H5_DAOS_ENCODED_UINT64_T_SIZE;
+                udata->bcast_udata->buffer_len = (int)(daos_info_len + 6 * H5_DAOS_ENCODED_UINT64_T_SIZE);
             } /* end if */
 
             /* Set starting point for fetch sg_iovs */
@@ -1490,13 +1490,13 @@ H5_daos_dinfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
             udata->md_rw_cb_ud.req->failed_task = udata->md_rw_cb_ud.task_name;
         } /* end if */
         else if(task->dt_result == 0) {
-            uint64_t type_buf_len = (uint64_t)(udata->md_rw_cb_ud.sg_iov[1].iov_buf
-                    - udata->md_rw_cb_ud.sg_iov[0].iov_buf);
-            uint64_t space_buf_len = (uint64_t)(udata->md_rw_cb_ud.sg_iov[2].iov_buf
-                    - udata->md_rw_cb_ud.sg_iov[1].iov_buf);
+            uint64_t type_buf_len = (uint64_t)((char *)udata->md_rw_cb_ud.sg_iov[1].iov_buf
+                    - (char *)udata->md_rw_cb_ud.sg_iov[0].iov_buf);
+            uint64_t space_buf_len = (uint64_t)((char *)udata->md_rw_cb_ud.sg_iov[2].iov_buf
+                    - (char *)udata->md_rw_cb_ud.sg_iov[1].iov_buf);
             uint64_t dcpl_buf_len = udata->md_rw_cb_ud.nr >= 4 ?
-                    (uint64_t)(udata->md_rw_cb_ud.sg_iov[3].iov_buf
-                    - udata->md_rw_cb_ud.sg_iov[2].iov_buf)
+                    (uint64_t)((char *)udata->md_rw_cb_ud.sg_iov[3].iov_buf
+                    - (char *)udata->md_rw_cb_ud.sg_iov[2].iov_buf)
                     : udata->md_rw_cb_ud.iod[2].iod_size;
 
             if(udata->bcast_udata) {
@@ -1533,7 +1533,7 @@ done:
         if(udata->bcast_udata) {
             /* Clear broadcast buffer if there was an error */
             if(udata->md_rw_cb_ud.req->status < -H5_DAOS_INCOMPLETE)
-                (void)memset(udata->bcast_udata->buffer, 0, udata->bcast_udata->count);
+                (void)memset(udata->bcast_udata->buffer, 0, (size_t)udata->bcast_udata->count);
         } /* end if */
         else
             /* No broadcast, free buffer */
@@ -1613,7 +1613,7 @@ H5_daos_dataset_refresh_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
                 udata->bcast_udata->buffer = DV_free(udata->bcast_udata->buffer);
                 if(NULL == (udata->bcast_udata->buffer = DV_malloc(daos_info_len + H5_DAOS_ENCODED_UINT64_T_SIZE)))
                     D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate buffer for serialized dataspace info");
-                udata->bcast_udata->buffer_len = daos_info_len + H5_DAOS_ENCODED_UINT64_T_SIZE;
+                udata->bcast_udata->buffer_len = (int)(daos_info_len + H5_DAOS_ENCODED_UINT64_T_SIZE);
             } /* end if */
 
             /* Set starting point for fetch sg_iovs */
@@ -1697,7 +1697,7 @@ done:
         if(udata->bcast_udata) {
             /* Clear broadcast buffer if there was an error */
             if(udata->md_rw_cb_ud.req->status < -H5_DAOS_INCOMPLETE)
-                (void)memset(udata->bcast_udata->buffer, 0, udata->bcast_udata->count);
+                (void)memset(udata->bcast_udata->buffer, 0, (size_t)udata->bcast_udata->count);
         } /* end if */
         else
             /* No broadcast, free buffer */
@@ -2052,8 +2052,8 @@ H5_daos_dataset_open_helper(H5_daos_file_t *file, hid_t dapl_id, hbool_t collect
             p = dinfo_buf + (6 * sizeof(uint64_t));
             bcast_udata->buffer = dinfo_buf;
             dinfo_buf = NULL;
-            bcast_udata->buffer_len = dinfo_buf_size;
-            bcast_udata->count = dinfo_buf_size;
+            bcast_udata->buffer_len = (int)dinfo_buf_size;
+            bcast_udata->count = (int)dinfo_buf_size;
         } /* end if */
         else
             p = dinfo_buf;
@@ -2126,8 +2126,8 @@ H5_daos_dataset_open_helper(H5_daos_file_t *file, hid_t dapl_id, hbool_t collect
         dinfo_buf_size = H5_DAOS_DINFO_BCAST_BUF_SIZE;
         if(NULL == (bcast_udata->buffer = DV_malloc(dinfo_buf_size)))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized dataset info");
-        bcast_udata->buffer_len = dinfo_buf_size;
-        bcast_udata->count = dinfo_buf_size;
+        bcast_udata->buffer_len = (int)dinfo_buf_size;
+        bcast_udata->count = (int)dinfo_buf_size;
     } /* end else */
 
     ret_value = dset;
@@ -3543,7 +3543,7 @@ H5_daos_dataset_write_int(H5_daos_dset_t *dset, hid_t mem_type_id,
         io_task = *dep_task;
         if(single_chunk_write_func(dset, &dkey, num_elem_file, mem_type_id,
                 chunk_info[i].mspace_id, chunk_info[i].fspace_id, IO_WRITE,
-                (void *)buf, req, first_task, &io_task) < 0)
+                buf, req, first_task, &io_task) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_WRITEERROR, FAIL, "dataset write failed");
 
         /* Set up dependency on io_task for end task */
@@ -3764,7 +3764,7 @@ H5_daos_dataset_get(void *_dset, H5VL_dataset_get_t get_type,
                     D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, FAIL, "can't get number of elements in dataset's dataspace");
                 if(0 == (dtype_size = H5Tget_size(dset->type_id)))
                     D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't get dataset's type size");
-                *ret = nelements * dtype_size;
+                *ret = (hsize_t)nelements * dtype_size;
 
                 break;
             }
@@ -4293,7 +4293,7 @@ H5_daos_point_and_block(hid_t point_space, hsize_t rank, hsize_t *dims,
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, H5I_INVALID_HID, "can't get number of points in selection");
 
     /* Create output space */
-    if((space_out = H5Screate_simple(rank, dims, NULL)) < 0)
+    if((space_out = H5Screate_simple((int)rank, dims, NULL)) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, H5I_INVALID_HID, "can't create output space");
 
     /* Loop until we've processed all points */
@@ -4510,7 +4510,7 @@ H5_daos_get_selected_chunk_info(H5_daos_dcpl_cache_t *dcpl_cache,
             /* Check for point selection */
             if(file_space_type == H5S_SEL_POINTS) {
                 /* Intersect points with block using connector routine */
-                if((_chunk_info[i].fspace_id = H5_daos_point_and_block(file_space_id, fspace_ndims, chunk_dims, start_coords, curr_chunk_dims)) < 0)
+                if((_chunk_info[i].fspace_id = H5_daos_point_and_block(file_space_id, (hsize_t)fspace_ndims, chunk_dims, start_coords, curr_chunk_dims)) < 0)
                     D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTINIT, FAIL, "can't intersect point selection");
             } /* end if */
             else {

@@ -1685,10 +1685,10 @@ H5_daos_ainfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
             udata->fetch_ud.md_rw_cb_ud.req->failed_task = udata->fetch_ud.md_rw_cb_ud.task_name;
         } /* end if */
         else if(task->dt_result == 0) {
-            uint64_t type_buf_len = (uint64_t)(udata->fetch_ud.md_rw_cb_ud.sg_iov[1].iov_buf
-                    - udata->fetch_ud.md_rw_cb_ud.sg_iov[0].iov_buf);
-            uint64_t space_buf_len = (uint64_t)(udata->fetch_ud.md_rw_cb_ud.sg_iov[2].iov_buf
-                    - udata->fetch_ud.md_rw_cb_ud.sg_iov[1].iov_buf);
+            uint64_t type_buf_len = (uint64_t)((char *)udata->fetch_ud.md_rw_cb_ud.sg_iov[1].iov_buf
+                    - (char *)udata->fetch_ud.md_rw_cb_ud.sg_iov[0].iov_buf);
+            uint64_t space_buf_len = (uint64_t)((char *)udata->fetch_ud.md_rw_cb_ud.sg_iov[2].iov_buf
+                    - (char *)udata->fetch_ud.md_rw_cb_ud.sg_iov[1].iov_buf);
 
             /* Check for missing metadata */
             if(udata->fetch_ud.md_rw_cb_ud.iod[0].iod_size == (uint64_t)0
@@ -4631,7 +4631,7 @@ H5_daos_attribute_get_name_by_name_order(H5_daos_attr_get_name_by_idx_ud_t *get_
     H5_daos_iter_data_t iter_data;
     tse_task_t *no_attrs_check_task = NULL;
     int ret;
-    ssize_t ret_value = 0;
+    herr_t ret_value = 0;
 
     assert(get_name_udata);
     assert(sched);

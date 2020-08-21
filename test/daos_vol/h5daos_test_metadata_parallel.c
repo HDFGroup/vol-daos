@@ -257,13 +257,13 @@ initialize_time()
     int i;
 
     for (i = 0; i < ENTRY_NUM; i++) {
-        op_time[i] = (double *)calloc(hand.numbOfTrees, sizeof(double));
+        op_time[i] = (double *)calloc((size_t)hand.numbOfTrees, sizeof(double));
         max_time[i] = 0;
         min_time[i] = 1000000.0;
     }
 
     for (i = 0; i < FILE_ENTRY_NUM; i++)
-        file_op_time[i] = (double *)calloc(hand.numbOfObjs, sizeof(double));
+        file_op_time[i] = (double *)calloc((size_t)hand.numbOfObjs, sizeof(double));
 }
 
 static void
@@ -279,14 +279,14 @@ calculate_results()
 
     /* Calculate results of objects */
     for (i = 0; i < ENTRY_NUM; i++)
-        mean_time_each_tree[i] = (double *)calloc(hand.numbOfTrees, sizeof(double));
+        mean_time_each_tree[i] = (double *)calloc((size_t)hand.numbOfTrees, sizeof(double));
 
     if (hand.depthOfTree == 0) {
         total_nodes_per_tree = 1;
 
     } else {
         for (i = 0; i <= hand.depthOfTree; i++)
-            total_nodes_per_tree += pow(hand.numbOfBranches, i);
+            total_nodes_per_tree += (int)pow(hand.numbOfBranches, i);
     }
 
     memset(total_time, 0, sizeof(double) * ENTRY_NUM);
@@ -453,6 +453,10 @@ free_time_struct()
 static herr_t
 link_iter_cb(hid_t group_id, const char *name, const H5L_info2_t *info, void *op_data)
 {
+    (void)group_id;
+    (void)name;
+    (void)info;
+    (void)op_data;
     return 0;
 }
 
@@ -1175,7 +1179,7 @@ static int create_trees(hid_t file) {
 
     for(i = 0; i < hand.numbOfTrees; i++) {
         snprintf(tree_root_name, NAME_LENGTH, "tree_root_%d", i+1);
-        tree_order = i;
+        tree_order = (unsigned)i;
 
         /* Create the group as the tree root */
         if ((tree_root_id = H5Gcreate2(file, tree_root_name, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT)) < 0) {

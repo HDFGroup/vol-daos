@@ -89,7 +89,7 @@ static herr_t H5_daos_cont_handle_bcast(H5_daos_file_t *file,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 static int H5_daos_get_gch_task(tse_task_t *task);
 static int H5_daos_get_container_handles_task(tse_task_t *task);
-static herr_t H5_daos_file_delete(const uuid_t *puuid, const char *file_path, hbool_t ignore_missing,
+static herr_t H5_daos_file_delete(uuid_t *puuid, const char *file_path, hbool_t ignore_missing,
     tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 static herr_t H5_daos_get_cont_destroy_task(H5_daos_cont_op_info_t *cont_op_info, tse_sched_t *sched,
     tse_task_cb_t prep_cb, tse_task_cb_t comp_cb, H5_daos_req_t *req,
@@ -400,7 +400,7 @@ H5_daos_gch_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
                 DV_free(udata->buffer);
                 udata->buffer_len = (int)gh_len + H5_DAOS_ENCODED_UINT64_T_SIZE;
 
-                if(NULL == (udata->buffer = DV_malloc(udata->buffer_len)))
+                if(NULL == (udata->buffer = DV_malloc((size_t)udata->buffer_len)))
                     D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "failed to allocate memory for global handle buffer");
                 udata->count = udata->buffer_len;
 
@@ -555,7 +555,7 @@ H5_daos_handles_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
                 DV_free(udata->buffer);
                 udata->buffer_len = (int)gch_len + (int)gph_len + (2 * H5_DAOS_ENCODED_UINT64_T_SIZE);
 
-                if(NULL == (udata->buffer = DV_malloc(udata->buffer_len)))
+                if(NULL == (udata->buffer = DV_malloc((size_t)udata->buffer_len)))
                     D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "failed to allocate memory for global handles buffer");
                 udata->count = udata->buffer_len;
 
@@ -673,7 +673,7 @@ H5_daos_get_gch_task(tse_task_t *task)
         if(NULL == (tmp = DV_realloc(udata->buffer, req_buf_len)))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate space for global container handle");
         udata->buffer = tmp;
-        udata->buffer_len = req_buf_len;
+        udata->buffer_len = (int)req_buf_len;
         udata->count = H5_DAOS_GH_BUF_SIZE + H5_DAOS_ENCODED_UINT64_T_SIZE;
         glob.iov_len = glob.iov_buf_len;
     } /* end if */
@@ -762,7 +762,7 @@ H5_daos_get_container_handles_task(tse_task_t *task)
         if(NULL == (tmp = DV_realloc(udata->buffer, req_buf_len)))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate space for global container handles");
         udata->buffer = tmp;
-        udata->buffer_len = req_buf_len;
+        udata->buffer_len = (int)req_buf_len;
         udata->count = (2 * H5_DAOS_GH_BUF_SIZE) + (2 * H5_DAOS_ENCODED_UINT64_T_SIZE);
         gch_glob.iov_len = gch_glob.iov_buf_len;
         gph_glob.iov_len = gph_glob.iov_buf_len;
@@ -892,8 +892,8 @@ H5_daos_cont_handle_bcast(H5_daos_file_t *file, H5_daos_req_t *req,
         /* Allocate global handle buffer with default initial size */
         if(NULL == (bcast_udata->buffer = DV_malloc(buf_size)))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for global container handles");
-        bcast_udata->buffer_len = buf_size;
-        bcast_udata->count = buf_size;
+        bcast_udata->buffer_len = (int)buf_size;
+        bcast_udata->count = (int)buf_size;
     } /* end else */
 
 done:
@@ -2509,7 +2509,7 @@ H5_daos_file_get(void *_item, H5VL_file_get_t get_type, hid_t H5VL_DAOS_UNUSED d
                         D_GOTO_ERROR(H5E_FILE, H5E_BADITER, FAIL, "failed to iterate over file's open attribute IDs");
             }
 
-            *ret_val = udata.obj_count;
+            *ret_val = (ssize_t)udata.obj_count;
 
             break;
         } /* H5VL_FILE_GET_OBJ_IDS */
@@ -2681,7 +2681,7 @@ done:
  *-------------------------------------------------------------------------
  */
 static herr_t
-H5_daos_file_delete(const uuid_t *puuid, const char *file_path, hbool_t ignore_missing,
+H5_daos_file_delete(uuid_t *puuid, const char *file_path, hbool_t ignore_missing,
     tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_cont_op_info_t *destroy_udata = NULL;
@@ -3383,7 +3383,7 @@ H5_daos_fill_fapl_cache(H5_daos_file_t *file, hid_t fapl_id)
         if(H5Pget(fapl_id, H5_DAOS_OBJ_CLASS_NAME, &oclass_str) < 0)
             D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "can't get object class");
         if(oclass_str && (oclass_str[0] != '\0'))
-            if(OC_UNKNOWN == (file->fapl_cache.default_object_class = daos_oclass_name2id(oclass_str)))
+            if(OC_UNKNOWN == (file->fapl_cache.default_object_class = (daos_oclass_id_t)daos_oclass_name2id(oclass_str)))
                 D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "unknown object class");
     } /* end if */
 

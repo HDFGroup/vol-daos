@@ -1322,7 +1322,7 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_pool_connect(const uuid_t *pool_uuid, char *pool_grp, d_rank_list_t *svcl,
+H5_daos_pool_connect(uuid_t *pool_uuid, char *pool_grp, d_rank_list_t *svcl,
     unsigned int flags, daos_handle_t *poh_out, daos_pool_info_t *pool_info_out,
     tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
@@ -1553,10 +1553,11 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_pool_connect_sync(const uuid_t pool_uuid, char *pool_grp, d_rank_list_t *svcl,
+H5_daos_pool_connect_sync(const uuid_t pool_uuid, const char *pool_grp, d_rank_list_t *svcl,
     unsigned int flags, daos_handle_t *poh_out, daos_pool_info_t *pool_info_out)
 {
     hbool_t rank_list_parsed = FALSE;
+    char *pool_grp_str = pool_grp;
     int ret;
     herr_t ret_value = SUCCEED;
 
@@ -1566,11 +1567,11 @@ H5_daos_pool_connect_sync(const uuid_t pool_uuid, char *pool_grp, d_rank_list_t 
         D_GOTO_ERROR(H5E_VOL, H5E_BADVALUE, FAIL, "pool UUID is NULL");
 
     /* If necessary, set pool group to be used */
-    if(!pool_grp) {
+    if(!pool_grp_str) {
         if(H5_daos_pool_globals_set_g)
-            pool_grp = H5_daos_pool_grp_g;
+            pool_grp_str = H5_daos_pool_grp_g;
         else
-            pool_grp = DAOS_DEFAULT_GROUP_ID; /* Attempt to use default group */
+            pool_grp_str = DAOS_DEFAULT_GROUP_ID; /* Attempt to use default group */
     } /* end if */
 
     /* Set pool service replica rank list */
@@ -1599,7 +1600,7 @@ H5_daos_pool_connect_sync(const uuid_t pool_uuid, char *pool_grp, d_rank_list_t 
 #endif
 
     /* Connect to the pool */
-    if(0 != (ret = daos_pool_connect(pool_uuid, pool_grp, svcl, flags,
+    if(0 != (ret = daos_pool_connect(pool_uuid, pool_grp_str, svcl, flags,
             poh_out, pool_info_out, NULL /*event*/)))
         D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't connect to pool: %s", H5_daos_err_to_string(ret));
 
@@ -2887,7 +2888,7 @@ H5_daos_oid_encode(daos_obj_id_t *oid, uint64_t oidx, H5I_type_t obj_type,
             if(H5Pget(crt_plist_id, oclass_prop_name, &oclass_str) < 0)
                 D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "can't get object class");
             if(oclass_str && (oclass_str[0] != '\0'))
-                if(OC_UNKNOWN == (object_class = daos_oclass_name2id(oclass_str)))
+                if(OC_UNKNOWN == (object_class = (daos_oclass_id_t)daos_oclass_name2id(oclass_str)))
                     D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "unknown object class");
         } /* end if */
     } /* end if */
@@ -4077,7 +4078,7 @@ H5_daos_list_key_start(H5_daos_iter_ud_t *iter_udata, daos_opc_t opc,
 
     /* Set arguments */
     list_args->th = iter_udata->iter_data->req->th;
-    iter_udata->nr = iter_udata->kds_len;
+    iter_udata->nr = (uint32_t)iter_udata->kds_len;
     list_args->nr = &iter_udata->nr;
     list_args->kds = iter_udata->kds;
     list_args->sgl = &iter_udata->sgl;

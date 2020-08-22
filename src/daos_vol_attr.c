@@ -1245,6 +1245,10 @@ done:
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, NULL, "can't free request");
     } /* end if */
 
+    /* If we are not returning an attribute we must close it */
+    if(ret_value == NULL && attr && H5_daos_attribute_close(attr, dxpl_id, NULL) < 0)
+        D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, NULL, "can't close attribute");
+
     D_FUNC_LEAVE_API;
 } /* end H5_daos_attribute_open() */
 
@@ -1691,9 +1695,9 @@ H5_daos_ainfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
                     - (char *)udata->fetch_ud.md_rw_cb_ud.sg_iov[1].iov_buf);
 
             /* Check for missing metadata */
-            if(udata->fetch_ud.md_rw_cb_ud.iod[0].iod_size == (uint64_t)0
-                    || udata->fetch_ud.md_rw_cb_ud.iod[1].iod_size == (uint64_t)0
-                    || udata->fetch_ud.md_rw_cb_ud.iod[2].iod_size == (uint64_t)0)
+            if(udata->fetch_ud.md_rw_cb_ud.iod[0].iod_size == 0
+                    || udata->fetch_ud.md_rw_cb_ud.iod[1].iod_size == 0
+                    || udata->fetch_ud.md_rw_cb_ud.iod[2].iod_size == 0)
                 D_GOTO_ERROR(H5E_ATTR, H5E_NOTFOUND, -H5_DAOS_DAOS_GET_ERROR, "internal metadata not found");
 
             /* Finish building attribute object */
@@ -2919,6 +2923,8 @@ H5_daos_attribute_delete(H5_daos_obj_t *attr_container_obj, const H5VL_loc_param
 
 done:
     if(ret_value < 0) {
+        if(delete_udata->attr_name_buf)
+            DV_free(delete_udata->attr_name_buf);
         delete_udata = DV_free(delete_udata);
     } /* end if */
 

@@ -1405,9 +1405,9 @@ H5_daos_minfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
             uint64_t mcpl_buf_len = (uint64_t)(udata->md_rw_cb_ud.iod[2].iod_size);
 
             /* Check for missing metadata */
-            if(udata->md_rw_cb_ud.iod[0].iod_size == (uint64_t)0
-            || udata->md_rw_cb_ud.iod[1].iod_size == (uint64_t)0
-            || udata->md_rw_cb_ud.iod[2].iod_size == (uint64_t)0)
+            if(udata->md_rw_cb_ud.iod[0].iod_size == 0
+            || udata->md_rw_cb_ud.iod[1].iod_size == 0
+            || udata->md_rw_cb_ud.iod[2].iod_size == 0)
                 D_GOTO_ERROR(H5E_MAP, H5E_NOTFOUND, -H5_DAOS_DAOS_GET_ERROR, "internal metadata not found");
 
             if(udata->bcast_udata) {

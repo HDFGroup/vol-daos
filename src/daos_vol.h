@@ -296,6 +296,7 @@ do {                                                                            
 typedef struct H5_daos_fapl_t {
     MPI_Comm            comm;           /* communicator                  */
     MPI_Info            info;           /* file information              */
+    hbool_t             free_comm_info; /* Whether MPI communicator/info need to be freed */
 } H5_daos_fapl_t;
 
 /* Common object and attribute information */

@@ -535,6 +535,7 @@ H5Pset_fapl_daos(hid_t fapl_id, MPI_Comm file_comm, MPI_Info file_info)
     /* Initialize driver specific properties */
     fa.comm = file_comm;
     fa.info = file_info;
+    fa.free_comm_info = FALSE;
 
     ret_value = H5Pset_vol(fapl_id, H5_DAOS_g, &fa);
 
@@ -2157,6 +2158,7 @@ H5_daos_fapl_copy(const void *_old_fa)
     /* Duplicate communicator and Info object. */
     if(FAIL == H5_daos_comm_info_dup(old_fa->comm, old_fa->info, &new_fa->comm, &new_fa->info))
         D_GOTO_ERROR(H5E_INTERNAL, H5E_CANTCOPY, NULL, "failed to duplicate MPI communicator and info");
+    new_fa->free_comm_info = TRUE;
 
     ret_value = new_fa;
 
@@ -2194,7 +2196,7 @@ H5_daos_fapl_free(void *_fa)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "invalid fapl");
 
     /* Free the internal communicator and INFO object */
-    if(fa->comm != MPI_COMM_NULL)
+    if(fa->free_comm_info && fa->comm != MPI_COMM_NULL)
         if(H5_daos_comm_info_free(&fa->comm, &fa->info) < 0)
             D_GOTO_ERROR(H5E_INTERNAL, H5E_CANTFREE, FAIL, "failed to free copy of MPI communicator and info");
 

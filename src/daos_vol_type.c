@@ -785,7 +785,7 @@ H5_daos_datatype_commit_helper(H5_daos_file_t *file, hid_t type_id,
         } /* end if */
         else {
             /* No link to datatype, write a ref count of 0 */
-             finalize_deps[finalize_ndeps] = *dep_task;
+            finalize_deps[finalize_ndeps] = *dep_task;
             if(0 != (ret = H5_daos_obj_write_rc(NULL, &dtype->obj, NULL, 0, &file->sched,
                     req, first_task, &finalize_deps[finalize_ndeps])))
                 D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't write object ref count: %s", H5_daos_err_to_string(ret));
@@ -1057,6 +1057,10 @@ done:
     /* Close target object */
     if(target_obj && H5_daos_object_close(target_obj, dxpl_id, NULL) < 0)
         D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, NULL, "can't close object");
+
+    /* If we are not returning a datatype we must close it */
+    if(ret_value == NULL && dtype && H5_daos_datatype_close(dtype, dxpl_id, NULL) < 0)
+        D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, NULL, "can't close datatype");
 
     D_FUNC_LEAVE_API;
 } /* end H5_daos_datatype_open() */

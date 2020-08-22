@@ -2416,6 +2416,9 @@ H5_daos_link_copy_move_end_task(tse_task_t *task)
     if(udata->target_obj && H5_daos_object_close(udata->target_obj, udata->req->dxpl_id, NULL) < 0)
         D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close destination object");
 
+    if(udata->link_target_obj && H5_daos_object_close(udata->link_target_obj, udata->req->dxpl_id, NULL) < 0)
+        D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close link target object");
+
     /* Free path_bufs and link value if necessary */
     udata->src_path_buf = DV_free(udata->src_path_buf);
     udata->dst_path_buf = DV_free(udata->dst_path_buf);
@@ -7435,6 +7438,10 @@ H5_daos_link_delete_rc_end_task(tse_task_t *task)
     /* Release our reference to req */
     if(H5_daos_req_free_int(udata->req) < 0)
         D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+    /* Free link value buffer for soft links */
+    if(udata->link_val.type == H5L_TYPE_SOFT && udata->link_val.target.soft)
+        DV_free(udata->link_val.target.soft);
 
     /* Free udata */
     udata = DV_free(udata);

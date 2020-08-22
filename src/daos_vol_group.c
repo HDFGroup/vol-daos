@@ -977,6 +977,10 @@ H5_daos_ginfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
             udata->md_rw_cb_ud.req->failed_task = udata->md_rw_cb_ud.task_name;
         } /* end if */
         else if(task->dt_result == 0) {
+            /* Check for missing metadata */
+            if(udata->md_rw_cb_ud.iod[0].iod_size == 0)
+                D_GOTO_ERROR(H5E_SYM, H5E_NOTFOUND, -H5_DAOS_DAOS_GET_ERROR, "internal metadata not found");
+
             if(udata->bcast_udata) {
                 uint8_t *p;
 

@@ -134,6 +134,7 @@ H5_daos_cont_get_fapl_info(hid_t fapl_id, H5_daos_fapl_t *fa_out)
     if(local_fapl_info) {
         fa_out->comm = local_fapl_info->comm;
         fa_out->info = local_fapl_info->info;
+        fa_out->free_comm_info = FALSE;
     }
     else {
         hid_t driver_id;
@@ -147,6 +148,7 @@ H5_daos_cont_get_fapl_info(hid_t fapl_id, H5_daos_fapl_t *fa_out)
         if(H5FD_MPIO == driver_id) {
             if(H5Pget_fapl_mpio(fapl_id, &fa_out->comm, &fa_out->info) < 0)
                 D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, FAIL, "can't get HDF5 MPI information");
+            fa_out->free_comm_info = TRUE;
         }
         else {
             /*
@@ -155,6 +157,7 @@ H5_daos_cont_get_fapl_info(hid_t fapl_id, H5_daos_fapl_t *fa_out)
              */
             fa_out->comm = MPI_COMM_SELF;
             fa_out->info = MPI_INFO_NULL;
+            fa_out->free_comm_info = FALSE;
         }
     }
 
@@ -936,7 +939,7 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     hid_t fapl_id, hid_t dxpl_id, void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_file_t *file = NULL;
-    H5_daos_fapl_t fapl_info;
+    H5_daos_fapl_t fapl_info = {0};
     hbool_t sched_init = FALSE;
     H5_daos_req_t *int_req = NULL;
     tse_task_t *first_task = NULL;
@@ -1080,6 +1083,10 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     ret_value = (void *)file;
 
 done:
+    if(fapl_info.free_comm_info)
+        if(H5_daos_comm_info_free(&fapl_info.comm, &fapl_info.info) < 0)
+            D_GOTO_ERROR(H5E_INTERNAL, H5E_CANTFREE, NULL, "failed to free copy of MPI communicator and info");
+
     if(int_req) {
         /* Create task to finalize H5 operation */
         if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &file->sched, int_req, &int_req->finalize_task)))
@@ -1666,7 +1673,7 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     hid_t dxpl_id, void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_file_t *file = NULL;
-    H5_daos_fapl_t fapl_info;
+    H5_daos_fapl_t fapl_info = {0};
 #ifdef DV_HAVE_SNAP_OPEN_ID
     H5_daos_snap_id_t snap_id;
 #endif
@@ -1772,6 +1779,10 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     ret_value = (void *)file;
 
 done:
+    if(fapl_info.free_comm_info)
+        if(H5_daos_comm_info_free(&fapl_info.comm, &fapl_info.info) < 0)
+            D_GOTO_ERROR(H5E_INTERNAL, H5E_CANTFREE, NULL, "failed to free copy of MPI communicator and info");
+
     if(int_req) {
         /* Create task to finalize H5 operation */
         if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &file->sched, int_req, &int_req->finalize_task)))
@@ -3059,7 +3070,7 @@ done:
 static herr_t
 H5_daos_file_delete_sync(const char *filename, hid_t fapl_id)
 {
-    H5_daos_fapl_t fapl_info;
+    H5_daos_fapl_t fapl_info = {0};
     daos_handle_t poh;
     hbool_t connected = FALSE;
     int mpi_rank, mpi_initialized;
@@ -3123,6 +3134,10 @@ H5_daos_file_delete_sync(const char *filename, hid_t fapl_id)
             D_GOTO_ERROR(H5E_FILE, H5E_MPI, FAIL, "MPI_Barrier failed during file deletion");
 
 done:
+    if(fapl_info.free_comm_info)
+        if(H5_daos_comm_info_free(&fapl_info.comm, &fapl_info.info) < 0)
+            D_GOTO_ERROR(H5E_INTERNAL, H5E_CANTFREE, FAIL, "failed to free copy of MPI communicator and info");
+
     if(connected && (0 != (ret = daos_pool_disconnect(poh, NULL))))
         D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, FAIL, "can't disconnect from container's pool: %s", H5_daos_err_to_string(ret));
 

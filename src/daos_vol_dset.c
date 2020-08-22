@@ -1499,6 +1499,12 @@ H5_daos_dinfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
                     - (char *)udata->md_rw_cb_ud.sg_iov[2].iov_buf)
                     : udata->md_rw_cb_ud.iod[2].iod_size;
 
+            /* Check for missing metadata */
+            if(udata->md_rw_cb_ud.iod[0].iod_size == 0
+                    || udata->md_rw_cb_ud.iod[1].iod_size == 0
+                    || udata->md_rw_cb_ud.iod[2].iod_size == 0)
+                D_GOTO_ERROR(H5E_DATASET, H5E_NOTFOUND, -H5_DAOS_DAOS_GET_ERROR, "internal metadata not found");
+
             if(udata->bcast_udata) {
                 /* Encode oid */
                 p = udata->bcast_udata->buffer;
@@ -1924,6 +1930,10 @@ done:
     /* Close target object */
     if(target_obj && H5_daos_object_close(target_obj, dxpl_id, NULL) < 0)
         D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, NULL, "can't close object");
+
+    /* If we are not returning a dataset we must close it */
+    if(ret_value == NULL && dset && H5_daos_dataset_close(dset, dxpl_id, NULL) < 0)
+        D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, NULL, "can't close dataset");
 
     D_FUNC_LEAVE_API;
 } /* end H5_daos_dataset_open() */

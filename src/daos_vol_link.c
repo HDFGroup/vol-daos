@@ -2416,6 +2416,9 @@ H5_daos_link_copy_move_end_task(tse_task_t *task)
     if(udata->target_obj && H5_daos_object_close(udata->target_obj, udata->req->dxpl_id, NULL) < 0)
         D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close destination object");
 
+    if(udata->link_target_obj && H5_daos_object_close(udata->link_target_obj, udata->req->dxpl_id, NULL) < 0)
+        D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close link target object");
+
     /* Free path_bufs and link value if necessary */
     udata->src_path_buf = DV_free(udata->src_path_buf);
     udata->dst_path_buf = DV_free(udata->dst_path_buf);
@@ -6899,7 +6902,7 @@ H5_daos_link_bookkeep_phase1_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *ar
     fetch_args->th = DAOS_TX_NONE;
     fetch_args->flags = 0;
     fetch_args->dkey = &udata->index_data.dkey;
-    fetch_args->nr = 2 * udata->index_data.nlinks_shift;
+    fetch_args->nr = (uint32_t)(2 * udata->index_data.nlinks_shift);
     fetch_args->iods = udata->index_data.iods;
     fetch_args->sgls = NULL;
 
@@ -7005,7 +7008,7 @@ H5_daos_link_bookkeep_phase2_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *ar
     fetch_args->th = DAOS_TX_NONE;
     fetch_args->flags = 0;
     fetch_args->dkey = &udata->index_data.dkey;
-    fetch_args->nr = 2 * udata->index_data.nlinks_shift;
+    fetch_args->nr = (uint32_t)(2 * udata->index_data.nlinks_shift);
     fetch_args->iods = udata->index_data.iods;
     fetch_args->sgls = udata->index_data.sgls;
 
@@ -7090,7 +7093,7 @@ H5_daos_link_bookkeep_phase3_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *ar
     update_args->th = DAOS_TX_NONE;
     update_args->flags = 0;
     update_args->dkey = &udata->index_data.dkey;
-    update_args->nr = 2 * udata->index_data.nlinks_shift;
+    update_args->nr = (uint32_t)(2 * udata->index_data.nlinks_shift);
     update_args->iods = udata->index_data.iods;
     update_args->sgls = udata->index_data.sgls;
 
@@ -7435,6 +7438,10 @@ H5_daos_link_delete_rc_end_task(tse_task_t *task)
     /* Release our reference to req */
     if(H5_daos_req_free_int(udata->req) < 0)
         D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+    /* Free link value buffer for soft links */
+    if(udata->link_val.type == H5L_TYPE_SOFT && udata->link_val.target.soft)
+        DV_free(udata->link_val.target.soft);
 
     /* Free udata */
     udata = DV_free(udata);
@@ -7902,7 +7909,7 @@ H5_daos_link_get_name_by_crt_order(H5_daos_group_t *target_grp, H5_iter_order_t 
 {
     H5_daos_link_gnbc_ud_t *gnbc_udata = NULL;
     int ret;
-    ssize_t ret_value = 0;
+    herr_t ret_value = 0;
 
     assert(target_grp);
     H5daos_compile_assert(H5_DAOS_ENCODED_CRT_ORDER_SIZE == 8);
@@ -8132,7 +8139,7 @@ H5_daos_link_get_name_by_name_order(H5_daos_group_t *target_grp, H5_iter_order_t
 {
     H5_daos_link_gnbn_ud_t *gnbn_udata = NULL;
     int ret;
-    ssize_t ret_value = 0;
+    herr_t ret_value = 0;
 
     assert(target_grp);
 

@@ -3397,13 +3397,13 @@ test_vl(hid_t file_id)
 
     /* Allocate and initialize VL data to keys and values */
     for(i=0; i<NUMB_KEYS; i++) {
-        vl_vl_keys[i].p = malloc((i+1)*sizeof(short));
-        vl_vl_keys[i].len = i+1;
+        vl_vl_keys[i].p = malloc((size_t)(i+1) * sizeof(short));
+        vl_vl_keys[i].len = (size_t)(i+1);
         for(j=0; j<(i+1); j++)
             ((short *)(vl_vl_keys[i].p))[j] = (short)(i * 10 + j + 7);
 
-        vl_vl_vals[i].p = malloc((i + NUMB_KEYS)*sizeof(int));
-        vl_vl_vals[i].len = i + NUMB_KEYS;
+        vl_vl_vals[i].p = malloc((size_t)(i + NUMB_KEYS) * sizeof(int));
+        vl_vl_vals[i].len = (size_t)(i + NUMB_KEYS);
         for(j=0; j<(i + NUMB_KEYS); j++)
             ((int *)vl_vl_vals[i].p)[j] = random_base + j;  
     } /* end for */
@@ -3578,8 +3578,8 @@ test_nested_compound(hid_t file_id)
         nested_comp_vals[i].a = rand();
         nested_comp_vals[i].b = (float)rand();
 
-        nested_comp_vals[i].c.p = malloc((i + NUMB_KEYS)*sizeof(int));
-        nested_comp_vals[i].c.len = i + NUMB_KEYS;
+        nested_comp_vals[i].c.p = malloc((size_t)(i + NUMB_KEYS) * sizeof(int));
+        nested_comp_vals[i].c.len = (size_t)(i + NUMB_KEYS);
         for(j=0; j<(i + NUMB_KEYS); j++)
             ((int *)nested_comp_vals[i].c.p)[j] = random_base + j;
     } /* end for */
@@ -3697,23 +3697,23 @@ test_vl_tconv(hid_t file_id)
 
     /* Allocate and initialize VL data to keys and values */
     for(i=0; i<NUMB_KEYS; i++) {
-        vl_int_keys[i].p = malloc((i+1)*sizeof(int));
-        vl_int_keys[i].len = i+1;
+        vl_int_keys[i].p = malloc((size_t)(i+1) * sizeof(int));
+        vl_int_keys[i].len = (size_t)(i+1);
         for(j=0; j<(i+1); j++)
             ((int *)(vl_int_keys[i].p))[j] = (int)(i * 10 + j + 7);
 
-        vl_long_long_keys[i].p = malloc((i+1)*sizeof(long long));
-        vl_long_long_keys[i].len = i+1;
+        vl_long_long_keys[i].p = malloc((size_t)(i+1) * sizeof(long long));
+        vl_long_long_keys[i].len = (size_t)(i+1);
         for(j=0; j<(i+1); j++)
             ((long long *)(vl_long_long_keys[i].p))[j] = (long long)(i * 10 + j + 7);
 
-        vl_int_vals[i].p = malloc((i + NUMB_KEYS)*sizeof(int));
-        vl_int_vals[i].len = i + NUMB_KEYS;
+        vl_int_vals[i].p = malloc((size_t)(i + NUMB_KEYS) * sizeof(int));
+        vl_int_vals[i].len = (size_t)(i + NUMB_KEYS);
         for(j=0; j<(i + NUMB_KEYS); j++)
             ((int *)vl_int_vals[i].p)[j] = random_base + j;
 
-        vl_double_vals[i].p = malloc((i + NUMB_KEYS)*sizeof(double));
-        vl_double_vals[i].len = i + NUMB_KEYS;
+        vl_double_vals[i].p = malloc((size_t)(i + NUMB_KEYS) * sizeof(double));
+        vl_double_vals[i].len = (size_t)(i + NUMB_KEYS);
         for(j=0; j<(i + NUMB_KEYS); j++)
             ((double *)vl_double_vals[i].p)[j] = (double)(random_base + j + 77);
     } /* end for */

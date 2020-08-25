@@ -412,7 +412,7 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hbool_t is_root,
         else if(!is_root) {
             /* No link to group and it's not the root group, write a ref count
              * of 0 to grp */
-             gmt_deps[gmt_ndeps] = *dep_task;
+            gmt_deps[gmt_ndeps] = *dep_task;
             if(0 != (ret = H5_daos_obj_write_rc(NULL, &grp->obj, NULL, 0, &file->sched,
                     req, first_task, &gmt_deps[gmt_ndeps])))
                 D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't write object ref count: %s", H5_daos_err_to_string(ret));
@@ -808,8 +808,8 @@ H5_daos_group_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
             DV_free(udata->buffer);
             if(NULL == (udata->buffer = DV_malloc(ginfo_len)))
                 D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "failed to allocate memory for group info buffer");
-            udata->buffer_len = ginfo_len;
-            udata->count = ginfo_len;
+            udata->buffer_len = (int)ginfo_len;
+            udata->count = (int)ginfo_len;
 
             /* Create task for second bcast */
             if(0 !=  (ret = tse_task_create(H5_daos_mpi_ibcast_task, &udata->obj->item.file->sched, udata, &bcast_task)))
@@ -927,7 +927,7 @@ H5_daos_ginfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
             udata->bcast_udata->buffer = DV_free(udata->bcast_udata->buffer);
             if(NULL == (udata->bcast_udata->buffer = DV_malloc(udata->md_rw_cb_ud.iod[0].iod_size + 3 * H5_DAOS_ENCODED_UINT64_T_SIZE)))
                 D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate buffer for serialized group info");
-            udata->bcast_udata->buffer_len = udata->md_rw_cb_ud.iod[0].iod_size + 3 * H5_DAOS_ENCODED_UINT64_T_SIZE;
+            udata->bcast_udata->buffer_len = (int)(udata->md_rw_cb_ud.iod[0].iod_size + 3 * H5_DAOS_ENCODED_UINT64_T_SIZE);
 
             /* Set up sgl */
             daos_iov_set(&udata->md_rw_cb_ud.sg_iov[0], (uint8_t *)udata->bcast_udata->buffer + 3 * H5_DAOS_ENCODED_UINT64_T_SIZE, udata->md_rw_cb_ud.iod[0].iod_size);
@@ -977,6 +977,10 @@ H5_daos_ginfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
             udata->md_rw_cb_ud.req->failed_task = udata->md_rw_cb_ud.task_name;
         } /* end if */
         else if(task->dt_result == 0) {
+            /* Check for missing metadata */
+            if(udata->md_rw_cb_ud.iod[0].iod_size == 0)
+                D_GOTO_ERROR(H5E_SYM, H5E_NOTFOUND, -H5_DAOS_DAOS_GET_ERROR, "internal metadata not found");
+
             if(udata->bcast_udata) {
                 uint8_t *p;
 

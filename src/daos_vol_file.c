@@ -89,7 +89,7 @@ static herr_t H5_daos_cont_handle_bcast(H5_daos_file_t *file,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 static int H5_daos_get_gch_task(tse_task_t *task);
 static int H5_daos_get_container_handles_task(tse_task_t *task);
-static herr_t H5_daos_file_delete(const uuid_t *puuid, const char *file_path, hbool_t ignore_missing,
+static herr_t H5_daos_file_delete(uuid_t *puuid, const char *file_path, hbool_t ignore_missing,
     tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 static herr_t H5_daos_get_cont_destroy_task(H5_daos_cont_op_info_t *cont_op_info, tse_sched_t *sched,
     tse_task_cb_t prep_cb, tse_task_cb_t comp_cb, H5_daos_req_t *req,
@@ -134,6 +134,7 @@ H5_daos_cont_get_fapl_info(hid_t fapl_id, H5_daos_fapl_t *fa_out)
     if(local_fapl_info) {
         fa_out->comm = local_fapl_info->comm;
         fa_out->info = local_fapl_info->info;
+        fa_out->free_comm_info = FALSE;
     }
     else {
         hid_t driver_id;
@@ -147,6 +148,7 @@ H5_daos_cont_get_fapl_info(hid_t fapl_id, H5_daos_fapl_t *fa_out)
         if(H5FD_MPIO == driver_id) {
             if(H5Pget_fapl_mpio(fapl_id, &fa_out->comm, &fa_out->info) < 0)
                 D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, FAIL, "can't get HDF5 MPI information");
+            fa_out->free_comm_info = TRUE;
         }
         else {
             /*
@@ -155,6 +157,7 @@ H5_daos_cont_get_fapl_info(hid_t fapl_id, H5_daos_fapl_t *fa_out)
              */
             fa_out->comm = MPI_COMM_SELF;
             fa_out->info = MPI_INFO_NULL;
+            fa_out->free_comm_info = FALSE;
         }
     }
 
@@ -400,7 +403,7 @@ H5_daos_gch_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
                 DV_free(udata->buffer);
                 udata->buffer_len = (int)gh_len + H5_DAOS_ENCODED_UINT64_T_SIZE;
 
-                if(NULL == (udata->buffer = DV_malloc(udata->buffer_len)))
+                if(NULL == (udata->buffer = DV_malloc((size_t)udata->buffer_len)))
                     D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "failed to allocate memory for global handle buffer");
                 udata->count = udata->buffer_len;
 
@@ -555,7 +558,7 @@ H5_daos_handles_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
                 DV_free(udata->buffer);
                 udata->buffer_len = (int)gch_len + (int)gph_len + (2 * H5_DAOS_ENCODED_UINT64_T_SIZE);
 
-                if(NULL == (udata->buffer = DV_malloc(udata->buffer_len)))
+                if(NULL == (udata->buffer = DV_malloc((size_t)udata->buffer_len)))
                     D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "failed to allocate memory for global handles buffer");
                 udata->count = udata->buffer_len;
 
@@ -673,7 +676,7 @@ H5_daos_get_gch_task(tse_task_t *task)
         if(NULL == (tmp = DV_realloc(udata->buffer, req_buf_len)))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate space for global container handle");
         udata->buffer = tmp;
-        udata->buffer_len = req_buf_len;
+        udata->buffer_len = (int)req_buf_len;
         udata->count = H5_DAOS_GH_BUF_SIZE + H5_DAOS_ENCODED_UINT64_T_SIZE;
         glob.iov_len = glob.iov_buf_len;
     } /* end if */
@@ -762,7 +765,7 @@ H5_daos_get_container_handles_task(tse_task_t *task)
         if(NULL == (tmp = DV_realloc(udata->buffer, req_buf_len)))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate space for global container handles");
         udata->buffer = tmp;
-        udata->buffer_len = req_buf_len;
+        udata->buffer_len = (int)req_buf_len;
         udata->count = (2 * H5_DAOS_GH_BUF_SIZE) + (2 * H5_DAOS_ENCODED_UINT64_T_SIZE);
         gch_glob.iov_len = gch_glob.iov_buf_len;
         gph_glob.iov_len = gph_glob.iov_buf_len;
@@ -892,8 +895,8 @@ H5_daos_cont_handle_bcast(H5_daos_file_t *file, H5_daos_req_t *req,
         /* Allocate global handle buffer with default initial size */
         if(NULL == (bcast_udata->buffer = DV_malloc(buf_size)))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for global container handles");
-        bcast_udata->buffer_len = buf_size;
-        bcast_udata->count = buf_size;
+        bcast_udata->buffer_len = (int)buf_size;
+        bcast_udata->count = (int)buf_size;
     } /* end else */
 
 done:
@@ -936,7 +939,7 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     hid_t fapl_id, hid_t dxpl_id, void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_file_t *file = NULL;
-    H5_daos_fapl_t fapl_info;
+    H5_daos_fapl_t fapl_info = {0};
     hbool_t sched_init = FALSE;
     H5_daos_req_t *int_req = NULL;
     tse_task_t *first_task = NULL;
@@ -1080,6 +1083,10 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     ret_value = (void *)file;
 
 done:
+    if(fapl_info.free_comm_info)
+        if(H5_daos_comm_info_free(&fapl_info.comm, &fapl_info.info) < 0)
+            D_GOTO_ERROR(H5E_INTERNAL, H5E_CANTFREE, NULL, "failed to free copy of MPI communicator and info");
+
     if(int_req) {
         /* Create task to finalize H5 operation */
         if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &file->sched, int_req, &int_req->finalize_task)))
@@ -1666,7 +1673,7 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     hid_t dxpl_id, void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_file_t *file = NULL;
-    H5_daos_fapl_t fapl_info;
+    H5_daos_fapl_t fapl_info = {0};
 #ifdef DV_HAVE_SNAP_OPEN_ID
     H5_daos_snap_id_t snap_id;
 #endif
@@ -1772,6 +1779,10 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     ret_value = (void *)file;
 
 done:
+    if(fapl_info.free_comm_info)
+        if(H5_daos_comm_info_free(&fapl_info.comm, &fapl_info.info) < 0)
+            D_GOTO_ERROR(H5E_INTERNAL, H5E_CANTFREE, NULL, "failed to free copy of MPI communicator and info");
+
     if(int_req) {
         /* Create task to finalize H5 operation */
         if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &file->sched, int_req, &int_req->finalize_task)))
@@ -2509,7 +2520,7 @@ H5_daos_file_get(void *_item, H5VL_file_get_t get_type, hid_t H5VL_DAOS_UNUSED d
                         D_GOTO_ERROR(H5E_FILE, H5E_BADITER, FAIL, "failed to iterate over file's open attribute IDs");
             }
 
-            *ret_val = udata.obj_count;
+            *ret_val = (ssize_t)udata.obj_count;
 
             break;
         } /* H5VL_FILE_GET_OBJ_IDS */
@@ -2681,7 +2692,7 @@ done:
  *-------------------------------------------------------------------------
  */
 static herr_t
-H5_daos_file_delete(const uuid_t *puuid, const char *file_path, hbool_t ignore_missing,
+H5_daos_file_delete(uuid_t *puuid, const char *file_path, hbool_t ignore_missing,
     tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_cont_op_info_t *destroy_udata = NULL;
@@ -3059,7 +3070,7 @@ done:
 static herr_t
 H5_daos_file_delete_sync(const char *filename, hid_t fapl_id)
 {
-    H5_daos_fapl_t fapl_info;
+    H5_daos_fapl_t fapl_info = {0};
     daos_handle_t poh;
     hbool_t connected = FALSE;
     int mpi_rank, mpi_initialized;
@@ -3123,6 +3134,10 @@ H5_daos_file_delete_sync(const char *filename, hid_t fapl_id)
             D_GOTO_ERROR(H5E_FILE, H5E_MPI, FAIL, "MPI_Barrier failed during file deletion");
 
 done:
+    if(fapl_info.free_comm_info)
+        if(H5_daos_comm_info_free(&fapl_info.comm, &fapl_info.info) < 0)
+            D_GOTO_ERROR(H5E_INTERNAL, H5E_CANTFREE, FAIL, "failed to free copy of MPI communicator and info");
+
     if(connected && (0 != (ret = daos_pool_disconnect(poh, NULL))))
         D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, FAIL, "can't disconnect from container's pool: %s", H5_daos_err_to_string(ret));
 
@@ -3383,7 +3398,7 @@ H5_daos_fill_fapl_cache(H5_daos_file_t *file, hid_t fapl_id)
         if(H5Pget(fapl_id, H5_DAOS_OBJ_CLASS_NAME, &oclass_str) < 0)
             D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "can't get object class");
         if(oclass_str && (oclass_str[0] != '\0'))
-            if(OC_UNKNOWN == (file->fapl_cache.default_object_class = daos_oclass_name2id(oclass_str)))
+            if(OC_UNKNOWN == (file->fapl_cache.default_object_class = (daos_oclass_id_t)daos_oclass_name2id(oclass_str)))
                 D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "unknown object class");
     } /* end if */
 

@@ -2786,7 +2786,7 @@ H5_daos_dataset_copy_data_task(tse_task_t *task)
         D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, -H5_DAOS_H5_GET_ERROR, "can't get number of elements in source dataset's dataspace");
     if(0 == (buf_size = H5Tget_size(udata->src_dset->type_id)))
         D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, -H5_DAOS_H5_GET_ERROR, "can't get source dataset's datatype size");
-    buf_size *= fspace_nelements;
+    buf_size *= (size_t)fspace_nelements;
 
     /* Allocate buffer */
     if(NULL == (udata->data_buf = DV_malloc(buf_size)))
@@ -5371,13 +5371,9 @@ H5_daos_obj_write_rc_task(tse_task_t *task)
 
     /* Handle errors */
     if(req->status < -H5_DAOS_SHORT_CIRCUIT) {
-        tse_task_complete(task, -H5_DAOS_PRE_ERROR);
-        udata = NULL;
         D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
     } /* end if */
     else if(req->status == -H5_DAOS_SHORT_CIRCUIT) {
-        tse_task_complete(task, -H5_DAOS_SHORT_CIRCUIT);
-        udata = NULL;
         D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
     } /* end if */
 
@@ -5497,6 +5493,14 @@ done:
     /* Cleanup */
     if(udata) {
         assert(ret_value < 0);
+
+        /* Close object if a direct pointer was provided */
+        if(udata->obj && H5_daos_object_close(udata->obj, udata->req->dxpl_id, NULL) < 0)
+            D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
+
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(udata->req) < 0)
+            D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
 
         tse_task_complete(task, ret_value);
         udata = DV_free(udata);

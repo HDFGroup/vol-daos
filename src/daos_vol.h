@@ -296,6 +296,7 @@ do {                                                                            
 typedef struct H5_daos_fapl_t {
     MPI_Comm            comm;           /* communicator                  */
     MPI_Info            info;           /* file information              */
+    hbool_t             free_comm_info; /* Whether MPI communicator/info need to be freed */
 } H5_daos_fapl_t;
 
 /* Common object and attribute information */
@@ -751,11 +752,11 @@ extern "C" {
 #endif
 
 /* General routines */
-H5VL_DAOS_PRIVATE herr_t H5_daos_pool_connect(const uuid_t *pool_uuid, char *pool_grp,
+H5VL_DAOS_PRIVATE herr_t H5_daos_pool_connect(uuid_t *pool_uuid, char *pool_grp,
     d_rank_list_t *svcl, unsigned int flags, daos_handle_t *poh_out, daos_pool_info_t *pool_info_out,
     tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE herr_t H5_daos_pool_connect_sync(const uuid_t pool_uuid,
-    char *pool_grp, d_rank_list_t *svcl, unsigned int flags,
+    const char *pool_grp, d_rank_list_t *svcl, unsigned int flags,
     daos_handle_t *poh_out, daos_pool_info_t *pool_info_out);
 H5VL_DAOS_PRIVATE herr_t H5_daos_pool_disconnect(daos_handle_t *poh,
     tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);

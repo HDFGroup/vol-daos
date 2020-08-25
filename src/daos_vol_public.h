@@ -19,7 +19,6 @@
 
 /* Public headers needed by this file */
 #include <hdf5.h>
-#include <H5PLextern.h>
 #include <mpi.h>
 #include <uuid/uuid.h>
 #include <daos.h>

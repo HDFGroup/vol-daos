@@ -20,6 +20,9 @@
 
 #include <daos_mgmt.h>          /* For pool creation */
 
+/* HDF5 header for dynamic plugin loading */
+#include <H5PLextern.h>
+
 /****************/
 /* Local Macros */
 /****************/

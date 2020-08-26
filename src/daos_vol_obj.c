@@ -305,6 +305,8 @@ H5_daos_object_open(void *_item, const H5VL_loc_params_t *loc_params,
     if(!loc_params)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "location parameters object is NULL");
 
+    H5_DAOS_MAKE_ASYNC_PROGRESS(item->file->sched, NULL);
+
     /*
      * Like HDF5, metadata reads are independent by default. If the application has specifically
      * requested collective metadata reads, they will be enabled here. If not already set by the
@@ -1306,6 +1308,8 @@ H5_daos_object_copy(void *src_loc_obj, const H5VL_loc_params_t *src_loc_params,
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "source location parameters type is invalid");
     if(H5VL_OBJECT_BY_SELF != dst_loc_params->type)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "destination location parameters type is invalid");
+
+    H5_DAOS_MAKE_ASYNC_PROGRESS(item->file->sched, FAIL);
 
     /* Retrieve the object copy options. The following flags are
      * currently supported:
@@ -2970,6 +2974,8 @@ H5_daos_object_get(void *_item, const H5VL_loc_params_t *loc_params,
     if(!loc_params)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "location parameters object is NULL");
 
+    H5_DAOS_MAKE_ASYNC_PROGRESS(item->file->sched, FAIL);
+
     /* Start H5 operation */
     if(NULL == (int_req = H5_daos_req_create(item->file, dxpl_id)))
         D_GOTO_ERROR(H5E_OBJECT, H5E_CANTALLOC, FAIL, "can't create DAOS request");
@@ -3240,6 +3246,8 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
     if(!loc_params)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "location parameters object is NULL");
+
+    H5_DAOS_MAKE_ASYNC_PROGRESS(item->file->sched, FAIL);
 
     /* Start H5 operation */
     if(NULL == (int_req = H5_daos_req_create(item->file, dxpl_id)))
@@ -4515,7 +4523,7 @@ done:
         } /* end if */
         else {
             /* Register dependency for task */
-            if(0 != (ret = tse_task_register_deps(end_task, 1, &dep_task)))
+            if(dep_task && 0 != (ret = tse_task_register_deps(end_task, 1, &dep_task)))
                 D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't create dependencies for object get info end task: %s", H5_daos_err_to_string(ret));
 
             /* Schedule end task and give it ownership of udata, while

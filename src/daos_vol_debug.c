@@ -17,6 +17,42 @@
 
 #ifdef DV_PLUGIN_DEBUG
 
+/*
+ * Macro to loop over asking DAOS for a list of akeys/dkeys for an object
+ * and stop as soon as at least one key is retrieved. If DAOS returns
+ * -DER_KEY2BIG, the loop will re-allocate the specified key buffer as
+ * necessary and try again. The variadic portion of this macro corresponds
+ * to the arguments given to daos_obj_list_akey/dkey.
+ */
+#define H5_DAOS_RETRIEVE_KEYS_LOOP(key_buf, key_buf_len, sg_iov, nr, nr_init, maj_err, daos_obj_list_func, ...)  \
+do {                                                                                                    \
+    /* Reset nr */                                                                                      \
+    nr = nr_init;                                                                                       \
+                                                                                                        \
+    /* Ask DAOS for a list of keys, break out if we succeed */                                          \
+    if(0 == (ret = daos_obj_list_func(__VA_ARGS__)))                                                    \
+        break;                                                                                          \
+                                                                                                        \
+    /*                                                                                                  \
+     * Call failed - if the buffer is too small double it and                                           \
+     * try again, otherwise fail.                                                                       \
+     */                                                                                                 \
+    if(ret == -DER_KEY2BIG) {                                                                           \
+        char *tmp_realloc;                                                                              \
+                                                                                                        \
+        /* Allocate larger buffer */                                                                    \
+        key_buf_len *= 2;                                                                               \
+        if(NULL == (tmp_realloc = (char *)DV_realloc(key_buf, key_buf_len)))                            \
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't reallocate key buffer");             \
+        key_buf = tmp_realloc;                                                                          \
+                                                                                                        \
+        /* Update SGL */                                                                                \
+        daos_iov_set(&sg_iov, key_buf, (daos_size_t)(key_buf_len - 1));                                 \
+    } /* end if */                                                                                      \
+    else                                                                                                \
+        D_GOTO_ERROR(maj_err, H5E_CANTGET, FAIL, "can't list keys: %s", H5_daos_err_to_string(ret));    \
+} while(1)
+
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_dump_obj_keys
  *

@@ -169,12 +169,13 @@ H5_daos_map_create(void *_item,
     int ret;
     void *ret_value = NULL;
 
-    /* Make sure H5_DAOS_g is set.  Eventually move this to a FUNC_ENTER_API
-     * type macro? */
-    H5_DAOS_G_INIT(NULL)
+    /* Make sure H5_DAOS_g is set. */
+    H5_DAOS_G_INIT(NULL);
 
     if(!_item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "map parent object is NULL");
+
+    H5_DAOS_MAKE_ASYNC_PROGRESS(item->file->sched, NULL);
 
     /* Check validity of key type.  Vlens are only allwed at the top level, no
      * references allowed at all. */
@@ -533,14 +534,12 @@ H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
     int ret;
     void *ret_value = NULL;
 
-    /* Make sure H5_DAOS_g is set.  Eventually move this to a FUNC_ENTER_API
-     * type macro? */
-    H5_DAOS_G_INIT(NULL)
-
     if(!_item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "map parent object is NULL");
     if(!loc_params)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "location parameters object is NULL");
+
+    H5_DAOS_MAKE_ASYNC_PROGRESS(item->file->sched, NULL);
 
     /* Check for collective access, if not already set by the file */
     collective = item->file->fapl_cache.is_collective_md_read;
@@ -641,6 +640,9 @@ H5_daos_map_open_helper(H5_daos_file_t *file, hid_t mapl_id, hbool_t collective,
     assert(req);
     assert(first_task);
     assert(dep_task);
+
+    /* Make sure H5_DAOS_g is set. */
+    H5_DAOS_G_INIT(NULL);
 
     /* Allocate the map object that is returned to the user */
     if(NULL == (map = H5FL_CALLOC(H5_daos_map_t)))
@@ -877,6 +879,9 @@ H5_daos_map_open_int(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
     assert(req->dxpl_id >= 0);
     assert(first_task);
     assert(dep_task);
+
+    /* Make sure H5_DAOS_g is set. */
+    H5_DAOS_G_INIT(NULL);
 
     /* Check for open by object token */
     if(H5VL_OBJECT_BY_TOKEN == loc_params->type) {
@@ -1917,6 +1922,8 @@ H5_daos_map_get_val(void *_map, hid_t key_mem_type_id, const void *key,
     if(!value)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map value is NULL");
 
+    H5_DAOS_MAKE_ASYNC_PROGRESS(map->obj.item.file->sched, FAIL);
+
     /* Start H5 operation */
     if(NULL == (int_req = H5_daos_req_create(map->obj.item.file, dxpl_id)))
         D_GOTO_ERROR(H5E_MAP, H5E_CANTALLOC, FAIL, "can't create DAOS request");
@@ -2204,6 +2211,8 @@ H5_daos_map_put(void *_map, hid_t key_mem_type_id, const void *key,
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map key is NULL");
     if(!value)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map value is NULL");
+
+    H5_DAOS_MAKE_ASYNC_PROGRESS(map->obj.item.file->sched, FAIL);
 
     /* Check for write access */
     if(!(map->obj.item.file->flags & H5F_ACC_RDWR))
@@ -2570,6 +2579,8 @@ H5_daos_map_exists(void *_map, hid_t key_mem_type_id, const void *key,
     if(!exists)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map exists pointer is NULL");
 
+    H5_DAOS_MAKE_ASYNC_PROGRESS(map->obj.item.file->sched, FAIL);
+
     /* Start H5 operation */
     if(NULL == (int_req = H5_daos_req_create(map->obj.item.file, H5I_INVALID_HID)))
         D_GOTO_ERROR(H5E_MAP, H5E_CANTALLOC, FAIL, "can't create DAOS request");
@@ -2827,6 +2838,8 @@ H5_daos_map_get(void *_map, H5VL_map_get_t get_type,
     if(!_map)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
 
+    H5_DAOS_MAKE_ASYNC_PROGRESS(map->obj.item.file->sched, FAIL);
+
     switch (get_type) {
         case H5VL_MAP_GET_MCPL:
             {
@@ -3000,6 +3013,8 @@ H5_daos_map_specific(void *_item, const H5VL_loc_params_t *loc_params,
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
     if(!loc_params)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "location parameters object is NULL");
+
+    H5_DAOS_MAKE_ASYNC_PROGRESS(item->file->sched, FAIL);
 
     /* Start H5 operation */
     if(NULL == (int_req = H5_daos_req_create(item->file, dxpl_id)))
@@ -3930,6 +3945,9 @@ H5_daos_map_close(void *_map, hid_t H5VL_DAOS_UNUSED dxpl_id,
 
     if(!_map)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map object is NULL");
+
+    if(!map->obj.item.file->closed)
+        H5_DAOS_MAKE_ASYNC_PROGRESS(map->obj.item.file->sched, FAIL);
 
     if(--map->obj.item.rc == 0) {
         /* Free map data structures */

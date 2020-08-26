@@ -406,16 +406,14 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
     int ret;
     void *ret_value = NULL;
 
-    /* Make sure H5_DAOS_g is set.  Eventually move this to a FUNC_ENTER_API
-     * type macro? */
-    H5_DAOS_G_INIT(NULL)
-
     if(!_item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "attribute parent object is NULL");
     if(!loc_params)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "location parameters object is NULL");
     if(!name)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "attribute name is NULL");
+
+    H5_DAOS_MAKE_ASYNC_PROGRESS(item->file->sched, NULL);
 
     /* Check for write access */
     if(!(item->file->flags & H5F_ACC_RDWR))
@@ -531,6 +529,9 @@ H5_daos_attribute_create_helper(H5_daos_item_t *item, const H5VL_loc_params_t *l
     assert(dep_task);
     H5daos_compile_assert(H5_DAOS_ENCODED_NUM_ATTRS_SIZE == 8);
     H5daos_compile_assert(H5_DAOS_ENCODED_CRT_ORDER_SIZE == 8);
+
+    /* Make sure H5_DAOS_g is set. */
+    H5_DAOS_G_INIT(NULL);
 
     /* Allocate the attribute object that is returned to the user */
     if(NULL == (attr = H5FL_CALLOC(H5_daos_attr_t)))
@@ -1187,16 +1188,14 @@ H5_daos_attribute_open(void *_item, const H5VL_loc_params_t *loc_params,
     int ret;
     void *ret_value = NULL;
 
-    /* Make sure H5_DAOS_g is set.  Eventually move this to a FUNC_ENTER_API
-     * type macro? */
-    H5_DAOS_G_INIT(NULL)
-
     if(!_item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "attribute parent object is NULL");
     if(!loc_params)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "location parameters object is NULL");
     if(!name && (H5VL_OBJECT_BY_IDX != loc_params->type))
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "attribute name is NULL");
+
+    H5_DAOS_MAKE_ASYNC_PROGRESS(item->file->sched, NULL);
 
     /* Start H5 operation */
     if(NULL == (int_req = H5_daos_req_create(item->file, H5I_INVALID_HID)))
@@ -1287,6 +1286,9 @@ H5_daos_attribute_open_helper(H5_daos_item_t *item, const H5VL_loc_params_t *loc
     assert(dep_task);
     if(H5VL_OBJECT_BY_IDX != loc_params->type)
         assert(attr_name);
+
+    /* Make sure H5_DAOS_g is set. */
+    H5_DAOS_G_INIT(NULL);
 
     /* Allocate the attribute object that is returned to the user */
     if(NULL == (attr = H5FL_CALLOC(H5_daos_attr_t)))
@@ -1793,6 +1795,8 @@ H5_daos_attribute_read(void *_attr, hid_t mem_type_id, void *buf,
     if(H5I_ATTR != attr->item.type)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not an attribute");
 
+    H5_DAOS_MAKE_ASYNC_PROGRESS(attr->item.file->sched, FAIL);
+
     /* Check for a NULL dataspace */
     if(H5S_NULL == H5Sget_simple_extent_type(attr->space_id))
         D_GOTO_DONE(SUCCEED);
@@ -1948,6 +1952,8 @@ H5_daos_attribute_write(void *_attr, hid_t mem_type_id, const void *buf,
     if(H5I_ATTR != attr->item.type)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not an attribute");
 
+    H5_DAOS_MAKE_ASYNC_PROGRESS(attr->item.file->sched, FAIL);
+
     /* Check for write access */
     if(!(attr->item.file->flags & H5F_ACC_RDWR))
         D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, FAIL, "no write intent on file");
@@ -2085,6 +2091,8 @@ H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
 
     if(!item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
+
+    H5_DAOS_MAKE_ASYNC_PROGRESS(item->file->sched, FAIL);
 
     /* Start H5 operation */
     if(NULL == (int_req = H5_daos_req_create(item->file, H5I_INVALID_HID)))
@@ -2232,6 +2240,8 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
     if(!loc_params)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "location parameters object is NULL");
+
+    H5_DAOS_MAKE_ASYNC_PROGRESS(item->file->sched, FAIL);
 
     /* Start H5 operation */
     if(NULL == (int_req = H5_daos_req_create(item->file, H5I_INVALID_HID)))
@@ -2416,6 +2426,9 @@ H5_daos_attribute_close(void *_attr, hid_t dxpl_id, void **req)
 
     if(!_attr)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "attribute object is NULL");
+
+    if(!attr->item.file->closed)
+        H5_DAOS_MAKE_ASYNC_PROGRESS(attr->item.file->sched, FAIL);
 
     if(--attr->item.rc == 0) {
         /* Free attribute data structures */

@@ -1051,7 +1051,7 @@ done:
     } /* end if */
 
     D_FUNC_LEAVE;
-} /* end  H5_daos_link_write_task() */
+} /* end H5_daos_link_write_task() */
 
 
 /*-------------------------------------------------------------------------
@@ -2031,6 +2031,8 @@ H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
     if(!item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "link loc. object is NULL");
 
+    H5_DAOS_MAKE_ASYNC_PROGRESS(item->file->sched, FAIL);
+
     /* Start H5 operation */
     if(NULL == (int_req = H5_daos_req_create(item->file, dxpl_id)))
         D_GOTO_ERROR(H5E_LINK, H5E_CANTALLOC, FAIL, "can't create DAOS request");
@@ -2647,7 +2649,7 @@ done:
         cm_udata = DV_free(cm_udata);
     } /* end if */
 
-    D_FUNC_LEAVE_API;
+    D_FUNC_LEAVE;
 } /* end H5_daos_link_copy_move_int() */
 
 
@@ -2692,6 +2694,10 @@ H5_daos_link_copy(void *src_item, const H5VL_loc_params_t *loc_params1,
     /* Determine source and destination schedulers */
     src_sched = src_item ? &((H5_daos_item_t *)src_item)->file->sched : &((H5_daos_item_t *)dst_item)->file->sched;
     dst_sched = dst_item ? &((H5_daos_item_t *)dst_item)->file->sched : &((H5_daos_item_t *)src_item)->file->sched;
+
+    H5_DAOS_MAKE_ASYNC_PROGRESS(*src_sched, FAIL);
+    if(src_sched != dst_sched)
+        H5_DAOS_MAKE_ASYNC_PROGRESS(*dst_sched, FAIL);
 
     /* Start H5 operation */
     /* If we ever remove the dxpl_id from H5_daos_object_close, we should be
@@ -2810,6 +2816,10 @@ H5_daos_link_move(void *src_item, const H5VL_loc_params_t *loc_params1,
     src_sched = src_item ? &((H5_daos_item_t *)src_item)->file->sched : &((H5_daos_item_t *)dst_item)->file->sched;
     dst_sched = dst_item ? &((H5_daos_item_t *)dst_item)->file->sched : &((H5_daos_item_t *)src_item)->file->sched;
 
+    H5_DAOS_MAKE_ASYNC_PROGRESS(*src_sched, FAIL);
+    if(src_sched != dst_sched)
+        H5_DAOS_MAKE_ASYNC_PROGRESS(*dst_sched, FAIL);
+
     /* Start H5 operation */
     /* If we ever remove the dxpl_id from H5_daos_object_close, we should be
      * able to remove the dxpl_id from here */
@@ -2911,6 +2921,8 @@ H5_daos_link_get(void *_item, const H5VL_loc_params_t *loc_params,
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
     if(!loc_params)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "location parameters object is NULL");
+
+    H5_DAOS_MAKE_ASYNC_PROGRESS(item->file->sched, FAIL);
 
     /* Start H5 operation */
     if(NULL == (int_req = H5_daos_req_create(item->file, dxpl_id)))
@@ -3084,6 +3096,8 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
     if(!loc_params)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "location parameters object is NULL");
+
+    H5_DAOS_MAKE_ASYNC_PROGRESS(item->file->sched, FAIL);
 
     /*
      * Like HDF5, all metadata writes are collective by default. Once independent

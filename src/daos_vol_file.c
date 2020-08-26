@@ -125,6 +125,9 @@ H5_daos_cont_get_fapl_info(hid_t fapl_id, H5_daos_fapl_t *fa_out)
     H5_daos_fapl_t *local_fapl_info = NULL;
     herr_t ret_value = SUCCEED;
 
+    /* Make sure H5_DAOS_g is set. */
+    H5_DAOS_G_INIT(FAIL);
+
     /*
      * First, check to see if any MPI info was set through the use of
      * a H5Pset_fapl_daos() call.
@@ -2361,20 +2364,27 @@ herr_t
 H5_daos_file_get(void *_item, H5VL_file_get_t get_type, hid_t H5VL_DAOS_UNUSED dxpl_id,
     void H5VL_DAOS_UNUSED **req, va_list H5VL_DAOS_UNUSED arguments)
 {
-    H5_daos_file_t *file = (H5_daos_file_t *)_item;
+    H5_daos_item_t *item = (H5_daos_item_t *)_item;
+    H5_daos_file_t *file = NULL;
     herr_t          ret_value = SUCCEED;
 
     if(!_item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
     if(get_type == H5VL_FILE_GET_NAME) {
-        if(H5I_FILE != file->item.type && H5I_GROUP != file->item.type &&
-           H5I_DATATYPE != file->item.type && H5I_DATASET != file->item.type &&
-           H5I_ATTR != file->item.type)
+        file = item->file;
+
+        if(H5I_FILE != item->type && H5I_GROUP != item->type &&
+           H5I_DATATYPE != item->type && H5I_DATASET != item->type &&
+           H5I_ATTR != item->type)
             D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a file, group, datatype, dataset or attribute");
     }
-    else
+    else {
+        file = (H5_daos_file_t *)item;
         if(H5I_FILE != file->item.type)
             D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a file");
+    }
+
+    H5_DAOS_MAKE_ASYNC_PROGRESS(file->sched, FAIL);
 
     switch (get_type) {
         /* "get container info" */
@@ -2554,8 +2564,10 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
     H5_daos_file_t *file = NULL;
     herr_t ret_value = SUCCEED;    /* Return value */
 
-    if(item)
+    if(item) {
         file = ((H5_daos_item_t *)item)->file;
+        H5_DAOS_MAKE_ASYNC_PROGRESS(file->sched, FAIL);
+    }
 
     switch (specific_type) {
         /* H5Fflush */

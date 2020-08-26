@@ -55,12 +55,17 @@ typedef d_sg_list_t daos_sg_list_t;
 #define H5_DAOS_VOL_NAME "daos"
 #define H5_DAOS_VOL_NAME_LEN 4
 
-/* Macro to ensure H5_DAOS_g is initialized */
-#define H5_DAOS_G_INIT(ERR) { \
+/* Macro to ensure H5_DAOS_g is initialized. H5_DAOS_g is only set if
+ * the connector is manually initialized; if the connector has been
+ * dynamically loaded, there are various places that this macro should
+ * be used to check and set H5_DAOS_g if necessary.
+ */
+#define H5_DAOS_G_INIT(ERR) \
+do { \
     if(H5_DAOS_g < 0) \
         if((H5_DAOS_g = H5VLpeek_connector_id_by_value(H5_VOL_DAOS_CLS_VAL)) < 0) \
             D_GOTO_ERROR(H5E_ATOM, H5E_CANTGET, ERR, "unable to get registered ID for DAOS VOL connector"); \
-}
+} while(0)
 
 /* Constant keys */
 #define H5_DAOS_CHUNK_KEY 0u
@@ -216,42 +221,6 @@ typedef d_sg_list_t daos_sg_list_t;
  */
 #undef DV_HAVE_SNAP_OPEN_ID
 
-/*
- * Macro to loop over asking DAOS for a list of akeys/dkeys for an object
- * and stop as soon as at least one key is retrieved. If DAOS returns
- * -DER_KEY2BIG, the loop will re-allocate the specified key buffer as
- * necessary and try again. The variadic portion of this macro corresponds
- * to the arguments given to daos_obj_list_akey/dkey.
- */
-#define H5_DAOS_RETRIEVE_KEYS_LOOP(key_buf, key_buf_len, sg_iov, nr, nr_init, maj_err, daos_obj_list_func, ...)  \
-do {                                                                                                    \
-    /* Reset nr */                                                                                      \
-    nr = nr_init;                                                                              \
-                                                                                                        \
-    /* Ask DAOS for a list of keys, break out if we succeed */                                          \
-    if(0 == (ret = daos_obj_list_func(__VA_ARGS__)))                                                    \
-        break;                                                                                          \
-                                                                                                        \
-    /*                                                                                                  \
-     * Call failed - if the buffer is too small double it and                                           \
-     * try again, otherwise fail.                                                                       \
-     */                                                                                                 \
-    if(ret == -DER_KEY2BIG) {                                                                           \
-        char *tmp_realloc;                                                                              \
-                                                                                                        \
-        /* Allocate larger buffer */                                                                    \
-        key_buf_len *= 2;                                                                               \
-        if(NULL == (tmp_realloc = (char *)DV_realloc(key_buf, key_buf_len)))                            \
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't reallocate key buffer");             \
-        key_buf = tmp_realloc;                                                                          \
-                                                                                                        \
-        /* Update SGL */                                                                                \
-        daos_iov_set(&sg_iov, key_buf, (daos_size_t)(key_buf_len - 1));                                 \
-    } /* end if */                                                                                      \
-    else                                                                                                \
-        D_GOTO_ERROR(maj_err, H5E_CANTGET, FAIL, "can't list keys: %s", H5_daos_err_to_string(ret));    \
-} while(1)
-
 /* Macro to initialize all non-specific fields of an H5_daos_iter_data_t struct */
 #define H5_DAOS_ITER_DATA_INIT(_iter_data, _iter_type, _idx_type, _iter_order, \
     _is_recursive, _idx_p, _iter_root_obj, _op_data, _op_ret_p, _req)          \
@@ -286,6 +255,17 @@ do {                                                                            
     if(req->status < -H5_DAOS_SHORT_CIRCUIT)                                                          \
         D_GOTO_ERROR(err_maj, err_min, ret_value, "asynchronous task failed: %s",                     \
                 H5_daos_err_to_string(req->status));                                                  \
+} while(0)
+
+/* Macro to make progress in task engine whenever the
+ * connector is entered from a public API call.
+ */
+#define H5_DAOS_MAKE_ASYNC_PROGRESS(sched, ret_value)               \
+do {                                                                \
+    /* Make progress on scheduler */                                \
+    if(H5_daos_progress(&(sched), NULL, H5_DAOS_PROGRESS_KICK) < 0) \
+        D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, ret_value,       \
+                "can't progress scheduler");                        \
 } while(0)
 
 /********************/

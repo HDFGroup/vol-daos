@@ -135,9 +135,10 @@ H5_daos_cont_get_fapl_info(hid_t fapl_id, H5_daos_fapl_t *fa_out)
     if(H5Pget_vol_info(fapl_id, (void **) &local_fapl_info) < 0)
         D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, FAIL, "can't get VOL info struct");
     if(local_fapl_info) {
-        fa_out->comm = local_fapl_info->comm;
-        fa_out->info = local_fapl_info->info;
-        fa_out->free_comm_info = FALSE;
+        if(H5_daos_comm_info_dup(local_fapl_info->comm, local_fapl_info->info,
+                &fa_out->comm, &fa_out->info) < 0)
+            D_GOTO_ERROR(H5E_INTERNAL, H5E_CANTCOPY, FAIL, "failed to duplicate MPI communicator and info");
+        fa_out->free_comm_info = TRUE;
     }
     else {
         hid_t driver_id;

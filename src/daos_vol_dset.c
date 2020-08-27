@@ -1581,168 +1581,6 @@ done:
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_dataset_refresh_comp_cb
- *
- * Purpose:     Complete callback for asynchronous metadata fetch for
- *              dataset refresh operations.
- *
- * Return:      Success:        0
- *              Failure:        Error code
- *
- *-------------------------------------------------------------------------
- */
-static int
-H5_daos_dataset_refresh_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
-{
-    H5_daos_omd_fetch_ud_t *udata;
-    uint8_t *p;
-    int ret;
-    int ret_value = 0;
-
-    /* Get private data */
-    if(NULL == (udata = tse_task_get_priv(task)))
-        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for dataset dataspace read task");
-
-    assert(udata->md_rw_cb_ud.req);
-    assert(udata->md_rw_cb_ud.req->file);
-    assert(udata->md_rw_cb_ud.obj);
-    assert(udata->fetch_metatask);
-    assert(!udata->md_rw_cb_ud.req->file->closed);
-    assert(udata->md_rw_cb_ud.obj->item.type == H5I_DATASET);
-
-    /* Check for buffer not large enough */
-    if(task->dt_result == -DER_REC2BIG) {
-        tse_task_t *fetch_task;
-        size_t daos_info_len = udata->md_rw_cb_ud.iod[0].iod_size;
-
-        /* Verify iod size makes sense */
-        if(udata->md_rw_cb_ud.sg_iov[0].iov_buf_len != H5_DAOS_SPACE_BUF_SIZE)
-            D_GOTO_ERROR(H5E_DATASET, H5E_BADVALUE, -H5_DAOS_BAD_VALUE, "buffer length does not match expected value");
-
-        if(udata->bcast_udata) {
-            /* Reallocate dataspace buffer if necessary */
-            if(daos_info_len > H5_DAOS_SPACE_BUF_SIZE) {
-                udata->bcast_udata->buffer = DV_free(udata->bcast_udata->buffer);
-                if(NULL == (udata->bcast_udata->buffer = DV_malloc(daos_info_len + H5_DAOS_ENCODED_UINT64_T_SIZE)))
-                    D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate buffer for serialized dataspace info");
-                udata->bcast_udata->buffer_len = (int)(daos_info_len + H5_DAOS_ENCODED_UINT64_T_SIZE);
-            } /* end if */
-
-            /* Set starting point for fetch sg_iovs */
-            p = (uint8_t *)udata->bcast_udata->buffer + H5_DAOS_ENCODED_UINT64_T_SIZE;
-        } /* end if */
-        else {
-            /* Reallocate dataset info buffer if necessary */
-            if(daos_info_len > H5_DAOS_SPACE_BUF_SIZE) {
-                udata->md_rw_cb_ud.sg_iov[0].iov_buf = DV_free(udata->md_rw_cb_ud.sg_iov[0].iov_buf);
-                if(NULL == (udata->md_rw_cb_ud.sg_iov[0].iov_buf = DV_malloc(daos_info_len)))
-                    D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate buffer for serialized dataspace info");
-            } /* end if */
-
-            /* Set starting point for fetch sg_iovs */
-            p = (uint8_t *)udata->md_rw_cb_ud.sg_iov[0].iov_buf;
-        } /* end else */
-
-        /* Set up sgl */
-        daos_iov_set(&udata->md_rw_cb_ud.sg_iov[0], p, udata->md_rw_cb_ud.iod[0].iod_size);
-        udata->md_rw_cb_ud.sgl[0].sg_nr_out = 0;
-
-        /* Create task for reissued dataset dataspace read */
-        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &udata->md_rw_cb_ud.obj->item.file->sched, 0, NULL, &fetch_task)))
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, ret, "can't create task to read dataset dataspace: %s", H5_daos_err_to_string(ret));
-
-        /* Set callback functions for dataset dataspace read */
-        if(0 != (ret = tse_task_register_cbs(fetch_task, H5_daos_md_rw_prep_cb, NULL, 0, H5_daos_dataset_refresh_comp_cb, NULL, 0)))
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, ret, "can't register callbacks for task to read dataset dataspace: %s", H5_daos_err_to_string(ret));
-
-        /* Set private data for dataset dataspace read */
-        (void)tse_task_set_priv(fetch_task, udata);
-
-        /* Schedule reissued dataset dataspace read task */
-        if(0 != (ret = tse_task_schedule(fetch_task, false)))
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, ret, "can't schedule task to read dataset dataspace: %s", H5_daos_err_to_string(ret));
-
-        /* Relinquish control of the object fetch udata to the task's completion callback */
-        udata = NULL;
-    } /* end if */
-    else {
-        /* Handle errors in fetch task.  Only record error in udata->req_status
-         * if it does not already contain an error (it could contain an error if
-         * another task this task is not dependent on also failed). */
-        if(task->dt_result < -H5_DAOS_PRE_ERROR
-                && udata->md_rw_cb_ud.req->status >= -H5_DAOS_SHORT_CIRCUIT) {
-            udata->md_rw_cb_ud.req->status = task->dt_result;
-            udata->md_rw_cb_ud.req->failed_task = udata->md_rw_cb_ud.task_name;
-        } /* end if */
-        else if(task->dt_result == 0) {
-            H5_daos_dset_t *dset = (H5_daos_dset_t *)udata->md_rw_cb_ud.obj;
-            hid_t decoded_space;
-
-            if(udata->bcast_udata) {
-                /* Encode serialized dataspace length */
-                p = udata->bcast_udata->buffer;
-                UINT64ENCODE(p, udata->md_rw_cb_ud.iod[0].iod_size)
-                assert(p == udata->md_rw_cb_ud.sg_iov[0].iov_buf);
-            } /* end if */
-
-            /* Decode dataspace */
-            if((decoded_space = H5Sdecode(udata->md_rw_cb_ud.sg_iov[0].iov_buf)) < 0)
-                D_GOTO_ERROR(H5E_ARGS, H5E_CANTDECODE, FAIL, "can't deserialize dataspace");
-
-            /* Close dataset's current dataspace ID */
-            if(dset->space_id >= 0 && H5Sclose(dset->space_id) < 0) {
-                H5Sclose(decoded_space);
-                D_GOTO_ERROR(H5E_DATASPACE, H5E_CLOSEERROR, FAIL, "can't close dataset's old dataspace");
-            }
-
-            dset->space_id = decoded_space;
-        } /* end else */
-    } /* end else */
-
-done:
-    /* Clean up if this is the last fetch task */
-    if(udata) {
-        /* Close dataset */
-        if(H5_daos_dataset_close((H5_daos_dset_t *)udata->md_rw_cb_ud.obj, H5I_INVALID_HID, NULL) < 0)
-            D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close dataset");
-
-        if(udata->bcast_udata) {
-            /* Clear broadcast buffer if there was an error */
-            if(udata->md_rw_cb_ud.req->status < -H5_DAOS_INCOMPLETE)
-                (void)memset(udata->bcast_udata->buffer, 0, (size_t)udata->bcast_udata->count);
-        } /* end if */
-        else
-            /* No broadcast, free buffer */
-            DV_free(udata->md_rw_cb_ud.sg_iov[0].iov_buf);
-
-        /* Handle errors in this function */
-        /* Do not place any code that can issue errors after this block, except
-         * for H5_daos_req_free_int, which updates req->status if it sees an
-         * error */
-        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->md_rw_cb_ud.req->status >= -H5_DAOS_SHORT_CIRCUIT) {
-            udata->md_rw_cb_ud.req->status = ret_value;
-            udata->md_rw_cb_ud.req->failed_task = udata->md_rw_cb_ud.task_name;
-        } /* end if */
-
-        /* Release our reference to req */
-        if(H5_daos_req_free_int(udata->md_rw_cb_ud.req) < 0)
-            D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
-
-        /* Complete fetch metatask */
-        tse_task_complete(udata->fetch_metatask, ret_value);
-
-        assert(!udata->md_rw_cb_ud.free_dkey);
-        assert(!udata->md_rw_cb_ud.free_akeys);
-
-        /* Free udata */
-        DV_free(udata);
-    } /* end if */
-
-    return ret_value;
-} /* end H5_daos_dataset_refresh_comp_cb() */
-
-
-/*-------------------------------------------------------------------------
  * Function:    H5_daos_dataset_open
  *
  * Purpose:     Sends a request to DAOS to open a dataset
@@ -4067,7 +3905,7 @@ H5_daos_dataset_refresh_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
                 udata->bcast_udata->buffer = DV_free(udata->bcast_udata->buffer);
                 if(NULL == (udata->bcast_udata->buffer = DV_malloc(daos_info_len + H5_DAOS_ENCODED_UINT64_T_SIZE)))
                     D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate buffer for serialized dataspace info");
-                udata->bcast_udata->buffer_len = daos_info_len + H5_DAOS_ENCODED_UINT64_T_SIZE;
+                udata->bcast_udata->buffer_len = (int)daos_info_len + H5_DAOS_ENCODED_UINT64_T_SIZE;
             } /* end if */
 
             /* Set starting point for fetch sg_iovs */
@@ -4151,7 +3989,7 @@ done:
         if(udata->bcast_udata) {
             /* Clear broadcast buffer if there was an error */
             if(udata->md_rw_cb_ud.req->status < -H5_DAOS_INCOMPLETE)
-                (void)memset(udata->bcast_udata->buffer, 0, udata->bcast_udata->count);
+                (void)memset(udata->bcast_udata->buffer, 0, (size_t)udata->bcast_udata->count);
         } /* end if */
         else
             /* No broadcast, free buffer */

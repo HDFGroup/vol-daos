@@ -1455,8 +1455,8 @@ H5_daos_attribute_open_helper(H5_daos_item_t *item, const H5VL_loc_params_t *loc
             p = ainfo_buf + (3 * sizeof(uint64_t));
             bcast_udata->bcast_ud.buffer = ainfo_buf;
             ainfo_buf = NULL;
-            bcast_udata->bcast_ud.buffer_len = ainfo_buf_size;
-            bcast_udata->bcast_ud.count = ainfo_buf_size;
+            bcast_udata->bcast_ud.buffer_len = (int)ainfo_buf_size;
+            bcast_udata->bcast_ud.count = (int)ainfo_buf_size;
         } /* end if */
         else
             p = ainfo_buf;
@@ -1526,8 +1526,8 @@ H5_daos_attribute_open_helper(H5_daos_item_t *item, const H5VL_loc_params_t *loc
         /* Allocate buffer for attribute info */
         if(NULL == (bcast_udata->bcast_ud.buffer = DV_malloc(ainfo_buf_size)))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized attribute info");
-        bcast_udata->bcast_ud.buffer_len = ainfo_buf_size;
-        bcast_udata->bcast_ud.count = ainfo_buf_size;
+        bcast_udata->bcast_ud.buffer_len = (int)ainfo_buf_size;
+        bcast_udata->bcast_ud.count = (int)ainfo_buf_size;
         bcast_udata->attr = attr;
     } /* end else */
 
@@ -1810,8 +1810,8 @@ H5_daos_attribute_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *arg
             DV_free(udata->bcast_ud.buffer);
             if(NULL == (udata->bcast_ud.buffer = DV_malloc(ainfo_len)))
                 D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "failed to allocate memory for attribute info buffer");
-            udata->bcast_ud.buffer_len = ainfo_len;
-            udata->bcast_ud.count = ainfo_len;
+            udata->bcast_ud.buffer_len = (int)ainfo_len;
+            udata->bcast_ud.count = (int)ainfo_len;
 
             /* Create task for second bcast */
             if(0 != (ret = tse_task_create(H5_daos_mpi_ibcast_task, &udata->attr->parent->item.file->sched, udata, &bcast_task)))
@@ -1961,7 +1961,7 @@ H5_daos_ainfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
                 udata->fetch_ud.bcast_udata->buffer = DV_free(udata->fetch_ud.bcast_udata->buffer);
                 if(NULL == (udata->fetch_ud.bcast_udata->buffer = DV_malloc(daos_info_len + 3 * H5_DAOS_ENCODED_UINT64_T_SIZE)))
                     D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate buffer for serialized attribute info");
-                udata->fetch_ud.bcast_udata->buffer_len = daos_info_len + 3 * H5_DAOS_ENCODED_UINT64_T_SIZE;
+                udata->fetch_ud.bcast_udata->buffer_len = (int)daos_info_len + 3 * H5_DAOS_ENCODED_UINT64_T_SIZE;
             } /* end if */
 
             /* Set starting point for fetch sg_iovs */
@@ -2055,7 +2055,7 @@ done:
         if(udata->fetch_ud.bcast_udata) {
             /* Clear broadcast buffer if there was an error */
             if(udata->fetch_ud.md_rw_cb_ud.req->status < -H5_DAOS_INCOMPLETE)
-                (void)memset(udata->fetch_ud.bcast_udata->buffer, 0, udata->fetch_ud.bcast_udata->count);
+                (void)memset(udata->fetch_ud.bcast_udata->buffer, 0, (size_t)udata->fetch_ud.bcast_udata->count);
         } /* end if */
         else
             /* No broadcast, free buffer */

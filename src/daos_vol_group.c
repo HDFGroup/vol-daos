@@ -531,6 +531,8 @@ H5_daos_group_create(void *_item,
     if(!loc_params)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "location parameters object is NULL");
 
+    H5_DAOS_MAKE_ASYNC_PROGRESS(item->file->sched, NULL);
+
     /* Check for write access */
     if(!(item->file->flags & H5F_ACC_RDWR))
         D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, NULL, "no write intent on file");
@@ -1410,6 +1412,8 @@ H5_daos_group_open(void *_item, const H5VL_loc_params_t *loc_params,
     if(!loc_params)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "location parameters object is NULL");
 
+    H5_DAOS_MAKE_ASYNC_PROGRESS(item->file->sched, NULL);
+
     /*
      * Like HDF5, metadata reads are independent by default. If the application has specifically
      * requested collective metadata reads, they will be enabled here.
@@ -1510,6 +1514,8 @@ H5_daos_group_get(void *_item, H5VL_group_get_t get_type, hid_t dxpl_id,
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
     if(H5I_FILE != grp->obj.item.type && H5I_GROUP != grp->obj.item.type)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a file or group");
+
+    H5_DAOS_MAKE_ASYNC_PROGRESS(grp->obj.item.file->sched, FAIL);
 
     /* Start H5 operation */
     if(NULL == (int_req = H5_daos_req_create(grp->obj.item.file, dxpl_id)))
@@ -1619,6 +1625,8 @@ H5_daos_group_specific(void *_item, H5VL_group_specific_t specific_type,
     if(H5I_FILE != grp->obj.item.type && H5I_GROUP != grp->obj.item.type)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a file or group");
 
+    H5_DAOS_MAKE_ASYNC_PROGRESS(grp->obj.item.file->sched, FAIL);
+
     switch (specific_type) {
         /* H5Gflush */
         case H5VL_GROUP_FLUSH:
@@ -1664,6 +1672,9 @@ H5_daos_group_close(void *_grp, hid_t H5VL_DAOS_UNUSED dxpl_id,
 
     if(!_grp)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "group object is NULL");
+
+    if(!grp->obj.item.file->closed)
+        H5_DAOS_MAKE_ASYNC_PROGRESS(grp->obj.item.file->sched, FAIL);
 
     if(--grp->obj.item.rc == 0) {
         /* Free group data structures */

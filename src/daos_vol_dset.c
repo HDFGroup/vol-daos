@@ -417,14 +417,12 @@ H5_daos_dataset_create(void *_item,
     int ret;
     void *ret_value = NULL;
 
-    /* Make sure H5_DAOS_g is set.  Eventually move this to a FUNC_ENTER_API
-     * type macro? */
-    H5_DAOS_G_INIT(NULL)
-
     if(!_item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "dataset parent object is NULL");
     if(!loc_params)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "location parameters object is NULL");
+
+    H5_DAOS_MAKE_ASYNC_PROGRESS(item->file->sched, NULL);
 
     /* Check for write access */
     if(!(item->file->flags & H5F_ACC_RDWR))
@@ -567,6 +565,9 @@ H5_daos_dataset_create_helper(H5_daos_file_t *file, hid_t type_id, hid_t space_i
     assert(req);
     assert(first_task);
     assert(dep_task);
+
+    /* Make sure H5_DAOS_g is set. */
+    H5_DAOS_G_INIT(NULL);
 
     /* Allocate the dataset object that is returned to the user */
     if(NULL == (dset = H5FL_CALLOC(H5_daos_dset_t)))
@@ -1768,14 +1769,12 @@ H5_daos_dataset_open(void *_item,
     int ret;
     void *ret_value = NULL;
 
-    /* Make sure H5_DAOS_g is set.  Eventually move this to a FUNC_ENTER_API
-     * type macro? */
-    H5_DAOS_G_INIT(NULL)
-
     if(!_item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "dataset parent object is NULL");
     if(!loc_params)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "location parameters object is NULL");
+
+    H5_DAOS_MAKE_ASYNC_PROGRESS(item->file->sched, NULL);
 
     /*
      * Like HDF5, metadata reads are independent by default. If the application has specifically
@@ -1968,6 +1967,9 @@ H5_daos_dataset_open_helper(H5_daos_file_t *file, hid_t dapl_id, hbool_t collect
     assert(req);
     assert(first_task);
     assert(dep_task);
+
+    /* Make sure H5_DAOS_g is set. */
+    H5_DAOS_G_INIT(NULL);
 
     /* Allocate the dataset object that is returned to the user */
     if(NULL == (dset = H5FL_CALLOC(H5_daos_dset_t)))
@@ -3346,6 +3348,8 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
     if(H5I_DATASET != dset->obj.item.type)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a dataset");
 
+    H5_DAOS_MAKE_ASYNC_PROGRESS(dset->obj.item.file->sched, FAIL);
+
     /* Start H5 operation */
     if(NULL == (int_req = H5_daos_req_create(dset->obj.item.file, dxpl_id)))
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't create DAOS request");
@@ -3620,6 +3624,8 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
     if(H5I_DATASET != dset->obj.item.type)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a dataset");
 
+    H5_DAOS_MAKE_ASYNC_PROGRESS(dset->obj.item.file->sched, FAIL);
+
     /* Check for write access */
     if(!(dset->obj.item.file->flags & H5F_ACC_RDWR))
         D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, FAIL, "no write intent on file");
@@ -3706,6 +3712,8 @@ H5_daos_dataset_get(void *_dset, H5VL_dataset_get_t get_type,
 
     if(!_dset)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
+
+    H5_DAOS_MAKE_ASYNC_PROGRESS(dset->obj.item.file->sched, FAIL);
 
     switch (get_type) {
         case H5VL_DATASET_GET_DCPL:
@@ -3815,6 +3823,8 @@ H5_daos_dataset_specific(void *_item, H5VL_dataset_specific_t specific_type,
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
     if(H5I_DATASET != dset->obj.item.type)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a dataset");
+
+    H5_DAOS_MAKE_ASYNC_PROGRESS(dset->obj.item.file->sched, FAIL);
 
     /* Start H5 operation */
     if(NULL == (int_req = H5_daos_req_create(dset->obj.item.file, H5I_INVALID_HID)))
@@ -3936,6 +3946,9 @@ H5_daos_dataset_close(void *_dset, hid_t H5VL_DAOS_UNUSED dxpl_id,
 
     if(!_dset)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "dataset object is NULL");
+
+    if(!dset->obj.item.file->closed)
+        H5_DAOS_MAKE_ASYNC_PROGRESS(dset->obj.item.file->sched, FAIL);
 
     if(--dset->obj.item.rc == 0) {
         /* Free dataset data structures */

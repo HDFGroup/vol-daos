@@ -452,8 +452,6 @@ H5daos_term(void)
 {
     herr_t ret_value = SUCCEED;            /* Return value */
 
-    /* H5TRACE0("e",""); DSINC */
-
     /* Terminate the connector */
     if(H5_daos_term() < 0)
         D_GOTO_ERROR(H5E_VOL, H5E_CLOSEERROR, FAIL, "can't terminate DAOS VOL connector");
@@ -518,8 +516,6 @@ H5Pset_fapl_daos(hid_t fapl_id, MPI_Comm file_comm, MPI_Info file_info)
     H5_daos_fapl_t fa;
     htri_t         is_fapl;
     herr_t         ret_value = FAIL;
-
-    /* H5TRACE3("e", "iMcMi", fapl_id, file_comm, file_info); DSINC */
 
     if(H5_DAOS_g < 0)
         D_GOTO_ERROR(H5E_VOL, H5E_UNINITIALIZED, FAIL, "DAOS VOL connector not initialized");
@@ -2222,13 +2218,17 @@ done:
  *---------------------------------------------------------------------------
  */
 static herr_t
-H5_daos_get_conn_cls(void H5VL_DAOS_UNUSED *item,
-    H5VL_get_conn_lvl_t H5VL_DAOS_UNUSED lvl, const H5VL_class_t **conn_cls)
+H5_daos_get_conn_cls(void *item, H5VL_get_conn_lvl_t H5VL_DAOS_UNUSED lvl,
+    const H5VL_class_t **conn_cls)
 {
     herr_t          ret_value = SUCCEED;
 
+    if(!item)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "item parameter not supplied");
     if(!conn_cls)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "conn_cls parameter not supplied");
+
+    H5_DAOS_MAKE_ASYNC_PROGRESS(((H5_daos_item_t *)item)->file->sched, FAIL);
 
     /* Retrieve the DAOS VOL connector class */
     *conn_cls = &H5_daos_g;
@@ -2249,14 +2249,17 @@ done:
  *---------------------------------------------------------------------------
  */
 static herr_t
-H5_daos_opt_query(void H5VL_DAOS_UNUSED *item,
-    H5VL_subclass_t H5VL_DAOS_UNUSED cls, int H5VL_DAOS_UNUSED opt_type,
-    hbool_t *supported)
+H5_daos_opt_query(void *item, H5VL_subclass_t H5VL_DAOS_UNUSED cls,
+    int H5VL_DAOS_UNUSED opt_type, hbool_t *supported)
 {
     herr_t          ret_value = SUCCEED;
 
+    if(!item)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "\"item\" parameter not supplied");
     if(!supported)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "\"supported\" parameter not supplied");
+
+    H5_DAOS_MAKE_ASYNC_PROGRESS(((H5_daos_item_t *)item)->file->sched, FAIL);
 
     /* This VOL connector currently supports no optional operations queried by
      * this function */

@@ -514,6 +514,8 @@ H5_daos_datatype_commit(void *_item,
     if(!loc_params)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "location parameters object is NULL");
 
+    H5_DAOS_MAKE_ASYNC_PROGRESS(item->file->sched, NULL);
+
     /* Check for write access */
     if(!(item->file->flags & H5F_ACC_RDWR))
         D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, NULL, "no write intent on file");
@@ -905,6 +907,8 @@ H5_daos_datatype_open(void *_item,
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "datatype parent object is NULL");
     if(!loc_params)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "location parameters object is NULL");
+
+    H5_DAOS_MAKE_ASYNC_PROGRESS(item->file->sched, NULL);
 
     /*
      * Like HDF5, metadata reads are independent by default. If the application has specifically
@@ -1751,6 +1755,8 @@ H5_daos_datatype_get(void *_dtype, H5VL_datatype_get_t get_type,
     if(!_dtype)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
 
+    H5_DAOS_MAKE_ASYNC_PROGRESS(dtype->obj.item.file->sched, FAIL);
+
     switch (get_type) {
         case H5VL_DATATYPE_GET_BINARY:
             {
@@ -1812,6 +1818,8 @@ H5_daos_datatype_specific(void *_item, H5VL_datatype_specific_t specific_type,
     if(H5I_DATATYPE != dtype->obj.item.type)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a datatype");
 
+    H5_DAOS_MAKE_ASYNC_PROGRESS(dtype->obj.item.file->sched, FAIL);
+
     switch (specific_type) {
         case H5VL_DATATYPE_FLUSH:
         {
@@ -1860,6 +1868,9 @@ H5_daos_datatype_close(void *_dtype, hid_t H5VL_DAOS_UNUSED dxpl_id,
 
     if(!_dtype)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "datatype object is NULL");
+
+    if(!dtype->obj.item.file->closed)
+        H5_DAOS_MAKE_ASYNC_PROGRESS(dtype->obj.item.file->sched, FAIL);
 
     if(--dtype->obj.item.rc == 0) {
         /* Free datatype data structures */

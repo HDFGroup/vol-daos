@@ -4800,6 +4800,10 @@ H5_daos_collective_error_check_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *
 
 done:
     if(udata) {
+        /* Close object */
+        if(udata->obj && H5_daos_object_close(udata->obj, H5I_INVALID_HID, NULL) < 0)
+            D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
+
         /* Release our reference to req */
         if(H5_daos_req_free_int(udata->req) < 0)
             D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");

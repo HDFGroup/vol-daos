@@ -1483,7 +1483,7 @@ H5_daos_object_copy_helper(void *src_loc_obj, const H5VL_loc_params_t *src_loc_p
     sub_loc_params.loc_data.loc_by_name.lapl_id = H5P_LINK_ACCESS_DEFAULT;
     sub_loc_params.loc_data.loc_by_name.name = src_name;
     if(H5_daos_object_open_helper(src_loc_obj, &sub_loc_params, NULL,
-            TRUE, NULL, &obj_copy_udata->src_obj, req, first_task, dep_task) < 0)
+            FALSE, NULL, &obj_copy_udata->src_obj, req, first_task, dep_task) < 0)
         D_GOTO_ERROR(H5E_OBJECT, H5E_CANTOPENOBJ, FAIL, "failed to open source object");
 
     /* Initialize sched_loc if we created the first task here */
@@ -3243,6 +3243,9 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
     tse_task_t *dep_task = NULL;
     const char *oexists_obj_name = NULL;
     size_t oexists_obj_name_len = 0;
+    hbool_t collective_md_read;
+    hbool_t collective_md_write;
+    hid_t lapl_id;
     int ret;
     herr_t ret_value = SUCCEED;
 
@@ -3252,6 +3255,16 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "location parameters object is NULL");
 
     H5_DAOS_MAKE_ASYNC_PROGRESS(item->file->sched, FAIL);
+
+    /* Determine metadata I/O mode setting (collective vs. independent)
+     * for metadata reads and writes according to file-wide setting on
+     * FAPL and per-operation setting on LAPL.
+     */
+    lapl_id = (H5VL_OBJECT_BY_NAME == loc_params->type) ? loc_params->loc_data.loc_by_name.lapl_id :
+              (H5VL_OBJECT_BY_IDX == loc_params->type)  ? loc_params->loc_data.loc_by_idx.lapl_id :
+                                                          H5P_LINK_ACCESS_DEFAULT;
+    H5_DAOS_GET_METADATA_IO_MODES(item->file, lapl_id, H5P_LINK_ACCESS_DEFAULT,
+            collective_md_read, collective_md_write, H5E_OBJECT, FAIL);
 
     /* Start H5 operation */
     if(NULL == (int_req = H5_daos_req_create(item->file, dxpl_id)))
@@ -3287,7 +3300,7 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
         } /* end if */
         else
             /* Open the object */
-            if(H5_daos_object_open_helper(item, loc_params, NULL, TRUE,
+            if(H5_daos_object_open_helper(item, loc_params, NULL, collective_md_read,
                     &target_obj_p, NULL, int_req, &first_task, &dep_task) < 0)
                 D_GOTO_ERROR(H5E_OBJECT, H5E_CANTOPENOBJ, FAIL, "can't open target object");
     } /* end if */

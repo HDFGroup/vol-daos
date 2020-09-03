@@ -75,6 +75,18 @@ typedef struct H5_daos_attr_delete_ud_t {
     char *attr_name_buf;
 } H5_daos_attr_delete_ud_t;
 
+/* User data struct for checking if an attribute exists */
+typedef struct H5_daos_attr_exists_ud_t {
+    H5_daos_req_t *req;
+    H5_daos_obj_t *attr_container_obj;
+    htri_t *exists;
+    daos_key_t dkey;
+    daos_key_t akeys[H5_DAOS_ATTR_NUM_AKEYS - 1];
+    daos_iod_t iod[H5_DAOS_ATTR_NUM_AKEYS - 1];
+    unsigned nr;
+    void *akeys_buf;
+} H5_daos_attr_exists_ud_t;
+
 /* Task user data for iterating over attributes on an object */
 typedef struct H5_daos_attr_iterate_ud_t {
     H5_daos_req_t *req;
@@ -200,7 +212,12 @@ static herr_t H5_daos_attribute_remove_from_crt_idx_name_cb(hid_t loc_id, const 
     const H5A_info_t *attr_info, void *op_data);
 static herr_t H5_daos_attribute_shift_crt_idx_keys_down(H5_daos_obj_t *target_obj,
     uint64_t idx_begin, uint64_t idx_end);
-static htri_t H5_daos_attribute_exists(H5_daos_obj_t *attr_container_obj, const char *attr_name);
+static herr_t H5_daos_attribute_exists(H5_daos_obj_t *attr_container_obj, const char *attr_name,
+    htri_t *exists, hbool_t collective, H5_daos_req_t *req, tse_task_t **first_task,
+    tse_task_t **dep_task);
+static int H5_daos_attr_exists_prep_cb(tse_task_t *task, void *args);
+static int H5_daos_attr_exists_comp_cb(tse_task_t *task, void *args);
+static int H5_daos_attr_exists_bcast_comp_cb(tse_task_t *task, void *args);
 static herr_t H5_daos_attribute_iterate_by_name_order(H5_daos_attr_iterate_ud_t *iterate_udata,
     tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 static int H5_daos_attribute_iterate_by_name_prep_cb(tse_task_t *task, void *args);
@@ -2588,6 +2605,7 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
     tse_task_t *dep_task = NULL;
     hbool_t collective_md_read;
     hbool_t collective_md_write;
+    herr_t iter_ret = 0;
     hid_t lapl_id;
     int ret;
     herr_t ret_value = SUCCEED;    /* Return value */
@@ -2677,12 +2695,10 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
             {
                 const char *attr_name = va_arg(arguments, const char *);
                 htri_t *attr_exists = va_arg(arguments, htri_t *);
-                htri_t attr_found = FALSE;
 
-                if((attr_found = H5_daos_attribute_exists(target_obj, attr_name)) < 0)
+                if(H5_daos_attribute_exists(target_obj, attr_name, attr_exists,
+                        collective_md_read, int_req, &first_task, &dep_task) < 0)
                     D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't determine if attribute exists");
-
-                *attr_exists = attr_found;
 
                 break;
             } /* H5VL_ATTR_EXISTS */
@@ -2700,6 +2716,11 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
                 H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_ATTR, idx_type, iter_order,
                         FALSE, idx_p, H5I_INVALID_HID, op_data, &ret_value, int_req);
                 iter_data.u.attr_iter_data.u.attr_iter_op = iter_op;
+
+                /* Handle iteration return value (TODO: how to handle if called
+                 * async? */
+                if(!req)
+                    iter_data.op_ret_p = &iter_ret;
 
                 if(H5_daos_attribute_iterate(target_obj, &iter_data, &item->file->sched,
                         int_req, &first_task, &dep_task) < 0)
@@ -2759,6 +2780,11 @@ done:
         /* Close internal request */
         if(H5_daos_req_free_int(int_req) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't free request");
+
+        /* Set return value for attribute iteration, unless this function failed but
+         * the iteration did not */
+        if(specific_type == H5VL_ATTR_ITER && !(ret_value < 0 && iter_ret >= 0))
+            ret_value = iter_ret;
     } /* end if */
 
     if(target_obj) {
@@ -3786,105 +3812,382 @@ done:
  * Purpose:     Helper routine to check if an HDF5 attribute exists by
  *              attempting to read from its metadata keys.
  *
- * Return:      Success:        TRUE or FALSE
- *              Failure:        -1
+ * Return:      Non-negative on success/Negative on failure
  *
  * Programmer:  Jordan Henderson
  *              April, 2019
  *
  *-------------------------------------------------------------------------
  */
-static htri_t
-H5_daos_attribute_exists(H5_daos_obj_t *attr_container_obj, const char *attr_name)
+static herr_t
+H5_daos_attribute_exists(H5_daos_obj_t *attr_container_obj, const char *attr_name,
+    htri_t *exists, hbool_t collective, H5_daos_req_t *req, tse_task_t **first_task,
+    tse_task_t **dep_task)
 {
-    unsigned int nr;
-    daos_iod_t iod[H5_DAOS_ATTR_NUM_AKEYS - 1]; /* attribute raw data key is excluded as it may not exist yet */
-    daos_key_t dkey;
-    daos_key_t akeys[H5_DAOS_ATTR_NUM_AKEYS - 1];
-    hbool_t attr_exists = FALSE;
-    hbool_t attr_missing = FALSE;
-    void *akeys_buf = NULL;
+    H5_daos_attr_exists_ud_t *attr_exists_ud = NULL;
+    H5_daos_mpi_ibcast_ud_t *bcast_udata = NULL;
+    tse_task_t *fetch_task = NULL;
+    hbool_t must_bcast = FALSE;
     int ret;
-    htri_t ret_value = FALSE;
+    herr_t ret_value = SUCCEED;
 
     assert(attr_container_obj);
     assert(attr_name);
 
-    if(attr_container_obj->ocpl_cache.track_acorder)
-        nr = H5_DAOS_ATTR_NUM_AKEYS - 1;
-    else
-        nr = H5_DAOS_ATTR_NUM_AKEYS - 2;
+    /* Set up broadcast user data (if appropriate) */
+    if(collective && (attr_container_obj->item.file->num_procs > 1)) {
+        if(NULL == (bcast_udata = (H5_daos_mpi_ibcast_ud_t *)DV_malloc(sizeof(H5_daos_mpi_ibcast_ud_t))))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "failed to allocate buffer for MPI broadcast user data");
+        bcast_udata->req = req;
+        bcast_udata->obj = attr_container_obj;
+        bcast_udata->sched = &attr_container_obj->item.file->sched;
+        bcast_udata->buffer = (void *)exists;
+        bcast_udata->buffer_len = (int)sizeof(htri_t);
+        bcast_udata->count = (int)sizeof(htri_t);
+        must_bcast = TRUE;
+    }
 
-    if(H5_daos_attribute_get_akeys(attr_name, &akeys[0], &akeys[1], &akeys[2],
-            (attr_container_obj->ocpl_cache.track_acorder) ? &akeys[3] : NULL, NULL, &akeys_buf) < 0)
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get akey strings");
+    if(!collective || (attr_container_obj->item.file->my_rank == 0)) {
+        if(NULL == (attr_exists_ud = (H5_daos_attr_exists_ud_t *)DV_calloc(sizeof(H5_daos_attr_exists_ud_t))))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate attribute exists user data");
+        attr_exists_ud->req = req;
+        attr_exists_ud->attr_container_obj = attr_container_obj;
+        attr_exists_ud->exists = exists;
 
-    /* Set up dkey */
-    daos_iov_set(&dkey, (void *)H5_daos_attr_key_g, H5_daos_attr_key_size_g);
+        if(attr_container_obj->ocpl_cache.track_acorder)
+            attr_exists_ud->nr = H5_DAOS_ATTR_NUM_AKEYS - 1;
+        else
+            attr_exists_ud->nr = H5_DAOS_ATTR_NUM_AKEYS - 2;
 
-    /* Set up iods */
-    memset(iod, 0, sizeof(iod));
-    daos_iov_set(&iod[0].iod_name, akeys[0].iov_buf, (daos_size_t)akeys[0].iov_len);
-    iod[0].iod_nr = 1u;
-    iod[0].iod_type = DAOS_IOD_SINGLE;
-    iod[0].iod_size = DAOS_REC_ANY;
+        if(H5_daos_attribute_get_akeys(attr_name, &attr_exists_ud->akeys[0], &attr_exists_ud->akeys[1],
+                &attr_exists_ud->akeys[2], (attr_container_obj->ocpl_cache.track_acorder) ? &attr_exists_ud->akeys[3] : NULL,
+                        NULL, &attr_exists_ud->akeys_buf) < 0)
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get akey strings");
 
-    daos_iov_set(&iod[1].iod_name, akeys[1].iov_buf, (daos_size_t)akeys[1].iov_len);
-    iod[1].iod_nr = 1u;
-    iod[1].iod_type = DAOS_IOD_SINGLE;
-    iod[1].iod_size = DAOS_REC_ANY;
+        /* Set up dkey */
+        daos_iov_set(&attr_exists_ud->dkey, (void *)H5_daos_attr_key_g, H5_daos_attr_key_size_g);
 
-    daos_iov_set(&iod[2].iod_name, akeys[2].iov_buf, (daos_size_t)akeys[2].iov_len);
-    iod[2].iod_nr = 1u;
-    iod[2].iod_type = DAOS_IOD_SINGLE;
-    iod[2].iod_size = DAOS_REC_ANY;
+        /* Set up iods */
+        daos_iov_set(&attr_exists_ud->iod[0].iod_name,
+                attr_exists_ud->akeys[0].iov_buf, (daos_size_t)attr_exists_ud->akeys[0].iov_len);
+        attr_exists_ud->iod[0].iod_nr = 1u;
+        attr_exists_ud->iod[0].iod_type = DAOS_IOD_SINGLE;
+        attr_exists_ud->iod[0].iod_size = DAOS_REC_ANY;
 
-    if(attr_container_obj->ocpl_cache.track_acorder) {
-        daos_iov_set(&iod[3].iod_name, akeys[3].iov_buf, (daos_size_t)akeys[3].iov_len);
-        iod[3].iod_nr = 1u;
-        iod[3].iod_type = DAOS_IOD_SINGLE;
-        iod[3].iod_size = DAOS_REC_ANY;
+        daos_iov_set(&attr_exists_ud->iod[1].iod_name,
+                attr_exists_ud->akeys[1].iov_buf, (daos_size_t)attr_exists_ud->akeys[1].iov_len);
+        attr_exists_ud->iod[1].iod_nr = 1u;
+        attr_exists_ud->iod[1].iod_type = DAOS_IOD_SINGLE;
+        attr_exists_ud->iod[1].iod_size = DAOS_REC_ANY;
+
+        daos_iov_set(&attr_exists_ud->iod[2].iod_name,
+                attr_exists_ud->akeys[2].iov_buf, (daos_size_t)attr_exists_ud->akeys[2].iov_len);
+        attr_exists_ud->iod[2].iod_nr = 1u;
+        attr_exists_ud->iod[2].iod_type = DAOS_IOD_SINGLE;
+        attr_exists_ud->iod[2].iod_size = DAOS_REC_ANY;
+
+        if(attr_container_obj->ocpl_cache.track_acorder) {
+            daos_iov_set(&attr_exists_ud->iod[3].iod_name,
+                    attr_exists_ud->akeys[3].iov_buf, (daos_size_t)attr_exists_ud->akeys[3].iov_len);
+            attr_exists_ud->iod[3].iod_nr = 1u;
+            attr_exists_ud->iod[3].iod_type = DAOS_IOD_SINGLE;
+            attr_exists_ud->iod[3].iod_size = DAOS_REC_ANY;
+        } /* end if */
+
+        /* Create task for fetch */
+        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &attr_container_obj->item.file->sched,
+                *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &fetch_task)))
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create attribute exists task: %s", H5_daos_err_to_string(ret));
+
+        /* Set callback functions for fetch */
+        if(0 != (ret = tse_task_register_cbs(fetch_task, H5_daos_attr_exists_prep_cb, NULL, 0, H5_daos_attr_exists_comp_cb, NULL, 0)))
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't register callbacks for attribute exists task: %s", H5_daos_err_to_string(ret));
+
+        /* Set private data for fetch */
+        (void)tse_task_set_priv(fetch_task, attr_exists_ud);
+
+        /* Schedule fetch task (or save it to be scheduled later) and give it a
+         * reference to req and udata (transfer ownership of attr_container_obj) */
+        if(*first_task) {
+            if(0 != (ret = tse_task_schedule(fetch_task, false)))
+                D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't schedule attribute exists task: %s", H5_daos_err_to_string(ret));
+        } /* end if */
+        else
+            *first_task = fetch_task;
+        *dep_task = fetch_task;
+        req->rc++;
+        attr_container_obj->item.rc++;
+        attr_exists_ud = NULL;
     } /* end if */
 
-    if(0 != (ret = daos_obj_fetch(attr_container_obj->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey,
-            nr, iod, NULL, NULL, NULL)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "akey fetch for attribute '%s' failed: %s", attr_name, H5_daos_err_to_string(ret));
+    /* Signify that all ranks will have called the bcast after this point */
+    must_bcast = FALSE;
 
-    /* Attribute exists if all of its metadata keys are present. */
-    attr_exists = (iod[0].iod_size != 0)
-               && (iod[1].iod_size != 0)
-               && (iod[2].iod_size != 0);
-
-    /*
-     * Conversely, the attribute doesn't exist if all of its
-     * metadata keys are missing.
-     */
-    attr_missing = (iod[0].iod_size == 0)
-                && (iod[1].iod_size == 0)
-                && (iod[2].iod_size == 0);
-
-    /*
-     * Check for the presence or absence of the attribute creation
-     * order key when the attribute's parent object has attribute
-     * creation order tracking enabled.
-     */
-    if(attr_container_obj->ocpl_cache.track_acorder) {
-        attr_exists = attr_exists && (iod[3].iod_size != 0);
-        attr_missing = attr_missing && (iod[3].iod_size == 0);
-    } /* end if */
-
-    if(attr_exists)
-        D_GOTO_DONE(TRUE);
-    else if(attr_missing)
-        D_GOTO_DONE(FALSE);
-    else
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "attribute exists in inconsistent state (metadata missing)");
+    /* Broadcast attribute existence status if there are other processes that need it */
+    if(collective && (attr_container_obj->item.file->num_procs > 1))
+        if(H5_daos_mpi_ibcast(bcast_udata, &attr_container_obj->item.file->sched,
+                attr_container_obj, sizeof(htri_t), FALSE, NULL, H5_daos_attr_exists_bcast_comp_cb,
+                req, first_task, dep_task) < 0)
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTSET, FAIL, "can't broadcast attribute existence status");
 
 done:
-    akeys_buf = DV_free(akeys_buf);
+    /* Cleanup on error */
+    if(attr_exists_ud) {
+        assert(ret_value < 0);
+
+        /* Free akeys_buf if necessary */
+        if(attr_exists_ud->akeys_buf)
+            attr_exists_ud->akeys_buf = DV_free(attr_exists_ud->akeys_buf);
+
+        attr_exists_ud = DV_free(attr_exists_ud);
+
+        if(fetch_task)
+            tse_task_complete(fetch_task, -H5_DAOS_SETUP_ERROR);
+
+        /* Participate in broadcast on failure */
+        if(must_bcast) {
+            assert(bcast_udata);
+            assert(bcast_udata->buffer);
+            *((htri_t *)bcast_udata->buffer) = FAIL;
+            if(H5_daos_mpi_ibcast(bcast_udata, &attr_container_obj->item.file->sched,
+                    attr_container_obj, sizeof(htri_t), FALSE, NULL, H5_daos_attr_exists_bcast_comp_cb,
+                    req, first_task, dep_task) < 0)
+                D_GOTO_ERROR(H5E_ATTR, H5E_CANTSET, FAIL, "can't broadcast attribute existence check failure");
+        } /* end if */
+    } /* end if */
 
     D_FUNC_LEAVE;
 } /* end H5_daos_attribute_exists() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_attr_exists_prep_cb
+ *
+ * Purpose:     Prepare callback for asynchronous check for attribute
+ *              existence.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_attr_exists_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_attr_exists_ud_t *udata;
+    daos_obj_rw_t *rw_args;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for metadata I/O task");
+
+    assert(udata->attr_container_obj);
+    assert(udata->req);
+    assert(udata->req->file);
+    assert(!udata->req->file->closed);
+
+    /* Handle errors */
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    } /* end if */
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT) {
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
+    } /* end if */
+
+    /* Set update task arguments */
+    if(NULL == (rw_args = daos_task_get_args(task)))
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for attribute exists task");
+    rw_args->oh = udata->attr_container_obj->obj_oh;
+    rw_args->th = udata->req->th;
+    rw_args->flags = 0;
+    rw_args->dkey = &udata->dkey;
+    rw_args->nr = (uint32_t)udata->nr;
+    rw_args->iods = udata->iod;
+    rw_args->sgls = NULL;
+
+done:
+    if(ret_value < 0)
+        tse_task_complete(task, ret_value);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_attr_exists_prep_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_attr_exists_comp_cb
+ *
+ * Purpose:     Complete callback for asynchronous check for attribute
+ *              existence.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_attr_exists_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_attr_exists_ud_t *udata;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for metadata I/O task");
+
+    /* Handle errors in fetch task.  Only record error in udata->req_status if
+     * it does not already contain an error (it could contain an error if
+     * another task this task is not dependent on also failed). */
+    if(task->dt_result < -H5_DAOS_PRE_ERROR
+            && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+        udata->req->status = task->dt_result;
+        udata->req->failed_task = "attribute exists fetch";
+    } /* end if */
+    else if(task->dt_result == 0) {
+        hbool_t attr_exists = FALSE;
+        hbool_t attr_missing = FALSE;
+
+        /* Attribute exists if all of its metadata keys are present. */
+        attr_exists = (udata->iod[0].iod_size != 0)
+                   && (udata->iod[1].iod_size != 0)
+                   && (udata->iod[2].iod_size != 0);
+
+        /*
+         * Conversely, the attribute doesn't exist if all of its
+         * metadata keys are missing.
+         */
+        attr_missing = (udata->iod[0].iod_size == 0)
+                    && (udata->iod[1].iod_size == 0)
+                    && (udata->iod[2].iod_size == 0);
+
+        /*
+         * Check for the presence or absence of the attribute creation
+         * order key when the attribute's parent object has attribute
+         * creation order tracking enabled.
+         */
+        if(udata->attr_container_obj->ocpl_cache.track_acorder) {
+            attr_exists = attr_exists && (udata->iod[3].iod_size != 0);
+            attr_missing = attr_missing && (udata->iod[3].iod_size == 0);
+        } /* end if */
+
+        assert(udata->exists);
+        if(attr_exists)
+            *udata->exists = TRUE;
+        else if(attr_missing)
+            *udata->exists = FALSE;
+        else
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "attribute exists in inconsistent state (metadata missing)");
+    } /* end if */
+
+done:
+    /* Clean up */
+    if(udata) {
+        /* Close object */
+        if(udata->attr_container_obj &&
+                H5_daos_object_close(udata->attr_container_obj, udata->req->dxpl_id, NULL) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
+
+        /* Handle errors in this function */
+        /* Do not place any code that can issue errors after this block, except for
+         * H5_daos_req_free_int, which updates req->status if it sees an error */
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+            udata->req->status = ret_value;
+            udata->req->failed_task = "attribute exists completion callback";
+        } /* end if */
+
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(udata->req) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+        /* Free akeys_buf */
+        DV_free(udata->akeys_buf);
+
+        /* Free udata */
+        udata = DV_free(udata);
+    } /* end if */
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_attr_exists_comp_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_attr_exists_bcast_comp_cb
+ *
+ * Purpose:     Complete callback for asynchronous MPI_Ibcast for attribute
+ *              existence check.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_attr_exists_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_mpi_ibcast_ud_t *udata;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for attribute existence broadcast task");
+
+    assert(udata->req);
+    assert(udata->obj);
+    assert(udata->obj->item.file);
+    assert(!udata->obj->item.file->closed);
+
+    /* Handle errors in bcast task.  Only record error in udata->req_status if
+     * it does not already contain an error (it could contain an error if
+     * another task this task is not dependent on also failed). */
+    if(task->dt_result < -H5_DAOS_PRE_ERROR
+            && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+        udata->req->status = task->dt_result;
+        udata->req->failed_task = "MPI_Ibcast attribute existence";
+    } /* end if */
+    else if(task->dt_result == 0) {
+        htri_t attr_exists;
+
+        assert(udata->buffer);
+
+        attr_exists = *((htri_t *)udata->buffer);
+
+        if((attr_exists < 0) && (udata->req->file->my_rank != 0))
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, -H5_DAOS_REMOTE_ERROR, "lead process failed to determine if attribute exists");
+    }
+
+done:
+    /* Free private data */
+    if(udata) {
+        /* Close object */
+        if(udata->obj && H5_daos_object_close(udata->obj, H5I_INVALID_HID, NULL) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
+
+        /* Handle errors in this function */
+        /* Do not place any code that can issue errors after this block, except
+         * for H5_daos_req_free_int, which updates req->status if it sees an
+         * error */
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+            udata->req->status = ret_value;
+            udata->req->failed_task = "MPI_Ibcast attribute existence completion callback";
+        } /* end if */
+
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(udata->req) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+        /* Complete bcast metatask */
+        tse_task_complete(udata->bcast_metatask, ret_value);
+
+        /* Free private data */
+        DV_free(udata);
+    } /* end if */
+    else
+        assert(ret_value >= 0 || ret_value == -H5_DAOS_DAOS_GET_ERROR);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_attr_exists_bcast_comp_cb() */
 
 
 /*-------------------------------------------------------------------------

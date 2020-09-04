@@ -1030,12 +1030,12 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     if(NULL == (int_req = H5_daos_req_create(file, H5I_INVALID_HID)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, NULL, "can't create DAOS request");
 
-    if(file->my_rank == 0) {
-        /* If the pool UUID hasn't been explicitly set, attempt to create a default pool. */
-        if(uuid_is_null(H5_daos_pool_uuid_g))
-            if(H5_daos_pool_create(H5_daos_pool_uuid_g, NULL, NULL) < 0)
-                D_GOTO_ERROR(H5E_VOL, H5E_CANTCREATE, NULL, "failed to create pool");
+    /* If the pool UUID hasn't been explicitly set, attempt to create a default pool. */
+    if(uuid_is_null(H5_daos_pool_uuid_g) &&
+            H5_daos_pool_create(H5_daos_pool_uuid_g, NULL, NULL, file->comm) < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTCREATE, NULL, "failed to create pool");
 
+    if(file->my_rank == 0) {
         /* Connect to container's pool */
         if(H5_daos_pool_connect(&H5_daos_pool_uuid_g, H5_daos_pool_grp_g,
                 &H5_daos_pool_svcl_g, DAOS_PC_RW, &file->container_poh, NULL, &file->sched,

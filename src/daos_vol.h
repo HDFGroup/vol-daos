@@ -729,7 +729,8 @@ extern "C" {
 #endif
 
 /* General routines */
-H5VL_DAOS_PRIVATE herr_t H5_daos_pool_create(uuid_t uuid, const char **pool_grp, d_rank_list_t **svcl);
+H5VL_DAOS_PRIVATE herr_t H5_daos_pool_create(uuid_t uuid, const char **pool_grp, d_rank_list_t **svcl,
+    MPI_Comm comm);
 H5VL_DAOS_PRIVATE herr_t H5_daos_pool_connect(uuid_t *pool_uuid, char *pool_grp,
     d_rank_list_t *svcl, unsigned int flags, daos_handle_t *poh_out, daos_pool_info_t *pool_info_out,
     tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);

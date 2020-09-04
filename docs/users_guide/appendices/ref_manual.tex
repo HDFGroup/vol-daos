@@ -11,8 +11,7 @@
 \paragraph{Synopsis:}
 \begin{flushleft}%
 \begin{minted}[breaklines=true,fontsize=\small]{hdf5-c-lexer.py:HDF5CLexer -x}
-herr_t H5daos_init(MPI_Comm pool_comm, uuid_t pool_uuid, const char *pool_grp,
-    const char *pool_svcl);
+herr_t H5daos_init(uuid_t pool_uuid, const char *pool_grp, const char *pool_svcl);
 \end{minted}
 \end{flushleft}%
 
@@ -23,17 +22,13 @@ Initialize the DAOS VOL connector.
 
 \paragraph{Description:}
 \begin{flushleft}%
-\texttt{H5daos\_init} initializes the VOL connector by connecting to the pool
-and registering the connector with the library. \texttt{pool\_comm}
-identifies the communicator used to connect to the DAOS pool.  This should
-include all processes that will participate in I/O. This call is collective
-across \texttt{pool\_comm}.
+\texttt{H5daos\_init} initializes the VOL connector by registering the connector with
+the library.
 \end{flushleft}%
 
 \paragraph{Parameters:}
 \begin{flushleft}%
  \begin{tabular}{ll}%
-   \texttt{MPI\_Comm pool\_comm} & IN: Communicator used for connecting to the pool \\
    \texttt{uuid\_t pool\_uuid} & IN: UUID to identify a pool \\
    \texttt{const char *pool\_grp} & IN: Process set name of the DAOS servers managing the pool \\
    \texttt{const char *pool\_svcl} & IN: Comma-separated list of pool service replica ranks \\

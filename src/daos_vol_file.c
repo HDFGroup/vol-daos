@@ -84,11 +84,9 @@ static int H5_daos_duns_resolve_path_task(tse_task_t *task);
 static int H5_daos_duns_resolve_path_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_cont_open_prep_cb(tse_task_t *task, void *args);
 static int H5_daos_cont_open_comp_cb(tse_task_t *task, void *args);
-static int H5_daos_gch_bcast_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_handles_bcast_comp_cb(tse_task_t *task, void *args);
 static herr_t H5_daos_file_handles_bcast(H5_daos_file_t *file,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
-static int H5_daos_get_gch_task(tse_task_t *task);
 static int H5_daos_get_container_handles_task(tse_task_t *task);
 static herr_t H5_daos_file_delete(uuid_t *puuid, const char *file_path, hbool_t ignore_missing,
     tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
@@ -326,153 +324,6 @@ done:
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_gch_bcast_comp_cb
- *
- * Purpose:     Complete callback for asynchronous MPI_ibcast for global
- *              container handles
- *
- * Return:      Success:        0
- *              Failure:        Error code
- *
- *-------------------------------------------------------------------------
- */
-static int
-H5_daos_gch_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
-{
-    H5_daos_mpi_ibcast_ud_t *udata;
-    int ret;
-    int ret_value = 0;
-
-    /* Get private data */
-    if(NULL == (udata = tse_task_get_priv(task)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for global handle broadcast task");
-
-    assert(udata->req);
-    assert(udata->req->file);
-    assert(!udata->req->file->closed);
-
-    /* Handle errors in bcast task.  Only record error in udata->req_status if
-     * it does not already contain an error (it could contain an error if
-     * another task this task is not dependent on also failed). */
-    if(task->dt_result < -H5_DAOS_PRE_ERROR
-            && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
-        udata->req->status = task->dt_result;
-        udata->req->failed_task = "MPI_Ibcast global container handle";
-    } /* end if */
-    else if(task->dt_result == 0) {
-        if(udata->req->file->my_rank == 0) {
-            /* Reissue bcast if necesary */
-            if(udata->buffer_len != udata->count) {
-                tse_task_t *bcast_task;
-
-                assert(udata->count == H5_DAOS_GH_BUF_SIZE + H5_DAOS_ENCODED_UINT64_T_SIZE);
-                assert(udata->buffer_len > H5_DAOS_GH_BUF_SIZE + H5_DAOS_ENCODED_UINT64_T_SIZE);
-
-                /* Use full buffer this time */
-                udata->count = udata->buffer_len;
-
-                /* Create task for second bcast */
-                if(0 !=  (ret = tse_task_create(H5_daos_mpi_ibcast_task, &udata->req->file->sched, udata, &bcast_task)))
-                    D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't create task for second global handle broadcast: %s", H5_daos_err_to_string(ret));
-
-                /* Set callback functions for second bcast */
-                if(0 != (ret = tse_task_register_cbs(bcast_task, NULL, NULL, 0, H5_daos_gch_bcast_comp_cb, NULL, 0)))
-                    D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't register callbacks for second global handle broadcast: %s", H5_daos_err_to_string(ret));
-
-                /* Schedule second bcast and transfer ownership of udata */
-                if(0 != (ret = tse_task_schedule(bcast_task, false)))
-                    D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't schedule task for second global handle broadcast: %s", H5_daos_err_to_string(ret));
-                udata = NULL;
-            } /* end if */
-        } /* end if */
-        else {
-            uint64_t gh_len;
-            uint8_t *p;
-
-            /* Decode global handle length */
-            p = udata->buffer;
-            UINT64DECODE(p, gh_len)
-
-            /* Check for iov_buf_len set to 0 - indicates failure */
-            if(gh_len == 0)
-                D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, -H5_DAOS_REMOTE_ERROR, "lead process failed to obtain global handle");
-
-            /* Check if we need another bcast */
-            if(gh_len + H5_DAOS_ENCODED_UINT64_T_SIZE > (size_t)udata->count) {
-                tse_task_t *bcast_task;
-
-                assert(udata->buffer_len == H5_DAOS_GH_BUF_SIZE + H5_DAOS_ENCODED_UINT64_T_SIZE);
-                assert(udata->count == H5_DAOS_GH_BUF_SIZE + H5_DAOS_ENCODED_UINT64_T_SIZE);
-
-                /* Realloc buffer */
-                DV_free(udata->buffer);
-                udata->buffer_len = (int)gh_len + H5_DAOS_ENCODED_UINT64_T_SIZE;
-
-                if(NULL == (udata->buffer = DV_malloc((size_t)udata->buffer_len)))
-                    D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "failed to allocate memory for global handle buffer");
-                udata->count = udata->buffer_len;
-
-                /* Create task for second bcast */
-                if(0 !=  (ret = tse_task_create(H5_daos_mpi_ibcast_task, &udata->obj->item.file->sched, udata, &bcast_task)))
-                    D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't create task for second global handle broadcast: %s", H5_daos_err_to_string(ret));
-
-                /* Set callback functions for second bcast */
-                if(0 != (ret = tse_task_register_cbs(bcast_task, NULL, NULL, 0, H5_daos_gch_bcast_comp_cb, NULL, 0)))
-                    D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't register callbacks for second global handle broadcast: %s", H5_daos_err_to_string(ret));
-
-                /* Schedule second bcast and transfer ownership of udata */
-                if(0 != (ret = tse_task_schedule(bcast_task, false)))
-                    D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't schedule task for second global handle broadcast: %s", H5_daos_err_to_string(ret));
-                udata = NULL;
-            } /* end if */
-            else {
-                daos_iov_t glob;
-
-                /* Set up glob */
-                glob.iov_buf = p;
-                glob.iov_len = (size_t)gh_len;
-                glob.iov_buf_len = (size_t)gh_len;
-
-                /* Get container handle */
-                if(0 != (ret = daos_cont_global2local(udata->req->file->container_poh, glob, &udata->req->file->coh)))
-                    D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "can't get global container handle: %s", H5_daos_err_to_string(ret));
-            } /* end else */
-        } /* end else */
-    } /* end else */
-
-done:
-    /* Free private data if we haven't released ownership */
-    if(udata) {
-        /* Handle errors in this function */
-        /* Do not place any code that can issue errors after this block, except
-         * for H5_daos_req_free_int, which updates req->status if it sees an
-         * error */
-        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
-            udata->req->status = ret_value;
-            udata->req->failed_task = "MPI_Ibcast global container handle completion callback";
-        } /* end if */
-
-        /* Release our reference to req */
-        if(H5_daos_req_free_int(udata->req) < 0)
-            D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
-
-        /* Complete bcast metatask */
-        tse_task_complete(udata->bcast_metatask, ret_value);
-
-        /* Free buffer */
-        DV_free(udata->buffer);
-
-        /* Free private data */
-        DV_free(udata);
-    } /* end if */
-    else
-        assert(ret_value >= 0 || ret_value == -H5_DAOS_DAOS_GET_ERROR);
-
-    return ret_value;
-} /* end H5_daos_gch_bcast_comp_cb() */
-
-
-/*-------------------------------------------------------------------------
  * Function:    H5_daos_handles_bcast_comp_cb
  *
  * Purpose:     Complete callback for asynchronous MPI_ibcast for global
@@ -639,90 +490,6 @@ done:
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_get_gch_task
- *
- * Purpose:     Asynchronous task for creating a global container handle
- *              to use for broadcast.  Note this does not hold a reference
- *              to udata so it must be held by a task that depends on this
- *              task.
- *
- * Return:      Non-negative on success/Negative on failure
- *
- *-------------------------------------------------------------------------
- */
-static int
-H5_daos_get_gch_task(tse_task_t *task)
-{
-    H5_daos_mpi_ibcast_ud_t *udata;
-    daos_iov_t glob = {.iov_buf = NULL, .iov_buf_len = 0, .iov_len = 0};
-    uint8_t *p;
-    size_t req_buf_len;
-    int ret;
-    herr_t ret_value = 0; /* Return value */
-
-    /* Get private data */
-    if(NULL == (udata = tse_task_get_priv(task)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data forget global container handle task");
-
-    assert(udata->req);
-    assert(udata->req->file);
-
-    /* Calculate size of global cont handle */
-    if(udata->req->status >= -H5_DAOS_INCOMPLETE)
-        if(0 != (ret = daos_cont_local2global(udata->req->file->coh, &glob)))
-            D_DONE_ERROR(H5E_VOL, H5E_CANTGET, ret, "can't calculate size of global container handle: %s", H5_daos_err_to_string(ret));
-
-    req_buf_len = H5_DAOS_ENCODED_UINT64_T_SIZE + MAX(glob.iov_buf_len, H5_DAOS_GH_BUF_SIZE);
-
-    if(!udata->buffer || (udata->buffer_len < (int)req_buf_len)) {
-        void *tmp;
-
-        /* Allocate buffer */
-        if(NULL == (tmp = DV_realloc(udata->buffer, req_buf_len)))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate space for global container handle");
-        udata->buffer = tmp;
-        udata->buffer_len = (int)req_buf_len;
-        udata->count = H5_DAOS_GH_BUF_SIZE + H5_DAOS_ENCODED_UINT64_T_SIZE;
-        glob.iov_len = glob.iov_buf_len;
-    } /* end if */
-
-    /* Check for previous errors (wait until after allocation because that must
-     * always be done) */
-    if(udata->req->status < -H5_DAOS_INCOMPLETE)
-        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
-    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT)
-        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
-
-    /* Encode global handle length */
-    p = udata->buffer;
-    UINT64ENCODE(p, (uint64_t)glob.iov_buf_len)
-
-    /* Get global container handle */
-    glob.iov_buf = p;
-    if(0 != (ret = daos_cont_local2global(udata->req->file->coh, &glob)))
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, ret, "can't get global container handle: %s", H5_daos_err_to_string(ret));
-
-done:
-    /* Handle errors in this function */
-    /* Do not place any code that can issue errors after this block, except for
-     * H5_daos_req_free_int, which updates req->status if it sees an error */
-    if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
-        udata->req->status = ret_value;
-        udata->req->failed_task = "get global container handle";
-    } /* end if */
-
-    /* Release our reference to req */
-    if(H5_daos_req_free_int(udata->req) < 0)
-        D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
-
-    /* Complete this task */
-    tse_task_complete(task, ret_value);
-
-    D_FUNC_LEAVE;
-} /* end H5_daos_get_gch_task() */
-
-
-/*-------------------------------------------------------------------------
  * Function:    H5_daos_get_container_handles_task
  *
  * Purpose:     Asynchronous task for creating a global container handle
@@ -825,8 +592,8 @@ done:
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_file_handles_bcast
  *
- * Purpose:     Broadcast the container handle and, optionally, the
- *              container's pool handle for a file.
+ * Purpose:     Broadcast a file's pool handle and container handle to
+ *              other processes.
  *
  * Return:      Non-negative on success/Negative on failure
  *
@@ -857,23 +624,15 @@ H5_daos_file_handles_bcast(H5_daos_file_t *file, H5_daos_req_t *req,
     bcast_udata->buffer_len = 0;
     bcast_udata->count = 0;
 
-    buf_size = !H5_daos_bypass_duns_g ? (2 * H5_DAOS_GH_BUF_SIZE) + (2 * H5_DAOS_ENCODED_UINT64_T_SIZE) :
-            H5_DAOS_GH_BUF_SIZE + H5_DAOS_ENCODED_UINT64_T_SIZE;
+    buf_size = (2 * H5_DAOS_GH_BUF_SIZE) + (2 * H5_DAOS_ENCODED_UINT64_T_SIZE);
 
     /* check if this is the lead rank */
     if(file->my_rank == 0) {
         tse_task_t *get_handles_task;
 
-        if(!H5_daos_bypass_duns_g) {
-            /* Create task to get global container handle and global container pool handle */
-            if(0 != (ret = tse_task_create(H5_daos_get_container_handles_task, &file->sched, bcast_udata, &get_handles_task)))
-                D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create task to get global container handles: %s", H5_daos_err_to_string(ret));
-        } /* end if */
-        else {
-            /* Create task to get global container handle */
-            if(0 != (ret = tse_task_create(H5_daos_get_gch_task, &file->sched, bcast_udata, &get_handles_task)))
-                D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create task to get global container handle: %s", H5_daos_err_to_string(ret));
-        } /* end else */
+        /* Create task to get global container handle and global container pool handle */
+        if(0 != (ret = tse_task_create(H5_daos_get_container_handles_task, &file->sched, bcast_udata, &get_handles_task)))
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create task to get global container handles: %s", H5_daos_err_to_string(ret));
 
         /* Register dependency for task */
         if(*dep_task && 0 != (ret = tse_task_register_deps(get_handles_task, 1, dep_task)))
@@ -908,8 +667,7 @@ done:
     /* Do broadcast */
     if(bcast_udata) {
         if(H5_daos_mpi_ibcast(bcast_udata, &file->sched, NULL, buf_size,
-                (ret_value < 0 ? TRUE : FALSE), NULL,
-                H5_daos_bypass_duns_g ? H5_daos_gch_bcast_comp_cb : H5_daos_handles_bcast_comp_cb,
+                (ret_value < 0 ? TRUE : FALSE), NULL, H5_daos_handles_bcast_comp_cb,
                 req, first_task, dep_task) < 0) {
             DV_free(bcast_udata->buffer);
             DV_free(bcast_udata);

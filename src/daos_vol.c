@@ -370,8 +370,6 @@ H5daos_init(uuid_t pool_uuid, const char *pool_grp, const char *pool_svcl)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "not a valid UUID");
     if(NULL == pool_grp)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "not a valid service group");
-    if(strlen(pool_grp) > H5_DAOS_MAX_GRP_NAME)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "service group name is too long");
     if(NULL == pool_svcl)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "not a valid service list");
 
@@ -1184,6 +1182,9 @@ H5_daos_set_pool_globals(uuid_t pool_uuid, const char *pool_grp, const char *poo
     char *pool_svcl_env = getenv("DAOS_SVCL");
     d_rank_list_t *svcl = NULL;
     herr_t ret_value = SUCCEED;
+
+    if(pool_grp && (strlen(pool_grp) > H5_DAOS_MAX_GRP_NAME))
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "service group name is too long");
 
     /* Set UUID of DAOS pool to be used */
     memset(H5_daos_pool_uuid_g, 0, sizeof(H5_daos_pool_uuid_g));

@@ -30,12 +30,22 @@
  *-------------------------------------------------------------------------
  */
 herr_t
-H5daos_get_poh(daos_handle_t *poh) {
+H5daos_get_poh(hid_t file_id, daos_handle_t *poh)
+{
+    H5_daos_file_t *file = NULL;
     herr_t ret_value = SUCCEED;
 
+    if(file_id < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "file ID is invalid");
     if(!poh)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "poh pointer is NULL");
-    poh->cookie = H5_daos_poh_g.cookie;
+
+    if(NULL == (file = (H5_daos_file_t *)H5VLobject(file_id)))
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
+    if(H5I_FILE != file->item.type)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a file");
+
+    poh->cookie = file->container_poh.cookie;
 
 done:
     D_FUNC_LEAVE_API;

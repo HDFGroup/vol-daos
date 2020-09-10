@@ -660,12 +660,9 @@ H5FL_DEFINE_EXTERN(H5_daos_attr_t);*/
 extern size_t daos_vol_curr_alloc_bytes;
 #endif
 
-/* Pool handle for use with all files */
-extern H5VL_DAOS_PRIVATE daos_handle_t H5_daos_poh_g;
-
-/* Global variables used to open the pool */
-extern H5VL_DAOS_PRIVATE MPI_Comm H5_daos_pool_comm_g;
+/* Global variables used to connect to DAOS pools */
 extern H5VL_DAOS_PRIVATE uuid_t H5_daos_pool_uuid_g;
+extern H5VL_DAOS_PRIVATE char H5_daos_pool_grp_g[];
 extern H5VL_DAOS_PRIVATE d_rank_list_t H5_daos_pool_svcl_g;
 
 /* Global variable used for bypassing the DUNS when requested. */
@@ -732,15 +729,14 @@ extern "C" {
 #endif
 
 /* General routines */
+H5VL_DAOS_PRIVATE herr_t H5_daos_pool_create(uuid_t uuid, const char **pool_grp, d_rank_list_t **svcl,
+    MPI_Comm comm);
 H5VL_DAOS_PRIVATE herr_t H5_daos_pool_connect(uuid_t *pool_uuid, char *pool_grp,
     d_rank_list_t *svcl, unsigned int flags, daos_handle_t *poh_out, daos_pool_info_t *pool_info_out,
     tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
-H5VL_DAOS_PRIVATE herr_t H5_daos_pool_connect_sync(const uuid_t pool_uuid,
-    const char *pool_grp, d_rank_list_t *svcl, unsigned int flags,
-    daos_handle_t *poh_out, daos_pool_info_t *pool_info_out);
 H5VL_DAOS_PRIVATE herr_t H5_daos_pool_disconnect(daos_handle_t *poh,
     tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
-H5VL_DAOS_PRIVATE herr_t H5_daos_pool_query(daos_handle_t poh,
+H5VL_DAOS_PRIVATE herr_t H5_daos_pool_query(daos_handle_t *poh,
     daos_pool_info_t *pool_info, d_rank_list_t *tgts, daos_prop_t *prop,
     tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE herr_t H5_daos_set_oclass_from_oid(hid_t plist_id,

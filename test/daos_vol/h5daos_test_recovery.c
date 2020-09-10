@@ -939,7 +939,7 @@ parse_command_line(int argc, char *argv[])
     }
 }
 
-static int get_command_line_info() 
+static int get_command_line_info(hid_t file_id)
 {
     char *opt_str_cp = NULL;
     char *token_str = NULL;
@@ -978,7 +978,7 @@ static int get_command_line_info()
             daos_pool_info_t         info;
 
             /* Get the pool object handle */ 
-            H5daos_get_poh(&poh);
+            H5daos_get_poh(file_id, &poh);
    
             /* Query the pool information */
             daos_pool_query(poh, NULL, &info, NULL, NULL);
@@ -1198,7 +1198,7 @@ main( int argc, char** argv )
     }
 
     /* Retrieve some information from the command-line options */
-    if(get_command_line_info() < 0) {
+    if(get_command_line_info(file_id) < 0) {
         nerrors++;
         goto error;
     }

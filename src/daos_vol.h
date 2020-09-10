@@ -281,27 +281,27 @@ do {                                                                            
     collective_md_read = file->fapl_cache.is_collective_md_read;                                             \
     collective_md_write = file->fapl_cache.is_collective_md_write;                                           \
     if(apl_id != default_apl_id) {                                                                           \
-        hbool_t all_independent_md_io = FALSE;                                                               \
+        hbool_t _all_independent_md_io = FALSE;                                                              \
                                                                                                              \
         /* Determine if independent metadata I/O was requested for the operation */                          \
-        if(H5daos_get_all_ind_metadata_ops(apl_id, &all_independent_md_io) < 0)                              \
+        if(H5daos_get_all_ind_metadata_ops(apl_id, &_all_independent_md_io) < 0)                             \
             D_GOTO_ERROR(err_maj, H5E_CANTGET, ret_value, "can't get independent metadata I/O property");    \
                                                                                                              \
-        if(all_independent_md_io) {                                                                          \
+        if(_all_independent_md_io) {                                                                         \
             /* Override all metadata I/O to be independent */                                                \
             collective_md_read = FALSE;                                                                      \
             collective_md_write = FALSE;                                                                     \
         }                                                                                                    \
         else {                                                                                               \
-            hbool_t all_collective_md_io = FALSE;                                                            \
+            hbool_t _all_collective_md_io = FALSE;                                                           \
                                                                                                              \
             /* If all collective metadata I/O has not already been set by the file,                          \
              * determine if collective metadata I/O was requested for the operation */                       \
             if((!collective_md_read || !collective_md_write) &&                                              \
-                    H5Pget_all_coll_metadata_ops(apl_id, &all_collective_md_io) < 0)                         \
+                    H5Pget_all_coll_metadata_ops(apl_id, &_all_collective_md_io) < 0)                        \
                 D_GOTO_ERROR(err_maj, H5E_CANTGET, ret_value, "can't get collective metadata I/O property"); \
                                                                                                              \
-            if(all_collective_md_io) {                                                                       \
+            if(_all_collective_md_io) {                                                                      \
                 /* Override all metadata I/O to be collective */                                             \
                 collective_md_read = TRUE;                                                                   \
                 collective_md_write = TRUE;                                                                  \
@@ -311,21 +311,21 @@ do {                                                                            
 } while(0)
 
 /* Macro to retrieve the metadata I/O mode setting just for metadata reads. */
-#define H5_DAOS_GET_METADATA_READ_MODE(file, apl_id, default_apl_id, \
-    collective, err_maj, ret_value)                                  \
-do {                                                                 \
-    hbool_t is_collective_md_write = TRUE;                           \
-    H5_DAOS_GET_METADATA_IO_MODES(file, apl_id, default_apl_id,      \
-            collective, is_collective_md_write, err_maj, ret_value); \
+#define H5_DAOS_GET_METADATA_READ_MODE(file, apl_id, default_apl_id,  \
+    collective, err_maj, ret_value)                                   \
+do {                                                                  \
+    hbool_t _is_collective_md_write = TRUE;                           \
+    H5_DAOS_GET_METADATA_IO_MODES(file, apl_id, default_apl_id,       \
+            collective, _is_collective_md_write, err_maj, ret_value); \
 } while(0)
 
 /* Macro to retrieve the metadata I/O mode setting just for metadata writes. */
 #define H5_DAOS_GET_METADATA_WRITE_MODE(file, apl_id, default_apl_id, \
     collective, err_maj, ret_value)                                   \
 do {                                                                  \
-    hbool_t is_collective_md_read = FALSE;                            \
+    hbool_t _is_collective_md_read = FALSE;                           \
     H5_DAOS_GET_METADATA_IO_MODES(file, apl_id, default_apl_id,       \
-            is_collective_md_read, collective, err_maj, ret_value);   \
+            _is_collective_md_read, collective, err_maj, ret_value);  \
 } while(0)
 
 

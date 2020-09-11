@@ -4552,7 +4552,8 @@ H5_daos_collective_error_check_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *
             (udata->req->file->my_rank != 0)) {
         int *status_buf = (int *)udata->buffer;
 
-        if((*status_buf) <= -H5_DAOS_PRE_ERROR) {
+        assert(*status_buf != -H5_DAOS_PRE_ERROR);
+        if((*status_buf) <= -H5_DAOS_H5_OPEN_ERROR) {
             udata->req->status = -H5_DAOS_REMOTE_ERROR;
             udata->req->failed_task = "remote task";
         } /* end if */

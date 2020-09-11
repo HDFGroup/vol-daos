@@ -2643,9 +2643,11 @@ H5_daos_link_copy_move_int(H5_daos_item_t *src_item, const H5VL_loc_params_t *lo
     } /* end if */
 
 done:
-    if(collective && ((src_item ? src_item->file->num_procs : dst_item->file->num_procs) > 1))
+    if(collective && ((src_item ? src_item->file->num_procs : dst_item->file->num_procs) > 1)) {
+        tse_sched_t *sched = (*sched_loc == H5_DAOS_SCHED_LOC_SRC) ? src_sched : dst_sched;
         if(H5_daos_collective_error_check(NULL, src_sched, req, first_task, dep_task) < 0)
             D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't perform collective error check");
+    } /* end if */
 
     /* Close source object */
     if(src_obj && H5_daos_object_close(src_obj, req->dxpl_id, NULL) < 0)
@@ -3204,7 +3206,8 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
                         sub_loc_params.obj_type = item->type;
                         sub_loc_params.type = H5VL_OBJECT_BY_SELF;
                         if(NULL == (target_grp = (H5_daos_group_t *)H5_daos_group_open_int(item, &sub_loc_params,
-                                loc_params->loc_data.loc_by_name.name, H5P_GROUP_ACCESS_DEFAULT, int_req, FALSE, &first_task, &dep_task)))
+                                loc_params->loc_data.loc_by_name.name, H5P_GROUP_ACCESS_DEFAULT, int_req,
+                                collective_md_read, &first_task, &dep_task)))
                             D_GOTO_ERROR(H5E_SYM, H5E_CANTOPENOBJ, FAIL, "can't open group for link operation");
 
                         break;

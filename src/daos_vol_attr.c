@@ -2989,7 +2989,6 @@ H5_daos_attribute_get_info(H5_daos_item_t *item, const H5VL_loc_params_t *loc_pa
         case H5VL_OBJECT_BY_IDX:
         {
             /* Open the target attribute */
-            /* TODO: no logic for 'collective' yet */
             if(NULL == (get_info_udata->attr = (H5_daos_attr_t *)H5_daos_attribute_open_helper(item,
                     loc_params, attr_name, H5P_ATTRIBUTE_ACCESS_DEFAULT, FALSE, req, first_task, dep_task)))
                 D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, FAIL, "can't open target attribute");
@@ -4716,7 +4715,6 @@ H5_daos_attribute_get_iter_op_task(H5_daos_attr_iterate_ud_t *iterate_udata, con
     loc_params.type = H5VL_OBJECT_BY_NAME;
     loc_params.loc_data.loc_by_name.name = ".";
     loc_params.loc_data.loc_by_name.lapl_id = H5P_LINK_ACCESS_DEFAULT;
-    /* TODO: no logic for 'collective' yet */
     if(NULL == (op_udata->get_info_ud.attr = (H5_daos_attr_t *)H5_daos_attribute_open_helper(
             (H5_daos_item_t *)iterate_udata->attr_container_obj, &loc_params, attr_name,
             H5P_ATTRIBUTE_ACCESS_DEFAULT, FALSE, req, first_task, dep_task)))

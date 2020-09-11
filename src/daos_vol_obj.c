@@ -1500,7 +1500,7 @@ H5_daos_object_copy_helper(void *src_loc_obj, const H5VL_loc_params_t *src_loc_p
 
     /* Traverse path to destination group */
     if(NULL == (obj_copy_udata->dst_grp = (H5_daos_group_t *)H5_daos_group_traverse(dst_loc_obj, dst_name,
-            lcpl_id, req, TRUE, &obj_copy_udata->new_obj_name_path_buf, &obj_copy_udata->new_obj_name,
+            lcpl_id, req, FALSE, &obj_copy_udata->new_obj_name_path_buf, &obj_copy_udata->new_obj_name,
             &obj_copy_udata->new_obj_name_len, first_task, dep_task)))
         D_GOTO_ERROR(H5E_OBJECT, H5E_TRAVERSE, FAIL, "can't traverse path");
 
@@ -2326,7 +2326,7 @@ static H5_daos_group_t *H5_daos_group_copy_helper(H5_daos_group_t *src_grp,
     /* Copy the group */
     if(NULL == (copied_group = H5_daos_group_create_helper(dst_grp->obj.item.file,
             FALSE, src_grp->gcpl_id, src_grp->gapl_id, dst_grp, name,
-            strlen(name), TRUE, req, first_task, dep_task)))
+            strlen(name), FALSE, req, first_task, dep_task)))
         D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, NULL, "can't create new group");
 
     /* Initialize sched_loc if we created the first task here */
@@ -2464,7 +2464,7 @@ H5_daos_group_copy_cb(hid_t group, const char *name, const H5L_info2_t *info,
                 /* Copy the link as is */
                 if(H5_daos_link_copy_move_int((H5_daos_item_t *)obj_copy_udata->src_obj, &sub_loc_params,
                         (H5_daos_item_t *)obj_copy_udata->copied_obj, &sub_loc_params,
-                        obj_copy_udata->lcpl_id, FALSE, &sched_loc, TRUE, obj_copy_udata->req,
+                        obj_copy_udata->lcpl_id, FALSE, &sched_loc, FALSE, obj_copy_udata->req,
                         first_task, dep_task) < 0)
                     D_GOTO_ERROR(H5E_LINK, H5E_CANTCOPY, H5_ITER_ERROR, "failed to copy link");
             } /* end else */
@@ -2486,7 +2486,7 @@ H5_daos_group_copy_cb(hid_t group, const char *name, const H5L_info2_t *info,
                 /* Copy the link as is */
                 if(H5_daos_link_copy_move_int((H5_daos_item_t *)obj_copy_udata->src_obj, &sub_loc_params,
                         (H5_daos_item_t *)obj_copy_udata->dst_grp, &sub_loc_params,
-                        obj_copy_udata->lcpl_id, FALSE, &sched_loc, TRUE, obj_copy_udata->req,
+                        obj_copy_udata->lcpl_id, FALSE, &sched_loc, FALSE, obj_copy_udata->req,
                         first_task, dep_task) < 0)
                     D_GOTO_ERROR(H5E_LINK, H5E_CANTCOPY, H5_ITER_ERROR, "failed to copy link");
             } /* end else */
@@ -2566,7 +2566,7 @@ H5_daos_datatype_copy(H5_daos_object_copy_ud_t *obj_copy_udata, H5_daos_sched_lo
     /* Copy the datatype */
     if(NULL == (obj_copy_udata->copied_obj = H5_daos_datatype_commit_helper(obj_copy_udata->dst_grp->obj.item.file,
             src_dtype->type_id, src_dtype->tcpl_id, src_dtype->tapl_id, obj_copy_udata->dst_grp,
-            obj_copy_udata->new_obj_name, strlen(obj_copy_udata->new_obj_name), TRUE, req, first_task, dep_task)))
+            obj_copy_udata->new_obj_name, strlen(obj_copy_udata->new_obj_name), FALSE, req, first_task, dep_task)))
         D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTCOPY, FAIL, "can't commit new datatype");
 
     /* Initialize sched_loc if we created the first task here */
@@ -2638,7 +2638,7 @@ H5_daos_dataset_copy(H5_daos_object_copy_ud_t *obj_copy_udata, H5_daos_sched_loc
     if(NULL == (obj_copy_udata->copied_obj = H5_daos_dataset_create_helper(obj_copy_udata->dst_grp->obj.item.file,
             src_dset->type_id, src_dset->space_id, src_dset->dcpl_id, src_dset->dapl_id,
             obj_copy_udata->dst_grp, obj_copy_udata->new_obj_name, strlen(obj_copy_udata->new_obj_name),
-            TRUE, req, first_task, dep_task)))
+            FALSE, req, first_task, dep_task)))
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, FAIL, "can't create new dataset");
 
     /* Initialize sched_loc if we created the first task here */
@@ -3295,7 +3295,8 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
 
             /* Open group containing the link in question */
             if(NULL == (target_obj = H5_daos_group_traverse(item, loc_params->loc_data.loc_by_name.name,
-                    H5P_LINK_CREATE_DEFAULT, int_req, FALSE, &path_buf, &oexists_obj_name, &oexists_obj_name_len, &first_task, &dep_task)))
+                    H5P_LINK_CREATE_DEFAULT, int_req, collective_md_read, &path_buf,
+                    &oexists_obj_name, &oexists_obj_name_len, &first_task, &dep_task)))
                 D_GOTO_ERROR(H5E_SYM, H5E_CANTOPENOBJ, FAIL, "can't open group");
         } /* end if */
         else

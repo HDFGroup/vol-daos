@@ -3064,7 +3064,7 @@ H5_daos_map_specific(void *_item, const H5VL_loc_params_t *loc_params,
                     sub_loc_params.type = H5VL_OBJECT_BY_SELF;
                     if(NULL == (map = H5_daos_map_open_int(item, &sub_loc_params,
                             loc_params->loc_data.loc_by_name.name, loc_params->loc_data.loc_by_name.lapl_id,
-                            int_req, FALSE, &first_task, &dep_task)))
+                            int_req, collective_md_read, &first_task, &dep_task)))
                         D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, FAIL, "can't open map for operation");
 
                     break;

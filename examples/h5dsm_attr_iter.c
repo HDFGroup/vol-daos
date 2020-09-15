@@ -35,7 +35,7 @@ int main(int argc, char *argv[]) {
         ERROR;
 
     /* Initialize VOL */
-    if(H5daos_init(MPI_COMM_WORLD, pool_uuid, pool_grp) < 0)
+    if(H5daos_init(pool_uuid, pool_grp, getenv("DAOS_SVCL") ? getenv("DAOS_SVCL") : "0") < 0)
         ERROR;
 
     /* Set up FAPL */

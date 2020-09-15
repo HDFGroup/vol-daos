@@ -117,6 +117,8 @@ static int H5_daos_str_prop_compare(const void *_value1, const void *_value2,
     size_t size);
 static herr_t H5_daos_str_prop_close(const char *name, size_t size,
     void *_value);
+static int H5_daos_bool_prop_compare(const void *_value1, const void *_value2,
+    size_t size);
 static herr_t H5_daos_init(hid_t vipl_id);
 static herr_t H5_daos_term(void);
 static herr_t H5_daos_set_pool_globals(uuid_t pool_uuid, const char *pool_grp, const char *pool_svcl);
@@ -146,6 +148,9 @@ static int H5_daos_pool_disconnect_prep_cb(tse_task_t *task, void *args);
 static int H5_daos_pool_disconnect_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_pool_query_prep_cb(tse_task_t *task, void *args);
 static int H5_daos_sched_link_old_task(tse_task_t *task);
+
+static int H5_daos_collective_error_check_prep_cb(tse_task_t *task, void *args);
+static int H5_daos_collective_error_check_comp_cb(tse_task_t *task, void *args);
 
 /*******************/
 /* Local Variables */
@@ -828,6 +833,107 @@ done:
 
 
 /*-------------------------------------------------------------------------
+ * Function:    H5daos_set_all_ind_metadata_ops
+ *
+ * Purpose:     Modifies the access property list to indicate that all
+ *              metadata I/O operations should be performed independently.
+ *              By default, metadata reads are independent and metadata
+ *              writes are collective.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5daos_set_all_ind_metadata_ops(hid_t accpl_id, hbool_t is_independent)
+{
+    htri_t is_fapl;
+    htri_t is_lapl;
+    htri_t is_rapl;
+    htri_t prop_exists;
+    herr_t ret_value = SUCCEED;
+
+    if(accpl_id == H5P_DEFAULT)
+        D_GOTO_ERROR(H5E_PLIST, H5E_BADVALUE, FAIL, "can't set values in default property list");
+
+    if((is_fapl = H5Pisa_class(accpl_id, H5P_FILE_ACCESS)) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "couldn't determine property list class");
+    if((is_lapl = H5Pisa_class(accpl_id, H5P_LINK_ACCESS)) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "couldn't determine property list class");
+    if((is_rapl = H5Pisa_class(accpl_id, H5P_REFERENCE_ACCESS)) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "couldn't determine property list class");
+    if(!is_fapl && !is_lapl && !is_rapl)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "not an access property list");
+
+    /* Check if the independent metadata writes property already exists on the property list */
+    if((prop_exists = H5Pexist(accpl_id, H5_DAOS_IND_MD_IO_PROP_NAME)) < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "can't check for independent metadata I/O property");
+
+    /* Set the property, or insert it if it does not exist */
+    if(prop_exists) {
+        if(H5Pset(accpl_id, H5_DAOS_IND_MD_IO_PROP_NAME, &is_independent) < 0)
+            D_GOTO_ERROR(H5E_PLIST, H5E_CANTSET, FAIL, "can't set independent metadata I/O property");
+    } /* end if */
+    else
+        if(H5Pinsert2(accpl_id, H5_DAOS_IND_MD_IO_PROP_NAME, sizeof(hbool_t),
+                &is_independent, NULL, NULL, NULL, NULL,
+                H5_daos_bool_prop_compare, NULL) < 0)
+            D_GOTO_ERROR(H5E_PLIST, H5E_CANTINSERT, FAIL, "can't insert property into list");
+
+done:
+    D_FUNC_LEAVE_API;
+} /* end H5daos_set_all_ind_metadata_ops() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5daos_get_all_ind_metadata_ops
+ *
+ * Purpose:     Retrieves the independent metadata I/O setting from the
+ *              access property list accpl_id.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5daos_get_all_ind_metadata_ops(hid_t accpl_id, hbool_t *is_independent)
+{
+    htri_t is_fapl;
+    htri_t is_lapl;
+    htri_t is_rapl;
+    htri_t prop_exists;
+    herr_t ret_value = SUCCEED;
+
+    if((is_fapl = H5Pisa_class(accpl_id, H5P_FILE_ACCESS)) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "couldn't determine property list class");
+    if((is_lapl = H5Pisa_class(accpl_id, H5P_LINK_ACCESS)) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "couldn't determine property list class");
+    if((is_rapl = H5Pisa_class(accpl_id, H5P_REFERENCE_ACCESS)) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "couldn't determine property list class");
+    if(!is_fapl && !is_lapl && !is_rapl)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "not an access property list");
+
+    /* Check if the independent metadata writes property exists on the property list */
+    if((prop_exists = H5Pexist(accpl_id, H5_DAOS_IND_MD_IO_PROP_NAME)) < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "can't check for independent metadata I/O property");
+
+    if(prop_exists) {
+        /* Get the property */
+        if(H5Pget(accpl_id, H5_DAOS_IND_MD_IO_PROP_NAME, is_independent) < 0)
+            D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, FAIL, "can't get independent metadata I/O property");
+    } /* end if */
+    else {
+        /* Simply return FALSE as not all metadata I/O
+         * operations are independent by default. */
+        *is_independent = FALSE;
+    } /* end else */
+
+done:
+    D_FUNC_LEAVE_API;
+} /* end H5daos_get_all_ind_metadata_ops() */
+
+
+/*-------------------------------------------------------------------------
  * Function:    H5_daos_str_prop_delete
  *
  * Purpose:     Property list callback for deleting a string property.
@@ -933,6 +1039,27 @@ H5_daos_str_prop_close(const char H5VL_DAOS_UNUSED *name,
 
     return SUCCEED;
 } /* end H5_daos_str_prop_close() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_bool_prop_compare
+ *
+ * Purpose:     Property list callback for comparing boolean properties.
+ *              Compares the boolean values directly.
+ *
+ * Return:      SUCCEED (never fails)
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_bool_prop_compare(const void *_value1, const void *_value2,
+    size_t H5VL_DAOS_UNUSED size)
+{
+    const hbool_t *bool1 = (const hbool_t *)_value1;
+    const hbool_t *bool2 = (const hbool_t *)_value2;
+
+    return *bool1 == *bool2;
+} /* end H5_daos_bool_prop_compare() */
 
 
 /*-------------------------------------------------------------------------
@@ -2409,6 +2536,7 @@ H5_daos_oidx_bcast(H5_daos_file_t *file, uint64_t *oidx_out,
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "failed to allocate buffer for MPI broadcast user data");
     oidx_bcast_udata->bcast_udata.req = req;
     oidx_bcast_udata->bcast_udata.obj = NULL;
+    oidx_bcast_udata->bcast_udata.sched = &file->sched;
     oidx_bcast_udata->bcast_udata.bcast_metatask = NULL;
     oidx_bcast_udata->bcast_udata.buffer = oidx_bcast_udata->next_oidx_buf;
     oidx_bcast_udata->bcast_udata.buffer_len = H5_DAOS_ENCODED_UINT64_T_SIZE;
@@ -4297,6 +4425,158 @@ done:
 
     D_FUNC_LEAVE;
 } /* end H5_daos_mpi_ibcast() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_collective_error_check
+ *
+ * Purpose:     Creates an asynchronous task for broadcasting the status of
+ *              a collective asynchronous operation. `_bcast_udata` may be
+ *              NULL, in which case this routine will allocate a broadcast
+ *              udata struct and assume an empty buffer is to be sent to
+ *              trigger a failure on other processes.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_collective_error_check(H5_daos_obj_t *obj, tse_sched_t *sched, H5_daos_req_t *req,
+    tse_task_t **first_task, tse_task_t **dep_task)
+{
+    herr_t ret_value = SUCCEED;
+
+    assert(sched);
+    assert(req);
+    assert(req->file->num_procs > 1);
+    assert(first_task);
+    assert(dep_task);
+
+    /* Setup the request's bcast udata structure for broadcasting the operation status */
+    req->collective.coll_status = 0;
+    req->collective.err_check_ud.req = req;
+    req->collective.err_check_ud.obj = obj;
+    req->collective.err_check_ud.sched = sched;
+    req->collective.err_check_ud.buffer = &req->collective.coll_status;
+    req->collective.err_check_ud.buffer_len = sizeof(req->collective.coll_status);
+    req->collective.err_check_ud.count = req->collective.err_check_ud.buffer_len;
+    req->collective.err_check_ud.bcast_metatask = NULL;
+
+    if(H5_daos_mpi_ibcast(&req->collective.err_check_ud, sched, obj, sizeof(req->collective.coll_status),
+            FALSE, (req->file->my_rank == 0) ? H5_daos_collective_error_check_prep_cb : NULL,
+            H5_daos_collective_error_check_comp_cb, req, first_task, dep_task) < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't broadcast collective operation status");
+
+done:
+    D_FUNC_LEAVE;
+} /* end H5_daos_collective_error_check() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_collective_error_check_prep_cb
+ *
+ * Purpose:     Prepare callback for asynchronous MPI_Ibcast to broadcast
+ *              the result status of a collective operation. Currently just
+ *              sets the value for the status buffer on rank 0. Only meant
+ *              to be called by the rank that is the root of broadcasting
+ *              (usually rank 0).
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_collective_error_check_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_mpi_ibcast_ud_t *udata;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for MPI broadcast task");
+
+    assert(udata->req);
+    assert(!udata->req->file->closed);
+    assert(udata->req->file->my_rank == 0);
+    assert(udata->buffer);
+    assert(udata->buffer_len == sizeof(udata->req->status));
+
+    *((int *)udata->buffer) = udata->req->status;
+
+done:
+    D_FUNC_LEAVE;
+} /* end H5_daos_collective_error_check_prep_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_collective_error_check_comp_cb
+ *
+ * Purpose:     Complete callback for asynchronous MPI_Ibcast to broadcast
+ *              the result status of a collective operation. Currently
+ *              checks for a failed task, checks the status buffer to
+ *              determine whether an error occurred on the broadcasting
+ *              root rank, and then frees private data. Meant to be called
+ *              by all ranks.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_collective_error_check_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_mpi_ibcast_ud_t *udata;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for MPI broadcast task");
+
+    assert(udata->req);
+    assert(udata->buffer);
+    assert(udata->buffer_len == sizeof(udata->req->status));
+
+    /* Handle errors in broadcast task.  Only record error in
+     * udata->req_status if it does not already contain an error (it could
+     * contain an error if another task this task is not dependent on also
+     * failed). */
+    if(task->dt_result < -H5_DAOS_PRE_ERROR
+            && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+        udata->req->status = task->dt_result;
+        udata->req->failed_task = "MPI_Ibcast of collective operation status";
+    } /* end if */
+    else if((task->dt_result == 0) &&
+            (udata->req->file->my_rank != 0)) {
+        int *status_buf = (int *)udata->buffer;
+
+        assert(*status_buf != -H5_DAOS_PRE_ERROR);
+        if((*status_buf) <= -H5_DAOS_H5_OPEN_ERROR) {
+            udata->req->status = -H5_DAOS_REMOTE_ERROR;
+            udata->req->failed_task = "remote task";
+        } /* end if */
+    } /* end else */
+
+done:
+    if(udata) {
+        /* Close object */
+        if(udata->obj && H5_daos_object_close(udata->obj, H5I_INVALID_HID, NULL) < 0)
+            D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
+
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(udata->req) < 0)
+            D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+        /* Complete bcast metatask */
+        tse_task_complete(udata->bcast_metatask, ret_value);
+    } /* end if */
+    else
+        assert(ret_value >= 0 || ret_value == -H5_DAOS_DAOS_GET_ERROR);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_collective_error_check_comp_cb() */
 
 
 /*-------------------------------------------------------------------------

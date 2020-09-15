@@ -111,4 +111,97 @@ coordinate actions on file create, open, flush, and close.
 Returns a non-negative value if successful; otherwise returns a negative value.
 \end{flushleft}%
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\newpage
+\subsection{H5daos\_set\_all\_ind\_metadata\_ops}
+\label{ref:h5daos_set_all_ind_metadata_ops}
+
+\paragraph{Synopsis:}
+\begin{flushleft}%
+\begin{minted}[breaklines=true,fontsize=\small]{hdf5-c-lexer.py:HDF5CLexer -x}
+herr_t H5daos_set_all_ind_metadata_ops(hid_t accpl_id, hbool_t
+    is_independent);
+\end{minted}
+\end{flushleft}%
+
+\paragraph{Purpose:}
+\begin{flushleft}%
+Sets the I/O mode for metadata read/write operations in the access property list \texttt{accpl\_id}.
+
+When engaging in parallel I/O with the DAOS VOL connector, all metadata read operations are
+independent and all metadata write operations are collective by default. If \texttt{is\_independent} is
+specified as \texttt{TRUE}, this property indicates that the DAOS VOL connector will perform all metadata
+read and write operations independently.
+
+If this property is set to \texttt{TRUE} on a file access property list that is used in creating or opening
+a file, the DAOS VOL connector will assume that all metadata read and write operations issued on that file
+identifier should be issued independently from all ranks, irrespective of the individual setting for a
+particular operation.
+
+Alternatively, a user may wish to avoid setting this property globally on the file access property list
+and individually set it on particular object access property lists (dataset, group, link, datatype, attribute
+access property lists) for certain operations instead. This will indicate that only the operations issued
+with such an access property list will perform metadata I/O independently, whereas other operations may
+perform metadata I/O collectively.  
+
+\end{flushleft}%
+
+\paragraph{Description:}
+\begin{flushleft}%
+\texttt{H5daos\_set\_all\_ind\_metadata\_ops} modifies the access property list to indicate
+that metadata I/O operations should be performed independently.
+\end{flushleft}%
+
+\paragraph{Parameters:}
+\begin{flushleft}%
+ \begin{tabular}{lp{0.8\linewidth}}%
+   \texttt{hid\_t accpl\_id} & IN: File, group, dataset, datatype, link or attribute access property list ID \\
+   \texttt{hbool\_t is\_independent} & IN: Boolean value indicating whether metadata I/O operations should be \
+   performed independently (\texttt{TRUE}) or should be allowed to be performed collectively (\texttt{FALSE}). \\
+ \end{tabular}%
+\end{flushleft}%
+
+\paragraph{Returns:}
+\begin{flushleft}%
+Returns a non-negative value if successful; otherwise returns a negative value.
+\end{flushleft}%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\newpage
+\subsection{H5daos\_get\_all\_ind\_metadata\_ops}
+\label{ref:h5daos_get_all_ind_metadata_ops}
+
+\paragraph{Synopsis:}
+\begin{flushleft}%
+\begin{minted}[breaklines=true,fontsize=\small]{hdf5-c-lexer.py:HDF5CLexer -x}
+herr_t H5daos_get_all_ind_metadata_ops(hid_t accpl_id, hbool_t
+    *is_independent);
+\end{minted}
+\end{flushleft}%
+
+\paragraph{Purpose:}
+\begin{flushleft}%
+Retrieves the independent metadata I/O setting from the access property list \texttt{accpl\_id}.
+\end{flushleft}%
+
+\paragraph{Description:}
+\begin{flushleft}%
+\texttt{H5daos\_get\_all\_ind\_metadata\_ops} retrieves the independent metadata I/O setting
+from the access property list \texttt{accpl\_id}.
+\end{flushleft}%
+
+\paragraph{Parameters:}
+\begin{flushleft}%
+ \begin{tabular}{lp{0.8\linewidth}}%
+   \texttt{hid\_t accpl\_id} & IN: File, group, dataset, datatype, link or attribute access property list ID \\
+   \texttt{hbool\_t *is\_independent} & OUT: Pointer to a Boolean value to be set, indicating whether metadata
+   I/O is performed independently or is allowed to be performed collectively. \\
+ \end{tabular}%
+\end{flushleft}%
+
+\paragraph{Returns:}
+\begin{flushleft}%
+Returns a non-negative value if successful; otherwise returns a negative value.
+\end{flushleft}%
+
 \end{document}

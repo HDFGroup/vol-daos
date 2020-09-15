@@ -297,6 +297,7 @@ H5_daos_object_open(void *_item, const H5VL_loc_params_t *loc_params,
     tse_task_t *first_task = NULL;
     tse_task_t *dep_task = NULL;
     hbool_t collective;
+    hid_t lapl_id;
     int ret;
     void *ret_value = &tmp_obj; /* Initialize to non-NULL; NULL is used for error checking */
 
@@ -310,21 +311,13 @@ H5_daos_object_open(void *_item, const H5VL_loc_params_t *loc_params,
     /*
      * Like HDF5, metadata reads are independent by default. If the application has specifically
      * requested collective metadata reads, they will be enabled here. If not already set by the
-     * file, we then check if collective access has been specified for the given LAPL.
+     * file, we then check if collective or independent access has been specified for the given LAPL.
      */
-    collective = item->file->fapl_cache.is_collective_md_read;
-    if(!collective) {
-        hid_t lapl_id = H5P_LINK_ACCESS_DEFAULT;
-
-        if(H5VL_OBJECT_BY_NAME == loc_params->type)
-            lapl_id = loc_params->loc_data.loc_by_name.lapl_id;
-        else if(H5VL_OBJECT_BY_IDX == loc_params->type)
-            lapl_id = loc_params->loc_data.loc_by_idx.lapl_id;
-
-        if(H5P_LINK_ACCESS_DEFAULT != lapl_id)
-            if(H5Pget_all_coll_metadata_ops(lapl_id, &collective) < 0)
-                D_GOTO_ERROR(H5E_OBJECT, H5E_CANTGET, NULL, "can't get collective metadata reads property");
-    } /* end if */
+    lapl_id = (H5VL_OBJECT_BY_NAME == loc_params->type) ? loc_params->loc_data.loc_by_name.lapl_id :
+              (H5VL_OBJECT_BY_IDX == loc_params->type)  ? loc_params->loc_data.loc_by_idx.lapl_id :
+                                                          H5P_LINK_ACCESS_DEFAULT;
+    H5_DAOS_GET_METADATA_READ_MODE(item->file, lapl_id, H5P_LINK_ACCESS_DEFAULT,
+            collective, H5E_OBJECT, NULL);
 
     /* Start H5 operation */
     if(NULL == (int_req = H5_daos_req_create(item->file, dxpl_id)))
@@ -729,7 +722,7 @@ H5_daos_object_get_oid_by_name(H5_daos_obj_t *loc_obj, const H5VL_loc_params_t *
 
         /* Traverse the path */
         if(NULL == (target_obj = H5_daos_group_traverse((H5_daos_item_t *)loc_obj, loc_params->loc_data.loc_by_name.name,
-                H5P_LINK_CREATE_DEFAULT, req, collective, &path_buf, &target_name, &target_name_len, first_task, dep_task)))
+                H5P_LINK_CREATE_DEFAULT, req, FALSE, &path_buf, &target_name, &target_name_len, first_task, dep_task)))
             D_GOTO_ERROR(H5E_OBJECT, H5E_TRAVERSE, FAIL, "can't traverse path");
 
         /* Check for no target_name, in this case just reopen target_obj */
@@ -1097,6 +1090,7 @@ H5_daos_object_oid_bcast(H5_daos_file_t *file, daos_obj_id_t *oid,
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "failed to allocate buffer for MPI broadcast user data");
     oid_bcast_udata->bcast_udata.req = req;
     oid_bcast_udata->bcast_udata.obj = NULL;
+    oid_bcast_udata->bcast_udata.sched = &file->sched;
     oid_bcast_udata->bcast_udata.bcast_metatask = NULL;
     oid_bcast_udata->bcast_udata.buffer = oid_bcast_udata->oid_buf;
     oid_bcast_udata->bcast_udata.buffer_len = H5_DAOS_ENCODED_OID_SIZE;
@@ -1288,7 +1282,9 @@ H5_daos_object_copy(void *src_loc_obj, const H5VL_loc_params_t *src_loc_params,
     tse_task_t *first_task = NULL;
     tse_task_t *dep_task = NULL;
     unsigned obj_copy_options = 0;
+    hbool_t collective;
     htri_t **link_exists_p;
+    hid_t lapl_id = H5P_LINK_ACCESS_DEFAULT;
     int ret;
     herr_t ret_value = SUCCEED;
 
@@ -1311,22 +1307,11 @@ H5_daos_object_copy(void *src_loc_obj, const H5VL_loc_params_t *src_loc_params,
 
     H5_DAOS_MAKE_ASYNC_PROGRESS(item->file->sched, FAIL);
 
-    /* Retrieve the object copy options. The following flags are
-     * currently supported:
-     *
-     * H5O_COPY_SHALLOW_HIERARCHY_FLAG
-     * H5O_COPY_WITHOUT_ATTR_FLAG
-     * H5O_COPY_EXPAND_SOFT_LINK_FLAG
-     *
-     * DSINC - The following flags are currently unsupported:
-     *
-     *   H5O_COPY_EXPAND_EXT_LINK_FLAG
-     *   H5O_COPY_EXPAND_REFERENCE_FLAG
-     *   H5O_COPY_MERGE_COMMITTED_DTYPE_FLAG
+    /* Determine metadata I/O mode setting (collective vs. independent)
+     * for metadata writes according to file-wide setting on FAPL.
      */
-    if(H5P_OBJECT_COPY_DEFAULT != ocpypl_id)
-        if(H5Pget_copy_object(ocpypl_id, &obj_copy_options) < 0)
-            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTGET, FAIL, "failed to retrieve object copy options");
+    H5_DAOS_GET_METADATA_WRITE_MODE(item->file, lapl_id, H5P_LINK_ACCESS_DEFAULT,
+            collective, H5E_OBJECT, FAIL);
 
     /* Start H5 operation */
     if(NULL == (int_req = H5_daos_req_create(item->file, dxpl_id)))
@@ -1339,22 +1324,41 @@ H5_daos_object_copy(void *src_loc_obj, const H5VL_loc_params_t *src_loc_params,
     int_req->th_open = TRUE;
 #endif /* H5_DAOS_USE_TRANSACTIONS */
 
-    /*
-     * First, ensure that the object doesn't currently exist at the specified destination
-     * location object/destination name pair.
-     */
-    if(H5_daos_link_exists((H5_daos_item_t *)dst_loc_obj, dst_name, &link_exists_p, NULL, int_req, &first_task, &dep_task) < 0)
-        D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "couldn't determine if link exists");
+    if(!collective || (item->file->my_rank == 0)) {
+        /*
+         * First, ensure that the object doesn't currently exist at the specified destination
+         * location object/destination name pair.
+         */
+        if(H5_daos_link_exists((H5_daos_item_t *)dst_loc_obj, dst_name, &link_exists_p, NULL, int_req, &first_task, &dep_task) < 0)
+            D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "couldn't determine if link exists");
 
-    /* Initialize sched_loc if we created the first task here */
-    if(dep_task)
-        sched_loc = H5_DAOS_SCHED_LOC_DST;
+        /* Initialize sched_loc if we created the first task here */
+        if(dep_task)
+            sched_loc = H5_DAOS_SCHED_LOC_DST;
 
-    /* Perform the object copy */
-    if(H5_daos_object_copy_helper(src_loc_obj, src_loc_params, src_name,
-            dst_loc_obj, dst_loc_params, dst_name, obj_copy_options, lcpl_id,
-            link_exists_p, &sched_loc, int_req, &first_task, &dep_task) < 0)
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTCOPY, FAIL, "failed to copy object");
+        /* Retrieve the object copy options. The following flags are
+         * currently supported:
+         *
+         * H5O_COPY_SHALLOW_HIERARCHY_FLAG
+         * H5O_COPY_WITHOUT_ATTR_FLAG
+         * H5O_COPY_EXPAND_SOFT_LINK_FLAG
+         *
+         * DSINC - The following flags are currently unsupported:
+         *
+         *   H5O_COPY_EXPAND_EXT_LINK_FLAG
+         *   H5O_COPY_EXPAND_REFERENCE_FLAG
+         *   H5O_COPY_MERGE_COMMITTED_DTYPE_FLAG
+         */
+        if(H5P_OBJECT_COPY_DEFAULT != ocpypl_id)
+            if(H5Pget_copy_object(ocpypl_id, &obj_copy_options) < 0)
+                D_GOTO_ERROR(H5E_OBJECT, H5E_CANTGET, FAIL, "failed to retrieve object copy options");
+
+        /* Perform the object copy */
+        if(H5_daos_object_copy_helper(src_loc_obj, src_loc_params, src_name,
+                dst_loc_obj, dst_loc_params, dst_name, obj_copy_options, lcpl_id,
+                link_exists_p, &sched_loc, int_req, &first_task, &dep_task) < 0)
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTCOPY, FAIL, "failed to copy object");
+    } /* end if */
 
 done:
     if(int_req) {
@@ -1479,7 +1483,7 @@ H5_daos_object_copy_helper(void *src_loc_obj, const H5VL_loc_params_t *src_loc_p
     sub_loc_params.loc_data.loc_by_name.lapl_id = H5P_LINK_ACCESS_DEFAULT;
     sub_loc_params.loc_data.loc_by_name.name = src_name;
     if(H5_daos_object_open_helper(src_loc_obj, &sub_loc_params, NULL,
-            TRUE, NULL, &obj_copy_udata->src_obj, req, first_task, dep_task) < 0)
+            FALSE, NULL, &obj_copy_udata->src_obj, req, first_task, dep_task) < 0)
         D_GOTO_ERROR(H5E_OBJECT, H5E_CANTOPENOBJ, FAIL, "failed to open source object");
 
     /* Initialize sched_loc if we created the first task here */
@@ -1496,7 +1500,7 @@ H5_daos_object_copy_helper(void *src_loc_obj, const H5VL_loc_params_t *src_loc_p
 
     /* Traverse path to destination group */
     if(NULL == (obj_copy_udata->dst_grp = (H5_daos_group_t *)H5_daos_group_traverse(dst_loc_obj, dst_name,
-            lcpl_id, req, TRUE, &obj_copy_udata->new_obj_name_path_buf, &obj_copy_udata->new_obj_name,
+            lcpl_id, req, FALSE, &obj_copy_udata->new_obj_name_path_buf, &obj_copy_udata->new_obj_name,
             &obj_copy_udata->new_obj_name_len, first_task, dep_task)))
         D_GOTO_ERROR(H5E_OBJECT, H5E_TRAVERSE, FAIL, "can't traverse path");
 
@@ -1972,7 +1976,7 @@ H5_daos_object_copy_single_attribute(H5_daos_obj_t *src_obj,
     sub_loc_params.type = H5VL_OBJECT_BY_SELF;
 
     if(NULL == (attr_copy_ud->src_attr = H5_daos_attribute_open_helper((H5_daos_item_t *)src_obj, &sub_loc_params,
-            attr_name, H5P_ATTRIBUTE_ACCESS_DEFAULT, req, first_task, dep_task)))
+            attr_name, H5P_ATTRIBUTE_ACCESS_DEFAULT, FALSE, req, first_task, dep_task)))
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, FAIL, "failed to open attribute");
 
     if(0 != (ret = tse_task_create(H5_daos_object_copy_single_attribute_task,
@@ -2059,7 +2063,7 @@ H5_daos_object_copy_single_attribute_task(tse_task_t *task)
     if(NULL == (udata->new_attr = H5_daos_attribute_create_helper(&udata->target_obj->item,
             &sub_loc_params, udata->src_attr->type_id, udata->src_attr->space_id,
             udata->src_attr->acpl_id, H5P_ATTRIBUTE_ACCESS_DEFAULT, udata->src_attr->name,
-            TRUE, req, &first_task, &dep_task)))
+            FALSE, req, &first_task, &dep_task)))
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTCOPY, -H5_DAOS_H5_COPY_ERROR, "failed to create new attribute");
 
 done:
@@ -2322,7 +2326,7 @@ static H5_daos_group_t *H5_daos_group_copy_helper(H5_daos_group_t *src_grp,
     /* Copy the group */
     if(NULL == (copied_group = H5_daos_group_create_helper(dst_grp->obj.item.file,
             FALSE, src_grp->gcpl_id, src_grp->gapl_id, dst_grp, name,
-            strlen(name), TRUE, req, first_task, dep_task)))
+            strlen(name), FALSE, req, first_task, dep_task)))
         D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, NULL, "can't create new group");
 
     /* Initialize sched_loc if we created the first task here */
@@ -2460,7 +2464,7 @@ H5_daos_group_copy_cb(hid_t group, const char *name, const H5L_info2_t *info,
                 /* Copy the link as is */
                 if(H5_daos_link_copy_move_int((H5_daos_item_t *)obj_copy_udata->src_obj, &sub_loc_params,
                         (H5_daos_item_t *)obj_copy_udata->copied_obj, &sub_loc_params,
-                        obj_copy_udata->lcpl_id, FALSE, &sched_loc, obj_copy_udata->req,
+                        obj_copy_udata->lcpl_id, FALSE, &sched_loc, FALSE, obj_copy_udata->req,
                         first_task, dep_task) < 0)
                     D_GOTO_ERROR(H5E_LINK, H5E_CANTCOPY, H5_ITER_ERROR, "failed to copy link");
             } /* end else */
@@ -2482,7 +2486,7 @@ H5_daos_group_copy_cb(hid_t group, const char *name, const H5L_info2_t *info,
                 /* Copy the link as is */
                 if(H5_daos_link_copy_move_int((H5_daos_item_t *)obj_copy_udata->src_obj, &sub_loc_params,
                         (H5_daos_item_t *)obj_copy_udata->dst_grp, &sub_loc_params,
-                        obj_copy_udata->lcpl_id, FALSE, &sched_loc, obj_copy_udata->req,
+                        obj_copy_udata->lcpl_id, FALSE, &sched_loc, FALSE, obj_copy_udata->req,
                         first_task, dep_task) < 0)
                     D_GOTO_ERROR(H5E_LINK, H5E_CANTCOPY, H5_ITER_ERROR, "failed to copy link");
             } /* end else */
@@ -2562,7 +2566,7 @@ H5_daos_datatype_copy(H5_daos_object_copy_ud_t *obj_copy_udata, H5_daos_sched_lo
     /* Copy the datatype */
     if(NULL == (obj_copy_udata->copied_obj = H5_daos_datatype_commit_helper(obj_copy_udata->dst_grp->obj.item.file,
             src_dtype->type_id, src_dtype->tcpl_id, src_dtype->tapl_id, obj_copy_udata->dst_grp,
-            obj_copy_udata->new_obj_name, strlen(obj_copy_udata->new_obj_name), TRUE, req, first_task, dep_task)))
+            obj_copy_udata->new_obj_name, strlen(obj_copy_udata->new_obj_name), FALSE, req, first_task, dep_task)))
         D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTCOPY, FAIL, "can't commit new datatype");
 
     /* Initialize sched_loc if we created the first task here */
@@ -2634,7 +2638,7 @@ H5_daos_dataset_copy(H5_daos_object_copy_ud_t *obj_copy_udata, H5_daos_sched_loc
     if(NULL == (obj_copy_udata->copied_obj = H5_daos_dataset_create_helper(obj_copy_udata->dst_grp->obj.item.file,
             src_dset->type_id, src_dset->space_id, src_dset->dcpl_id, src_dset->dapl_id,
             obj_copy_udata->dst_grp, obj_copy_udata->new_obj_name, strlen(obj_copy_udata->new_obj_name),
-            TRUE, req, first_task, dep_task)))
+            FALSE, req, first_task, dep_task)))
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, FAIL, "can't create new dataset");
 
     /* Initialize sched_loc if we created the first task here */
@@ -3239,6 +3243,9 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
     tse_task_t *dep_task = NULL;
     const char *oexists_obj_name = NULL;
     size_t oexists_obj_name_len = 0;
+    hbool_t collective_md_read;
+    hbool_t collective_md_write;
+    hid_t lapl_id;
     int ret;
     herr_t ret_value = SUCCEED;
 
@@ -3248,6 +3255,16 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "location parameters object is NULL");
 
     H5_DAOS_MAKE_ASYNC_PROGRESS(item->file->sched, FAIL);
+
+    /* Determine metadata I/O mode setting (collective vs. independent)
+     * for metadata reads and writes according to file-wide setting on
+     * FAPL and per-operation setting on LAPL.
+     */
+    lapl_id = (H5VL_OBJECT_BY_NAME == loc_params->type) ? loc_params->loc_data.loc_by_name.lapl_id :
+              (H5VL_OBJECT_BY_IDX == loc_params->type)  ? loc_params->loc_data.loc_by_idx.lapl_id :
+                                                          H5P_LINK_ACCESS_DEFAULT;
+    H5_DAOS_GET_METADATA_IO_MODES(item->file, lapl_id, H5P_LINK_ACCESS_DEFAULT,
+            collective_md_read, collective_md_write, H5E_OBJECT, FAIL);
 
     /* Start H5 operation */
     if(NULL == (int_req = H5_daos_req_create(item->file, dxpl_id)))
@@ -3278,12 +3295,13 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
 
             /* Open group containing the link in question */
             if(NULL == (target_obj = H5_daos_group_traverse(item, loc_params->loc_data.loc_by_name.name,
-                    H5P_LINK_CREATE_DEFAULT, int_req, FALSE, &path_buf, &oexists_obj_name, &oexists_obj_name_len, &first_task, &dep_task)))
+                    H5P_LINK_CREATE_DEFAULT, int_req, collective_md_read, &path_buf,
+                    &oexists_obj_name, &oexists_obj_name_len, &first_task, &dep_task)))
                 D_GOTO_ERROR(H5E_SYM, H5E_CANTOPENOBJ, FAIL, "can't open group");
         } /* end if */
         else
             /* Open the object */
-            if(H5_daos_object_open_helper(item, loc_params, NULL, TRUE,
+            if(H5_daos_object_open_helper(item, loc_params, NULL, collective_md_read,
                     &target_obj_p, NULL, int_req, &first_task, &dep_task) < 0)
                 D_GOTO_ERROR(H5E_OBJECT, H5E_CANTOPENOBJ, FAIL, "can't open target object");
     } /* end if */

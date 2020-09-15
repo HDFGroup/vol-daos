@@ -1972,8 +1972,7 @@ done:
 herr_t
 H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
     const H5VL_loc_params_t *loc_params, hid_t lcpl_id,
-    hid_t H5VL_DAOS_UNUSED lapl_id, hid_t dxpl_id, void H5VL_DAOS_UNUSED **req,
-    va_list arguments)
+    hid_t lapl_id, hid_t dxpl_id, void H5VL_DAOS_UNUSED **req, va_list arguments)
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_link_create_hard_ud_t *create_udata = NULL;
@@ -1986,6 +1985,7 @@ H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
     H5_daos_req_t *int_req = NULL;
     tse_task_t *first_task = NULL;
     tse_task_t *dep_tasks[2] = {NULL, NULL};
+    hbool_t collective;
     int ndeps = 0;
     int ret;
     herr_t ret_value = SUCCEED;
@@ -2033,6 +2033,13 @@ H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
 
     H5_DAOS_MAKE_ASYNC_PROGRESS(item->file->sched, FAIL);
 
+    /*
+     * Determine if independent metadata writes have been requested. Otherwise,
+     * like HDF5, metadata writes are collective by default.
+     */
+    H5_DAOS_GET_METADATA_WRITE_MODE(item->file, lapl_id, H5P_LINK_ACCESS_DEFAULT,
+            collective, H5E_LINK, FAIL);
+
     /* Start H5 operation */
     if(NULL == (int_req = H5_daos_req_create(item->file, dxpl_id)))
         D_GOTO_ERROR(H5E_LINK, H5E_CANTALLOC, FAIL, "can't create DAOS request");
@@ -2047,7 +2054,7 @@ H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
     /* Find target group */
     /* This needs to be made collective DSINC */
     if(NULL == (link_obj = H5_daos_group_traverse(item, loc_params->loc_data.loc_by_name.name,
-            lcpl_id, int_req, FALSE, &path_buf, &link_name, &link_name_len, &first_task, &dep_tasks[0])))
+            lcpl_id, int_req, collective, &path_buf, &link_name, &link_name_len, &first_task, &dep_tasks[0])))
         D_GOTO_ERROR(H5E_SYM, H5E_BADITER, FAIL, "can't traverse path");
     if(dep_tasks[0])
         ndeps++;
@@ -2060,106 +2067,109 @@ H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
     if(link_name_len == 0)
         D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, FAIL, "path given does not resolve to a final link name");
 
-    switch(create_type) {
-        case H5VL_LINK_CREATE_HARD:
-        {
-            H5VL_loc_params_t *target_loc_params_hard = va_arg(arguments, H5VL_loc_params_t *);
-            tse_task_t *create_task = NULL;
+    /* Create link if this process should */
+    if(!collective || (item->file->my_rank == 0)) {
+        switch(create_type) {
+            case H5VL_LINK_CREATE_HARD:
+            {
+                H5VL_loc_params_t *target_loc_params_hard = va_arg(arguments, H5VL_loc_params_t *);
+                tse_task_t *create_task = NULL;
 
-            assert(target_loc_obj_hard);
+                assert(target_loc_obj_hard);
 
-            /* Allocate task udata struct and give it ownership of link_obj and
-             * a reference to req */
-             if(NULL == (create_udata = (H5_daos_link_create_hard_ud_t *)DV_calloc(sizeof(H5_daos_link_create_hard_ud_t))))
-                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate get link create user data");
-            create_udata->req = int_req;
-            int_req->rc++;
-            create_udata->link_grp = (H5_daos_group_t *)link_obj;
-            link_obj = NULL;
-            create_udata->link_name = link_name;
-            create_udata->link_name_len = link_name_len;
-            create_udata->link_val.type = H5L_TYPE_HARD;
+                /* Allocate task udata struct and give it ownership of link_obj and
+                 * a reference to req */
+                 if(NULL == (create_udata = (H5_daos_link_create_hard_ud_t *)DV_calloc(sizeof(H5_daos_link_create_hard_ud_t))))
+                    D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate get link create user data");
+                create_udata->req = int_req;
+                int_req->rc++;
+                create_udata->link_grp = (H5_daos_group_t *)link_obj;
+                link_obj = NULL;
+                create_udata->link_name = link_name;
+                create_udata->link_name_len = link_name_len;
+                create_udata->link_val.type = H5L_TYPE_HARD;
 
-            if(H5VL_OBJECT_BY_NAME == target_loc_params_hard->type) {
-                /* Attempt to open the hard link's target object */
-                if(H5_daos_object_open_helper((H5_daos_item_t *)target_loc_obj_hard, target_loc_params_hard,
-                        NULL, FALSE, NULL, &create_udata->target_obj, int_req, &first_task, &dep_tasks[ndeps]) < 0)
-                    D_GOTO_ERROR(H5E_LINK, H5E_CANTOPENOBJ, FAIL, "couldn't open hard link's target object");
-                if(dep_tasks[ndeps])
-                    ndeps++;
-            } /* end if */
-            else {
-                /* H5Olink */
-                if(H5VL_OBJECT_BY_SELF != target_loc_params_hard->type)
-                    D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, FAIL, "invalid loc_params type");
+                if(H5VL_OBJECT_BY_NAME == target_loc_params_hard->type) {
+                    /* Attempt to open the hard link's target object */
+                    if(H5_daos_object_open_helper((H5_daos_item_t *)target_loc_obj_hard, target_loc_params_hard,
+                            NULL, FALSE, NULL, &create_udata->target_obj, int_req, &first_task, &dep_tasks[ndeps]) < 0)
+                        D_GOTO_ERROR(H5E_LINK, H5E_CANTOPENOBJ, FAIL, "couldn't open hard link's target object");
+                    if(dep_tasks[ndeps])
+                        ndeps++;
+                } /* end if */
+                else {
+                    /* H5Olink */
+                    if(H5VL_OBJECT_BY_SELF != target_loc_params_hard->type)
+                        D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, FAIL, "invalid loc_params type");
 
-                create_udata->target_obj = target_loc_obj_hard;
-                target_loc_obj_hard->item.rc++;
-            } /* end else */
+                    create_udata->target_obj = target_loc_obj_hard;
+                    target_loc_obj_hard->item.rc++;
+                } /* end else */
 
-            /* Create task to write link */
-            if(0 !=  (ret = tse_task_create(H5_daos_link_create_task, &item->file->sched, create_udata, &create_task)))
-                D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create task for link create: %s", H5_daos_err_to_string(ret));
+                /* Create task to write link */
+                if(0 !=  (ret = tse_task_create(H5_daos_link_create_task, &item->file->sched, create_udata, &create_task)))
+                    D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create task for link create: %s", H5_daos_err_to_string(ret));
 
-            /* Register task dependency */
-            if(ndeps > 0 && 0 != (ret = tse_task_register_deps(create_task, ndeps, dep_tasks)))
-                D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create dependencies for link create task: %s", H5_daos_err_to_string(ret));
+                /* Register task dependency */
+                if(ndeps > 0 && 0 != (ret = tse_task_register_deps(create_task, ndeps, dep_tasks)))
+                    D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create dependencies for link create task: %s", H5_daos_err_to_string(ret));
 
-            /* Schedule create task (or save it to be scheduled later).  It will
-             * share the reference to req and udata with other tasks */
-            if(first_task) {
-                if(0 != (ret = tse_task_schedule(create_task, false)))
-                    D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't schedule task for link create: %s", H5_daos_err_to_string(ret));
-            } /* end if */
-            else
-                first_task = create_task;
-            dep_tasks[0] = create_task;
-            ndeps = 1;
-
-            /* Read target object ref count */
-            if(0 != (ret = H5_daos_obj_read_rc(&create_udata->target_obj, NULL,
-                    &create_udata->obj_rc, NULL, &item->file->sched, int_req,
-                    &first_task, &dep_tasks[0])))
-                D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't get target object ref count: %s", H5_daos_err_to_string(ret));
-
-            /* Increment and write ref count */
-            if(0 != (ret = H5_daos_obj_write_rc(&create_udata->target_obj, NULL,
-                    &create_udata->obj_rc, 1, &item->file->sched, int_req,
-                    &first_task, &dep_tasks[0])))
-                D_GOTO_ERROR(H5E_LINK, H5E_CANTINC, FAIL, "can't write updated target object ref count: %s", H5_daos_err_to_string(ret));
-
-            break;
-        } /* H5VL_LINK_CREATE_HARD */
-
-        case H5VL_LINK_CREATE_SOFT:
-        {
-            /* Retrieve target name */
-            const char *slink_val = va_arg(arguments, const char *);
-
-            /* Set up soft link */
-            link_val.type = H5L_TYPE_SOFT;
-            if(NULL == (link_val.target.soft = strdup(slink_val)))
-                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't copy soft link value");
-
-            /* Create link */
-            link_val.target_oid_async = NULL;
-            if(0 != (ret = H5_daos_link_write((H5_daos_group_t *)link_obj, link_name, strlen(link_name),
-                    &link_val, int_req, &first_task, &dep_tasks[0])))
-                D_GOTO_ERROR(H5E_LINK, H5E_WRITEERROR, FAIL, "can't create link: %s", H5_daos_err_to_string(ret));
-            assert(ndeps <= 1);
-            if(dep_tasks[0])
+                /* Schedule create task (or save it to be scheduled later).  It will
+                 * share the reference to req and udata with other tasks */
+                if(first_task) {
+                    if(0 != (ret = tse_task_schedule(create_task, false)))
+                        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't schedule task for link create: %s", H5_daos_err_to_string(ret));
+                } /* end if */
+                else
+                    first_task = create_task;
+                dep_tasks[0] = create_task;
                 ndeps = 1;
 
-            break;
-        } /* H5VL_LINK_CREATE_HARD */
+                /* Read target object ref count */
+                if(0 != (ret = H5_daos_obj_read_rc(&create_udata->target_obj, NULL,
+                        &create_udata->obj_rc, NULL, &item->file->sched, int_req,
+                        &first_task, &dep_tasks[0])))
+                    D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't get target object ref count: %s", H5_daos_err_to_string(ret));
 
-        case H5VL_LINK_CREATE_UD:
-            D_GOTO_ERROR(H5E_LINK, H5E_UNSUPPORTED, FAIL, "UD link creation not supported");
-            break;
+                /* Increment and write ref count */
+                if(0 != (ret = H5_daos_obj_write_rc(&create_udata->target_obj, NULL,
+                        &create_udata->obj_rc, 1, &item->file->sched, int_req,
+                        &first_task, &dep_tasks[0])))
+                    D_GOTO_ERROR(H5E_LINK, H5E_CANTINC, FAIL, "can't write updated target object ref count: %s", H5_daos_err_to_string(ret));
 
-        default:
-            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "invalid link creation call");
-    } /* end switch */
+                break;
+            } /* H5VL_LINK_CREATE_HARD */
+
+            case H5VL_LINK_CREATE_SOFT:
+            {
+                /* Retrieve target name */
+                const char *slink_val = va_arg(arguments, const char *);
+
+                /* Set up soft link */
+                link_val.type = H5L_TYPE_SOFT;
+                if(NULL == (link_val.target.soft = strdup(slink_val)))
+                    D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't copy soft link value");
+
+                /* Create link */
+                link_val.target_oid_async = NULL;
+                if(0 != (ret = H5_daos_link_write((H5_daos_group_t *)link_obj, link_name, strlen(link_name),
+                        &link_val, int_req, &first_task, &dep_tasks[0])))
+                    D_GOTO_ERROR(H5E_LINK, H5E_WRITEERROR, FAIL, "can't create link: %s", H5_daos_err_to_string(ret));
+                assert(ndeps <= 1);
+                if(dep_tasks[0])
+                    ndeps = 1;
+
+                break;
+            } /* H5VL_LINK_CREATE_SOFT */
+
+            case H5VL_LINK_CREATE_UD:
+                D_GOTO_ERROR(H5E_LINK, H5E_UNSUPPORTED, FAIL, "UD link creation not supported");
+                break;
+
+            default:
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "invalid link creation call");
+        } /* end switch */
+    } /* end if */
 
 done:
     /* Create task to free create_udata if present */
@@ -2307,7 +2317,6 @@ H5_daos_link_copy_move_task(tse_task_t *task)
         link_target_loc_params.loc_data.loc_by_token.token = &token;
 
         /* Attempt to open the hard link's target object */
-        /* TODO: no logic for 'collective' yet */
         if(H5_daos_object_open_helper(&udata->target_obj->item, &link_target_loc_params,
                 NULL, FALSE, NULL, &udata->link_target_obj, req, &first_task, &dep_tasks[rc_task]) < 0)
             D_GOTO_ERROR(H5E_LINK, H5E_CANTOPENOBJ, -H5_DAOS_H5_OPEN_ERROR, "couldn't open hard link's target object");
@@ -2463,9 +2472,9 @@ done:
  */
 herr_t
 H5_daos_link_copy_move_int(H5_daos_item_t *src_item, const H5VL_loc_params_t *loc_params1,
-    H5_daos_item_t *dst_item, const H5VL_loc_params_t *loc_params2, hid_t lcpl,
-    hbool_t move, H5_daos_sched_loc_t *sched_loc, H5_daos_req_t *req,
-    tse_task_t **first_task, tse_task_t **dep_task)
+    H5_daos_item_t *dst_item, const H5VL_loc_params_t *loc_params2, hid_t lcpl_id,
+    hbool_t move, H5_daos_sched_loc_t *sched_loc, hbool_t collective,
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_link_copy_move_ud_t *cm_udata = NULL;
     H5_daos_obj_t *src_obj = NULL;
@@ -2474,8 +2483,8 @@ H5_daos_link_copy_move_int(H5_daos_item_t *src_item, const H5VL_loc_params_t *lo
     tse_task_t *dep_tasks[2] = {NULL, NULL};
     tse_task_t *delete_task = NULL;
     H5_daos_sched_loc_t sched_locs[2];
-    tse_sched_t *src_sched;
-    tse_sched_t *dst_sched;
+    tse_sched_t *src_sched = NULL;
+    tse_sched_t *dst_sched = NULL;
     int ret;
     herr_t ret_value = SUCCEED;
 
@@ -2485,154 +2494,161 @@ H5_daos_link_copy_move_int(H5_daos_item_t *src_item, const H5VL_loc_params_t *lo
     assert(loc_params2);
     assert(loc_params2->type == H5VL_OBJECT_BY_NAME);
 
-    /* Allocate task udata struct */
-     if(NULL == (cm_udata = (H5_daos_link_copy_move_ud_t *)DV_calloc(sizeof(H5_daos_link_copy_move_ud_t))))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate link copy user data");
-    cm_udata->req = req;
-    cm_udata->link_val.type = H5L_TYPE_ERROR;
-    cm_udata->move = move;
-
     /* Determine source and destination schedulers */
     src_sched = src_item ? &src_item->file->sched : &dst_item->file->sched;
     dst_sched = dst_item ? &dst_item->file->sched : &src_item->file->sched;
 
-    /* Create first task if necessary (so we don't have to keep track of
-     * mulptiple first tasks */
-    if(!*first_task) {
-        if(0 != (ret = (tse_task_create(H5_daos_metatask_autocomplete, *sched_loc == H5_DAOS_SCHED_LOC_DST ? dst_sched : src_sched, NULL, first_task))))
-            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create meta task link copy start: %s", H5_daos_err_to_string(ret));
-        assert(!*dep_task);
-        *dep_task = *first_task;
-        if(*sched_loc == H5_DAOS_SCHED_LOC_NONE)
-            *sched_loc = H5_DAOS_SCHED_LOC_SRC;
-    } /* end if */
-    assert(*sched_loc == H5_DAOS_SCHED_LOC_SRC || *sched_loc == H5_DAOS_SCHED_LOC_DST);
+    if(!collective || (req->file->my_rank == 0)) {
+        /* Allocate task udata struct */
+         if(NULL == (cm_udata = (H5_daos_link_copy_move_ud_t *)DV_calloc(sizeof(H5_daos_link_copy_move_ud_t))))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate link copy user data");
+        cm_udata->req = req;
+        cm_udata->link_val.type = H5L_TYPE_ERROR;
+        cm_udata->move = move;
 
-    /* Initialize sched_locs and dep_tasks */
-    sched_locs[0] = *sched_loc;
-    sched_locs[1] = *sched_loc;
-    dep_tasks[0] = *dep_task;
-    dep_tasks[1] = *dep_task;
+        /* Create first task if necessary (so we don't have to keep track of
+         * mulptiple first tasks */
+        if(!*first_task) {
+            if(0 != (ret = (tse_task_create(H5_daos_metatask_autocomplete, *sched_loc == H5_DAOS_SCHED_LOC_DST ? dst_sched : src_sched, NULL, first_task))))
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create meta task link copy start: %s", H5_daos_err_to_string(ret));
+            assert(!*dep_task);
+            *dep_task = *first_task;
+            if(*sched_loc == H5_DAOS_SCHED_LOC_NONE)
+                *sched_loc = H5_DAOS_SCHED_LOC_SRC;
+        } /* end if */
+        assert(*sched_loc == H5_DAOS_SCHED_LOC_SRC || *sched_loc == H5_DAOS_SCHED_LOC_DST);
 
-    /* Switch chain 0 to source scheduler */
-    if(sched_locs[0] == H5_DAOS_SCHED_LOC_DST) {
-        assert(dep_tasks[0]);
-        if(0 != (ret = H5_daos_sched_link(dst_sched, src_sched, &dep_tasks[0])))
-            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "failed to switch to source scheduler");
-        sched_locs[0] = H5_DAOS_SCHED_LOC_SRC;
-    } /* end if */
-
-    /* Determine the group containing the link to be copied + the source link's name */
-    /* This needs to be made collective DSINC */
-    /* Make this work for copying across multiple files DSINC */
-    if(NULL == (src_obj = H5_daos_group_traverse(src_item ? src_item : dst_item, /* Accounting for H5L_SAME_LOC usage */
-            loc_params1->loc_data.loc_by_name.name, H5P_LINK_CREATE_DEFAULT,
-            req, FALSE, &cm_udata->src_path_buf, &src_link_name, &src_link_name_len,
-            first_task, &dep_tasks[0])))
-        D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't get source group and source link name");
-
-    /* Check type of src_obj */
-    if(src_obj->item.type != H5I_GROUP)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "source object is not a group");
-
-    /* Switch chain 1 to destination scheduler */
-    if(sched_locs[1] == H5_DAOS_SCHED_LOC_SRC) {
-        if(0 != (ret = H5_daos_sched_link(src_sched, dst_sched, &dep_tasks[1])))
-            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "failed to switch to destination scheduler");
-        sched_locs[1] = H5_DAOS_SCHED_LOC_DST;
-    } /* end if */
-
-    /* Determine the target group for the new link + the new link's name */
-    if(NULL == (cm_udata->target_obj = H5_daos_group_traverse(dst_item ? dst_item : src_item, /* Accounting for H5L_SAME_LOC usage */
-            loc_params2->loc_data.loc_by_name.name, lcpl, req, FALSE,
-            &cm_udata->dst_path_buf, &cm_udata->new_link_name, &cm_udata->new_link_name_len,
-            first_task, &dep_tasks[1])))
-        D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't get destination group and destination link name");
-
-    /* Check type of target_obj */
-    if(cm_udata->target_obj->item.type != H5I_GROUP)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "target object is not a group");
-
-    /* Reject invalid link names during link copy */
-    if(src_link_name_len == 0)
-        D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, FAIL, "source path given does not resolve to a final link name");
-    if(cm_udata->new_link_name_len == 0)
-        D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, FAIL, "destination path given does not resolve to a final link name");
-
-    /* Retrieve the source link's value */
-    assert(sched_locs[0] == H5_DAOS_SCHED_LOC_SRC);
-    if(H5_daos_link_read((H5_daos_group_t *)src_obj, src_link_name, src_link_name_len, req,
-            &cm_udata->link_val, NULL, first_task, &dep_tasks[0]) < 0)
-        D_GOTO_ERROR(H5E_LINK, H5E_READERROR, FAIL, "can't read source link");
-
-    /* If this is a move operation, delete the source link */
-    if(move) {
-        /* Remove the original link  depends on link read (don't delete until
-         * the read is complete!) */
-        delete_task = dep_tasks[0];
-        if(H5_daos_link_delete((src_item ? src_item : dst_item), loc_params1,
-                FALSE, FALSE, req, first_task, &delete_task) < 0)
-            D_GOTO_ERROR(H5E_LINK, H5E_CANTREMOVE, FAIL, "can't delete original link");
-    } /* end if */
-
-    /* Switch chain 0 to destination scheduler */
-    if(0 != (ret = H5_daos_sched_link(src_sched, dst_sched, &dep_tasks[0])))
-        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "failed to switch to destination scheduler");
-    sched_locs[0] = H5_DAOS_SCHED_LOC_DST;
-
-    assert(sched_locs[1] == H5_DAOS_SCHED_LOC_DST);
-
-    /* Create task to finish this operation (write the target link) */
-    if(0 !=  (ret = tse_task_create(H5_daos_link_copy_move_task, dst_sched, cm_udata, &cm_udata->cm_task)))
-        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create task for link copy/move: %s", H5_daos_err_to_string(ret));
-
-    /* Register task dependencies - this task depends both on the source link
-     * read and the target group open */
-    assert(dep_tasks[0] && dep_tasks[1]);
-    if(0 != (ret = tse_task_register_deps(cm_udata->cm_task, 2, &dep_tasks[0])))
-        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create dependencies for link copy/move task: %s", H5_daos_err_to_string(ret));
-
-    /* Schedule copy/move task and give it a reference to req and udata */
-    assert(*first_task);
-    if(0 != (ret = tse_task_schedule(cm_udata->cm_task, false)))
-        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't schedule task for link copy/move: %s", H5_daos_err_to_string(ret));
-    *dep_task = cm_udata->cm_task;
-    *sched_loc = H5_DAOS_SCHED_LOC_DST;
-    req->rc++;
-    cm_udata = NULL;
-
-    /* If we scheduled a delete task, create a metatask with the delete task
-     * and copy/move task as dependencies */
-    if(delete_task) {
-        tse_task_t *metatask = NULL;
-
-        /* Register task dependencies */
-        assert(*dep_task);
-        dep_tasks[0] = delete_task;
+        /* Initialize sched_locs and dep_tasks */
+        sched_locs[0] = *sched_loc;
+        sched_locs[1] = *sched_loc;
+        dep_tasks[0] = *dep_task;
         dep_tasks[1] = *dep_task;
 
-        /* Switch dep_tasks[1] to source scheduler */
-        assert(dep_tasks[1]);
-        if(0 != (ret = H5_daos_sched_link(dst_sched, src_sched, &dep_tasks[1])))
-            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "failed to switch to source scheduler");
-        sched_locs[0] = H5_DAOS_SCHED_LOC_SRC;
+        /* Switch chain 0 to source scheduler */
+        if(sched_locs[0] == H5_DAOS_SCHED_LOC_DST) {
+            assert(dep_tasks[0]);
+            if(0 != (ret = H5_daos_sched_link(dst_sched, src_sched, &dep_tasks[0])))
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "failed to switch to source scheduler");
+            sched_locs[0] = H5_DAOS_SCHED_LOC_SRC;
+        } /* end if */
 
-        /* Create metatask */
-        if(0 != (ret = (tse_task_create(H5_daos_metatask_autocomplete, src_sched, NULL, &metatask))))
-            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create meta task link move: %s", H5_daos_err_to_string(ret));
+        /* Determine the group containing the link to be copied + the source link's name */
+        /* Make this work for copying across multiple files DSINC */
+        if(NULL == (src_obj = H5_daos_group_traverse(src_item ? src_item : dst_item, /* Accounting for H5L_SAME_LOC usage */
+                loc_params1->loc_data.loc_by_name.name, H5P_LINK_CREATE_DEFAULT,
+                req, FALSE, &cm_udata->src_path_buf, &src_link_name, &src_link_name_len,
+                first_task, &dep_tasks[0])))
+            D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't get source group and source link name");
 
-        if(0 != (ret = tse_task_register_deps(metatask, 2, dep_tasks)))
-            D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create dependencies for link move end metatask: %s", H5_daos_err_to_string(ret));
+        /* Check type of src_obj */
+        if(src_obj->item.type != H5I_GROUP)
+            D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "source object is not a group");
 
-        /* Schedule move end metatask */
-        assert(first_task);
-        if(0 != (ret = tse_task_schedule(metatask, false)))
-            D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't schedule end metatask for link move order: %s", H5_daos_err_to_string(ret));
-        *dep_task = metatask;
-        *sched_loc = H5_DAOS_SCHED_LOC_SRC;
+        /* Switch chain 1 to destination scheduler */
+        if(sched_locs[1] == H5_DAOS_SCHED_LOC_SRC) {
+            if(0 != (ret = H5_daos_sched_link(src_sched, dst_sched, &dep_tasks[1])))
+                D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "failed to switch to destination scheduler");
+            sched_locs[1] = H5_DAOS_SCHED_LOC_DST;
+        } /* end if */
+
+        /* Determine the target group for the new link + the new link's name */
+        if(NULL == (cm_udata->target_obj = H5_daos_group_traverse(dst_item ? dst_item : src_item, /* Accounting for H5L_SAME_LOC usage */
+                loc_params2->loc_data.loc_by_name.name, lcpl_id, req, FALSE,
+                &cm_udata->dst_path_buf, &cm_udata->new_link_name, &cm_udata->new_link_name_len,
+                first_task, &dep_tasks[1])))
+            D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't get destination group and destination link name");
+
+        /* Check type of target_obj */
+        if(cm_udata->target_obj->item.type != H5I_GROUP)
+            D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "target object is not a group");
+
+        /* Reject invalid link names during link copy */
+        if(src_link_name_len == 0)
+            D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, FAIL, "source path given does not resolve to a final link name");
+        if(cm_udata->new_link_name_len == 0)
+            D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, FAIL, "destination path given does not resolve to a final link name");
+
+        /* Retrieve the source link's value */
+        assert(sched_locs[0] == H5_DAOS_SCHED_LOC_SRC);
+        if(H5_daos_link_read((H5_daos_group_t *)src_obj, src_link_name, src_link_name_len, req,
+                &cm_udata->link_val, NULL, first_task, &dep_tasks[0]) < 0)
+            D_GOTO_ERROR(H5E_LINK, H5E_READERROR, FAIL, "can't read source link");
+
+        /* If this is a move operation, delete the source link */
+        if(move) {
+            /* Remove the original link  depends on link read (don't delete until
+             * the read is complete!) */
+            delete_task = dep_tasks[0];
+            if(H5_daos_link_delete((src_item ? src_item : dst_item), loc_params1,
+                    FALSE, FALSE, req, first_task, &delete_task) < 0)
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTREMOVE, FAIL, "can't delete original link");
+        } /* end if */
+
+        /* Switch chain 0 to destination scheduler */
+        if(0 != (ret = H5_daos_sched_link(src_sched, dst_sched, &dep_tasks[0])))
+            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "failed to switch to destination scheduler");
+        sched_locs[0] = H5_DAOS_SCHED_LOC_DST;
+
+        assert(sched_locs[1] == H5_DAOS_SCHED_LOC_DST);
+
+        /* Create task to finish this operation (write the target link) */
+        if(0 !=  (ret = tse_task_create(H5_daos_link_copy_move_task, dst_sched, cm_udata, &cm_udata->cm_task)))
+            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create task for link copy/move: %s", H5_daos_err_to_string(ret));
+
+        /* Register task dependencies - this task depends both on the source link
+         * read and the target group open */
+        assert(dep_tasks[0] && dep_tasks[1]);
+        if(0 != (ret = tse_task_register_deps(cm_udata->cm_task, 2, &dep_tasks[0])))
+            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create dependencies for link copy/move task: %s", H5_daos_err_to_string(ret));
+
+        /* Schedule copy/move task and give it a reference to req and udata */
+        assert(*first_task);
+        if(0 != (ret = tse_task_schedule(cm_udata->cm_task, false)))
+            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't schedule task for link copy/move: %s", H5_daos_err_to_string(ret));
+        *dep_task = cm_udata->cm_task;
+        *sched_loc = H5_DAOS_SCHED_LOC_DST;
+        req->rc++;
+        cm_udata = NULL;
+
+        /* If we scheduled a delete task, create a metatask with the delete task
+         * and copy/move task as dependencies */
+        if(delete_task) {
+            tse_task_t *metatask = NULL;
+
+            /* Register task dependencies */
+            assert(*dep_task);
+            dep_tasks[0] = delete_task;
+            dep_tasks[1] = *dep_task;
+
+            /* Switch dep_tasks[1] to source scheduler */
+            assert(dep_tasks[1]);
+            if(0 != (ret = H5_daos_sched_link(dst_sched, src_sched, &dep_tasks[1])))
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "failed to switch to source scheduler");
+            sched_locs[0] = H5_DAOS_SCHED_LOC_SRC;
+
+            /* Create metatask */
+            if(0 != (ret = (tse_task_create(H5_daos_metatask_autocomplete, src_sched, NULL, &metatask))))
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create meta task link move: %s", H5_daos_err_to_string(ret));
+
+            if(0 != (ret = tse_task_register_deps(metatask, 2, dep_tasks)))
+                D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create dependencies for link move end metatask: %s", H5_daos_err_to_string(ret));
+
+            /* Schedule move end metatask */
+            assert(first_task);
+            if(0 != (ret = tse_task_schedule(metatask, false)))
+                D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't schedule end metatask for link move order: %s", H5_daos_err_to_string(ret));
+            *dep_task = metatask;
+            *sched_loc = H5_DAOS_SCHED_LOC_SRC;
+        } /* end if */
     } /* end if */
 
 done:
+    if(collective && ((src_item ? src_item->file->num_procs : dst_item->file->num_procs) > 1)) {
+        tse_sched_t *sched = (*sched_loc == H5_DAOS_SCHED_LOC_SRC) ? src_sched : dst_sched;
+        if(H5_daos_collective_error_check(NULL, src_sched, req, first_task, dep_task) < 0)
+            D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't perform collective error check");
+    } /* end if */
+
     /* Close source object */
     if(src_obj && H5_daos_object_close(src_obj, req->dxpl_id, NULL) < 0)
         D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close source object");
@@ -2664,8 +2680,8 @@ done:
  */
 herr_t
 H5_daos_link_copy(void *src_item, const H5VL_loc_params_t *loc_params1,
-    void *dst_item, const H5VL_loc_params_t *loc_params2, hid_t lcpl,
-    hid_t H5VL_DAOS_UNUSED lapl, hid_t dxpl_id, void H5VL_DAOS_UNUSED **req)
+    void *dst_item, const H5VL_loc_params_t *loc_params2, hid_t lcpl_id,
+    hid_t lapl_id, hid_t dxpl_id, void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_file_t *sched_file = NULL;
     H5_daos_req_t *int_req = NULL;
@@ -2674,6 +2690,7 @@ H5_daos_link_copy(void *src_item, const H5VL_loc_params_t *loc_params1,
     tse_sched_t *dst_sched;
     tse_task_t *first_task = NULL;
     tse_task_t *dep_task = NULL;
+    hbool_t collective;
     int ret;
     herr_t ret_value = SUCCEED;
 
@@ -2699,6 +2716,13 @@ H5_daos_link_copy(void *src_item, const H5VL_loc_params_t *loc_params1,
     if(src_sched != dst_sched)
         H5_DAOS_MAKE_ASYNC_PROGRESS(*dst_sched, FAIL);
 
+    /*
+     * Determine if independent metadata writes have been requested. Otherwise,
+     * like HDF5, metadata writes are collective by default.
+     */
+    H5_DAOS_GET_METADATA_WRITE_MODE(sched_file, lapl_id, H5P_LINK_ACCESS_DEFAULT,
+            collective, H5E_LINK, FAIL);
+
     /* Start H5 operation */
     /* If we ever remove the dxpl_id from H5_daos_object_close, we should be
      * able to remove the dxpl_id from here */
@@ -2717,8 +2741,8 @@ H5_daos_link_copy(void *src_item, const H5VL_loc_params_t *loc_params1,
 
     /* Call internal routine */
     if(H5_daos_link_copy_move_int((H5_daos_item_t *)src_item, loc_params1,
-            (H5_daos_item_t *)dst_item, loc_params2, lcpl, FALSE, &sched_loc,
-            int_req, &first_task, &dep_task) < 0)
+            (H5_daos_item_t *)dst_item, loc_params2, lcpl_id, FALSE, &sched_loc,
+            collective, int_req, &first_task, &dep_task) < 0)
         D_GOTO_ERROR(H5E_LINK, H5E_CANTCOPY, FAIL, "can't copy link");
 
 done:
@@ -2785,8 +2809,8 @@ done:
  */
 herr_t
 H5_daos_link_move(void *src_item, const H5VL_loc_params_t *loc_params1,
-    void *dst_item, const H5VL_loc_params_t *loc_params2, hid_t lcpl,
-    hid_t H5VL_DAOS_UNUSED lapl, hid_t dxpl_id, void H5VL_DAOS_UNUSED **req)
+    void *dst_item, const H5VL_loc_params_t *loc_params2, hid_t lcpl_id,
+    hid_t lapl_id, hid_t dxpl_id, void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_file_t *sched_file = NULL;
     H5_daos_req_t *int_req = NULL;
@@ -2795,6 +2819,7 @@ H5_daos_link_move(void *src_item, const H5VL_loc_params_t *loc_params1,
     tse_sched_t *dst_sched;
     tse_task_t *first_task = NULL;
     tse_task_t *dep_task = NULL;
+    hbool_t collective;
     int ret;
     herr_t ret_value = SUCCEED;
 
@@ -2820,6 +2845,13 @@ H5_daos_link_move(void *src_item, const H5VL_loc_params_t *loc_params1,
     if(src_sched != dst_sched)
         H5_DAOS_MAKE_ASYNC_PROGRESS(*dst_sched, FAIL);
 
+    /*
+     * Determine if independent metadata writes have been requested. Otherwise,
+     * like HDF5, metadata writes are collective by default.
+     */
+    H5_DAOS_GET_METADATA_WRITE_MODE(sched_file, lapl_id, H5P_LINK_ACCESS_DEFAULT,
+            collective, H5E_LINK, FAIL);
+
     /* Start H5 operation */
     /* If we ever remove the dxpl_id from H5_daos_object_close, we should be
      * able to remove the dxpl_id from here */
@@ -2838,8 +2870,8 @@ H5_daos_link_move(void *src_item, const H5VL_loc_params_t *loc_params1,
 
     /* Call internal routine */
     if(H5_daos_link_copy_move_int((H5_daos_item_t *)src_item, loc_params1,
-            (H5_daos_item_t *)dst_item, loc_params2, lcpl, TRUE, &sched_loc,
-            int_req, &first_task, &dep_task) < 0)
+            (H5_daos_item_t *)dst_item, loc_params2, lcpl_id, TRUE, &sched_loc,
+            collective, int_req, &first_task, &dep_task) < 0)
         D_GOTO_ERROR(H5E_LINK, H5E_CANTCOPY, FAIL, "can't move link");
 
 done:
@@ -3088,7 +3120,9 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
     hid_t target_grp_id = -1;
     herr_t iter_ret = 0;
     htri_t *lexists_ret;
-    hbool_t collective;
+    hbool_t collective_md_read;
+    hbool_t collective_md_write;
+    hid_t lapl_id;
     int ret;
     herr_t ret_value = SUCCEED;    /* Return value */
 
@@ -3099,11 +3133,15 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
 
     H5_DAOS_MAKE_ASYNC_PROGRESS(item->file->sched, FAIL);
 
-    /*
-     * Like HDF5, all metadata writes are collective by default. Once independent
-     * metadata writes are implemented, we will need to check for this property.
+    /* Determine metadata I/O mode setting (collective vs. independent)
+     * for metadata reads and writes according to file-wide setting on
+     * FAPL and per-operation setting on LAPL.
      */
-    collective = TRUE;
+    lapl_id = (H5VL_OBJECT_BY_NAME == loc_params->type) ? loc_params->loc_data.loc_by_name.lapl_id :
+              (H5VL_OBJECT_BY_IDX == loc_params->type)  ? loc_params->loc_data.loc_by_idx.lapl_id :
+                                                          H5P_LINK_ACCESS_DEFAULT;
+    H5_DAOS_GET_METADATA_IO_MODES(item->file, lapl_id, H5P_LINK_ACCESS_DEFAULT,
+            collective_md_read, collective_md_write, H5E_LINK, FAIL);
 
     /* Start H5 operation */
     if(NULL == (int_req = H5_daos_req_create(item->file, dxpl_id)))
@@ -3168,7 +3206,8 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
                         sub_loc_params.obj_type = item->type;
                         sub_loc_params.type = H5VL_OBJECT_BY_SELF;
                         if(NULL == (target_grp = (H5_daos_group_t *)H5_daos_group_open_int(item, &sub_loc_params,
-                                loc_params->loc_data.loc_by_name.name, H5P_GROUP_ACCESS_DEFAULT, int_req, FALSE, &first_task, &dep_task)))
+                                loc_params->loc_data.loc_by_name.name, H5P_GROUP_ACCESS_DEFAULT, int_req,
+                                collective_md_read, &first_task, &dep_task)))
                             D_GOTO_ERROR(H5E_SYM, H5E_CANTOPENOBJ, FAIL, "can't open group for link operation");
 
                         break;
@@ -3202,7 +3241,8 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
 
         /* H5Ldelete(_by_idx) */
         case H5VL_LINK_DELETE:
-            if(H5_daos_link_delete(item, loc_params, collective, TRUE, int_req, &first_task, &dep_task) < 0)
+            if(H5_daos_link_delete(item, loc_params, collective_md_write, TRUE,
+                    int_req, &first_task, &dep_task) < 0)
                 D_GOTO_ERROR(H5E_LINK, H5E_CANTREMOVE, FAIL, "failed to delete link");
             break;
 
@@ -6028,6 +6068,10 @@ H5_daos_link_delete(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
     delete_udata = NULL;
 
 done:
+    if(collective && (item->file->num_procs > 1))
+        if(H5_daos_collective_error_check(NULL, &item->file->sched, req, first_task, dep_task) < 0)
+            D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't perform collective error check");
+
     if(ret_value < 0) {
         if(delete_udata && delete_udata->target_obj)
             if(H5_daos_object_close(delete_udata->target_obj, req->dxpl_id, NULL) < 0)

@@ -3171,16 +3171,23 @@ static herr_t
 H5_daos_fill_fapl_cache(H5_daos_file_t *file, hid_t fapl_id)
 {
     char *oclass_str = NULL;
+    hbool_t collective_md_read;
+    hbool_t collective_md_write;
     htri_t prop_exists;
     herr_t ret_value = SUCCEED;
 
     assert(file);
 
-    /* Determine if we requested collective metadata reads for the file */
-    file->fapl_cache.is_collective_md_read = FALSE;
-    if(H5P_FILE_ACCESS_DEFAULT != fapl_id)
-        if(H5Pget_all_coll_metadata_ops(fapl_id, &file->fapl_cache.is_collective_md_read) < 0)
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTGET, FAIL, "can't get collective metadata reads property");
+    /* Set initial collective metadata I/O settings for the file, then
+     * determine if they are to be overridden from a specific setting
+     * on the FAPL.
+     */
+    file->fapl_cache.is_collective_md_read = collective_md_read = FALSE;
+    file->fapl_cache.is_collective_md_write = collective_md_write = TRUE;
+    H5_DAOS_GET_METADATA_IO_MODES(file, fapl_id, H5P_FILE_ACCESS_DEFAULT,
+            collective_md_read, collective_md_write, H5E_FILE, FAIL);
+    file->fapl_cache.is_collective_md_read = collective_md_read;
+    file->fapl_cache.is_collective_md_write = collective_md_write;
 
     /* Check for file default object class set on fapl_id */
     /* Note we do not copy the oclass_str in the property callbacks (there is no

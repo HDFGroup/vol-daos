@@ -754,12 +754,8 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     if((file->fapl_id = H5Pcopy(fapl_id)) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTCOPY, NULL, "failed to copy fapl");
 
-    /* Create CART context */
-    if(0 != (ret = crt_context_create(&file->crt_ctx)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create CART context: %s", H5_daos_err_to_string(ret));
-
     /* Create DAOS task scheduler */
-    if(0 != (ret = tse_sched_init(&file->sched, NULL, file->crt_ctx)))
+    if(0 != (ret = tse_sched_init(&file->sched, NULL, NULL)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create task scheduler: %s", H5_daos_err_to_string(ret));
     sched_init = TRUE;
 
@@ -1490,12 +1486,8 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     if((file->fapl_id = H5Pcopy(fapl_id)) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTCOPY, NULL, "failed to copy fapl");
 
-    /* Create CART context */
-    if(0 != (ret = crt_context_create(&file->crt_ctx)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create CART context: %s", H5_daos_err_to_string(ret));
-
     /* Create DAOS task scheduler */
-    if(0 != (ret = tse_sched_init(&file->sched, NULL, file->crt_ctx)))
+    if(0 != (ret = tse_sched_init(&file->sched, NULL, NULL)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create task scheduler: %s", H5_daos_err_to_string(ret));
 
     /* Get information from the FAPL */
@@ -3027,10 +3019,6 @@ H5_daos_file_close_helper(H5_daos_file_t *file, hid_t dxpl_id, void **req)
     if(H5_daos_progress(&file->sched, NULL, H5_DAOS_PROGRESS_WAIT) < 0)
         D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't progress scheduler");
     tse_sched_fini(&file->sched);
-
-    /* Destroy CART context */
-    if(0 != (ret = crt_context_destroy(file->crt_ctx, 1)))
-        D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, FAIL, "can't destroy CART context: %s", H5_daos_err_to_string(ret));
 
     /* File is closed */
     file->closed = TRUE;

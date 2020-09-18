@@ -373,7 +373,6 @@ typedef struct H5_daos_file_t {
     H5_daos_item_t item; /* Must be first */
     daos_handle_t coh;
     daos_handle_t container_poh;
-    crt_context_t crt_ctx;
     tse_sched_t sched;
     char *file_name;
     uuid_t uuid;

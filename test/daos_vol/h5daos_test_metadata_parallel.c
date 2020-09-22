@@ -27,13 +27,14 @@
 /*
  * Definitions
  */
+//#define DEBUG
 #define TRUE                    1
 #define FALSE                   0
 
-#define FILENAME                "h5daos_test_mdata.h5"
+#define FILENAME                "h5daos_test_mdata"
 #define NAME_LENGTH     	256
-#define DSET_RANK		1
-#define DSET_DIM		16
+#define DSET_RANK		2
+#define ATTR_RANK		1
 
 /* Struct for command-line options */
 typedef struct {
@@ -41,10 +42,29 @@ typedef struct {
     int depthOfTree;
     int numbOfBranches;
     int numbOfObjs;
+    int numbOfFiles;
+    int dset_dim1;
+    int dset_dim2;
+    int chunk_dim1;
+    int chunk_dim2;
+    char *dset_dtype;
+    char *dset_layout;
+    char *map_dtype;
+    int attr_dim;
+    int numbOfMapEntries;
+    int numbOfNestedGroups;
     hbool_t uniqueGroupPerRank;
     hbool_t runMPIIO;
-    char *daosObjClass;
-    char *collMetadata;
+    hbool_t testAllObjects;
+    hbool_t testFileOnly;
+    hbool_t testGroupOnly;
+    hbool_t testDsetOnly;
+    hbool_t testAttrOnly;
+    hbool_t testDtypeOnly;
+    hbool_t testMapOnly;
+    hbool_t noGroupMember;
+    hbool_t noWriteReadData;
+    hbool_t noMapEntry;
     char *fileName;
 } handler_t;
 
@@ -57,24 +77,65 @@ typedef enum {
   GROUP_REMOVE_NUM 	= 4,
   DSET_CREATE_NUM 	= 5,
   DSET_OPEN_NUM		= 6,
-  DSET_READ_NUM 	= 7,
-  DSET_CLOSE_NUM	= 8,
-  DSET_REMOVE_NUM 	= 9,
-  ATTR_CREATE_NUM 	= 10,
-  ATTR_OPEN_NUM		= 11,
-  ATTR_CLOSE_NUM	= 12,
-  ATTR_REMOVE_NUM 	= 13,
-  DTYPE_COMMIT_NUM      = 14,
-  DTYPE_OPEN_NUM	= 15,
-  DTYPE_CLOSE_NUM	= 16,
-  MAP_CREATE_NUM 	= 17,
-  MAP_OPEN_NUM 		= 18,
-  MAP_CLOSE_NUM 	= 19,
-  MAP_REMOVE_NUM 	= 20,
-  LINK_ITERATE_NUM	= 21,
-  LINK_EXIST_NUM	= 22,
+  DSET_WRITE_NUM 	= 7,
+  DSET_READ_NUM 	= 8,
+  DSET_INFO_NUM		= 9,
+  DSET_CLOSE_NUM	= 10,
+  DSET_REMOVE_NUM 	= 11,
+  ATTR_CREATE_NUM 	= 12,
+  ATTR_OPEN_NUM		= 13,
+  ATTR_WRITE_NUM	= 14,
+  ATTR_READ_NUM		= 15,
+  ATTR_CLOSE_NUM	= 16,
+  ATTR_REMOVE_NUM 	= 17,
+  DTYPE_COMMIT_NUM      = 18,
+  DTYPE_OPEN_NUM	= 19,
+  DTYPE_CLOSE_NUM	= 20,
+  MAP_CREATE_NUM 	= 21,
+  MAP_PUT_NUM		= 22,
+  MAP_GET_NUM		= 23,
+  MAP_OPEN_NUM 		= 24,
+  MAP_CLOSE_NUM 	= 25,
+  MAP_REMOVE_NUM 	= 26,
+  LINK_ITERATE_NUM	= 27,
+  LINK_EXIST_NUM	= 28,
+  OBJ_COPY_NUM		= 29,
   ENTRY_NUM
 } test_num_t;
+
+/* List of operations for printing results. Must match the order of test_num_t above */
+const char* metadata_op[] = {
+  "Group create rate",
+  "Group info rate",
+  "Group open rate",
+  "Group close rate",
+  "Group remove rate",
+  "Dset create rate",
+  "Dset open rate",
+  "Dset write rate",
+  "Dset read rate",
+  "Dset info rate",
+  "Dset close rate",
+  "Dset remove rate",
+  "Attr create rate",
+  "Attr open rate",
+  "Attr write rate",
+  "Attr read rate",
+  "Attr close rate",
+  "Attr remove rate",
+  "Dtype commit rate",
+  "Dtype open rate",
+  "Dtype close rate",
+  "Map create rate",
+  "Map put rate",
+  "Map get rate",
+  "Map open rate",
+  "Map close rate",
+  "Map remove rate",
+  "Link iterate rate",
+  "Link exist rate",
+  "Object copy rate"
+};
 
 /* List of file operations */
 typedef enum {
@@ -85,31 +146,92 @@ typedef enum {
   FILE_ENTRY_NUM
 } file_num_t;
 
+const char* file_op[] = {
+  "File create rate",
+  "File open rate",
+  "File close rate",
+  "File remove rate"
+};
+
+typedef struct {
+    double max_rate[ENTRY_NUM];
+    double min_rate[ENTRY_NUM];
+    double mean_rate[ENTRY_NUM];
+
+    double total_max_rate[ENTRY_NUM];
+    double total_min_rate[ENTRY_NUM];
+    double total_mean_rate[ENTRY_NUM];
+    double avg_max_rate[ENTRY_NUM];
+    double avg_min_rate[ENTRY_NUM];
+    double avg_mean_rate[ENTRY_NUM];
+
+    double file_mean_time[FILE_ENTRY_NUM];
+    double file_max_time[FILE_ENTRY_NUM];
+    double file_min_time[FILE_ENTRY_NUM];
+
+    double file_mean_rate[FILE_ENTRY_NUM];
+    double file_max_rate[FILE_ENTRY_NUM];
+    double file_min_rate[FILE_ENTRY_NUM];
+} results_t;
+
 /* Global variables */
 int    mpi_rank;
 int    mpi_size;
 static handler_t hand;
+results_t results;
 double *op_time[ENTRY_NUM];
-double max_time[ENTRY_NUM];
-double min_time[ENTRY_NUM];
 double *file_op_time[FILE_ENTRY_NUM];
 unsigned tree_order;
+hid_t  file_dspace, file_dspace_select, mem_space;
+hid_t  attr_space;
+hid_t  dcpl_id, gcpl_id;
+int    *map_keys, *map_vals, *map_vals_out;
+int    *wdata, *rdata;
+char   *wdata_char, *rdata_char;
+long long *wdata_llong, *rdata_llong;
+float  *wdata_float, *rdata_float;
+double *wdata_double, *rdata_double;
+int    *attr_write, *attr_read;
+/* Keys and values for int-int map */
+int    *map_keys, *map_vals, *map_vals_out;
+/* Keys and values for vls-vl map */
+char **vls_vl_keys;
+hvl_t *vls_vl_vals;
+hvl_t *vls_vl_out;
+hid_t map_vl_key_dtype_id, map_vl_value_dtype_id;
 
 /* Show command usage */
 static void
 usage(void)
 {
-    printf("    [-h] [-a] [-b] [-i] [-I] [-m] [-o] [-r] [-u] [-z]\n\n"); 
+    printf("    [-h] [-a] [-A] [-b] [-c] [-d] [-D] [-e] [-f] [-F] [-g] [-G] [-i] [-I] [-j] [-l] [-m] [-M] [-n] [-o] [-r] [-s] [-t] [-T] [-u] [-z]\n\n"); 
 
     printf("    [-h]: this help page\n");
-    printf("    [-a]: indicate to run H5MPIIO (otherwise H5VOL)\n");
+    printf("    [-a]: indicate to run collective metadata I/O (H5MPIIO as the backend)\n");
+    printf("    [-A]: Run the test for attribute object only\n");
     printf("    [-b]: the number of branches per tree node\n");
-    printf("    [-i]: the number of trees (iterations)\n");
+    printf("    [-c]: the 2D dimensions of the dataset chunk size (16x16 is the default), e.g. 8x8\n");
+    printf("    [-d]: the 2D dimensions of the datasets (16x16 is the default), e.g. 16x32\n");
+    printf("    [-D]: Run the test for dataset object only\n");
+    printf("    [-e]: the number of entries per map\n");
+    printf("    [-f]: the single dimension of the attributes\n");
+    printf("    [-F]: Run the test for file object only\n");
+    printf("    [-g]: the datatype of the dataset\n");
+    printf("    [-G]: Run the test for group object only\n");
+    printf("    [-i]: the number of trees (iterations) for object operations\n");
     printf("    [-I]: the number of objects (groups, datasets, attributes, and maps) per tree node\n");
-    printf("    [-m]: mode of parallel - indepedent or collective (collective is the default)\n");
-    printf("    [-o]: File name without .h5 extension (add the prefix 'daos:' for H5MPIIO)\n");
-    printf("    [-r]: replicated object class, e.g. S1, S2, RP_2G1, RP_3G1\n");
-    printf("    [-u]: unique group per rank where objects will be located under\n");
+    printf("    [-j]: the number of subgroups in the group objects\n");
+    printf("    [-l]: the layout of datasets (contiguous is the default), e.g. chunked or compact\n");
+    printf("    [-m]: the datatype for map object\n");
+    printf("    [-M]: Run the test for map object only\n");
+    printf("    [-n]: the number of iterations for file operations\n");
+    printf("    [-o]: File name (add the prefix 'daos:' for H5MPIIO)\n");
+    printf("    [-r]: No write or read the datasets\n");
+    printf("    [-s]: No entry for maps\n");
+    printf("    [-t]: No member in groups\n");
+    printf("    [-T]: Run the test for named datatype object only\n");
+    printf("    [-u]: unique group per rank where objects will be located under.  Option -a shouldn't be set at the same time.\n");
+    printf("	      It'll use independent metadata I/O.  If not set, collective I/O will be used\n");
     printf("    [-z]: the number of levels (depth) for the tree (the tree root is at level 0) \n");
     printf("\n");
 }
@@ -120,23 +242,49 @@ parse_command_line(int argc, char *argv[])
     int opt;
 
     /* Initialize the command line options */
-    hand.numbOfTrees = 4;
-    hand.depthOfTree = 4;
+    hand.numbOfTrees = 1000;
+    hand.depthOfTree = 0;
     hand.numbOfBranches = 3;
-    hand.numbOfObjs = 3;
+    hand.numbOfObjs = 4;
+    hand.dset_dim1 = 16;
+    hand.dset_dim2 = 16;
+    hand.chunk_dim1 = 16;
+    hand.chunk_dim2 = 16;
+    hand.numbOfMapEntries = 16;
+    hand.attr_dim = 16;
+    hand.numbOfNestedGroups = 16;
+    hand.numbOfFiles = 16;
     hand.uniqueGroupPerRank = FALSE;
     hand.runMPIIO = FALSE;
-    hand.daosObjClass = strdup("S1");
-    hand.collMetadata = strdup("collective");
+    hand.testAllObjects = TRUE;
+    hand.testFileOnly = FALSE;
+    hand.testGroupOnly = FALSE;
+    hand.testDsetOnly = FALSE;
+    hand.testAttrOnly = FALSE;
+    hand.testDtypeOnly = FALSE;
+    hand.testMapOnly = FALSE;
+    hand.noGroupMember = FALSE;
+    hand.noWriteReadData = FALSE;
+    hand.noMapEntry = FALSE;
+    hand.dset_dtype = strdup("int");
+    hand.map_dtype = strdup("int");
+    hand.dset_layout = strdup("contiguous");
     hand.fileName = strdup(FILENAME);
 
-    while((opt = getopt(argc, argv, "ab:hi:I:m:o:r:uz:")) != -1) {
+    while((opt = getopt(argc, argv, "aAb:c:d:De:f:Fg:Ghi:I:j:l:m:Mn:o:rstTuz:")) != -1) {
         switch(opt) {
             case 'a':
-                /* Flag to indicate running H5MPIIO */
+                /* Flag to indicate to use collective metadata I/O (H5MPIIO as the backend) */
                 if(MAINPROCESS)
-                    fprintf(stdout, "run H5MPIIO:	 					TRUE\n");
+                    fprintf(stdout, "run H5MPIIO:	 				TRUE\n");
                 hand.runMPIIO = TRUE;
+                break;
+            case 'A':
+                /* Flag to indicate running test for attribute object alone */
+                if(MAINPROCESS)
+                    fprintf(stdout, "run test for attribute only: 				TRUE\n");
+                hand.testAttrOnly = TRUE;
+    		hand.testAllObjects = FALSE;
                 break;
             case 'b':
                 /* The number of branches for each group */
@@ -146,6 +294,84 @@ parse_command_line(int argc, char *argv[])
                     hand.numbOfBranches = atoi(optarg);
                 } else
                     printf("optarg is null\n");
+                break;
+            case 'c':
+                /* The chunk dimension of the dataset */
+                if(optarg) {
+                    char *chunks_str, *dim1_str, *dim2_str;
+                    if(MAINPROCESS)
+                        fprintf(stdout, "chunk dimensions of datasets: 				%s\n", optarg);
+                    chunks_str = strdup(optarg);
+                    dim1_str = strtok(chunks_str, "x");
+                    dim2_str = strtok(NULL, "x");
+                    hand.chunk_dim1 = atoi(dim1_str);
+                    hand.chunk_dim2 = atoi(dim2_str);
+                } else
+                    printf("optarg is null\n");
+                break;
+            case 'd':
+                /* The dimensions of the dataset */
+                if(optarg) {
+                    char *dims_str, *dim1_str, *dim2_str;
+                    if(MAINPROCESS)
+                        fprintf(stdout, "dimensions of datasets: 				%s\n", optarg);
+                    dims_str = strdup(optarg);
+                    dim1_str = strtok(dims_str, "x");
+                    dim2_str = strtok(NULL, "x");
+                    hand.dset_dim1 = atoi(dim1_str);
+                    hand.dset_dim2 = atoi(dim2_str);
+                } else
+                    printf("optarg is null\n");
+                break;
+            case 'D':
+                /* Flag to indicate running test for dataset object alone */
+                if(MAINPROCESS)
+                    fprintf(stdout, "run test for dataset only:	 					TRUE\n");
+                hand.testDsetOnly = TRUE;
+    		hand.testAllObjects = FALSE;
+                break;
+            case 'e':
+                /* Number of map entries */
+                if(optarg) {
+                    if(MAINPROCESS)
+                        fprintf(stdout, "number of map entries: 				%s\n", optarg);
+                    hand.numbOfMapEntries = atoi(optarg);
+                } else
+                    printf("optarg is null\n");
+                break;
+            case 'f':
+                /* The single dimension of attributes */
+                if(optarg) {
+                    if(MAINPROCESS)
+                        fprintf(stdout, "single dimension of attributes: 				%s\n", optarg);
+                    hand.attr_dim = atoi(optarg);
+                } else
+                    printf("optarg is null\n");
+                break;
+            case 'F':
+                /* Flag to indicate running test for file alone */
+                if(MAINPROCESS)
+                    fprintf(stdout, "run test for file only:	 					TRUE\n");
+                hand.testFileOnly = TRUE;
+    		hand.testAllObjects = FALSE;
+                break;
+            case 'g':
+                /* Dataset's datatype */
+                if(optarg) { 
+                    if(MAINPROCESS)
+                        fprintf(stdout, "Dataset datatype: 					%s\n", optarg);
+                    if(hand.dset_dtype)
+                        free(hand.dset_dtype);
+                    hand.dset_dtype = strdup(optarg);
+                } else
+                    printf("optarg is null\n");
+                break;
+            case 'G':
+                /* Flag to indicate running test for group object (including link and object copy) alone */
+                if(MAINPROCESS)
+                    fprintf(stdout, "run test for group only:	 					TRUE\n");
+                hand.testGroupOnly = TRUE;
+    		hand.testAllObjects = FALSE;
                 break;
             case 'h': 
                 if(MAINPROCESS) {
@@ -175,19 +401,55 @@ parse_command_line(int argc, char *argv[])
                 } else
                     printf("optarg is null\n");
                 break;
-            case 'm':
-                /* Mode of parallel IO: collective or independent */
+            case 'j':
+                /* The number of subgroups in each group objects */
+                if(optarg) {
+                    if(MAINPROCESS)
+                        fprintf(stdout, "number of subgroups:	 				%s\n", optarg);
+                    hand.numbOfNestedGroups = atoi(optarg);
+                } else
+                    printf("optarg is null\n");
+                break;
+            case 'l':
+                /* Dataset layout */
                 if(optarg) { 
                     if(MAINPROCESS)
-                        fprintf(stdout, "whether to use collective mode (collective is the default): %s\n", optarg);
-                    if(hand.collMetadata)
-                        free(hand.collMetadata);
-                    hand.collMetadata = strdup(optarg);
+                        fprintf(stdout, "Dataset layout: 					%s\n", optarg);
+                    if(hand.dset_layout)
+                        free(hand.dset_layout);
+                    hand.dset_layout = strdup(optarg);
+                } else
+                    printf("optarg is null\n");
+                break;
+            case 'm':
+                /* The datatype of map entry */
+                if(optarg) { 
+                    if(MAINPROCESS)
+                        fprintf(stdout, "Map datatype: 						%s\n", optarg);
+                    if(hand.map_dtype)
+                        free(hand.map_dtype);
+                    hand.map_dtype = strdup(optarg);
+                } else
+                    printf("optarg is null\n");
+                break;
+            case 'M':
+                /* Flag to indicate running test for map object alone */
+                if(MAINPROCESS)
+                    fprintf(stdout, "run test for map only: 				TRUE\n");
+                hand.testMapOnly = TRUE;
+    		hand.testAllObjects = FALSE;
+                break;
+            case 'n':
+                /* The number of files for file operations (create, open, close, and delete) */
+                if(optarg) {
+                    if(MAINPROCESS)
+                        fprintf(stdout, "number of file for file operations: 			%s\n", optarg);
+                    hand.numbOfFiles = atoi(optarg);
                 } else
                     printf("optarg is null\n");
                 break;
             case 'o':
-                /* File name without .h5 extension (add the prefix 'daos:' for H5MPIIO) */
+                /* File name (add the prefix 'daos:' for H5MPIIO) */
                 if(optarg) { 
                     if(MAINPROCESS)
                         fprintf(stdout, "HDF5 file name: 					%s\n", optarg);
@@ -198,18 +460,32 @@ parse_command_line(int argc, char *argv[])
                     printf("optarg is null\n");
                 break;
             case 'r':
-                /* Replicated object class */
-                if(optarg) {
-                    if(MAINPROCESS)
-                        fprintf(stdout, "replicated object class: 				%s\n", optarg);
-                    if(hand.daosObjClass)
-                        free(hand.daosObjClass);
-                    hand.daosObjClass = strdup(optarg);
-                } else
-                    printf("optarg is null\n");
+                /* No write or read the datasets */
+                if(MAINPROCESS)
+                    fprintf(stdout, "no write or read datasets: 				TRUE\n");
+                hand.noWriteReadData = TRUE;
+                break;
+            case 's':
+                /* No entry for maps */
+                if(MAINPROCESS)
+                    fprintf(stdout, "no entry for maps:		 				TRUE\n");
+                hand.noMapEntry = TRUE;
+                break;
+            case 't':
+                /* No member for groups */
+                if(MAINPROCESS)
+                    fprintf(stdout, "no member in groups:	 				TRUE\n");
+                hand.noGroupMember = TRUE;
+                break;
+            case 'T':
+                /* Flag to indicate running test for named datatype object alone */
+                if(MAINPROCESS)
+                    fprintf(stdout, "run test for named datatype only: 				TRUE\n");
+                hand.testDtypeOnly = TRUE;
+    		hand.testAllObjects = FALSE;
                 break;
             case 'u':
-                /* Unique group per rank where objects will be located under */
+                /* Unique group per rank where objects will be located under. Independent I/O will be used  */
                 if(MAINPROCESS)
                     fprintf(stdout, "unique group per rank: 					TRUE\n");
                 hand.uniqueGroupPerRank = TRUE;
@@ -232,16 +508,37 @@ parse_command_line(int argc, char *argv[])
         }
     }
 
-    if (hand.numbOfTrees < 1 || hand.depthOfTree < 0 || hand.numbOfBranches < 1 || hand.numbOfObjs < 0 || 
-        strcmp(hand.daosObjClass, "S1")) {
-            H5_FAILED(); AT();
-            printf("invalid command-line option value \n");
-            goto error;
+    if (hand.numbOfTrees < 1 || hand.depthOfTree < 0 || hand.numbOfBranches < 1 || hand.numbOfObjs < 0 || hand.numbOfFiles < 0) { 
+        H5_FAILED(); AT();
+        printf("invalid command-line option value \n");
+        goto error;
     }
 
-    if (hand.uniqueGroupPerRank == TRUE && !strcmp(hand.collMetadata, "collective")) { 
+    if (hand.runMPIIO && hand.uniqueGroupPerRank) {
         H5_FAILED(); AT();
-        printf("unique group per rank must use independent write \n");
+        printf("invalid command-line option value: unique group can't be enable for running H5MPIIO\n");
+        goto error;
+    }
+
+    /* Dataset layout must be either chunked, contiguous, or compact */
+    if (strcmp(hand.dset_layout, "chunked") && strcmp(hand.dset_layout, "contiguous") && strcmp(hand.dset_layout, "compact")) {
+        H5_FAILED(); AT();
+        printf("invalid dataset layout: %s\n", hand.dset_layout);
+        goto error;
+    }
+
+    /* Dataset's datatype must be either char, int, long long, float, or double */
+    if (strcmp(hand.dset_dtype, "char") && strcmp(hand.dset_dtype, "int") && strcmp(hand.dset_dtype, "llong") && 
+	strcmp(hand.dset_dtype, "float") && strcmp(hand.dset_dtype, "double")) {
+        H5_FAILED(); AT();
+        printf("invalid dataset's datatype: %s\n", hand.dset_dtype);
+        goto error;
+    }
+
+    /* Map's datatype must be either int or vl */
+    if (strcmp(hand.map_dtype, "int") && strcmp(hand.map_dtype, "vl")) {
+        H5_FAILED(); AT();
+        printf("invalid map datatype: %s\n", hand.map_dtype);
         goto error;
     }
 
@@ -256,63 +553,207 @@ initialize_time()
 {
     int i;
 
-    for (i = 0; i < ENTRY_NUM; i++) {
-        op_time[i] = (double *)calloc((size_t)hand.numbOfTrees, sizeof(double));
-        max_time[i] = 0;
-        min_time[i] = 1000000.0;
-    }
+    for (i = 0; i < ENTRY_NUM; i++) 
+        op_time[i] = (double *)calloc(hand.numbOfTrees, sizeof(double));
 
     for (i = 0; i < FILE_ENTRY_NUM; i++)
-        file_op_time[i] = (double *)calloc((size_t)hand.numbOfObjs, sizeof(double));
+        file_op_time[i] = (double *)calloc(hand.numbOfObjs, sizeof(double));
+}
+
+static void initialize_data()
+{
+    int         i, j;    
+
+    /* Allocate the memory for the dataset write and read */
+    if(!hand.uniqueGroupPerRank) {
+        if(!strcmp(hand.dset_dtype, "int")) {
+            wdata = (int *)malloc((hand.dset_dim1/mpi_size) * hand.dset_dim2 * sizeof(int));
+            rdata = (int *)malloc((hand.dset_dim1/mpi_size) * hand.dset_dim2 * sizeof(int));
+        } else if(!strcmp(hand.dset_dtype, "char")) {
+            wdata_char = (char *)malloc((hand.dset_dim1/mpi_size) * hand.dset_dim2 * sizeof(char));
+            rdata_char = (char *)malloc((hand.dset_dim1/mpi_size) * hand.dset_dim2 * sizeof(char));
+        } else if(!strcmp(hand.dset_dtype, "llong")) {
+            wdata_llong = (long long *)malloc((hand.dset_dim1/mpi_size) * hand.dset_dim2 * sizeof(long long));
+            rdata_llong = (long long *)malloc((hand.dset_dim1/mpi_size) * hand.dset_dim2 * sizeof(long long));
+        } else if(!strcmp(hand.dset_dtype, "float")) {
+            wdata_float = (float *)malloc((hand.dset_dim1/mpi_size) * hand.dset_dim2 * sizeof(float));
+            rdata_float = (float *)malloc((hand.dset_dim1/mpi_size) * hand.dset_dim2 * sizeof(float));
+        } else if(!strcmp(hand.dset_dtype, "double")) {
+            wdata_double = (double *)malloc((hand.dset_dim1/mpi_size) * hand.dset_dim2 * sizeof(double));
+            rdata_double = (double *)malloc((hand.dset_dim1/mpi_size) * hand.dset_dim2 * sizeof(double));
+        } 
+    } else {
+        if(!strcmp(hand.dset_dtype, "int")) {
+            wdata = (int *)malloc(hand.dset_dim1 * hand.dset_dim2 * sizeof(int));
+            rdata = (int *)malloc(hand.dset_dim1 * hand.dset_dim2 * sizeof(int));
+        } else if(!strcmp(hand.dset_dtype, "char")) {
+            wdata_char = (char *)malloc(hand.dset_dim1 * hand.dset_dim2 * sizeof(char));
+            rdata_char = (char *)malloc(hand.dset_dim1 * hand.dset_dim2 * sizeof(char));
+        } else if(!strcmp(hand.dset_dtype, "llong")) {
+            wdata_llong = (long long *)malloc(hand.dset_dim1 * hand.dset_dim2 * sizeof(long long));
+            rdata_llong = (long long *)malloc(hand.dset_dim1 * hand.dset_dim2 * sizeof(long long));
+        } else if(!strcmp(hand.dset_dtype, "float")) {
+            wdata_float = (float *)malloc(hand.dset_dim1 * hand.dset_dim2 * sizeof(float));
+            rdata_float = (float *)malloc(hand.dset_dim1 * hand.dset_dim2 * sizeof(float));
+        } else if(!strcmp(hand.dset_dtype, "double")) {
+            wdata_double = (double *)malloc(hand.dset_dim1 * hand.dset_dim2 * sizeof(double));
+            rdata_double = (double *)malloc(hand.dset_dim1 * hand.dset_dim2 * sizeof(double));
+        } 
+    }
+
+    /* Initialize the data for the dataset */
+    for(i = 0; i < hand.dset_dim1/mpi_size; i++) {
+        for(j = 0; j < hand.dset_dim2; j++) {
+            if(!strcmp(hand.dset_dtype, "int"))
+                *(wdata + i * hand.dset_dim2 + j) = i + j;
+            else if(!strcmp(hand.dset_dtype, "char"))
+                *(wdata_char + i * hand.dset_dim2 + j) = (i + j) % 128;
+            else if(!strcmp(hand.dset_dtype, "llong"))
+                *(wdata_llong + i * hand.dset_dim2 + j) = (i + j);
+            else if(!strcmp(hand.dset_dtype, "float"))
+                *(wdata_float + i * hand.dset_dim2 + j) = (i + j);
+            else if(!strcmp(hand.dset_dtype, "double"))
+                *(wdata_double + i * hand.dset_dim2 + j) = (i + j);
+        }
+    }
+
+    /* Allocate the memory for the map entries */
+    if(!strcmp(hand.map_dtype, "int")) {
+    	map_keys = (int *)malloc(hand.numbOfMapEntries * sizeof(int));
+    	map_vals = (int *)malloc(hand.numbOfMapEntries * sizeof(int));
+    	map_vals_out = (int *)malloc(hand.numbOfMapEntries * sizeof(int));
+
+        /* Generate random keys and values for the map */
+        for(i = 0; i < hand.numbOfMapEntries; i++) {
+            map_keys[i] = (rand() % (256 * 256 * 256 * 32 / hand.numbOfMapEntries)) * hand.numbOfMapEntries + i;
+            map_vals[i] = rand();
+        } /* end for */
+    } else if(!strcmp(hand.map_dtype, "vl")) {
+        char key[NAME_LENGTH];
+
+    	vls_vl_keys = (char **)malloc(hand.numbOfMapEntries * sizeof(char *));
+        vls_vl_vals = (hvl_t *)malloc(hand.numbOfMapEntries * sizeof(hvl_t));
+        vls_vl_out = (hvl_t *)malloc(hand.numbOfMapEntries * sizeof(hvl_t));
+
+        /* Generate random keys and values for the map */
+        for(i = 0; i < hand.numbOfMapEntries; i++) {
+            sprintf(key, "map_vls_key_%d", i);
+            vls_vl_keys[i] = strdup(key);
+
+            vls_vl_vals[i].p = malloc((i + 4)*sizeof(int));
+            vls_vl_vals[i].len = i + 4;
+            for(j=0; j<(i + 4); j++)
+                ((int *)vls_vl_vals[i].p)[j] = rand();
+        } /* end for */
+    }
+
+    /* Allocate the memory for the attribute write and read */
+    attr_write = (int *)malloc(hand.attr_dim * sizeof(int));
+    attr_read = (int *)malloc(hand.attr_dim * sizeof(int));
+
+    /* Initialize the data for the attribute */
+    for(i = 0; i < hand.attr_dim; i++) 
+        attr_write[i] = i;
 }
 
 static void
 calculate_results()
 {
     int i, j;
-    double total_time[ENTRY_NUM];
-    double overall_mean_time[ENTRY_NUM];
-    double *mean_time_each_tree[ENTRY_NUM];
+    double *all_max_rate_buf, *all_min_rate_buf, *all_mean_rate_buf;
     int    total_nodes_per_tree = 0;
-    double file_mean_time[FILE_ENTRY_NUM], file_total_time[FILE_ENTRY_NUM],
-           file_max_time[FILE_ENTRY_NUM], file_min_time[FILE_ENTRY_NUM];
+    double *rate_each_tree[ENTRY_NUM];
+    double total_rate[ENTRY_NUM];
+    double file_total_time[FILE_ENTRY_NUM];
+    double file_max_time[FILE_ENTRY_NUM], file_min_time[FILE_ENTRY_NUM];
 
     /* Calculate results of objects */
     for (i = 0; i < ENTRY_NUM; i++)
-        mean_time_each_tree[i] = (double *)calloc((size_t)hand.numbOfTrees, sizeof(double));
+        rate_each_tree[i] = (double *)calloc(hand.numbOfTrees, sizeof(double));
 
     if (hand.depthOfTree == 0) {
         total_nodes_per_tree = 1;
 
     } else {
         for (i = 0; i <= hand.depthOfTree; i++)
-            total_nodes_per_tree += (int)pow(hand.numbOfBranches, i);
+            total_nodes_per_tree += pow(hand.numbOfBranches, i);
     }
 
-    memset(total_time, 0, sizeof(double) * ENTRY_NUM);
+    memset(total_rate, 0, sizeof(double) * ENTRY_NUM);
 
-    for (i = 0; i < hand.numbOfTrees; i++) {
-        for (j = 0; j < ENTRY_NUM; j++) {
-            mean_time_each_tree[j][i] = op_time[j][i] / total_nodes_per_tree / hand.numbOfObjs;
-            total_time[j] += mean_time_each_tree[j][i];
-            overall_mean_time[j] = total_time[j] / hand.numbOfTrees;
- 
-            if(mean_time_each_tree[j][i] > max_time[j])
-                max_time[j] = mean_time_each_tree[j][i];
-            if(mean_time_each_tree[j][i] < min_time[j])
-                min_time[j] = mean_time_each_tree[j][i];
+    /* For independent I/O, each rank calcuclates its own rates (average, maximal, and minimal) among multiple trees (iterations).
+     * For collective I/O, the rates are the final results. */
+    for (i = 0; i < ENTRY_NUM; i++) {
+        results.max_rate[i] = 0.0;
+        results.min_rate[i] = 1000000000.0;
+
+        for (j = 0; j < hand.numbOfTrees; j++) {
+            /* For map put and get, multiply the number of map entries */
+            if(i == MAP_PUT_NUM || i == MAP_GET_NUM)
+                rate_each_tree[i][j] = total_nodes_per_tree * hand.numbOfObjs * hand.numbOfMapEntries / op_time[i][j];
+            else 
+                rate_each_tree[i][j] = total_nodes_per_tree * hand.numbOfObjs / op_time[i][j];
+
+            total_rate[i] += rate_each_tree[i][j];
+
+            if(rate_each_tree[i][j] > results.max_rate[i])
+                results.max_rate[i] = rate_each_tree[i][j];
+            if(rate_each_tree[i][j] < results.min_rate[i])
+                results.min_rate[i] = rate_each_tree[i][j];
         }
+        results.mean_rate[i] = total_rate[i] / hand.numbOfTrees;
+    }
+
+    if(hand.uniqueGroupPerRank) {
+        all_max_rate_buf = (double *)calloc(mpi_size, sizeof(double));
+        all_min_rate_buf = (double *)calloc(mpi_size, sizeof(double));
+        all_mean_rate_buf = (double *)calloc(mpi_size, sizeof(double));
+    }
+
+    /* For independent I/O, gather the rate from all ranks and sum them up. */
+    if(hand.uniqueGroupPerRank) {
+        for (i = 0; i < ENTRY_NUM; i++) {
+            MPI_Gather(&results.max_rate[i], 1, MPI_DOUBLE, all_max_rate_buf, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+            MPI_Gather(&results.min_rate[i], 1, MPI_DOUBLE, all_min_rate_buf, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+            MPI_Gather(&results.mean_rate[i], 1, MPI_DOUBLE, all_mean_rate_buf, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+            results.total_max_rate[i] = 0;
+            results.total_min_rate[i] = 0;
+            results.total_mean_rate[i] = 0;
+            
+            for (j = 0; j < mpi_size; j++) {
+                results.total_max_rate[i] += all_max_rate_buf[j];
+                results.total_min_rate[i] += all_min_rate_buf[j];
+                results.total_mean_rate[i] += all_mean_rate_buf[j];
+            }
+
+            results.avg_max_rate[i] = results.total_max_rate[i] / mpi_size;
+            results.avg_min_rate[i] = results.total_min_rate[i] / mpi_size;
+            results.avg_mean_rate[i] = results.total_mean_rate[i] / mpi_size;
+
+            memset(all_max_rate_buf, 0, mpi_size * sizeof(double));
+            memset(all_min_rate_buf, 0, mpi_size * sizeof(double));
+            memset(all_mean_rate_buf, 0, mpi_size * sizeof(double));
+        }
+    }
+
+    if(hand.uniqueGroupPerRank) {
+        if(all_max_rate_buf)
+            free(all_max_rate_buf);
+        if(all_min_rate_buf)
+            free(all_min_rate_buf);
+        if(all_mean_rate_buf)
+            free(all_mean_rate_buf);
     }
 
     /* Calculate results of files */
     memset(file_total_time, 0, sizeof(double) * FILE_ENTRY_NUM);
     memset(file_max_time, 0, sizeof(double) * FILE_ENTRY_NUM);
+    memset(file_min_time, 1000000.0, sizeof(double) * FILE_ENTRY_NUM);
 
-    for (i = 0; i < FILE_ENTRY_NUM; i++)
-        file_min_time[i] = 1000000.0;
-
+    /* For file operation, there should be no independent I/O */
     for (j = 0; j < FILE_ENTRY_NUM; j++) {
-        for (i = 0; i < hand.numbOfObjs; i++) {
+        for (i = 0; i < hand.numbOfFiles; i++) {
             file_total_time[j] += file_op_time[j][i];     
 
             if (file_op_time[j][i] > file_max_time[j])
@@ -321,176 +762,296 @@ calculate_results()
                 file_min_time[j] = file_op_time[j][i]; 
         }
        
-        file_mean_time[j] = file_total_time[j] / hand.numbOfObjs;
+        results.file_mean_rate[j] = hand.numbOfFiles / file_total_time[j];
+        results.file_max_rate[j] = 1 / file_min_time[j]; 
+        results.file_min_rate[j] = 1 / file_max_time[j]; 
     }
 
     if (MAINPROCESS) {
-        printf("\nGroup creation time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[GROUP_CREATE_NUM], max_time[GROUP_CREATE_NUM], 
-	    overall_mean_time[GROUP_CREATE_NUM]);  
-        printf("Group info time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[GROUP_INFO_NUM], max_time[GROUP_INFO_NUM], 
-	    overall_mean_time[GROUP_INFO_NUM]);  
-        printf("Group open time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[GROUP_OPEN_NUM], max_time[GROUP_OPEN_NUM], 
-	    overall_mean_time[GROUP_OPEN_NUM]);  
-        printf("Group close time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[GROUP_CLOSE_NUM], max_time[GROUP_CLOSE_NUM], 
-	    overall_mean_time[GROUP_CLOSE_NUM]);  
-        printf("Group removal time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[GROUP_REMOVE_NUM], max_time[GROUP_REMOVE_NUM], 
-	    overall_mean_time[GROUP_REMOVE_NUM]);  
-        printf("Dataset creation time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[DSET_CREATE_NUM], max_time[DSET_CREATE_NUM], 
-	    overall_mean_time[DSET_CREATE_NUM]);  
-        printf("Dataset read time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[DSET_READ_NUM], max_time[DSET_READ_NUM], 
-	    overall_mean_time[DSET_READ_NUM]);  
-        printf("Dataset open time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[DSET_OPEN_NUM], max_time[DSET_OPEN_NUM], 
-	    overall_mean_time[DSET_OPEN_NUM]);  
-        printf("Dataset close time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[DSET_CLOSE_NUM], max_time[DSET_CLOSE_NUM], 
-	    overall_mean_time[DSET_CLOSE_NUM]);  
-        printf("Dataset removal time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[DSET_REMOVE_NUM], max_time[DSET_REMOVE_NUM], 
-	    overall_mean_time[DSET_REMOVE_NUM]);  
-        printf("Attribute creation time: 	min %lf, 	max %lf, 	mean %lf\n", min_time[ATTR_CREATE_NUM], max_time[ATTR_CREATE_NUM], 
-	    overall_mean_time[ATTR_CREATE_NUM]);  
-        printf("Attribute close time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[ATTR_CLOSE_NUM], max_time[ATTR_CLOSE_NUM], 
-	    overall_mean_time[ATTR_CLOSE_NUM]);  
-        printf("Attribute open time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[ATTR_OPEN_NUM], max_time[ATTR_OPEN_NUM], 
-	    overall_mean_time[ATTR_OPEN_NUM]);  
-        printf("Attribute removal time: 	min %lf, 	max %lf, 	mean %lf\n", min_time[ATTR_REMOVE_NUM], max_time[ATTR_REMOVE_NUM], 
-	    overall_mean_time[ATTR_REMOVE_NUM]);  
-        printf("Datatype commit time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[DTYPE_COMMIT_NUM], max_time[DTYPE_COMMIT_NUM], 
-	    overall_mean_time[DTYPE_COMMIT_NUM]);  
-        printf("Datatype open time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[DTYPE_OPEN_NUM], max_time[DTYPE_OPEN_NUM], 
-	    overall_mean_time[DTYPE_OPEN_NUM]);  
-        printf("Datatype close time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[DTYPE_CLOSE_NUM], max_time[DTYPE_CLOSE_NUM], 
-	    overall_mean_time[DTYPE_CLOSE_NUM]);  
-        printf("Map creation time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[MAP_CREATE_NUM], max_time[MAP_CREATE_NUM], 
-	    overall_mean_time[MAP_CREATE_NUM]);  
-        printf("Map open time: 			min %lf, 	max %lf, 	mean %lf\n", min_time[MAP_OPEN_NUM], max_time[MAP_OPEN_NUM], 
-	    overall_mean_time[MAP_OPEN_NUM]);  
-        printf("Map close time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[MAP_CLOSE_NUM], max_time[MAP_CLOSE_NUM], 
-	    overall_mean_time[MAP_CLOSE_NUM]);  
-        printf("Map removal time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[MAP_REMOVE_NUM], max_time[MAP_REMOVE_NUM], 
-	    overall_mean_time[MAP_REMOVE_NUM]);  
-        printf("Link iterate time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[LINK_ITERATE_NUM], max_time[LINK_ITERATE_NUM], 
-	    overall_mean_time[LINK_ITERATE_NUM]);  
-        printf("Link exist time: 		min %lf, 	max %lf, 	mean %lf\n", min_time[LINK_EXIST_NUM], max_time[LINK_EXIST_NUM], 
-	    overall_mean_time[LINK_EXIST_NUM]);  
-        printf("File creation time: 		min %lf, 	max %lf, 	mean %lf\n", file_min_time[FILE_CREATE_NUM], file_max_time[FILE_CREATE_NUM], 
-	    file_mean_time[FILE_CREATE_NUM]);  
-        printf("File close time: 		min %lf, 	max %lf, 	mean %lf\n", file_min_time[FILE_CLOSE_NUM], file_max_time[FILE_CLOSE_NUM], 
-	    file_mean_time[FILE_CLOSE_NUM]);  
-        printf("File open time: 		min %lf, 	max %lf, 	mean %lf\n", file_min_time[FILE_OPEN_NUM], file_max_time[FILE_OPEN_NUM], 
-	    file_mean_time[FILE_OPEN_NUM]);  
-        printf("File removal time: 		min %lf, 	max %lf, 	mean %lf\n", file_min_time[FILE_REMOVE_NUM], file_max_time[FILE_REMOVE_NUM], 
-	    file_mean_time[FILE_REMOVE_NUM]);  
+        if(hand.uniqueGroupPerRank) {
+            for (i = 0; i < ENTRY_NUM; i++) {
+                printf("%s:		total max = %lf,	total min = %lf,	total mean = %lf\n", 
+			metadata_op[i], results.total_max_rate[i], results.total_min_rate[i], results.total_mean_rate[i]);
+                printf("				average max = %lf,	average min = %lf,	average mean = %lf\n\n", 
+			results.avg_max_rate[i], results.avg_min_rate[i], results.avg_mean_rate[i]);
+            }
+        } else {
+            for (i = 0; i < ENTRY_NUM; i++) {
+                printf("%s:		total max = %lf,	total min = %lf,	total mean = %lf\n", 
+			metadata_op[i], results.max_rate[i], results.min_rate[i], results.mean_rate[i]);
+                printf("				average max = %lf,	average min = %lf,	average mean = %lf\n\n", 
+			results.max_rate[i] / mpi_size, results.min_rate[i] / mpi_size, results.mean_rate[i] / mpi_size);
+            }
+        }
 
-        printf("\nGroup creation rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[GROUP_CREATE_NUM], 1 / max_time[GROUP_CREATE_NUM], 
-	    1 / overall_mean_time[GROUP_CREATE_NUM]);  
-        printf("Group info rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[GROUP_INFO_NUM], 1 / max_time[GROUP_INFO_NUM], 
-	    1 / overall_mean_time[GROUP_INFO_NUM]);  
-        printf("Group open rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[GROUP_OPEN_NUM], 1 / max_time[GROUP_OPEN_NUM], 
-	    1 / overall_mean_time[GROUP_OPEN_NUM]);  
-        printf("Group close rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[GROUP_CLOSE_NUM], 1 / max_time[GROUP_CLOSE_NUM], 
-	    1 / overall_mean_time[GROUP_CLOSE_NUM]);  
-        printf("Group removal rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[GROUP_REMOVE_NUM], 1 / max_time[GROUP_REMOVE_NUM], 
-	    1 / overall_mean_time[GROUP_REMOVE_NUM]);  
-        printf("Dataset creation rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[DSET_CREATE_NUM], 1 / max_time[DSET_CREATE_NUM], 
-	    1 / overall_mean_time[DSET_CREATE_NUM]);  
-        printf("Dataset read rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[DSET_READ_NUM], 1 / max_time[DSET_READ_NUM], 
-	    1 / overall_mean_time[DSET_READ_NUM]);  
-        printf("Dataset open rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[DSET_OPEN_NUM], 1 / max_time[DSET_OPEN_NUM], 
-	    1 / overall_mean_time[DSET_OPEN_NUM]);  
-        printf("Dataset close rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[DSET_CLOSE_NUM], 1 / max_time[DSET_CLOSE_NUM], 
-	    1 / overall_mean_time[DSET_CLOSE_NUM]);  
-        printf("Dataset removal rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[DSET_REMOVE_NUM], 1 / max_time[DSET_REMOVE_NUM], 
-	    1 / overall_mean_time[DSET_REMOVE_NUM]); 
-        printf("Attribute creation rate: 	max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[ATTR_CREATE_NUM], 1 / max_time[ATTR_CREATE_NUM], 
-	    1 / overall_mean_time[ATTR_CREATE_NUM]);  
-        printf("Attribute close rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[ATTR_CLOSE_NUM], 1 / max_time[ATTR_CLOSE_NUM], 
-	    1 / overall_mean_time[ATTR_CLOSE_NUM]);  
-        printf("Attribute open rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[ATTR_OPEN_NUM], 1 / max_time[ATTR_OPEN_NUM], 
-	    1 / overall_mean_time[ATTR_OPEN_NUM]);  
-        printf("Attribute removal rate: 	max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[ATTR_REMOVE_NUM], 1 / max_time[ATTR_REMOVE_NUM], 
-	    1 / overall_mean_time[ATTR_REMOVE_NUM]); 
-        printf("Datatype commit rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[DTYPE_COMMIT_NUM], 1 / max_time[DTYPE_COMMIT_NUM], 
-	    1 / overall_mean_time[DTYPE_COMMIT_NUM]);  
-        printf("Datatype open rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[DTYPE_OPEN_NUM], 1 / max_time[DTYPE_OPEN_NUM], 
-	    1 / overall_mean_time[DTYPE_OPEN_NUM]);  
-        printf("Datatype close rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[DTYPE_CLOSE_NUM], 1 / max_time[DTYPE_CLOSE_NUM], 
-	    1 / overall_mean_time[DTYPE_CLOSE_NUM]);  
-        printf("Map creation rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[MAP_CREATE_NUM], 1 / max_time[MAP_CREATE_NUM], 
-	    1 / overall_mean_time[MAP_CREATE_NUM]);  
-        printf("Map open rate: 			max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[MAP_OPEN_NUM], 1 / max_time[MAP_OPEN_NUM], 
-	    1 / overall_mean_time[MAP_OPEN_NUM]);  
-        printf("Map close rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[MAP_CLOSE_NUM], 1 / max_time[MAP_CLOSE_NUM], 
-	    1 / overall_mean_time[MAP_CLOSE_NUM]);  
-        printf("Map removal rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[MAP_REMOVE_NUM], 1 / max_time[MAP_REMOVE_NUM], 
-	    1 / overall_mean_time[MAP_REMOVE_NUM]);  
-        printf("Link iterate rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[LINK_ITERATE_NUM], 1 / max_time[LINK_ITERATE_NUM], 
-	    1 / overall_mean_time[LINK_ITERATE_NUM]);  
-        printf("Link exist rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / min_time[LINK_EXIST_NUM], 1 / max_time[LINK_EXIST_NUM], 
-	    1 / overall_mean_time[LINK_EXIST_NUM]);  
-        printf("File creation rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / file_min_time[FILE_CREATE_NUM], 1 / file_max_time[FILE_CREATE_NUM], 
-	    1 / file_mean_time[FILE_CREATE_NUM]);  
-        printf("File open rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / file_min_time[FILE_OPEN_NUM], 1 / file_max_time[FILE_OPEN_NUM], 
-	    1 / file_mean_time[FILE_OPEN_NUM]);  
-        printf("File close rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / file_min_time[FILE_CLOSE_NUM], 1 / file_max_time[FILE_CLOSE_NUM], 
-	    1 / file_mean_time[FILE_CLOSE_NUM]);  
-        printf("File removal rate: 		max %lf, 	min %lf, 	mean %lf\n", 1 / file_min_time[FILE_REMOVE_NUM], 1 / file_max_time[FILE_REMOVE_NUM], 
-	    1 / file_mean_time[FILE_REMOVE_NUM]);  
+        for (i = 0; i < FILE_ENTRY_NUM; i++)
+            printf("%s:		max = %lf,	min = %lf,	mean = %lf\n", file_op[i], results.file_max_rate[i], results.file_min_rate[i], results.file_mean_rate[i]);
     }
 
     for (i = 0; i < ENTRY_NUM; i++)
-        free(mean_time_each_tree[i]);
+        free(rate_each_tree[i]);
 }
 
-static void
-free_time_struct()
+static int
+release_resources()
 {
     int i;
 
     for (i = 0; i < ENTRY_NUM; i++)
         free(op_time[i]);
+
+    for (i = 0; i < FILE_ENTRY_NUM; i++)
+        free(file_op_time[i]);
+
+    /* Free the memory buffers for the dataset */
+    if(!strcmp(hand.dset_dtype, "int")) {
+        if(wdata) free(wdata);
+        if(rdata) free(rdata);
+    } else if(!strcmp(hand.dset_dtype, "char")) {
+        if(wdata_char) free(wdata_char);
+        if(rdata_char) free(rdata_char);
+    } else if(!strcmp(hand.dset_dtype, "llong")) {
+        if(wdata_llong) free(wdata_llong);
+        if(rdata_llong) free(rdata_llong);
+    } else if(!strcmp(hand.dset_dtype, "float")) {
+        if(wdata_float) free(wdata_float);
+        if(rdata_float) free(rdata_float);
+    } else if(!strcmp(hand.dset_dtype, "double")) {
+        if(wdata_double) free(wdata_double);
+        if(rdata_double) free(rdata_double);
+    }
+
+    /* Free the memory buffers for the map */
+    if(!strcmp(hand.map_dtype, "int")) {
+        if(map_keys)
+            free(map_keys);
+        if(map_vals)
+            free(map_vals);
+        if(map_vals_out)
+            free(map_vals_out);
+    } else if(!strcmp(hand.map_dtype, "vl")) {
+        for(i = 0; i < hand.numbOfMapEntries; i++) {
+            free(vls_vl_keys[i]);
+            free(vls_vl_vals[i].p);
+        }
+
+        free(vls_vl_keys);
+        free(vls_vl_vals);
+
+        if(H5Tclose(map_vl_key_dtype_id) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to close the VL string datatype for map key\n");
+            goto error;
+        }
+
+        if(H5Tclose(map_vl_value_dtype_id) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to close the VL datatype for map value\n");
+            goto error;
+        }
+    }
+
+    /* Free the memory buffers for the attribute */
+    if(attr_write)
+        free(attr_write);
+    if(attr_read)
+        free(attr_read);
+
+    if(H5Sclose(file_dspace) < 0) {
+        H5_FAILED(); AT();
+        printf("failed to close the file space\n");
+        goto error;
+    } 
+
+    if(!hand.uniqueGroupPerRank) {
+        if(H5Sclose(file_dspace_select) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to close the file space selection\n");
+            goto error;
+        }
+
+        if(H5Sclose(mem_space) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to close the memory data space\n");
+            goto error;
+        } 
+    } 
+
+    if(H5Pclose(dcpl_id) < 0) {
+        H5_FAILED(); AT();
+        printf("failed to close the dataset creation property list\n");
+        goto error;
+    } 
+
+    if(H5Pclose(gcpl_id) < 0) {
+        H5_FAILED(); AT();
+        printf("failed to close the group creation property list\n");
+        goto error;
+    } 
+
+    if(H5Sclose(attr_space) < 0) {
+        H5_FAILED(); AT();
+        printf("failed to close the attribute data space \n");
+        goto error;
+    }
+
+    if(hand.dset_dtype)
+        free(hand.dset_dtype);
+    if(hand.dset_layout)
+        free(hand.dset_layout);
+    if(hand.map_dtype)
+        free(hand.map_dtype);
+
+    return 0;
+
+error:
+    return -1;
+}
+
+static int create_ids()
+{
+    hsize_t     dimsf[DSET_RANK];          			/* dataset dimensions */
+    hsize_t     start[DSET_RANK];                 		/* for hyperslab setting */
+    hsize_t     count[DSET_RANK], stride[DSET_RANK];    	/* for hyperslab setting */
+    hsize_t     chunk_dims[DSET_RANK];				
+    hsize_t     attr_dim[ATTR_RANK];
+
+    dimsf[0] = hand.dset_dim1;
+    dimsf[1] = hand.dset_dim2;
+    if((file_dspace = H5Screate_simple(DSET_RANK, dimsf, NULL)) < 0) {
+        H5_FAILED(); AT();
+        printf("failed to create the data space\n");
+        goto error;
+    } 
+
+    /* For collective I/O only, do hyperslab selection */
+    if(!hand.uniqueGroupPerRank) {
+        if((file_dspace_select = H5Scopy(file_dspace)) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to copy the file data space\n");
+            goto error;
+        } 
+
+        /* set up dimensions of the slab this process accesses */
+        start[0] = mpi_rank*dimsf[0]/mpi_size;
+        start[1] = 0;
+        count[0] = dimsf[0]/mpi_size;
+        count[1] = dimsf[1];
+        stride[0] = 1;
+        stride[1] =1;
+
+        if(H5Sselect_hyperslab(file_dspace_select, H5S_SELECT_SET, start, stride, count, NULL) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to do hyperslab selection\n");
+            goto error;
+        } 
+
+        if((mem_space = H5Screate_simple(DSET_RANK, count, NULL)) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to create memory space\n");
+            goto error;
+        } 
+    }
+
+    /* Modify dataset creation properties, i.e. enable chunking  */
+    if((dcpl_id = H5Pcreate (H5P_DATASET_CREATE)) < 0) {
+        H5_FAILED(); AT();
+        printf("failed to create dataset creation property list\n");
+        goto error;
+    } 
+
+    if(!strcmp(hand.dset_layout, "chunked")) {
+        chunk_dims[0] = hand.chunk_dim1;
+        chunk_dims[1] = hand.chunk_dim2;
+
+        if(H5Pset_chunk(dcpl_id, DSET_RANK, chunk_dims) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to set chunk size to the dataset creation property list\n");
+            goto error;
+        } 
+    } else if(!strcmp(hand.dset_layout, "compact")) {
+        if(H5Pset_layout(dcpl_id, H5D_COMPACT) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to set layout to the dataset creation property list\n");
+            goto error;
+        } 
+    } else if(!strcmp(hand.dset_layout, "contiguous")) {
+        if(H5Pset_layout(dcpl_id, H5D_CONTIGUOUS) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to set layout to the dataset creation property list\n");
+            goto error;
+        } 
+    }
+
+    if(!strcmp(hand.map_dtype, "vl")) {
+        if((map_vl_key_dtype_id = H5Tcreate(H5T_STRING, H5T_VARIABLE)) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to create VL string datatype for map key\n");
+            goto error;
+        } /* end if */
+
+        if((map_vl_value_dtype_id = H5Tvlen_create(H5T_NATIVE_INT)) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to create VL datatype for map value\n");
+            goto error;
+        } /* end if */
+    }
+
+    /* Set object class for group creation property list */
+    if((gcpl_id = H5Pcreate(H5P_GROUP_CREATE)) < 0) {
+        H5_FAILED(); AT();
+        printf("    couldn't create group creation property list\n");
+        goto error;
+    }
+
+    if(hand.uniqueGroupPerRank && H5daos_set_object_class(gcpl_id, "SX") < 0) {
+        H5_FAILED(); AT();
+        printf("    couldn't set object class for group creation property list\n");
+        goto error;
+    }
+
+    if(H5Pset_link_creation_order(gcpl_id, H5P_CRT_ORDER_TRACKED | H5P_CRT_ORDER_INDEXED) < 0) {
+        H5_FAILED(); AT();
+        printf("    couldn't set creation order for group creation property list\n");
+        goto error;
+    }
+
+    attr_dim[0] = hand.attr_dim;
+    if((attr_space = H5Screate_simple(ATTR_RANK, attr_dim, NULL)) < 0) {
+        H5_FAILED(); AT();
+        printf("failed to create memory space\n");
+        goto error;
+    }
+    
+    return 0;
+
+error:
+    return -1;
 }
 
 /* Callback function for H5Litereate2 */
 static herr_t
 link_iter_cb(hid_t group_id, const char *name, const H5L_info2_t *info, void *op_data)
 {
-    (void)group_id;
-    (void)name;
-    (void)info;
-    (void)op_data;
     return 0;
 }
 
 static int 
-create_objects_in_tree_node(hid_t tree_node_gid)
+test_group(hid_t loc_id)
 {
-    hid_t gid = H5I_INVALID_HID, loc_id = H5I_INVALID_HID, dset_id = H5I_INVALID_HID, space_id = H5I_INVALID_HID;
-    hid_t attr_id = H5I_INVALID_HID, dtype_id = H5I_INVALID_HID, map_id = H5I_INVALID_HID;
-    char  gname[NAME_LENGTH], unique_group_per_rank_name[NAME_LENGTH], dset_name[NAME_LENGTH], attr_name[NAME_LENGTH];
-    char  dtype_name[NAME_LENGTH], map_name[NAME_LENGTH];
+    hid_t gid = H5I_INVALID_HID, nested_gid = H5I_INVALID_HID;
+    char  gname[NAME_LENGTH], nested_gname[NAME_LENGTH], obj_cp_name[NAME_LENGTH];
     H5G_info_t group_info;
-    hsize_t dim[DSET_RANK] = {DSET_DIM};
-    int rbuf[DSET_DIM];
     hsize_t op_data;
-    int i;
+    int i, j;
     double start, end, time;
-
-    /* Create a unique group for each rank (-u command-line option) */
-    if (hand.uniqueGroupPerRank) {
-        sprintf(unique_group_per_rank_name, "unique_group_per_rank_%d", mpi_rank);
-        if ((loc_id = H5Gcreate2(tree_node_gid, unique_group_per_rank_name, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT)) < 0) {
-            H5_FAILED(); AT();
-            printf("    couldn't create group as tree root '%s'\n", unique_group_per_rank_name);
-            goto error;
-        }
-    } else
-        loc_id = tree_node_gid;
 
     /* Create group objects */
     for (i = 0; i < hand.numbOfObjs; i++) {
         sprintf(gname, "group_object_%d", i + 1);
         start = MPI_Wtime();
 
-        if ((gid = H5Gcreate2(loc_id, gname, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT)) < 0) {
+        if ((gid = H5Gcreate2(loc_id, gname, H5P_DEFAULT, gcpl_id, H5P_DEFAULT)) < 0) {
             H5_FAILED(); AT();
             printf("failed to create group object '%s'\n", gname);
             goto error;
@@ -501,9 +1062,27 @@ create_objects_in_tree_node(hid_t tree_node_gid)
         op_time[GROUP_CREATE_NUM][tree_order] += time;
 
 #ifdef DEBUG
-        if (MAINPROCESS)
-            printf("\nGroup creation time: %lf", time);
+        printf("Group creation time: %lf, mpi_rank=%d\n", time, mpi_rank);
 #endif
+
+        /* Create some subgroups */
+        if(!hand.noGroupMember) {
+            for(j = 0; j < hand.numbOfNestedGroups; j++) {
+                sprintf(nested_gname, "nested_group_%d", j + 1);
+
+                if ((nested_gid = H5Gcreate2(gid, nested_gname, H5P_DEFAULT, gcpl_id, H5P_DEFAULT)) < 0) {
+                    H5_FAILED(); AT();
+                    printf("failed to create group object '%s'\n", nested_gname);
+                    goto error;
+                }
+
+                if (H5Gclose(nested_gid) < 0) {
+                    H5_FAILED(); AT();
+                    printf("failed to close the group '%s'\n", nested_gname);
+                    goto error;
+                }
+            }
+        }
 
         start = MPI_Wtime();
 
@@ -518,8 +1097,7 @@ create_objects_in_tree_node(hid_t tree_node_gid)
         op_time[GROUP_CLOSE_NUM][tree_order] += time;
 
 #ifdef DEBUG
-        if (MAINPROCESS)
-            printf("\nGroup close time: %lf", time);
+        printf("Group close time: %lf, mpi_rank=%d\n", time, mpi_rank);
 #endif
     }
 
@@ -540,8 +1118,7 @@ create_objects_in_tree_node(hid_t tree_node_gid)
         op_time[GROUP_INFO_NUM][tree_order] += time;
 
 #ifdef DEBUG
-        if (MAINPROCESS)
-            printf("\nGroup info time: %lf", time);
+        printf("Group info time: %lf, mpi_rank=%d\n", time, mpi_rank);
 #endif
     }
 
@@ -561,8 +1138,7 @@ create_objects_in_tree_node(hid_t tree_node_gid)
         op_time[LINK_ITERATE_NUM][tree_order] += time;
 
 #ifdef DEBUG
-        if (MAINPROCESS)
-            printf("\nLink iterate time: %lf", time);
+        printf("Link iterate time: %lf, mpi_rank=%d\n", time, mpi_rank);
 #endif
     }
 
@@ -583,8 +1159,7 @@ create_objects_in_tree_node(hid_t tree_node_gid)
         op_time[LINK_EXIST_NUM][tree_order] += time;
 
 #ifdef DEBUG
-        if (MAINPROCESS)
-            printf("\nLink exist time: %lf", time);
+        printf("Link exist time: %lf, mpi_rank=%d\n", time, mpi_rank);
 #endif
 
         start = MPI_Wtime();
@@ -600,8 +1175,7 @@ create_objects_in_tree_node(hid_t tree_node_gid)
         op_time[GROUP_OPEN_NUM][tree_order] += time;
 
 #ifdef DEBUG
-        if (MAINPROCESS)
-            printf("\nGroup open time: %lf", time);
+        printf("Group open time: %lf, mpi_rank=%d\n", time, mpi_rank);
 #endif
 
         if (H5Gclose(gid) < 0) {
@@ -609,6 +1183,27 @@ create_objects_in_tree_node(hid_t tree_node_gid)
             printf("failed to close the group '%s'\n", gname);
             goto error;
         }
+    }
+
+    /* Object copy */
+    for (i = 0; i < hand.numbOfObjs; i++) {
+        sprintf(gname, "group_object_%d", i + 1);
+        sprintf(obj_cp_name, "object_copy_%d", i + 1);
+
+        start = MPI_Wtime();
+        if (H5Ocopy(loc_id, gname, loc_id, obj_cp_name, H5P_DEFAULT, H5P_DEFAULT) < 0) { 
+            H5_FAILED(); AT();
+            printf("failed to copy the group '%s' to '%s'\n", gname, obj_cp_name);
+            goto error;
+        }
+
+        end = MPI_Wtime();
+        time = end - start;
+        op_time[OBJ_COPY_NUM][tree_order] += time;
+
+#ifdef DEBUG
+        printf("Object copy time: %lf, mpi_rank=%d\n", time, mpi_rank);
+#endif
     }
 
     /* Group removal */
@@ -627,24 +1222,31 @@ create_objects_in_tree_node(hid_t tree_node_gid)
         op_time[GROUP_REMOVE_NUM][tree_order] += time;
 
 #ifdef DEBUG
-        if (MAINPROCESS)
-            printf("\nGroup removal time: %lf", time);
+        printf("Group removal time: %lf, mpi_rank=%d\n", time, mpi_rank);
 #endif
     }
 
-    /* Create data space for datasets and attributes */
-    if ((space_id = H5Screate_simple(DSET_RANK, dim, NULL)) < 0) {
-        H5_FAILED(); AT();
-        printf("failed to create data space\n");
-        goto error;
-    }
+    return 0;
+
+error:
+    return -1;
+}
+
+static int 
+test_dataset(hid_t loc_id)
+{
+    hid_t dset_id = H5I_INVALID_HID;
+    char dset_name[NAME_LENGTH];
+    H5O_info2_t obj_info;
+    int i;
+    double start, end, time;
 
     /* Create dataset object */
     for (i = 0; i < hand.numbOfObjs; i++) {
         sprintf(dset_name, "dset_object_%d", i + 1);
         start = MPI_Wtime();
 
-        if ((dset_id = H5Dcreate2(loc_id, dset_name, H5T_NATIVE_INT, space_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT)) < 0) {
+        if ((dset_id = H5Dcreate2(loc_id, dset_name, H5T_NATIVE_INT, file_dspace, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT)) < 0) {
             H5_FAILED(); AT();
             printf("failed to create dataset object '%s'\n", dset_name);
             goto error;
@@ -655,27 +1257,87 @@ create_objects_in_tree_node(hid_t tree_node_gid)
         op_time[DSET_CREATE_NUM][tree_order] += time;
 
 #ifdef DEBUG
-        if (MAINPROCESS)
-            printf("\nDset creation time: %lf", time);
+        printf("Dset creation time: %lf, mpi_rank=%d\n", time, mpi_rank);
 #endif
 
-        /* Dataset read */
-        start = MPI_Wtime();
+        /* Dataset write */
+        if(!hand.noWriteReadData) {
+            start = MPI_Wtime();
+            
+            if(!hand.uniqueGroupPerRank) {
+                if(!strcmp(hand.dset_dtype, "int")) {
+                    if (H5Dwrite(dset_id, H5T_NATIVE_INT, mem_space, file_dspace_select, H5P_DEFAULT, wdata) < 0) {
+                        H5_FAILED(); AT();
+                        printf("failed to write the dataset '%s'\n", dset_name);
+                        goto error;
+                    }
+                } else if(!strcmp(hand.dset_dtype, "char")) {
+                    if (H5Dwrite(dset_id, H5T_NATIVE_CHAR, mem_space, file_dspace_select, H5P_DEFAULT, wdata_char) < 0) {
+                        H5_FAILED(); AT();
+                        printf("failed to write the dataset '%s'\n", dset_name);
+                        goto error;
+                    }
+                } else if(!strcmp(hand.dset_dtype, "llong")) {
+                    if (H5Dwrite(dset_id, H5T_NATIVE_LLONG, mem_space, file_dspace_select, H5P_DEFAULT, wdata_llong) < 0) {
+                        H5_FAILED(); AT();
+                        printf("failed to write the dataset '%s'\n", dset_name);
+                        goto error;
+                    }
+                } else if(!strcmp(hand.dset_dtype, "float")) {
+                    if (H5Dwrite(dset_id, H5T_NATIVE_FLOAT, mem_space, file_dspace_select, H5P_DEFAULT, wdata_float) < 0) {
+                        H5_FAILED(); AT();
+                        printf("failed to write the dataset '%s'\n", dset_name);
+                        goto error;
+                    }
+                } else if(!strcmp(hand.dset_dtype, "double")) {
+                    if (H5Dwrite(dset_id, H5T_NATIVE_DOUBLE, mem_space, file_dspace_select, H5P_DEFAULT, wdata_double) < 0) {
+                        H5_FAILED(); AT();
+                        printf("failed to write the dataset '%s'\n", dset_name);
+                        goto error;
+                    }
+                }
+            } else {
+                if(!strcmp(hand.dset_dtype, "int")) {
+                    if (H5Dwrite(dset_id, H5T_NATIVE_INT, file_dspace, file_dspace, H5P_DEFAULT, wdata) < 0) {
+                        H5_FAILED(); AT();
+                        printf("failed to write the dataset '%s'\n", dset_name);
+                        goto error;
+                    }
+                } else if(!strcmp(hand.dset_dtype, "char")) {
+                    if (H5Dwrite(dset_id, H5T_NATIVE_CHAR, file_dspace, file_dspace, H5P_DEFAULT, wdata_char) < 0) {
+                        H5_FAILED(); AT();
+                        printf("failed to write the dataset '%s'\n", dset_name);
+                        goto error;
+                    }
+                } else if(!strcmp(hand.dset_dtype, "llong")) {
+                    if (H5Dwrite(dset_id, H5T_NATIVE_CHAR, file_dspace, file_dspace, H5P_DEFAULT, wdata_llong) < 0) {
+                        H5_FAILED(); AT();
+                        printf("failed to write the dataset '%s'\n", dset_name);
+                        goto error;
+                    }
+                } else if(!strcmp(hand.dset_dtype, "float")) {
+                    if (H5Dwrite(dset_id, H5T_NATIVE_CHAR, file_dspace, file_dspace, H5P_DEFAULT, wdata_float) < 0) {
+                        H5_FAILED(); AT();
+                        printf("failed to write the dataset '%s'\n", dset_name);
+                        goto error;
+                    }
+                } else if(!strcmp(hand.dset_dtype, "double")) {
+                    if (H5Dwrite(dset_id, H5T_NATIVE_CHAR, file_dspace, file_dspace, H5P_DEFAULT, wdata_double) < 0) {
+                        H5_FAILED(); AT();
+                        printf("failed to write the dataset '%s'\n", dset_name);
+                        goto error;
+                    }
+                }
+            }
 
-        if (H5Dread(dset_id, H5T_NATIVE_INT, H5S_ALL, space_id, H5P_DEFAULT, &rbuf) < 0) {
-            H5_FAILED(); AT();
-            printf("failed to read the dataset '%s'\n", dset_name);
-            goto error;
-        }
-
-        end = MPI_Wtime();
-        time = end - start;
-        op_time[DSET_READ_NUM][tree_order] += time;
+            end = MPI_Wtime();
+            time = end - start;
+            op_time[DSET_WRITE_NUM][tree_order] += time;
 
 #ifdef DEBUG
-        if (MAINPROCESS)
-            printf("\nDset read time: %lf", time);
+            printf("Dset write time: %lf, mpi_rank=%d\n", time, mpi_rank);
 #endif
+        }
 
         /* Dataset close */
         start = MPI_Wtime();
@@ -691,8 +1353,7 @@ create_objects_in_tree_node(hid_t tree_node_gid)
         op_time[DSET_CLOSE_NUM][tree_order] += time;
 
 #ifdef DEBUG
-        if (MAINPROCESS)
-            printf("\nDset close time: %lf", time);
+        printf("Dset close time: %lf, mpi_rank=%d\n", time, mpi_rank);
 #endif
     }
 
@@ -712,15 +1373,114 @@ create_objects_in_tree_node(hid_t tree_node_gid)
         op_time[DSET_OPEN_NUM][tree_order] += time;
 
 #ifdef DEBUG
-        if (MAINPROCESS)
-            printf("\nDset open time: %lf", time);
+        printf("Dset open time: %lf, mpi_rank=%d\n", time, mpi_rank);
 #endif
+
+        /* Dataset read */
+        if(!hand.noWriteReadData) {
+            start = MPI_Wtime();
+
+            if(!hand.uniqueGroupPerRank) {
+                if(!strcmp(hand.dset_dtype, "int")) {
+                    if (H5Dread(dset_id, H5T_NATIVE_INT, mem_space, file_dspace_select, H5P_DEFAULT, rdata) < 0) {
+                        H5_FAILED(); AT();
+                        printf("failed to read the dataset '%s'\n", dset_name);
+                        goto error;
+                    }
+                } else if(!strcmp(hand.dset_dtype, "char")) {
+                    if (H5Dread(dset_id, H5T_NATIVE_CHAR, mem_space, file_dspace_select, H5P_DEFAULT, rdata_char) < 0) {
+                        H5_FAILED(); AT();
+                        printf("failed to read the dataset '%s'\n", dset_name);
+                        goto error;
+                    }
+                } else if(!strcmp(hand.dset_dtype, "llong")) {
+                    if (H5Dread(dset_id, H5T_NATIVE_LLONG, mem_space, file_dspace_select, H5P_DEFAULT, rdata_llong) < 0) {
+                        H5_FAILED(); AT();
+                        printf("failed to read the dataset '%s'\n", dset_name);
+                        goto error;
+                    }
+                } else if(!strcmp(hand.dset_dtype, "float")) {
+                    if (H5Dread(dset_id, H5T_NATIVE_FLOAT, mem_space, file_dspace_select, H5P_DEFAULT, rdata_float) < 0) {
+                        H5_FAILED(); AT();
+                        printf("failed to read the dataset '%s'\n", dset_name);
+                        goto error;
+                    }
+                } else if(!strcmp(hand.dset_dtype, "double")) {
+                    if (H5Dread(dset_id, H5T_NATIVE_DOUBLE, mem_space, file_dspace_select, H5P_DEFAULT, rdata_double) < 0) {
+                        H5_FAILED(); AT();
+                        printf("failed to read the dataset '%s'\n", dset_name);
+                        goto error;
+                    }
+                }
+            } else {
+                if(!strcmp(hand.dset_dtype, "int")) {
+                    if (H5Dread(dset_id, H5T_NATIVE_INT, file_dspace, file_dspace, H5P_DEFAULT, rdata) < 0) {
+                        H5_FAILED(); AT();
+                        printf("failed to read the dataset '%s'\n", dset_name);
+                        goto error;
+                    }
+                } else if(!strcmp(hand.dset_dtype, "char")) {
+                    if (H5Dread(dset_id, H5T_NATIVE_CHAR, file_dspace, file_dspace, H5P_DEFAULT, rdata_char) < 0) {
+                        H5_FAILED(); AT();
+                        printf("failed to read the dataset '%s'\n", dset_name);
+                        goto error;
+                    }
+                } else if(!strcmp(hand.dset_dtype, "llong")) {
+                    if (H5Dread(dset_id, H5T_NATIVE_LLONG, file_dspace, file_dspace, H5P_DEFAULT, rdata_llong) < 0) {
+                        H5_FAILED(); AT();
+                        printf("failed to read the dataset '%s'\n", dset_name);
+                        goto error;
+                    }
+                } else if(!strcmp(hand.dset_dtype, "float")) {
+                    if (H5Dread(dset_id, H5T_NATIVE_FLOAT, file_dspace, file_dspace, H5P_DEFAULT, rdata_float) < 0) {
+                        H5_FAILED(); AT();
+                        printf("failed to read the dataset '%s'\n", dset_name);
+                        goto error;
+                    }
+                } else if(!strcmp(hand.dset_dtype, "double")) {
+                    if (H5Dread(dset_id, H5T_NATIVE_DOUBLE, file_dspace, file_dspace, H5P_DEFAULT, rdata_double) < 0) {
+                        H5_FAILED(); AT();
+                        printf("failed to read the dataset '%s'\n", dset_name);
+                        goto error;
+                    }
+                }
+            }
+
+            end = MPI_Wtime();
+            time = end - start;
+            op_time[DSET_READ_NUM][tree_order] += time;
+
+#ifdef DEBUG
+            printf("Dset read time: %lf, mpi_rank=%d\n", time, mpi_rank);
+#endif
+        }
 
         if (H5Dclose(dset_id) < 0) {
             H5_FAILED(); AT();
             printf("failed to close the dataset '%s'\n", dset_name);
             goto error;
         }
+    }
+
+    /* Dataset info */
+    for (i = 0; i < hand.numbOfObjs; i++) {
+        sprintf(dset_name, "dset_object_%d", i + 1);
+
+        start = MPI_Wtime();
+
+        if(H5Oget_info_by_name3(loc_id, dset_name, &obj_info, H5O_INFO_BASIC, H5P_DEFAULT) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to close the dataset '%s'\n", dset_name);
+            goto error;
+        }
+
+        end = MPI_Wtime();
+        time = end - start;
+        op_time[DSET_INFO_NUM][tree_order] += time;
+
+#ifdef DEBUG
+        printf("Dset info time: %lf, mpi_rank=%d\n", time, mpi_rank);
+#endif
     }
 
     /* Dataset removal */
@@ -739,17 +1499,30 @@ create_objects_in_tree_node(hid_t tree_node_gid)
         op_time[DSET_REMOVE_NUM][tree_order] += time;
 
 #ifdef DEBUG
-        if (MAINPROCESS)
-            printf("\nDataset removal time: %lf", time);
+        printf("Dset removal time: %lf, mpi_rank=%d\n", time, mpi_rank);
 #endif
     }
+
+    return 0;
+
+error:
+    return -1;
+}
+
+static int
+test_attribute(hid_t loc_id)
+{
+    hid_t attr_id = H5I_INVALID_HID;
+    char attr_name[NAME_LENGTH];
+    int i;
+    double start, end, time;
 
     /* Attribute creation */
     for (i = 0; i < hand.numbOfObjs; i++) {
         sprintf(attr_name, "attribute_object_%d", i + 1);
         start = MPI_Wtime();
 
-        if ((attr_id = H5Acreate2(loc_id, attr_name, H5T_NATIVE_INT, space_id, H5P_DEFAULT, H5P_DEFAULT)) < 0) {
+        if ((attr_id = H5Acreate2(loc_id, attr_name, H5T_NATIVE_INT, attr_space, H5P_DEFAULT, H5P_DEFAULT)) < 0) {
             H5_FAILED(); AT();
             printf("failed to create attribute object '%s'\n", attr_name);
             goto error;
@@ -760,8 +1533,23 @@ create_objects_in_tree_node(hid_t tree_node_gid)
         op_time[ATTR_CREATE_NUM][tree_order] += time;
 
 #ifdef DEBUG
-        if (MAINPROCESS)
-            printf("\nAttr creation time: %lf", time);
+        printf("Attr creation time: %lf, mpi_rank=%d\n", time, mpi_rank);
+#endif
+
+        start = MPI_Wtime();
+
+        if(H5Awrite(attr_id, H5T_NATIVE_INT, attr_write) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to write data to the attribute: %s\n", attr_name);
+            goto error;
+        } 
+
+        end = MPI_Wtime();
+        time = end - start;
+        op_time[ATTR_WRITE_NUM][tree_order] += time;
+
+#ifdef DEBUG
+        printf("Attr write time: %lf, mpi_rank=%d\n", time, mpi_rank);
 #endif
 
         start = MPI_Wtime();
@@ -777,16 +1565,8 @@ create_objects_in_tree_node(hid_t tree_node_gid)
         op_time[ATTR_CLOSE_NUM][tree_order] += time;
 
 #ifdef DEBUG
-        if (MAINPROCESS)
-            printf("\nAttr close time: %lf", time);
+        printf("Attr close time: %lf, mpi_rank=%d\n", time, mpi_rank);
 #endif
-    }
-
-    /* Close the data sapce for datasets and attributes */
-    if (H5Sclose(space_id) < 0) {
-        H5_FAILED(); AT();
-        printf("failed to close the data space\n");
-        goto error;
     }
 
     /* Attribute open */
@@ -805,8 +1585,22 @@ create_objects_in_tree_node(hid_t tree_node_gid)
         op_time[ATTR_OPEN_NUM][tree_order] += time;
 
 #ifdef DEBUG
-        if (MAINPROCESS)
-            printf("\nAttr open time: %lf", time);
+        printf("Attr open time: %lf, mpi_rank=%d\n", time, mpi_rank);
+#endif
+        start = MPI_Wtime();
+
+        if(H5Aread(attr_id, H5T_NATIVE_INT, attr_read) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to read data to the attribute: %s\n", attr_name);
+            goto error;
+        } 
+
+        end = MPI_Wtime();
+        time = end - start;
+        op_time[ATTR_READ_NUM][tree_order] += time;
+
+#ifdef DEBUG
+        printf("Attr read time: %lf, mpi_rank=%d\n", time, mpi_rank);
 #endif
 
         start = MPI_Wtime();
@@ -834,10 +1628,23 @@ create_objects_in_tree_node(hid_t tree_node_gid)
         op_time[ATTR_REMOVE_NUM][tree_order] += time;
 
 #ifdef DEBUG
-        if (MAINPROCESS)
-            printf("\nAttr removal time: %lf", time);
+        printf("Attr removal time: %lf, mpi_rank=%d\n", time, mpi_rank);
 #endif
     }
+
+    return 0;
+
+error:
+    return -1;
+} 
+
+static int
+test_datatype(hid_t loc_id)
+{
+    hid_t dtype_id = H5I_INVALID_HID;
+    char  dtype_name[NAME_LENGTH];
+    int i;
+    double start, end, time;
 
     /* Datatype commit */
     for (i = 0; i < hand.numbOfObjs; i++) {
@@ -861,8 +1668,7 @@ create_objects_in_tree_node(hid_t tree_node_gid)
         op_time[DTYPE_COMMIT_NUM][tree_order] += time;
 
 #ifdef DEBUG
-        if (MAINPROCESS)
-            printf("\nDtype commit time: %lf", time);
+        printf("Dtype commit time: %lf, mpi_rank=%d\n", time, mpi_rank);
 #endif
 
         start = MPI_Wtime();
@@ -878,8 +1684,7 @@ create_objects_in_tree_node(hid_t tree_node_gid)
         op_time[DTYPE_CLOSE_NUM][tree_order] += time;
 
 #ifdef DEBUG
-        if (MAINPROCESS)
-            printf("\nDtype close time: %lf", time);
+        printf("Dtype close time: %lf, mpi_rank=%d\n", time, mpi_rank);
 #endif
     }
 
@@ -899,8 +1704,7 @@ create_objects_in_tree_node(hid_t tree_node_gid)
         op_time[DTYPE_OPEN_NUM][tree_order] += time;
 
 #ifdef DEBUG
-        if (MAINPROCESS)
-            printf("\nDtype open time: %lf", time);
+        printf("Dtype open time: %lf, mpi_rank=%d\n", time, mpi_rank);
 #endif
 
         if (H5Tclose(dtype_id) < 0) {
@@ -910,16 +1714,37 @@ create_objects_in_tree_node(hid_t tree_node_gid)
         } 
     }
 
-    if(!hand.runMPIIO) {
-        /* Map creation (only works for H5VOL) */
+    return 0;
+
+error:
+    return -1;
+}
+
+static int
+test_map(hid_t loc_id)
+{
+    hid_t map_id = H5I_INVALID_HID;
+    char  map_name[NAME_LENGTH];
+    int i, j;
+    double start, end, time;
+
+        /* Map creation and put */
         for (i = 0; i < hand.numbOfObjs; i++) {
             sprintf(map_name, "map_object_%d", i + 1);
             start = MPI_Wtime();
 
-            if ((map_id = H5Mcreate(loc_id, map_name, H5T_NATIVE_INT, H5T_NATIVE_INT, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT)) < 0) {
-                H5_FAILED(); AT();
-                printf("failed to create map object '%s'\n", map_name);
-                goto error;
+            if(!strcmp(hand.map_dtype, "int")) {
+                if((map_id = H5Mcreate(loc_id, map_name, H5T_NATIVE_INT, H5T_NATIVE_INT, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT)) < 0) {
+                    H5_FAILED(); AT();
+                    printf("failed to create map object '%s'\n", map_name);
+                    goto error;
+                }
+            } else if(!strcmp(hand.map_dtype, "vl")) {
+                if((map_id = H5Mcreate(loc_id, map_name, map_vl_key_dtype_id, map_vl_value_dtype_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT)) < 0) {
+                    H5_FAILED(); AT();
+                    printf("failed to create map object '%s'\n", map_name);
+                    goto error;
+                }
             }
 
             end = MPI_Wtime();
@@ -927,9 +1752,36 @@ create_objects_in_tree_node(hid_t tree_node_gid)
             op_time[MAP_CREATE_NUM][tree_order] += time;
 
 #ifdef DEBUG
-            if (MAINPROCESS)
-                printf("\nMap creation time: %lf", time);
+            printf("Map creation time: %lf, mpi_rank=%d\n", time, mpi_rank);
 #endif
+
+            if(!hand.noMapEntry) {
+                start = MPI_Wtime();
+
+                if(!strcmp(hand.map_dtype, "int")) {
+                    for(j = 0; j < hand.numbOfMapEntries; j++)
+                        if(H5Mput(map_id, H5T_NATIVE_INT, &map_keys[j], H5T_NATIVE_INT, &map_vals[j], H5P_DEFAULT) < 0) {
+                            H5_FAILED(); AT();
+                            printf("failed to set key-value pair\n");
+                            goto error;
+                        } /* end if */
+                } else if(!strcmp(hand.map_dtype, "vl")) {
+                    for(j = 0; j < hand.numbOfMapEntries; j++)
+                        if(H5Mput(map_id, map_vl_key_dtype_id, &vls_vl_keys[j], map_vl_value_dtype_id, &vls_vl_vals[j], H5P_DEFAULT) < 0) {
+                            H5_FAILED(); AT();
+                            printf("failed to set key-value pair\n");
+                            goto error;
+                        } /* end if */
+                }
+
+                end = MPI_Wtime();
+                time = end - start;
+                op_time[MAP_PUT_NUM][tree_order] += time;
+
+#ifdef DEBUG
+                printf("Map put time: %lf, mpi_rank=%d\n", time, mpi_rank);
+#endif
+            }
 
             start = MPI_Wtime();
 
@@ -944,12 +1796,11 @@ create_objects_in_tree_node(hid_t tree_node_gid)
             op_time[MAP_CLOSE_NUM][tree_order] += time;
 
 #ifdef DEBUG
-            if (MAINPROCESS)
-                printf("\nMap close time: %lf", time);
+            printf("Map close time: %lf, mpi_rank=%d\n", time, mpi_rank);
 #endif
         }
 
-        /* Map open */
+        /* Map open and get */
         for (i = 0; i < hand.numbOfObjs; i++) {
             sprintf(map_name, "map_object_%d", i + 1);
             start = MPI_Wtime();
@@ -965,9 +1816,36 @@ create_objects_in_tree_node(hid_t tree_node_gid)
             op_time[MAP_OPEN_NUM][tree_order] += time;
 
 #ifdef DEBUG
-            if (MAINPROCESS)
-                printf("\nMap open time: %lf", time);
+            printf("Map open time: %lf, mpi_rank=%d\n", time, mpi_rank);
 #endif
+
+            if(!hand.noMapEntry) {
+                start = MPI_Wtime();
+
+                if(!strcmp(hand.map_dtype, "int")) {
+                    for(j = 0; j < hand.numbOfMapEntries; j++)
+                        if(H5Mget(map_id, H5T_NATIVE_INT, &map_keys[j], H5T_NATIVE_INT, &map_vals_out[j], H5P_DEFAULT) < 0) {
+                            H5_FAILED(); AT();
+                            printf("failed to get %dth key-value pair for the map: %s\n", i, map_name);
+                            goto error;
+                        } /* end if */
+                } else if(!strcmp(hand.map_dtype, "vl")) {
+                    for(j = 0; j < hand.numbOfMapEntries; j++)
+                        if(H5Mget(map_id, map_vl_key_dtype_id, &vls_vl_keys[j], map_vl_value_dtype_id, &vls_vl_out[j], H5P_DEFAULT) < 0) {
+                            H5_FAILED(); AT();
+                            printf("failed to get %dth key-value pair for the map: %s\n", i, map_name);
+                            goto error;
+                        } /* end if */
+                }
+
+                end = MPI_Wtime();
+                time = end - start;
+                op_time[MAP_GET_NUM][tree_order] += time;
+
+#ifdef DEBUG
+                printf("Map get time: %lf, mpi_rank=%d\n", time, mpi_rank);
+#endif
+            }
 
             if(H5Mclose(map_id) < 0) {
                 H5_FAILED(); AT();
@@ -992,10 +1870,66 @@ create_objects_in_tree_node(hid_t tree_node_gid)
             op_time[MAP_REMOVE_NUM][tree_order] += time;
 
 #ifdef DEBUG
-            if (MAINPROCESS)
-                printf("\nMap removal time: %lf", time);
+            printf("Map removal time: %lf, mpi_rank=%d\n", time, mpi_rank);
 #endif
         }
+
+    return 0;
+
+error:
+    return -1;
+}
+
+static int 
+create_objects_in_tree_node(hid_t tree_node_gid)
+{
+    hid_t loc_id = H5I_INVALID_HID;
+    char  unique_group_per_rank_name[NAME_LENGTH];
+
+    /* Create a unique group for each rank (-u command-line option) */
+    if (hand.uniqueGroupPerRank) {
+        sprintf(unique_group_per_rank_name, "unique_group_per_rank_%d", mpi_rank);
+        if ((loc_id = H5Gcreate2(tree_node_gid, unique_group_per_rank_name, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT)) < 0) {
+            H5_FAILED(); AT();
+            printf("    couldn't create unique group in the tree node '%s'\n", unique_group_per_rank_name);
+            goto error;
+        }
+    } else
+        loc_id = tree_node_gid;
+
+    /* Test group object. Test for link and H5Ocopy is also included */
+    if ((hand.testAllObjects || hand.testGroupOnly) && test_group(loc_id) < 0) {
+        H5_FAILED(); AT();
+        printf("    couldn't test group objects in the tree node\n");
+        goto error;
+    }
+
+    /* Test dataset object. */
+    if ((hand.testAllObjects || hand.testDsetOnly) && test_dataset(loc_id) < 0) {
+        H5_FAILED(); AT();
+        printf("    couldn't test dataset objects in the tree node\n");
+        goto error;
+    }
+
+    /* Test attribute object. */
+    if ((hand.testAllObjects || hand.testAttrOnly) && test_attribute(loc_id) < 0) {
+        H5_FAILED(); AT();
+        printf("    couldn't test attribute objects in the tree node\n");
+        goto error;
+    }
+
+    /* Test datatype object. */
+    if ((hand.testAllObjects || hand.testDtypeOnly) && test_datatype(loc_id) < 0) {
+        H5_FAILED(); AT();
+        printf("    couldn't test datatype objects in the tree node\n");
+        goto error;
+    }
+
+    /* Test map object.  Map object only works for H5VOL */
+    if (!hand.runMPIIO && (hand.testAllObjects || hand.testMapOnly) && test_map(loc_id) < 0) {
+        H5_FAILED(); AT();
+        printf("    couldn't test map objects in the tree node\n");
+        goto error;
     }
 
     /* Close the unique group per rank */
@@ -1021,9 +1955,10 @@ operate_on_files(hid_t fapl_id)
     double start, end, time;
     int i;
 
-    /* File creation */
-    for (i = 0; i < hand.numbOfObjs; i++) {
-        sprintf(filename, "%s_%d", hand.fileName, i + 1);
+    sprintf(filename, "%s", hand.fileName);
+
+    for (i = 0; i < hand.numbOfFiles; i++) {
+        /* File creation */
         start = MPI_Wtime();
 
         if((file_id = H5Fcreate(filename, H5F_ACC_TRUNC, H5P_DEFAULT, fapl_id)) < 0) {
@@ -1037,8 +1972,7 @@ operate_on_files(hid_t fapl_id)
         file_op_time[FILE_CREATE_NUM][i] = time;
 
 #ifdef DEBUG
-        if (MAINPROCESS)
-            printf("\nFile creation time: %lf", time);
+        printf("File creation time: %lf, mpi_rank=%d\n", time, mpi_rank);
 #endif
 
         start = MPI_Wtime();
@@ -1054,14 +1988,10 @@ operate_on_files(hid_t fapl_id)
         file_op_time[FILE_CLOSE_NUM][i] = time;
 
 #ifdef DEBUG
-        if (MAINPROCESS)
-            printf("\nFile close time: %lf", time);
+        printf("File close time: %lf, mpi_rank=%d\n", time, mpi_rank);
 #endif
-    }
 
-    /* File open */
-    for (i = 0; i < hand.numbOfObjs; i++) {
-        sprintf(filename, "%s_%d", hand.fileName, i + 1);
+        /* File open */
         start = MPI_Wtime();
 
         if((file_id = H5Fopen(filename, H5F_ACC_RDWR, fapl_id)) < 0) {
@@ -1075,8 +2005,7 @@ operate_on_files(hid_t fapl_id)
         file_op_time[FILE_OPEN_NUM][i] = time;
 
 #ifdef DEBUG
-        if (MAINPROCESS)
-            printf("\nFile open time: %lf", time);
+        printf("File open time: %lf, mpi_rank=%d\n", time, mpi_rank);
 #endif
 
         if(H5Fclose(file_id) < 0) {
@@ -1084,22 +2013,20 @@ operate_on_files(hid_t fapl_id)
             printf("failed to close the file\n");
             goto error;
         } 
-    }
 
-    /* File delete */
-    for (i = 0; i < hand.numbOfObjs; i++) {
-        sprintf(filename, "%s_%d", hand.fileName, i + 1);
+#ifdef TMP
+        /* File delete - Temporariely disabled until the hanging problem is fixed (Jira issue ID-245) */
         start = MPI_Wtime();
 
         /* H5Fdelete only works for H5VOL */
         if(!hand.runMPIIO) {
-            if ((file_id = H5Fdelete(filename, fapl_id)) < 0) {
+            if (H5Fdelete(filename, fapl_id) < 0) {
                 H5_FAILED(); AT();
                 printf("failed to delete the file '%s'\n", filename);
                 goto error;
             }
         } else {
-            if (MPI_File_delete(filename, MPI_INFO_NULL)) {
+            if (MPI_File_delete(filename, MPI_INFO_NULL) < 0) {
                 H5_FAILED(); AT();
                 printf("failed to delete the file '%s'\n", filename);
                 goto error;
@@ -1111,10 +2038,9 @@ operate_on_files(hid_t fapl_id)
         file_op_time[FILE_REMOVE_NUM][i] = time;
 
 #ifdef DEBUG
-        if (MAINPROCESS)
-            printf("\nFile removal time: %lf", time);
+        printf("File removal time: %lf, mpi_rank=%d\n", time, mpi_rank);
 #endif
-
+#endif
     }
 
     return 0;
@@ -1178,8 +2104,9 @@ static int create_trees(hid_t file) {
     int         i;
 
     for(i = 0; i < hand.numbOfTrees; i++) {
-        snprintf(tree_root_name, NAME_LENGTH, "tree_root_%d", i+1);
-        tree_order = (unsigned)i;
+        snprintf(tree_root_name, NAME_LENGTH, "tree_root_order_%d", i);
+
+        tree_order = i;
 
         /* Create the group as the tree root */
         if ((tree_root_id = H5Gcreate2(file, tree_root_name, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT)) < 0) {
@@ -1236,6 +2163,8 @@ main( int argc, char** argv )
 
     initialize_time();
 
+    initialize_data();
+
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0) {
         nerrors++;
         goto error;
@@ -1264,31 +2193,44 @@ main( int argc, char** argv )
         goto error;
     }
 
-    if (H5daos_set_object_class(fapl_id, hand.daosObjClass) < 0) {
+    if(create_ids() < 0) {
         nerrors++;
         goto error;
     }
 
-    if((file_id = H5Fcreate(hand.fileName, H5F_ACC_TRUNC, H5P_DEFAULT, fapl_id)) < 0) {
-        nerrors++;
-        goto error;
+    if(hand.testAllObjects || hand.testGroupOnly || hand.testDsetOnly || 
+        hand.testAttrOnly || hand.testDtypeOnly || hand.testMapOnly) {
+        if((file_id = H5Fcreate(hand.fileName, H5F_ACC_TRUNC, H5P_DEFAULT, fapl_id)) < 0) {
+            nerrors++;
+            goto error;
+        }
+
+        /* Create trees */
+        if(create_trees(file_id) < 0) {
+            nerrors++;
+            goto error;
+        }
+
+        if(H5Fclose(file_id) < 0) {
+            nerrors++;
+            goto error;
+        }
     }
 
-    /* Create trees */
-    if(create_trees(file_id) < 0) {
-        nerrors++;
-        goto error;
-    }
+    if(hand.testAllObjects || hand.testFileOnly) {
+        /* For file operations, make sure it's collecitve */
+        if(hand.uniqueGroupPerRank) {
+            if(H5daos_set_all_ind_metadata_ops(fapl_id, FALSE) < 0) {
+                nerrors++;
+                goto error;
+            }
+        }
 
-    if(H5Fclose(file_id) < 0) {
-        nerrors++;
-        goto error;
-    }
-
-    /* Create and delete files */
-    if(operate_on_files(fapl_id) < 0) {
-        nerrors++;
-        goto error;
+        /* File operations */
+        if(operate_on_files(fapl_id) < 0) {
+            nerrors++;
+            goto error;
+        }
     }
 
     if(H5Pclose(fapl_id) < 0) {
@@ -1297,7 +2239,11 @@ main( int argc, char** argv )
     }
 
     calculate_results();
-    free_time_struct();
+
+    if(release_resources() < 0) {
+        nerrors++;
+        goto error;
+    }
 
     if (nerrors) goto error;
 

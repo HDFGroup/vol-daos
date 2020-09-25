@@ -2,12 +2,21 @@
 
 int od_test_g;
 
-herr_t iter_cb(hid_t loc_id, const char *link_name, const H5L_info_t *linfo,
+herr_t iter_cb(hid_t loc_id, const char *link_name, const H5L_info2_t *linfo,
         void *op_data) {
     /* Print name, type, and address or value size */
     printf("%s: ", link_name);
-    if(linfo->type == H5L_TYPE_HARD)
-        printf("hard, address = 0x%016llx\n", (unsigned long long)linfo->u.address);
+    if(linfo->type == H5L_TYPE_HARD) {
+        size_t i;
+
+        printf("hard, token = ");
+        for(i = 0; i < H5O_MAX_TOKEN_SIZE; i++) {
+            if(i > 0)
+                printf(":");
+            printf("%02X", (unsigned char)linfo->u.token.__data[i]);
+        }
+        printf("\n");
+    }
     else if(linfo->type == H5L_TYPE_SOFT)
         printf("soft, val_size = %llu\n", (unsigned long long)linfo->u.val_size);
     else
@@ -41,7 +50,7 @@ int main(int argc, char *argv[]) {
         ERROR;
 
     /* Initialize VOL */
-    if(H5daos_init(MPI_COMM_WORLD, pool_uuid, pool_grp) < 0)
+    if(H5daos_init(pool_uuid, pool_grp, getenv("DAOS_SVCL") ? getenv("DAOS_SVCL") : "0") < 0)
         ERROR;
 
     /* Set up FAPL */
@@ -69,7 +78,7 @@ int main(int argc, char *argv[]) {
     printf("Iterating over links\n");
 
     /* Iterate */
-    if((ret = H5Literate_by_name(file, argv[3], H5_INDEX_NAME, H5_ITER_NATIVE, &num_link, iter_cb, &od_test_g, H5P_DEFAULT)) < 0)
+    if((ret = H5Literate_by_name2(file, argv[3], H5_INDEX_NAME, H5_ITER_NATIVE, &num_link, iter_cb, &od_test_g, H5P_DEFAULT)) < 0)
         ERROR;
 
     printf("Complete.  Number of links: %d\n", (int)num_link);

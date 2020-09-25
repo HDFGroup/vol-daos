@@ -4,8 +4,9 @@ int main(int argc, char *argv[]) {
     uuid_t pool_uuid;
     char *pool_grp = NULL;
     hid_t file = -1, obj = -1, fapl = -1;
-    H5O_info_t oinfo;
+    H5O_info2_t oinfo;
     char *obj_str = NULL;
+    size_t i;
     H5_daos_snap_id_t snap_id;
 
     (void)MPI_Init(&argc, &argv);
@@ -18,7 +19,7 @@ int main(int argc, char *argv[]) {
         ERROR;
 
     /* Initialize VOL */
-    if(H5daos_init(MPI_COMM_WORLD, pool_uuid, pool_grp) < 0)
+    if(H5daos_init(pool_uuid, pool_grp, getenv("DAOS_SVCL") ? getenv("DAOS_SVCL") : "0") < 0)
         ERROR;
 
     /* Set up FAPL */
@@ -50,11 +51,17 @@ int main(int argc, char *argv[]) {
         ERROR;
 
     /* Get object info */
-    if(H5Oget_info1(obj, &oinfo) < 0)
+    if(H5Oget_info3(obj, &oinfo, H5O_INFO_ALL) < 0)
         ERROR;
 
     printf("fileno = %lu\n", oinfo.fileno);
-    printf("addr = 0x%016llx\n", (unsigned long long)oinfo.addr);
+    printf("token = ");
+    for(i = 0; i < H5O_MAX_TOKEN_SIZE; i++) {
+        if(i > 0)
+            printf(":");
+        printf("%02X", (unsigned char)oinfo.token.__data[i]);
+    }
+    printf("\n");
     if(oinfo.type == H5O_TYPE_GROUP)
         obj_str = "group";
     else if(oinfo.type == H5O_TYPE_DATASET)

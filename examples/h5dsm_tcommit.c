@@ -9,7 +9,7 @@ int main(int argc, char *argv[]) {
     char *pool_grp = NULL;
     hid_t file = -1, dset = -1, type1 = -1, type2 = -1, type3 = -1, space = -1, fapl = -1;
     hsize_t dims[2] = {4, 2};
-    H5O_info_t oinfo;
+    H5O_info2_t oinfo;
     htri_t tri_ret;
 
     (void)MPI_Init(&argc, &argv);
@@ -28,7 +28,7 @@ int main(int argc, char *argv[]) {
         ERROR;
 
     /* Initialize VOL */
-    if(H5daos_init(MPI_COMM_WORLD, pool_uuid, pool_grp) < 0)
+    if(H5daos_init(pool_uuid, pool_grp, getenv("DAOS_SVCL") ? getenv("DAOS_SVCL") : "0") < 0)
         ERROR;
 
     /* Set up FAPL */
@@ -66,7 +66,7 @@ int main(int argc, char *argv[]) {
         printf("Committing datatype \"dtype\"\n");
     if(H5Tcommit2(file, "dtype", type2, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT) < 0)
         ERROR;
-    if(H5Oget_info1(type2, &oinfo) < 0)
+    if(H5Oget_info3(type2, &oinfo, H5O_INFO_ALL) < 0)
         ERROR;
 
     /* Create dataset using committed datatype */
@@ -193,8 +193,8 @@ int main(int argc, char *argv[]) {
 
     /* H5Oopen committed datatype */
     if(verbose_g)
-        printf("Opening committed datatype \"dtype\" using H5Oopen_by_addr\n");
-    if((type2 = H5Oopen_by_addr(file, oinfo.addr)) < 0)
+        printf("Opening committed datatype \"dtype\" using H5Oopen_by_token\n");
+    if((type2 = H5Oopen_by_token(file, oinfo.token)) < 0)
         ERROR;
 
     /* Check types are equal */

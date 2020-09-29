@@ -65,15 +65,6 @@ typedef struct {
     uint64_t idx;
 } H5_daos_vl_file_ud_t;
 
-/* Information about a singular selected chunk during a dataset read/write */
-typedef struct H5_daos_select_chunk_info_t {
-    uint64_t chunk_coords[H5S_MAX_RANK]; /* The starting coordinates ("upper left corner") of the chunk */
-    hid_t    mspace_id;                  /* The memory space corresponding to the
-                                            selection in the chunk in memory */
-    hid_t    fspace_id;                  /* The file space corresponding to the
-                                            selection in the chunk in the file */
-} H5_daos_select_chunk_info_t;
-
 /* Enum type for distinguishing between dataset reads and writes. */
 typedef enum dset_io_type {
     IO_READ,
@@ -137,8 +128,10 @@ static int H5_daos_dset_open_end(H5_daos_dset_t *dset, uint8_t *p,
     uint64_t fill_val_len, hid_t dxpl_id);
 static int H5_daos_dset_open_bcast_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_dset_open_recv_comp_cb(tse_task_t *task, void *args);
+static herr_t H5_daos_dset_fill_io_cache(H5_daos_dset_t *dset,
+    hid_t file_space_id, hid_t mem_space_id);
 static int H5_daos_dinfo_read_comp_cb(tse_task_t *task, void *args);
-static herr_t H5_daos_sel_to_recx_iov(hid_t space_id, size_t type_size,
+static herr_t H5_daos_sel_to_recx_iov(hid_t sel_iter_id, size_t type_size,
     void *buf, daos_recx_t **recxs, daos_iov_t **sg_iovs, size_t *list_nused);
 static herr_t H5_daos_scatter_cb(const void **src_buf,
     size_t *src_buf_bytes_used, void *_udata);
@@ -164,7 +157,8 @@ static hid_t H5_daos_point_and_block(hid_t point_space, hsize_t rank,
     hsize_t *dims, hsize_t *start, hsize_t *block);
 static herr_t H5_daos_get_selected_chunk_info(H5_daos_dcpl_cache_t *dcpl_cache,
     hid_t file_space_id, hid_t mem_space_id,
-    H5_daos_select_chunk_info_t **chunk_info, size_t *chunk_info_len);
+    H5_daos_select_chunk_info_t **chunk_info, size_t *chunk_info_len,
+    size_t *nchunks_selected);
 
 
 /*-------------------------------------------------------------------------
@@ -584,6 +578,8 @@ H5_daos_dataset_create_helper(H5_daos_file_t *file, hid_t type_id, hid_t space_i
     dset->space_id = H5I_INVALID_HID;
     dset->dcpl_id = H5I_INVALID_HID;
     dset->dapl_id = H5I_INVALID_HID;
+    dset->io_cache.file_sel_iter_id = H5I_INVALID_HID;
+    dset->io_cache.mem_sel_iter_id = H5I_INVALID_HID;
 
     /* Set up datatypes, dataspace, property list fields.  Do this earlier
      * because we need some of these things */
@@ -1825,6 +1821,8 @@ H5_daos_dataset_open_helper(H5_daos_file_t *file, hid_t dapl_id, hbool_t collect
     dset->file_type_id = H5I_INVALID_HID;
     dset->space_id = H5I_INVALID_HID;
     dset->dcpl_id = H5I_INVALID_HID;
+    dset->io_cache.file_sel_iter_id = H5I_INVALID_HID;
+    dset->io_cache.mem_sel_iter_id = H5I_INVALID_HID;
     if((dset->dapl_id = H5Pcopy(dapl_id)) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, NULL, "failed to copy dapl");
 
@@ -2039,7 +2037,7 @@ done:
  *-------------------------------------------------------------------------
  */
 static herr_t
-H5_daos_sel_to_recx_iov(hid_t space_id, size_t type_size, void *buf,
+H5_daos_sel_to_recx_iov(hid_t sel_iter_id, size_t type_size, void *buf,
     daos_recx_t **recxs, daos_iov_t **sg_iovs, size_t *list_nused)
 {
     size_t nseq;
@@ -2049,7 +2047,6 @@ H5_daos_sel_to_recx_iov(hid_t space_id, size_t type_size, void *buf,
     size_t buf_len = 1;
     void *vp_ret;
     size_t szi;
-    hid_t sel_iter = H5I_INVALID_HID;
     herr_t ret_value = SUCCEED;
 
     assert(recxs || sg_iovs);
@@ -2060,18 +2057,10 @@ H5_daos_sel_to_recx_iov(hid_t space_id, size_t type_size, void *buf,
     /* Initialize list_nused */
     *list_nused = 0;
 
-    /* Initialize selection iterator We use 1 for the element size here so that
-     * the sequence list offsets and lengths are returned in terms of numbers of
-     * elements, not bytes.  This way the returned values better match the
-     * values DAOS expects to receive, which are also in terms of numbers of
-     * elements. */
-    if((sel_iter = H5Ssel_iter_create(space_id, 1, H5S_SEL_ITER_SHARE_WITH_DATASPACE)) < 0)
-        D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTINIT, FAIL, "unable to create selection iterator");
-
     /* Generate sequences from the file space until finished */
     do {
         /* Get the sequences of bytes */
-        if(H5Ssel_iter_get_seq_list(sel_iter, (size_t)H5_DAOS_SEQ_LIST_LEN, (size_t)-1, &nseq, &nelem, off, len) < 0)
+        if(H5Ssel_iter_get_seq_list(sel_iter_id, (size_t)H5_DAOS_SEQ_LIST_LEN, (size_t)-1, &nseq, &nelem, off, len) < 0)
             D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, FAIL, "sequence length generation failed");
 
         /* Make room for sequences in recxs */
@@ -2114,10 +2103,6 @@ H5_daos_sel_to_recx_iov(hid_t space_id, size_t type_size, void *buf,
     } while(nseq == H5_DAOS_SEQ_LIST_LEN);
 
 done:
-    /* Release selection iterator */
-    if(sel_iter >= 0 && H5Ssel_iter_close(sel_iter) < 0)
-        D_DONE_ERROR(H5E_DATASPACE, H5E_CANTRELEASE, FAIL, "unable to close selection iterator");
-
     D_FUNC_LEAVE;
 } /* end H5_daos_sel_to_recx_iov() */
 
@@ -2350,21 +2335,35 @@ H5_daos_dataset_io_types_equal(H5_daos_dset_t *dset, daos_key_t *dkey, hssize_t 
 
     /* Check for a memory space of H5S_ALL, use file space in this case */
     if(mem_space_id == H5S_ALL) {
+        /* Reset file selection iterator for current file dataspace */
+        if(H5Ssel_iter_reset(dset->io_cache.file_sel_iter_id, file_space_id) < 0)
+            D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTRESET, FAIL, "can't reset file dataspace selection iterator");
+
         /* Calculate both recxs and sg_iovs at the same time from file space */
-        if(H5_daos_sel_to_recx_iov(file_space_id, file_type_size, buf, &chunk_io_ud->recxs, &chunk_io_ud->sg_iovs, &tot_nseq) < 0)
+        if(H5_daos_sel_to_recx_iov(dset->io_cache.file_sel_iter_id, file_type_size, buf,
+                &chunk_io_ud->recxs, &chunk_io_ud->sg_iovs, &tot_nseq) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't generate sequence lists for DAOS I/O");
         chunk_io_ud->iod.iod_nr = (unsigned)tot_nseq;
         chunk_io_ud->sgl.sg_nr = (uint32_t)tot_nseq;
         chunk_io_ud->sgl.sg_nr_out = 0;
     } /* end if */
     else {
+        /* Reset file selection iterator for current file dataspace */
+        if(H5Ssel_iter_reset(dset->io_cache.file_sel_iter_id, file_space_id) < 0)
+            D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTRESET, FAIL, "can't reset file dataspace selection iterator");
+        /* Reset memory selection iterator for current memory dataspace */
+        if(H5Ssel_iter_reset(dset->io_cache.mem_sel_iter_id, mem_space_id) < 0)
+            D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTRESET, FAIL, "can't reset memory dataspace selection iterator");
+
         /* Calculate recxs from file space */
-        if(H5_daos_sel_to_recx_iov(file_space_id, file_type_size, buf, &chunk_io_ud->recxs, NULL, &tot_nseq) < 0)
+        if(H5_daos_sel_to_recx_iov(dset->io_cache.file_sel_iter_id, file_type_size, buf,
+                &chunk_io_ud->recxs, NULL, &tot_nseq) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't generate sequence lists for DAOS I/O");
         chunk_io_ud->iod.iod_nr = (unsigned)tot_nseq;
 
         /* Calculate sg_iovs from mem space */
-        if(H5_daos_sel_to_recx_iov(mem_space_id, file_type_size, buf, NULL, &chunk_io_ud->sg_iovs, &tot_nseq) < 0)
+        if(H5_daos_sel_to_recx_iov(dset->io_cache.mem_sel_iter_id, file_type_size, buf,
+                NULL, &chunk_io_ud->sg_iovs, &tot_nseq) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't generate sequence lists for DAOS I/O");
         chunk_io_ud->sgl.sg_nr = (uint32_t)tot_nseq;
         chunk_io_ud->sgl.sg_nr_out = 0;
@@ -2750,7 +2749,6 @@ H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t *dkey,
     size_t tot_nseq;
     tse_task_t *io_task = NULL;
     tse_task_t *fill_bkg_task = NULL;
-    hid_t sel_iter = H5I_INVALID_HID;
     int ret;
     herr_t ret_value = SUCCEED;
 
@@ -2792,18 +2790,15 @@ H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t *dkey,
         hsize_t sel_off;
         size_t sel_len;
 
-        /* Initialize selection iterator.  We use 1 for the element size here so
-         * that the sequence list offsets and lengths are returned in terms of
-         * numbers of elements, not bytes.  In this case it just saves us from
-         * needing to multiply num_elem by the type size when checking for a
-         * contiguous selection */
-        if((sel_iter = H5Ssel_iter_create(mem_space_id, 1, H5S_SEL_ITER_SHARE_WITH_DATASPACE)) < 0)
-            D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTINIT, FAIL, "unable to create selection iterator");
+        /* Reset memory selection iterator for current memory dataspace */
+        if(H5Ssel_iter_reset(dset->io_cache.mem_sel_iter_id, mem_space_id) < 0)
+            D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTRESET, FAIL, "can't reset file dataspace selection iterator");
 
         /* Get the sequence list - only check the first sequence because we only
          * care if it is contiguous and if so where the contiguous selection
          * begins */
-        if(H5Ssel_iter_get_seq_list(sel_iter, (size_t)1, (size_t)-1, &nseq_tmp, &nelem_tmp, &sel_off, &sel_len) < 0)
+        if(H5Ssel_iter_get_seq_list(dset->io_cache.mem_sel_iter_id, (size_t)1, (size_t)-1,
+                &nseq_tmp, &nelem_tmp, &sel_off, &sel_len) < 0)
             D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, FAIL, "sequence length generation failed");
         contig = (sel_len == (size_t)num_elem);
 
@@ -2857,8 +2852,13 @@ H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t *dkey,
 
     /* Build recxs and sg_iovs */
 
+    /* Reset file selection iterator for current file dataspace */
+    if(H5Ssel_iter_reset(dset->io_cache.file_sel_iter_id, file_space_id) < 0)
+        D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTRESET, FAIL, "can't reset file dataspace selection iterator");
+
     /* Calculate recxs from file space */
-    if(H5_daos_sel_to_recx_iov(file_space_id, chunk_io_ud->file_type_size, buf, &chunk_io_ud->recxs, NULL, &tot_nseq) < 0)
+    if(H5_daos_sel_to_recx_iov(dset->io_cache.file_sel_iter_id, chunk_io_ud->file_type_size, buf,
+            &chunk_io_ud->recxs, NULL, &tot_nseq) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't generate sequence lists for DAOS I/O");
     chunk_io_ud->iod.iod_nr = (unsigned)tot_nseq;
     chunk_io_ud->iod.iod_recxs = chunk_io_ud->recxs;
@@ -2968,12 +2968,73 @@ done:
         chunk_io_ud = DV_free(chunk_io_ud);
     } /* end if */
 
-    /* Release selection iterator */
-    if(sel_iter >= 0 && H5Ssel_iter_close(sel_iter) < 0)
-        D_DONE_ERROR(H5E_DATASPACE, H5E_CANTRELEASE, FAIL, "unable to close selection iterator");
-
     D_FUNC_LEAVE;
 } /* end H5_daos_dataset_io_types_unequal() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_dset_fill_io_cache
+ *
+ * Purpose:     Fills the "io_cache" field of the dataset struct. This
+ *              field is used to cache various things for dataset I/O
+ *              including dataspace selection iterators and selected chunk
+ *              info buffers.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_dset_fill_io_cache(H5_daos_dset_t *dset, hid_t file_space_id, hid_t mem_space_id)
+{
+    herr_t ret_value = SUCCEED;
+
+    assert(dset);
+    assert(!dset->io_cache.filled);
+    assert(dset->io_cache.file_sel_iter_id <= 0);
+    assert(dset->io_cache.mem_sel_iter_id <= 0);
+    assert((dset->dcpl_cache.layout != H5D_LAYOUT_ERROR)
+            && (dset->dcpl_cache.layout != H5D_NLAYOUTS));
+
+    /* Setup and cache selection iterators for dataset. We use 1 for the element
+     * size here so that the sequence list offsets and lengths are returned in
+     * terms of numbers of elements, not bytes. This way the returned values
+     * better match the values DAOS expects to receive, which are also in terms
+     * of numbers of elements. */
+    if((dset->io_cache.file_sel_iter_id =
+            H5Ssel_iter_create(file_space_id, 1, H5S_SEL_ITER_SHARE_WITH_DATASPACE)) < 0)
+        D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTINIT, FAIL, "unable to create file dataspace selection iterator");
+    if((dset->io_cache.mem_sel_iter_id =
+            H5Ssel_iter_create(mem_space_id, 1, H5S_SEL_ITER_SHARE_WITH_DATASPACE)) < 0)
+        D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTINIT, FAIL, "unable to create memory dataspace selection iterator");
+
+    /* Setup selected chunk info buffer */
+    switch (dset->dcpl_cache.layout) {
+        case H5D_COMPACT:
+        case H5D_CONTIGUOUS:
+            dset->io_cache.chunk_info = &dset->io_cache.single_chunk_info;
+            dset->io_cache.chunk_info_nalloc = 1;
+            break;
+
+        case H5D_CHUNKED:
+            if(NULL == (dset->io_cache.chunk_info =
+                    (H5_daos_select_chunk_info_t *)DV_malloc(H5_DAOS_DEFAULT_NUM_SEL_CHUNKS * sizeof(H5_daos_select_chunk_info_t))))
+                D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't allocate space for selected chunk info buffer");
+            dset->io_cache.chunk_info_nalloc = H5_DAOS_DEFAULT_NUM_SEL_CHUNKS;
+            break;
+
+        case H5D_LAYOUT_ERROR:
+        case H5D_NLAYOUTS:
+        case H5D_VIRTUAL:
+        default:
+            D_GOTO_ERROR(H5E_DATASET, H5E_UNSUPPORTED, FAIL, "dataset has invalid storage layout type");
+    } /* end switch */
+
+    dset->io_cache.filled = TRUE;
+
+done:
+    D_FUNC_LEAVE;
+} /* end H5_daos_dset_fill_io_cache() */
 
 
 /*-------------------------------------------------------------------------
@@ -2999,7 +3060,6 @@ H5_daos_dataset_read_int(H5_daos_dset_t *dset, hid_t mem_type_id,
     uint64_t i;
     uint8_t dkey_buf[1 + (sizeof(uint64_t) * H5S_MAX_RANK)];
     htri_t need_tconv;
-    hbool_t close_spaces = FALSE;
     size_t nchunks_sel;
     hid_t real_file_space_id;
     hid_t real_mem_space_id;
@@ -3043,14 +3103,18 @@ H5_daos_dataset_read_int(H5_daos_dset_t *dset, hid_t mem_type_id,
     if(num_elem_file == 0)
         D_GOTO_DONE(SUCCEED);
 
+    /* Fill dataset I/O cache if it hasn't already been filled */
+    if(!dset->io_cache.filled
+            && H5_daos_dset_fill_io_cache(dset, real_file_space_id, real_mem_space_id) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't initialize dataset I/O cache");
+
     /* Check for the dataset having a chunked storage layout. If it does not,
      * simply set up the dataset as a single "chunk".
      */
     switch(dset->dcpl_cache.layout) {
         case H5D_COMPACT:
         case H5D_CONTIGUOUS:
-            if(NULL == (chunk_info = (H5_daos_select_chunk_info_t *)DV_malloc(sizeof(H5_daos_select_chunk_info_t))))
-                D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't allocate single chunk info buffer");
+            chunk_info = dset->io_cache.chunk_info;
             nchunks_sel = 1;
 
             /* Set up "single-chunk dataset", with the "chunk" starting at coordinate 0 */
@@ -3062,10 +3126,10 @@ H5_daos_dataset_read_int(H5_daos_dset_t *dset, hid_t mem_type_id,
 
         case H5D_CHUNKED:
             /* Get the coordinates of the currently selected chunks in the file, setting up memory and file dataspaces for them */
-            if(H5_daos_get_selected_chunk_info(&dset->dcpl_cache, real_file_space_id, real_mem_space_id, &chunk_info, &nchunks_sel) < 0)
+            if(H5_daos_get_selected_chunk_info(&dset->dcpl_cache, real_file_space_id, real_mem_space_id,
+                    &dset->io_cache.chunk_info, &dset->io_cache.chunk_info_nalloc, &nchunks_sel) < 0)
                 D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get selected chunk info");
-
-            close_spaces = TRUE;
+            chunk_info = dset->io_cache.chunk_info;
 
             break;
 
@@ -3142,17 +3206,14 @@ H5_daos_dataset_read_int(H5_daos_dset_t *dset, hid_t mem_type_id,
 
 done:
     /* Free memory */
-    if(chunk_info) {
-        if(close_spaces) {
-            for(i = 0; i < nchunks_sel; i++) {
-                if((chunk_info[i].mspace_id >= 0) && (H5Sclose(chunk_info[i].mspace_id) < 0))
-                    D_DONE_ERROR(H5E_DATASPACE, H5E_CANTCLOSEOBJ, FAIL, "can't close memory space");
-                if((chunk_info[i].fspace_id >= 0) && (H5Sclose(chunk_info[i].fspace_id) < 0))
-                    D_DONE_ERROR(H5E_DATASPACE, H5E_CANTCLOSEOBJ, FAIL, "can't close file space");
-            } /* end for */
-        } /* end if */
-
-        DV_free(chunk_info);
+    if(chunk_info && (dset->dcpl_cache.layout == H5D_CHUNKED)) {
+        for(i = 0; i < nchunks_sel; i++) {
+            if((chunk_info[i].fspace_id >= 0) && (H5Sclose(chunk_info[i].fspace_id) < 0))
+                D_DONE_ERROR(H5E_DATASPACE, H5E_CANTCLOSEOBJ, FAIL, "can't close file space");
+            if((chunk_info[i].mspace_id >= 0) && (chunk_info[i].mspace_id != chunk_info[i].fspace_id)
+                    && (H5Sclose(chunk_info[i].mspace_id) < 0))
+                D_DONE_ERROR(H5E_DATASPACE, H5E_CANTCLOSEOBJ, FAIL, "can't close memory space");
+        } /* end for */
     } /* end if */
 
     D_FUNC_LEAVE;
@@ -3273,7 +3334,6 @@ H5_daos_dataset_write_int(H5_daos_dset_t *dset, hid_t mem_type_id,
     uint64_t i;
     uint8_t dkey_buf[1 + (sizeof(uint64_t) * H5S_MAX_RANK)];
     htri_t need_tconv;
-    hbool_t close_spaces = FALSE;
     size_t nchunks_sel;
     hid_t real_file_space_id;
     hid_t real_mem_space_id;
@@ -3318,14 +3378,18 @@ H5_daos_dataset_write_int(H5_daos_dset_t *dset, hid_t mem_type_id,
     if(num_elem_file == 0)
         D_GOTO_DONE(SUCCEED);
 
+    /* Fill dataset I/O cache if it hasn't already been filled */
+    if(!dset->io_cache.filled
+            && H5_daos_dset_fill_io_cache(dset, real_file_space_id, real_mem_space_id) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't initialize dataset I/O cache");
+
     /* Check for the dataset having a chunked storage layout. If it does not,
      * simply set up the dataset as a single "chunk".
      */
     switch(dset->dcpl_cache.layout) {
         case H5D_COMPACT:
         case H5D_CONTIGUOUS:
-            if(NULL == (chunk_info = (H5_daos_select_chunk_info_t *)DV_malloc(sizeof(H5_daos_select_chunk_info_t))))
-                D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't allocate single chunk info buffer");
+            chunk_info = dset->io_cache.chunk_info;
             nchunks_sel = 1;
 
             /* Set up "single-chunk dataset", with the "chunk" starting at coordinate 0 */
@@ -3337,10 +3401,10 @@ H5_daos_dataset_write_int(H5_daos_dset_t *dset, hid_t mem_type_id,
 
         case H5D_CHUNKED:
             /* Get the coordinates of the currently selected chunks in the file, setting up memory and file dataspaces for them */
-            if(H5_daos_get_selected_chunk_info(&dset->dcpl_cache, real_file_space_id, real_mem_space_id, &chunk_info, &nchunks_sel) < 0)
+            if(H5_daos_get_selected_chunk_info(&dset->dcpl_cache, real_file_space_id, real_mem_space_id,
+                    &dset->io_cache.chunk_info, &dset->io_cache.chunk_info_nalloc, &nchunks_sel) < 0)
                 D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get selected chunk info");
-
-            close_spaces = TRUE;
+            chunk_info = dset->io_cache.chunk_info;
 
             break;
 
@@ -3417,17 +3481,13 @@ H5_daos_dataset_write_int(H5_daos_dset_t *dset, hid_t mem_type_id,
 
 done:
     /* Free memory */
-    if(chunk_info) {
-        if(close_spaces) {
-            for(i = 0; i < nchunks_sel; i++) {
-                if((chunk_info[i].mspace_id >= 0) && (H5Sclose(chunk_info[i].mspace_id) < 0))
-                    D_DONE_ERROR(H5E_DATASPACE, H5E_CANTCLOSEOBJ, FAIL, "can't close memory space");
-                if((chunk_info[i].fspace_id >= 0) && (H5Sclose(chunk_info[i].fspace_id) < 0))
-                    D_DONE_ERROR(H5E_DATASPACE, H5E_CANTCLOSEOBJ, FAIL, "can't close file space");
-            } /* end for */
-        } /* end if */
-
-        DV_free(chunk_info);
+    if(chunk_info && (dset->dcpl_cache.layout == H5D_CHUNKED)) {
+        for(i = 0; i < nchunks_sel; i++) {
+            if((chunk_info[i].mspace_id >= 0) && (H5Sclose(chunk_info[i].mspace_id) < 0))
+                D_DONE_ERROR(H5E_DATASPACE, H5E_CANTCLOSEOBJ, FAIL, "can't close memory space");
+            if((chunk_info[i].fspace_id >= 0) && (H5Sclose(chunk_info[i].fspace_id) < 0))
+                D_DONE_ERROR(H5E_DATASPACE, H5E_CANTCLOSEOBJ, FAIL, "can't close file space");
+        } /* end for */
     } /* end if */
 
     D_FUNC_LEAVE;
@@ -3808,6 +3868,14 @@ H5_daos_dataset_close(void *_dset, hid_t H5VL_DAOS_UNUSED dxpl_id,
         if(!daos_handle_is_inval(dset->obj.obj_oh))
             if(0 != (ret = daos_obj_close(dset->obj.obj_oh, NULL /*event*/)))
                 D_DONE_ERROR(H5E_DATASET, H5E_CANTCLOSEOBJ, FAIL, "can't close dataset DAOS object: %s", H5_daos_err_to_string(ret));
+        if((dset->io_cache.file_sel_iter_id > 0) &&
+                (H5Ssel_iter_close(dset->io_cache.file_sel_iter_id) < 0))
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTRELEASE, FAIL, "unable to close selection iterator");
+        if((dset->io_cache.mem_sel_iter_id > 0) &&
+                (H5Ssel_iter_close(dset->io_cache.mem_sel_iter_id) < 0))
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTRELEASE, FAIL, "unable to close selection iterator");
+        if(dset->io_cache.chunk_info && (dset->io_cache.chunk_info != &dset->io_cache.single_chunk_info))
+            DV_free(dset->io_cache.chunk_info);
         if(dset->type_id != H5I_INVALID_HID && H5Idec_ref(dset->type_id) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close dataset's datatype");
         if(dset->file_type_id != H5I_INVALID_HID && H5Idec_ref(dset->file_type_id) < 0)
@@ -4402,7 +4470,8 @@ done:
 static herr_t
 H5_daos_get_selected_chunk_info(H5_daos_dcpl_cache_t *dcpl_cache,
     hid_t file_space_id, hid_t mem_space_id,
-    H5_daos_select_chunk_info_t **chunk_info, size_t *chunk_info_len)
+    H5_daos_select_chunk_info_t **chunk_info, size_t *chunk_info_len,
+    size_t *nchunks_selected)
 {
     H5_daos_select_chunk_info_t *_chunk_info = NULL;
     hssize_t  num_sel_points;
@@ -4481,9 +4550,17 @@ H5_daos_get_selected_chunk_info(H5_daos_dcpl_cache_t *dcpl_cache,
             D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTINIT, FAIL, "can't create entire chunk selection dataspace");
     } /* end else */
 
-    if (NULL == (_chunk_info = (H5_daos_select_chunk_info_t *) DV_malloc(H5_DAOS_DEFAULT_NUM_SEL_CHUNKS * sizeof(*_chunk_info))))
-        D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't allocate space for selected chunk info buffer");
-    chunk_info_nalloc = H5_DAOS_DEFAULT_NUM_SEL_CHUNKS;
+    /* Allocate selected chunk info buffer or use already-allocated buffer */
+    if(!*chunk_info) {
+        if (NULL == (_chunk_info = (H5_daos_select_chunk_info_t *) DV_malloc(H5_DAOS_DEFAULT_NUM_SEL_CHUNKS * sizeof(*_chunk_info))))
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't allocate space for selected chunk info buffer");
+        chunk_info_nalloc = H5_DAOS_DEFAULT_NUM_SEL_CHUNKS;
+    } /* end if */
+    else {
+        assert(*chunk_info_len > 0);
+        _chunk_info = *chunk_info;
+        chunk_info_nalloc = *chunk_info_len;
+    } /* end else */
 
     /* Calculate the coordinates for the initial chunk */
     for (i = 0; i < (ssize_t)fspace_ndims; i++) {
@@ -4502,9 +4579,9 @@ H5_daos_get_selected_chunk_info(H5_daos_dcpl_cache_t *dcpl_cache,
          * an intersection, set up a valid memory and file space for the chunk. */
         if (file_space_type == H5S_SEL_ALL)
             intersect = TRUE;
-        else
-            if ((intersect = H5Sselect_intersect_block(file_space_id, start_coords, end_coords)) < 0)
-                D_GOTO_ERROR(H5E_DATASPACE, H5E_BADVALUE, FAIL, "cannot determine chunk's intersection with the file dataspace");
+        else if((H5S_SEL_NONE != file_space_type) &&
+                ((intersect = H5Sselect_intersect_block(file_space_id, start_coords, end_coords)) < 0))
+            D_GOTO_ERROR(H5E_DATASPACE, H5E_BADVALUE, FAIL, "cannot determine chunk's intersection with the file dataspace");
         if (TRUE == intersect) {
             hssize_t chunk_space_adjust[H5O_LAYOUT_NDIMS];
             hssize_t chunk_sel_npoints;
@@ -4512,8 +4589,11 @@ H5_daos_get_selected_chunk_info(H5_daos_dcpl_cache_t *dcpl_cache,
             /* Advance index and re-allocate selected chunk info buffer if
              * necessary */
             if(++i == (ssize_t)chunk_info_nalloc) {
-                if (NULL == (_chunk_info = (H5_daos_select_chunk_info_t *) DV_realloc(_chunk_info, 2 * chunk_info_nalloc * sizeof(*_chunk_info))))
+                void *tmp_realloc;
+
+                if (NULL == (tmp_realloc = DV_realloc(_chunk_info, 2 * chunk_info_nalloc * sizeof(*_chunk_info))))
                     D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't reallocate space for selected chunk info buffer");
+                _chunk_info = (H5_daos_select_chunk_info_t *)tmp_realloc;
                 chunk_info_nalloc *= 2;
             } /* end while */
 
@@ -4540,26 +4620,33 @@ H5_daos_get_selected_chunk_info(H5_daos_dcpl_cache_t *dcpl_cache,
                 chunk_space_adjust[j] = (hssize_t)start_coords[j];
             } /* end for */
 
-            /* Check for point selection */
-            if(file_space_type == H5S_SEL_POINTS) {
-                /* Intersect points with block using connector routine */
-                if((_chunk_info[i].fspace_id = H5_daos_point_and_block(file_space_id, (hsize_t)fspace_ndims, chunk_dims, start_coords, curr_chunk_dims)) < 0)
-                    D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTINIT, FAIL, "can't intersect point selection");
-            } /* end if */
-            else {
-                /* Create temporary chunk for selection operations */
-                if ((_chunk_info[i].fspace_id = H5Scopy(file_space_id)) < 0)
-                    D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTCOPY, FAIL, "unable to copy file space");
+            switch (file_space_type) {
+                case H5S_SEL_POINTS:
+                    /* Intersect points with block using connector routine */
+                    if ((_chunk_info[i].fspace_id = H5_daos_point_and_block(file_space_id, (hsize_t)fspace_ndims,
+                            chunk_dims, start_coords, curr_chunk_dims)) < 0)
+                        D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTINIT, FAIL, "can't intersect point selection");
 
-                /* "AND" temporary chunk and current chunk */
-                if (H5Sselect_hyperslab(_chunk_info[i].fspace_id, H5S_SELECT_AND, start_coords, NULL,
-                        curr_chunk_dims, NULL) < 0)
-                    D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTSELECT, FAIL, "can't create temporary chunk selection");
+                    break;
 
-                /* Resize chunk's dataspace dimensions to size of chunk */
-                if (H5Sset_extent_simple(_chunk_info[i].fspace_id, fspace_ndims, chunk_dims, NULL) < 0)
-                    D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTSELECT, FAIL, "can't adjust chunk dimensions");
-            } /* end else */
+                case H5S_SEL_ALL:
+                case H5S_SEL_HYPERSLABS:
+                    if ((_chunk_info[i].fspace_id = H5Scombine_hyperslab(file_space_id, H5S_SELECT_AND,
+                            start_coords, NULL, curr_chunk_dims, NULL)) < 0)
+                        D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTSELECT, FAIL, "can't create temporary chunk selection");
+
+                    /* Resize chunk's dataspace dimensions to size of chunk */
+                    if (H5Sset_extent_simple(_chunk_info[i].fspace_id, fspace_ndims, chunk_dims, NULL) < 0)
+                        D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTSELECT, FAIL, "can't adjust chunk dimensions");
+
+                    break;
+
+                case H5S_SEL_NONE:
+                case H5S_SEL_ERROR:
+                case H5S_SEL_N:
+                default:
+                    D_GOTO_ERROR(H5E_DATASPACE, H5E_BADVALUE, FAIL, "invalid dataspace selection type");
+            } /* end switch */
 
             /* Move selection back to have correct offset in chunk */
             if (H5Sselect_adjust(_chunk_info[i].fspace_id, chunk_space_adjust) < 0)
@@ -4572,8 +4659,16 @@ H5_daos_get_selected_chunk_info(H5_daos_dcpl_cache_t *dcpl_cache,
              * Now set up the memory Dataspace for this chunk.
              */
             if (space_same_shape) {
-                if ((_chunk_info[i].mspace_id = H5Scopy(mem_space_id)) < 0)
-                    D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTCOPY, FAIL, "unable to copy memory space");
+                H5S_class_t mem_space_type;
+
+                if (H5S_NO_CLASS == (mem_space_type = H5Sget_simple_extent_type(mem_space_id)))
+                    D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, FAIL, "can't get dataspace extent type");
+
+                if ((_chunk_info[i].mspace_id = H5Screate(mem_space_type)) < 0)
+                    D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTINIT, FAIL, "can't create chunk memory dataspace");
+
+                if (H5Sextent_copy(_chunk_info[i].mspace_id, mem_space_id) < 0)
+                    D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTCOPY, FAIL, "can't copy memory dataspace extent to chunk memory dataspace");
 
                 /* Copy the chunk's file space selection to its memory space selection */
                 if (H5Sselect_copy(_chunk_info[i].mspace_id, _chunk_info[i].fspace_id) < 0)
@@ -4662,16 +4757,21 @@ done:
                     D_DONE_ERROR(H5E_DATASPACE, H5E_CANTCLOSEOBJ, FAIL, "failed to close chunk memory dataspace ID");
             }
 
-            DV_free(_chunk_info);
+            if (!*chunk_info)
+                DV_free(_chunk_info);
+            else
+                *chunk_info = _chunk_info;
         }
     }
     else {
         *chunk_info = _chunk_info;
+        *chunk_info_len = chunk_info_nalloc;
+
         assert(i + 1 >= 0);
-        *chunk_info_len = (size_t)(i + 1);
+        *nchunks_selected = (size_t)(i + 1);
     }
 
-    if((entire_chunk_sel_space_id >= 0) &&  (H5Sclose(entire_chunk_sel_space_id) < 0))
+    if((entire_chunk_sel_space_id >= 0) && (H5Sclose(entire_chunk_sel_space_id) < 0))
         D_DONE_ERROR(H5E_DATASPACE, H5E_CANTCLOSEOBJ, FAIL, "failed to close temporary entire chunk dataspace");
 
     D_FUNC_LEAVE;

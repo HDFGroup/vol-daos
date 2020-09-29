@@ -428,6 +428,15 @@ typedef struct H5_daos_dcpl_cache_t {
     H5_daos_fill_method_t fill_method;
 } H5_daos_dcpl_cache_t;
 
+/* Information about a singular selected chunk during a dataset read/write */
+typedef struct H5_daos_select_chunk_info_t {
+    uint64_t chunk_coords[H5S_MAX_RANK]; /* The starting coordinates ("upper left corner") of the chunk */
+    hid_t    mspace_id;                  /* The memory space corresponding to the
+                                            selection in the chunk in memory */
+    hid_t    fspace_id;                  /* The file space corresponding to the
+                                            selection in the chunk in the file */
+} H5_daos_select_chunk_info_t;
+
 /* The dataset struct */
 typedef struct H5_daos_dset_t {
     H5_daos_obj_t obj; /* Must be first */
@@ -438,6 +447,14 @@ typedef struct H5_daos_dset_t {
     hid_t dapl_id;
     H5_daos_dcpl_cache_t dcpl_cache;
     void *fill_val;
+    struct {
+        hbool_t filled;
+        H5_daos_select_chunk_info_t single_chunk_info;
+        H5_daos_select_chunk_info_t *chunk_info;
+        size_t chunk_info_nalloc;
+        hid_t mem_sel_iter_id;
+        hid_t file_sel_iter_id;
+    } io_cache;
 } H5_daos_dset_t;
 
 /* The datatype struct */

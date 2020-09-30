@@ -30,6 +30,7 @@
 /* Definitions for chunking code */
 #define H5_DAOS_DEFAULT_NUM_SEL_CHUNKS   64
 #define H5O_LAYOUT_NDIMS                 (H5S_MAX_RANK+1)
+#define CHUNK_DKEY_BUF_SIZE              (1 + (sizeof(uint64_t) * H5S_MAX_RANK))
 
 /* Definitions for automatic chunking */
 /* Maximum size for contiguous datasets (target size * sqrt(2)) */
@@ -82,6 +83,7 @@ typedef struct H5_daos_chunk_io_ud_t {
     H5_daos_req_t *req;
     H5_daos_dset_t *dset;
     daos_key_t dkey;
+    uint8_t dkey_buf[CHUNK_DKEY_BUF_SIZE];
     uint8_t akey_buf;
     daos_iod_t iod;
     daos_sg_list_t sgl;
@@ -101,6 +103,7 @@ typedef struct H5_daos_chunk_io_tconv_ud_t {
     void *buf;
     dset_io_type io_type;
     daos_key_t dkey;
+    uint8_t dkey_buf[CHUNK_DKEY_BUF_SIZE];
     uint8_t akey_buf;
     daos_iod_t iod;
     daos_sg_list_t sgl;
@@ -2255,7 +2258,6 @@ done:
             D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
 
         /* Free private data */
-        DV_free(udata->dkey.iov_buf);
         if(udata->recxs != &udata->recx)
             DV_free(udata->recxs);
         if(udata->sg_iovs != &udata->sg_iov)
@@ -2320,8 +2322,7 @@ H5_daos_dataset_io_types_equal(H5_daos_dset_t *dset, daos_key_t *dkey, hssize_t 
     chunk_io_ud->req = req;
 
     /* Copy dkey to new buffer */
-    if(NULL == (chunk_io_ud->dkey.iov_buf = DV_malloc(dkey->iov_len)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for dkey");
+    chunk_io_ud->dkey.iov_buf = chunk_io_ud->dkey_buf;
     (void)memcpy(chunk_io_ud->dkey.iov_buf, dkey->iov_buf, dkey->iov_len);
     chunk_io_ud->dkey.iov_len = chunk_io_ud->dkey.iov_buf_len = dkey->iov_len;
 
@@ -2598,7 +2599,6 @@ done:
             D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
 
         /* Free private data */
-        DV_free(udata->dkey.iov_buf);
         if(udata->recxs != &udata->recx)
             DV_free(udata->recxs);
         if(udata->reuse != H5_DAOS_TCONV_REUSE_TCONV)
@@ -2779,8 +2779,7 @@ H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t *dkey,
     chunk_io_ud->req = req;
 
     /* Copy dkey to new buffer */
-    if(NULL == (chunk_io_ud->dkey.iov_buf = DV_malloc(dkey->iov_len)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for dkey");
+    chunk_io_ud->dkey.iov_buf = chunk_io_ud->dkey_buf;
     (void)memcpy(chunk_io_ud->dkey.iov_buf, dkey->iov_buf, dkey->iov_len);
     chunk_io_ud->dkey.iov_len = chunk_io_ud->dkey.iov_buf_len = dkey->iov_len;
 
@@ -3058,7 +3057,7 @@ H5_daos_dataset_read_int(H5_daos_dset_t *dset, hid_t mem_type_id,
     H5_daos_select_chunk_info_t *chunk_info = NULL; /* Array of info for each chunk selected in the file */
     H5_daos_chunk_io_func single_chunk_read_func;
     uint64_t i;
-    uint8_t dkey_buf[1 + (sizeof(uint64_t) * H5S_MAX_RANK)];
+    uint8_t dkey_buf[CHUNK_DKEY_BUF_SIZE];
     htri_t need_tconv;
     size_t nchunks_sel;
     hid_t real_file_space_id;
@@ -3332,7 +3331,7 @@ H5_daos_dataset_write_int(H5_daos_dset_t *dset, hid_t mem_type_id,
     H5_daos_select_chunk_info_t *chunk_info = NULL; /* Array of info for each chunk selected in the file */
     H5_daos_chunk_io_func single_chunk_write_func;
     uint64_t i;
-    uint8_t dkey_buf[1 + (sizeof(uint64_t) * H5S_MAX_RANK)];
+    uint8_t dkey_buf[CHUNK_DKEY_BUF_SIZE];
     htri_t need_tconv;
     size_t nchunks_sel;
     hid_t real_file_space_id;
@@ -3483,10 +3482,11 @@ done:
     /* Free memory */
     if(chunk_info && (dset->dcpl_cache.layout == H5D_CHUNKED)) {
         for(i = 0; i < nchunks_sel; i++) {
-            if((chunk_info[i].mspace_id >= 0) && (H5Sclose(chunk_info[i].mspace_id) < 0))
-                D_DONE_ERROR(H5E_DATASPACE, H5E_CANTCLOSEOBJ, FAIL, "can't close memory space");
             if((chunk_info[i].fspace_id >= 0) && (H5Sclose(chunk_info[i].fspace_id) < 0))
                 D_DONE_ERROR(H5E_DATASPACE, H5E_CANTCLOSEOBJ, FAIL, "can't close file space");
+            if((chunk_info[i].mspace_id >= 0) && (chunk_info[i].mspace_id != chunk_info[i].fspace_id)
+                    && (H5Sclose(chunk_info[i].mspace_id) < 0))
+                D_DONE_ERROR(H5E_DATASPACE, H5E_CANTCLOSEOBJ, FAIL, "can't close memory space");
         } /* end for */
     } /* end if */
 

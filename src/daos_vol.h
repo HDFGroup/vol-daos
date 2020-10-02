@@ -431,6 +431,7 @@ typedef struct H5_daos_dcpl_cache_t {
 /* Information about a singular selected chunk during a dataset read/write */
 typedef struct H5_daos_select_chunk_info_t {
     uint64_t chunk_coords[H5S_MAX_RANK]; /* The starting coordinates ("upper left corner") of the chunk */
+    hssize_t num_elem_sel_file;          /* Number of elements selected in chunk's file dataspace */
     hid_t    mspace_id;                  /* The memory space corresponding to the
                                             selection in the chunk in memory */
     hid_t    fspace_id;                  /* The file space corresponding to the

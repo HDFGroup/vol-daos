@@ -73,10 +73,9 @@ typedef enum dset_io_type {
 } dset_io_type;
 
 /* Typedef for function to perform I/O on a single chunk */
-typedef herr_t (*H5_daos_chunk_io_func)(H5_daos_dset_t *dset, daos_key_t *dkey,
-    hssize_t num_elem, hid_t mem_type_id, hid_t mem_space_id, hid_t file_space_id,
-    dset_io_type io_type, void *buf, H5_daos_req_t *req,
-    tse_task_t **first_task, tse_task_t **dep_task);
+typedef herr_t (*H5_daos_chunk_io_func)(H5_daos_select_chunk_info_t *chunk_info,
+    H5_daos_dset_t *dset, uint64_t dset_ndims, hid_t mem_type_id, dset_io_type io_type,
+    void *buf, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 
 /* Task user data for raw data I/O */
 typedef struct H5_daos_chunk_io_ud_t {
@@ -140,18 +139,16 @@ static herr_t H5_daos_scatter_cb(const void **src_buf,
     size_t *src_buf_bytes_used, void *_udata);
 static int H5_daos_chunk_io_prep_cb(tse_task_t *task, void *args);
 static int H5_daos_chunk_io_comp_cb(tse_task_t *task, void *args);
-static herr_t H5_daos_dataset_io_types_equal(H5_daos_dset_t *dset, daos_key_t *dkey,
-    hssize_t num_elem, hid_t mem_type_id, hid_t mem_space_id, hid_t file_space_id,
-    dset_io_type io_type, void *buf, H5_daos_req_t *req,
-    tse_task_t **first_task, tse_task_t **dep_task);
+static herr_t H5_daos_dataset_io_types_equal(H5_daos_select_chunk_info_t *chunk_info,
+    H5_daos_dset_t *dset, uint64_t dset_ndims, hid_t mem_type_id, dset_io_type io_type,
+    void *buf, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 static int H5_daos_chunk_io_tconv_prep_cb(tse_task_t *task, void *args);
 static int H5_daos_chunk_io_tconv_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_chunk_fill_bkg_prep_cb(tse_task_t *task, void *args);
 static int H5_daos_chunk_fill_bkg_comp_cb(tse_task_t *task, void *args);
-static herr_t H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t *dkey,
-    hssize_t num_elem, hid_t mem_type_id, hid_t mem_space_id, hid_t file_space_id,
-    dset_io_type io_type, void *buf, H5_daos_req_t *req,
-    tse_task_t **first_task, tse_task_t **dep_task);
+static herr_t H5_daos_dataset_io_types_unequal(H5_daos_select_chunk_info_t *chunk_info,
+    H5_daos_dset_t *dset, uint64_t dset_ndims, hid_t mem_type_id, dset_io_type io_type,
+    void *buf, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 static int H5_daos_dataset_refresh_comp_cb(tse_task_t *task, void *args);
 static herr_t H5_daos_dataset_set_extent(H5_daos_dset_t *dset,
     const hsize_t *size, hid_t dxpl_id, hbool_t collective,
@@ -2287,20 +2284,21 @@ done:
  *-------------------------------------------------------------------------
  */
 static herr_t
-H5_daos_dataset_io_types_equal(H5_daos_dset_t *dset, daos_key_t *dkey, hssize_t H5VL_DAOS_UNUSED num_elem,
-    hid_t H5VL_DAOS_UNUSED mem_type_id, hid_t mem_space_id, hid_t file_space_id,
-    dset_io_type io_type, void *buf, H5_daos_req_t *req,
-    tse_task_t **first_task, tse_task_t **dep_task)
+H5_daos_dataset_io_types_equal(H5_daos_select_chunk_info_t *chunk_info,
+    H5_daos_dset_t *dset, uint64_t dset_ndims, hid_t H5VL_DAOS_UNUSED mem_type_id,
+    dset_io_type io_type, void *buf, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_chunk_io_ud_t *chunk_io_ud = NULL;
     size_t tot_nseq;
     size_t file_type_size;
     tse_task_t *io_task;
+    uint64_t i;
+    uint8_t *p;
     int ret;
     herr_t ret_value = SUCCEED;
 
+    assert(chunk_info);
     assert(dset);
-    assert(dkey);
     assert(req);
     assert(first_task);
     assert(dep_task);
@@ -2321,10 +2319,17 @@ H5_daos_dataset_io_types_equal(H5_daos_dset_t *dset, daos_key_t *dkey, hssize_t 
     /* Point to req */
     chunk_io_ud->req = req;
 
-    /* Copy dkey to new buffer */
-    chunk_io_ud->dkey.iov_buf = chunk_io_ud->dkey_buf;
-    (void)memcpy(chunk_io_ud->dkey.iov_buf, dkey->iov_buf, dkey->iov_len);
-    chunk_io_ud->dkey.iov_len = chunk_io_ud->dkey.iov_buf_len = dkey->iov_len;
+    /* Encode dkey (chunk coordinates).  Prefix with '\0' to avoid accidental
+     * collisions with other d-keys in this object.
+     */
+    p = chunk_io_ud->dkey_buf;
+    *p++ = (uint8_t)'\0';
+    for(i = 0; i < dset_ndims; i++)
+        UINT64ENCODE(p, chunk_info->chunk_coords[i]);
+
+    /* Set up dkey */
+    daos_iov_set(&chunk_io_ud->dkey, chunk_io_ud->dkey_buf,
+            (daos_size_t)(1 + ((size_t)dset_ndims * sizeof(chunk_info->chunk_coords[0]))));
 
     /* Set up iod */
     memset(&chunk_io_ud->iod, 0, sizeof(chunk_io_ud->iod));
@@ -2335,9 +2340,9 @@ H5_daos_dataset_io_types_equal(H5_daos_dset_t *dset, daos_key_t *dkey, hssize_t 
     chunk_io_ud->iod.iod_type = DAOS_IOD_ARRAY;
 
     /* Check for a memory space of H5S_ALL, use file space in this case */
-    if(mem_space_id == H5S_ALL) {
+    if(chunk_info->mspace_id == H5S_ALL) {
         /* Reset file selection iterator for current file dataspace */
-        if(H5Ssel_iter_reset(dset->io_cache.file_sel_iter_id, file_space_id) < 0)
+        if(H5Ssel_iter_reset(dset->io_cache.file_sel_iter_id, chunk_info->fspace_id) < 0)
             D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTRESET, FAIL, "can't reset file dataspace selection iterator");
 
         /* Calculate both recxs and sg_iovs at the same time from file space */
@@ -2350,10 +2355,10 @@ H5_daos_dataset_io_types_equal(H5_daos_dset_t *dset, daos_key_t *dkey, hssize_t 
     } /* end if */
     else {
         /* Reset file selection iterator for current file dataspace */
-        if(H5Ssel_iter_reset(dset->io_cache.file_sel_iter_id, file_space_id) < 0)
+        if(H5Ssel_iter_reset(dset->io_cache.file_sel_iter_id, chunk_info->fspace_id) < 0)
             D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTRESET, FAIL, "can't reset file dataspace selection iterator");
         /* Reset memory selection iterator for current memory dataspace */
-        if(H5Ssel_iter_reset(dset->io_cache.mem_sel_iter_id, mem_space_id) < 0)
+        if(H5Ssel_iter_reset(dset->io_cache.mem_sel_iter_id, chunk_info->mspace_id) < 0)
             D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTRESET, FAIL, "can't reset memory dataspace selection iterator");
 
         /* Calculate recxs from file space */
@@ -2382,12 +2387,12 @@ H5_daos_dataset_io_types_equal(H5_daos_dset_t *dset, daos_key_t *dkey, hssize_t 
 
     if(io_type == IO_READ) {
         /* Handle fill values */
-        size_t i;
+        size_t j;
 
         if(dset->dcpl_cache.fill_method == H5_DAOS_ZERO_FILL) {
             /* Just set all locations pointed to by sg_iovs to zero */
-            for(i = 0; i < tot_nseq; i++)
-                (void)memset(chunk_io_ud->sg_iovs[i].iov_buf, 0, chunk_io_ud->sg_iovs[i].iov_len);
+            for(j = 0; j < tot_nseq; j++)
+                (void)memset(chunk_io_ud->sg_iovs[j].iov_buf, 0, chunk_io_ud->sg_iovs[j].iov_len);
         } /* end if */
         else if(dset->dcpl_cache.fill_method == H5_DAOS_COPY_FILL) {
             /* Copy fill value to all locations pointed to by sg_iovs */
@@ -2395,13 +2400,13 @@ H5_daos_dataset_io_types_equal(H5_daos_dset_t *dset, daos_key_t *dkey, hssize_t 
 
             assert(dset->fill_val);
 
-            for(i = 0; i < tot_nseq; i++) {
+            for(j = 0; j < tot_nseq; j++) {
                 for(iov_buf_written = 0;
-                        iov_buf_written < chunk_io_ud->sg_iovs[i].iov_len;
+                        iov_buf_written < chunk_io_ud->sg_iovs[j].iov_len;
                         iov_buf_written += file_type_size)
-                    (void)memcpy((uint8_t *)chunk_io_ud->sg_iovs[i].iov_buf + iov_buf_written,
+                    (void)memcpy((uint8_t *)chunk_io_ud->sg_iovs[j].iov_buf + iov_buf_written,
                             dset->fill_val, file_type_size);
-                assert(iov_buf_written == chunk_io_ud->sg_iovs[i].iov_len);
+                assert(iov_buf_written == chunk_io_ud->sg_iovs[j].iov_len);
             } /* end for */
         } /* end if */
 
@@ -2739,21 +2744,22 @@ done:
  *-------------------------------------------------------------------------
  */
 static herr_t
-H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t *dkey,
-    hssize_t num_elem, hid_t mem_type_id, hid_t mem_space_id,
-    hid_t file_space_id, dset_io_type io_type, void *buf, H5_daos_req_t *req,
-    tse_task_t **first_task, tse_task_t **dep_task)
+H5_daos_dataset_io_types_unequal(H5_daos_select_chunk_info_t *chunk_info,
+    H5_daos_dset_t *dset, uint64_t dset_ndims, hid_t mem_type_id, dset_io_type io_type,
+    void *buf, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_chunk_io_tconv_ud_t *chunk_io_ud = NULL;
     hbool_t contig = FALSE;
     size_t tot_nseq;
     tse_task_t *io_task = NULL;
     tse_task_t *fill_bkg_task = NULL;
+    uint64_t i;
+    uint8_t *p;
     int ret;
     herr_t ret_value = SUCCEED;
 
+    assert(chunk_info);
     assert(dset);
-    assert(dkey);
     assert(req);
     assert(first_task);
     assert(dep_task);
@@ -2761,11 +2767,11 @@ H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t *dkey,
     /* Allocate argument struct */
     if(NULL == (chunk_io_ud = (H5_daos_chunk_io_tconv_ud_t *)DV_calloc(sizeof(H5_daos_chunk_io_tconv_ud_t))))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for I/O callback arguments");
-    chunk_io_ud->num_elem = num_elem;
+    chunk_io_ud->num_elem = chunk_info->num_elem_sel_file;
     chunk_io_ud->mem_space_id = H5I_INVALID_HID;
     if((chunk_io_ud->mem_type_id = H5Tcopy(mem_type_id)) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, FAIL, "can't copy memory datatype");
-    if((chunk_io_ud->mem_space_id = H5Scopy(mem_space_id)) < 0)
+    if((chunk_io_ud->mem_space_id = H5Scopy(chunk_info->mspace_id)) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, FAIL, "can't copy memory dataspace");
     chunk_io_ud->buf = buf;
     chunk_io_ud->io_type = io_type;
@@ -2778,10 +2784,17 @@ H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t *dkey,
     /* Point to req */
     chunk_io_ud->req = req;
 
-    /* Copy dkey to new buffer */
-    chunk_io_ud->dkey.iov_buf = chunk_io_ud->dkey_buf;
-    (void)memcpy(chunk_io_ud->dkey.iov_buf, dkey->iov_buf, dkey->iov_len);
-    chunk_io_ud->dkey.iov_len = chunk_io_ud->dkey.iov_buf_len = dkey->iov_len;
+    /* Encode dkey (chunk coordinates).  Prefix with '\0' to avoid accidental
+     * collisions with other d-keys in this object.
+     */
+    p = chunk_io_ud->dkey_buf;
+    *p++ = (uint8_t)'\0';
+    for(i = 0; i < dset_ndims; i++)
+        UINT64ENCODE(p, chunk_info->chunk_coords[i]);
+
+    /* Set up dkey */
+    daos_iov_set(&chunk_io_ud->dkey, chunk_io_ud->dkey_buf,
+            (daos_size_t)(1 + ((size_t)dset_ndims * sizeof(chunk_info->chunk_coords[0]))));
 
     if(io_type == IO_READ) {
         size_t nseq_tmp;
@@ -2790,7 +2803,7 @@ H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t *dkey,
         size_t sel_len;
 
         /* Reset memory selection iterator for current memory dataspace */
-        if(H5Ssel_iter_reset(dset->io_cache.mem_sel_iter_id, mem_space_id) < 0)
+        if(H5Ssel_iter_reset(dset->io_cache.mem_sel_iter_id, chunk_info->mspace_id) < 0)
             D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTRESET, FAIL, "can't reset file dataspace selection iterator");
 
         /* Get the sequence list - only check the first sequence because we only
@@ -2799,7 +2812,7 @@ H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t *dkey,
         if(H5Ssel_iter_get_seq_list(dset->io_cache.mem_sel_iter_id, (size_t)1, (size_t)-1,
                 &nseq_tmp, &nelem_tmp, &sel_off, &sel_len) < 0)
             D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, FAIL, "sequence length generation failed");
-        contig = (sel_len == (size_t)num_elem);
+        contig = (sel_len == (size_t)chunk_info->num_elem_sel_file);
 
         /* Initialize type conversion */
         if(H5_daos_tconv_init(
@@ -2807,7 +2820,7 @@ H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t *dkey,
                 &chunk_io_ud->file_type_size,
                 mem_type_id,
                 &chunk_io_ud->mem_type_size,
-                (size_t)num_elem,
+                (size_t)chunk_info->num_elem_sel_file,
                 dset->dcpl_cache.fill_method == H5_DAOS_ZERO_FILL,
                 FALSE,
                 &chunk_io_ud->tconv_buf,
@@ -2832,7 +2845,7 @@ H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t *dkey,
                 &chunk_io_ud->mem_type_size,
                 dset->file_type_id,
                 &chunk_io_ud->file_type_size,
-                (size_t)num_elem,
+                (size_t)chunk_info->num_elem_sel_file,
                 FALSE,
                 TRUE,
                 &chunk_io_ud->tconv_buf,
@@ -2852,7 +2865,7 @@ H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t *dkey,
     /* Build recxs and sg_iovs */
 
     /* Reset file selection iterator for current file dataspace */
-    if(H5Ssel_iter_reset(dset->io_cache.file_sel_iter_id, file_space_id) < 0)
+    if(H5Ssel_iter_reset(dset->io_cache.file_sel_iter_id, chunk_info->fspace_id) < 0)
         D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTRESET, FAIL, "can't reset file dataspace selection iterator");
 
     /* Calculate recxs from file space */
@@ -2874,7 +2887,8 @@ H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t *dkey,
     if(io_type == IO_READ) {
         /* Gather data to background buffer if necessary */
         if(chunk_io_ud->fill_bkg && (chunk_io_ud->reuse != H5_DAOS_TCONV_REUSE_BKG))
-            if(H5Dgather(mem_space_id, buf, mem_type_id, (size_t)num_elem * chunk_io_ud->mem_type_size, chunk_io_ud->bkg_buf, NULL, NULL) < 0)
+            if(H5Dgather(chunk_info->mspace_id, buf, mem_type_id,
+                    (size_t)chunk_info->num_elem_sel_file * chunk_io_ud->mem_type_size, chunk_io_ud->bkg_buf, NULL, NULL) < 0)
                 D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't gather data to background buffer");
 
         /* Handle fill values */
@@ -2882,16 +2896,17 @@ H5_daos_dataset_io_types_unequal(H5_daos_dset_t *dset, daos_key_t *dkey,
             /* H5_daos_tconv_init() will have cleared the tconv buf, but not if
              * we're reusing buf as tconv_buf */
             if(chunk_io_ud->reuse == H5_DAOS_TCONV_REUSE_TCONV)
-                (void)memset(chunk_io_ud->tconv_buf, 0, (daos_size_t)num_elem * (daos_size_t)chunk_io_ud->file_type_size);
+                (void)memset(chunk_io_ud->tconv_buf, 0,
+                        (daos_size_t)chunk_info->num_elem_sel_file * (daos_size_t)chunk_io_ud->file_type_size);
         } /* end if */
         else if(dset->dcpl_cache.fill_method == H5_DAOS_COPY_FILL) {
-            hssize_t i;
+            hssize_t j;
 
             assert(dset->fill_val);
 
             /* Copy the fill value to every element in tconv_buf */
-            for(i = 0; i < num_elem; i++)
-                (void)memcpy((uint8_t *)chunk_io_ud->tconv_buf + ((size_t)i * chunk_io_ud->file_type_size),
+            for(j = 0; j < chunk_info->num_elem_sel_file; j++)
+                (void)memcpy((uint8_t *)chunk_io_ud->tconv_buf + ((size_t)j * chunk_io_ud->file_type_size),
                         dset->fill_val, chunk_io_ud->file_type_size);
         } /* end if */
 
@@ -3057,7 +3072,6 @@ H5_daos_dataset_read_int(H5_daos_dset_t *dset, hid_t mem_type_id,
     H5_daos_select_chunk_info_t *chunk_info = NULL; /* Array of info for each chunk selected in the file */
     H5_daos_chunk_io_func single_chunk_read_func;
     uint64_t i;
-    uint8_t dkey_buf[CHUNK_DKEY_BUF_SIZE];
     htri_t need_tconv;
     size_t nchunks_sel;
     hid_t real_file_space_id;
@@ -3119,6 +3133,7 @@ H5_daos_dataset_read_int(H5_daos_dset_t *dset, hid_t mem_type_id,
             /* Set up "single-chunk dataset", with the "chunk" starting at coordinate 0 */
             chunk_info->fspace_id = real_file_space_id;
             chunk_info->mspace_id = real_mem_space_id;
+            chunk_info->num_elem_sel_file = num_elem_file;
             memset(chunk_info->chunk_coords, 0, sizeof(chunk_info->chunk_coords));
 
             break;
@@ -3165,27 +3180,9 @@ H5_daos_dataset_read_int(H5_daos_dset_t *dset, hid_t mem_type_id,
 
     /* Perform I/O on each chunk selected */
     for(i = 0; i < nchunks_sel; i++) {
-        daos_key_t  dkey;
-        uint64_t    j;
-        uint8_t    *p = dkey_buf;
-
-        /* Encode dkey (chunk coordinates).  Prefix with '\0' to avoid accidental
-         * collisions with other d-keys in this object. */
-        *p++ = (uint8_t)'\0';
-        for(j = 0; j < (uint64_t)ndims; j++)
-            UINT64ENCODE(p, chunk_info[i].chunk_coords[j])
-
-        /* Set up dkey */
-        daos_iov_set(&dkey, dkey_buf, (daos_size_t)(1 + ((size_t)ndims * sizeof(chunk_info[i].chunk_coords[0]))));
-
-        /* Get number of elements in selection */
-        if((num_elem_file = H5Sget_select_npoints(chunk_info[i].fspace_id)) < 0)
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get number of points in selection");
-
         io_task = *dep_task;
-        if(single_chunk_read_func(dset, &dkey, num_elem_file, mem_type_id,
-                chunk_info[i].mspace_id, chunk_info[i].fspace_id, IO_READ, buf,
-                req, first_task, &io_task) < 0)
+        if(single_chunk_read_func(&chunk_info[i], dset, (uint64_t)ndims, mem_type_id,
+                IO_READ, buf, req, first_task, &io_task) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_READERROR, FAIL, "dataset read failed");
 
         /* Set up dependency on io_task for end task */
@@ -3331,7 +3328,6 @@ H5_daos_dataset_write_int(H5_daos_dset_t *dset, hid_t mem_type_id,
     H5_daos_select_chunk_info_t *chunk_info = NULL; /* Array of info for each chunk selected in the file */
     H5_daos_chunk_io_func single_chunk_write_func;
     uint64_t i;
-    uint8_t dkey_buf[CHUNK_DKEY_BUF_SIZE];
     htri_t need_tconv;
     size_t nchunks_sel;
     hid_t real_file_space_id;
@@ -3394,6 +3390,7 @@ H5_daos_dataset_write_int(H5_daos_dset_t *dset, hid_t mem_type_id,
             /* Set up "single-chunk dataset", with the "chunk" starting at coordinate 0 */
             chunk_info->fspace_id = real_file_space_id;
             chunk_info->mspace_id = real_mem_space_id;
+            chunk_info->num_elem_sel_file = num_elem_file;
             memset(chunk_info->chunk_coords, 0, sizeof(chunk_info->chunk_coords));
 
             break;
@@ -3440,27 +3437,9 @@ H5_daos_dataset_write_int(H5_daos_dset_t *dset, hid_t mem_type_id,
 
     /* Perform I/O on each chunk selected */
     for(i = 0; i < nchunks_sel; i++) {
-        daos_key_t  dkey;
-        uint64_t    j;
-        uint8_t    *p = dkey_buf;
-
-        /* Encode dkey (chunk coordinates).  Prefix with '\0' to avoid accidental
-         * collisions with other d-keys in this object. */
-        *p++ = (uint8_t)'\0';
-        for(j = 0; j < (uint64_t)ndims; j++)
-            UINT64ENCODE(p, chunk_info[i].chunk_coords[j])
-
-        /* Set up dkey */
-        daos_iov_set(&dkey, dkey_buf, (daos_size_t)(1 + ((size_t)ndims * sizeof(chunk_info[i].chunk_coords[0]))));
-
-        /* Get number of elements in selection */
-        if((num_elem_file = H5Sget_select_npoints(chunk_info[i].fspace_id)) < 0)
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get number of points in selection");
-
         io_task = *dep_task;
-        if(single_chunk_write_func(dset, &dkey, num_elem_file, mem_type_id,
-                chunk_info[i].mspace_id, chunk_info[i].fspace_id, IO_WRITE,
-                buf, req, first_task, &io_task) < 0)
+        if(single_chunk_write_func(&chunk_info[i], dset, (uint64_t)ndims, mem_type_id,
+                IO_WRITE, buf, req, first_task, &io_task) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_WRITEERROR, FAIL, "dataset write failed");
 
         /* Set up dependency on io_task for end task */
@@ -4584,7 +4563,6 @@ H5_daos_get_selected_chunk_info(H5_daos_dcpl_cache_t *dcpl_cache,
             D_GOTO_ERROR(H5E_DATASPACE, H5E_BADVALUE, FAIL, "cannot determine chunk's intersection with the file dataspace");
         if (TRUE == intersect) {
             hssize_t chunk_space_adjust[H5O_LAYOUT_NDIMS];
-            hssize_t chunk_sel_npoints;
 
             /* Advance index and re-allocate selected chunk info buffer if
              * necessary */
@@ -4699,15 +4677,15 @@ H5_daos_get_selected_chunk_info(H5_daos_dcpl_cache_t *dcpl_cache,
             } /* end else */
 
             /* Determine if there are more chunks to process */
-            if ((chunk_sel_npoints = H5Sget_select_npoints(_chunk_info[i].fspace_id)) < 0)
+            if ((_chunk_info[i].num_elem_sel_file = H5Sget_select_npoints(_chunk_info[i].fspace_id)) < 0)
                 D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, FAIL, "can't get number of points selected in chunk file space");
 
             /* Make sure we didn't process too many points */
-            if((hsize_t)chunk_sel_npoints > num_sel_points_cast)
+            if((hsize_t)_chunk_info[i].num_elem_sel_file > num_sel_points_cast)
                 D_GOTO_ERROR(H5E_DATASPACE, H5E_BADVALUE, FAIL, "processed more elements than present in selection");
 
             /* Keep track of the number of elements processed */
-            num_sel_points_cast -= (hsize_t) chunk_sel_npoints;
+            num_sel_points_cast -= (hsize_t) _chunk_info[i].num_elem_sel_file;
 
             /* Break out if we're done */
             if(num_sel_points_cast == 0)

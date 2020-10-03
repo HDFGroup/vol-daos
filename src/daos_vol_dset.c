@@ -2339,8 +2339,8 @@ H5_daos_dataset_io_types_equal(H5_daos_select_chunk_info_t *chunk_info,
     chunk_io_ud->iod.iod_size = (daos_size_t)file_type_size;
     chunk_io_ud->iod.iod_type = DAOS_IOD_ARRAY;
 
-    /* Check for a memory space of H5S_ALL, use file space in this case */
-    if(chunk_info->mspace_id == H5S_ALL) {
+    /* Check if the memory space and file space IDs are the same; use file space in this case */
+    if(chunk_info->mspace_id == chunk_info->fspace_id) {
         /* Reset file selection iterator for current file dataspace */
         if(H5Ssel_iter_reset(dset->io_cache.file_sel_iter_id, chunk_info->fspace_id) < 0)
             D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTRESET, FAIL, "can't reset file dataspace selection iterator");
@@ -4464,6 +4464,7 @@ H5_daos_get_selected_chunk_info(H5_daos_dcpl_cache_t *dcpl_cache,
     hsize_t   start_coords[H5O_LAYOUT_NDIMS], end_coords[H5O_LAYOUT_NDIMS];
     hsize_t   selection_start_coords[H5O_LAYOUT_NDIMS] = {0};
     hbool_t   is_partial_edge_chunk = FALSE;
+    hbool_t   file_mem_space_same = (file_space_id == mem_space_id);
     htri_t    space_same_shape = FALSE;
     size_t    chunk_info_nalloc = 0;
     ssize_t   i = -1, j;
@@ -4496,19 +4497,27 @@ H5_daos_get_selected_chunk_info(H5_daos_dcpl_cache_t *dcpl_cache,
     /* Get dataspace ranks */
     if ((fspace_ndims = H5Sget_simple_extent_ndims(file_space_id)) < 0)
         D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, FAIL, "can't get file space dimensionality");
-    if ((mspace_ndims = H5Sget_simple_extent_ndims(mem_space_id)) < 0)
+    if (file_mem_space_same)
+        mspace_ndims = fspace_ndims;
+    else if ((mspace_ndims = H5Sget_simple_extent_ndims(mem_space_id)) < 0)
         D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, FAIL, "can't get memory space dimensionality");
 
     /* Get dataspace dimensionality */
     if (H5Sget_simple_extent_dims(file_space_id, file_space_dims, NULL) < 0)
         D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, FAIL, "can't get file dataspace dimensions");
-    if (H5Sget_simple_extent_dims(mem_space_id, mem_space_dims, NULL) < 0)
+    if (file_mem_space_same)
+        memcpy(mem_space_dims, file_space_dims, (size_t)fspace_ndims * sizeof(hsize_t));
+    else if (H5Sget_simple_extent_dims(mem_space_id, mem_space_dims, NULL) < 0)
         D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, FAIL, "can't get memory dataspace dimensions");
 
     /* Get the bounding box for the current selection in the file and memory spaces */
     if (H5Sget_select_bounds(file_space_id, file_sel_start, file_sel_end) < 0)
         D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, FAIL, "can't get bounding box for file selection");
-    if (H5Sget_select_bounds(mem_space_id, mem_sel_start, mem_sel_end) < 0)
+    if (file_mem_space_same) {
+        memcpy(mem_sel_start, file_sel_start, (size_t)fspace_ndims * sizeof(hsize_t));
+        memcpy(mem_sel_end, file_sel_end, (size_t)fspace_ndims * sizeof(hsize_t));
+    } /* end if */
+    else if (H5Sget_select_bounds(mem_space_id, mem_sel_start, mem_sel_end) < 0)
         D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, FAIL, "can't get bounding box for memory selection");
 
     /* Set convenience pointer to chunk dimensions */
@@ -4528,9 +4537,12 @@ H5_daos_get_selected_chunk_info(H5_daos_dcpl_cache_t *dcpl_cache,
      * H5S_select_construct_projection().  See the note in H5D__read().  With
      * the use of H5Sselect_project_intersection() the performance penalty
      * should be much less than with the native library anyways. */
-    if(fspace_ndims == mspace_ndims)
-        if(FAIL == (space_same_shape = H5Sselect_shape_same(file_space_id, mem_space_id)))
+    if(fspace_ndims == mspace_ndims) {
+        if(file_mem_space_same)
+            space_same_shape = TRUE;
+        else if(FAIL == (space_same_shape = H5Sselect_shape_same(file_space_id, mem_space_id)))
             D_GOTO_ERROR(H5E_DATASPACE, H5E_BADVALUE, FAIL, "can't determine if file and memory dataspaces are the same shape");
+    } /* end if */
 
     if(space_same_shape) {
         /* Calculate the adjustment for the memory selection from the file selection */

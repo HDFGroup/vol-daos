@@ -4453,17 +4453,16 @@ H5_daos_get_selected_chunk_info(H5_daos_dcpl_cache_t *dcpl_cache,
     size_t *nchunks_selected)
 {
     H5_daos_select_chunk_info_t *_chunk_info = NULL;
+    H5S_sel_type file_space_type;
     hssize_t  num_sel_points;
     hssize_t  chunk_file_space_adjust[H5O_LAYOUT_NDIMS];
-    hsize_t   file_space_dims[H5S_MAX_RANK];
+    hsize_t   file_space_dims[H5S_MAX_RANK], mem_space_dims[H5S_MAX_RANK];
     hsize_t   *chunk_dims;
     hsize_t   curr_chunk_dims[H5S_MAX_RANK] = {0};
     hsize_t   file_sel_start[H5S_MAX_RANK], file_sel_end[H5S_MAX_RANK];
     hsize_t   mem_sel_start[H5S_MAX_RANK], mem_sel_end[H5S_MAX_RANK];
     hsize_t   start_coords[H5O_LAYOUT_NDIMS], end_coords[H5O_LAYOUT_NDIMS];
     hsize_t   selection_start_coords[H5O_LAYOUT_NDIMS] = {0};
-    hsize_t   num_sel_points_cast;
-    H5S_sel_type file_space_type;
     hbool_t   is_partial_edge_chunk = FALSE;
     htri_t    space_same_shape = FALSE;
     size_t    chunk_info_nalloc = 0;
@@ -4473,25 +4472,56 @@ H5_daos_get_selected_chunk_info(H5_daos_dcpl_cache_t *dcpl_cache,
     int       increment_dim;
     herr_t    ret_value = SUCCEED;
 
+    assert(dcpl_cache);
     assert(chunk_info);
-    assert(chunk_info_len);
+    assert(nchunks_selected);
 
     if ((num_sel_points = H5Sget_select_npoints(file_space_id)) < 0)
         D_GOTO_ERROR(H5E_DATASPACE, H5E_BADVALUE, FAIL, "can't get number of points selected in file dataspace");
-    /* H5_CHECKED_ASSIGN(num_sel_points_cast, hsize_t, num_sel_points, hssize_t); */
-    num_sel_points_cast = (hsize_t) num_sel_points;
-
     if (num_sel_points == 0)
         D_GOTO_DONE(SUCCEED);
 
-    /* Set convenience pointer to chunk dimensions */
-    chunk_dims = dcpl_cache->chunk_dims;
+    /* Allocate selected chunk info buffer or use already-allocated buffer */
+    if(!*chunk_info) {
+        if (NULL == (_chunk_info = (H5_daos_select_chunk_info_t *) DV_malloc(H5_DAOS_DEFAULT_NUM_SEL_CHUNKS * sizeof(*_chunk_info))))
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't allocate space for selected chunk info buffer");
+        chunk_info_nalloc = H5_DAOS_DEFAULT_NUM_SEL_CHUNKS;
+    } /* end if */
+    else {
+        assert(chunk_info_len && (*chunk_info_len > 0));
+        _chunk_info = *chunk_info;
+        chunk_info_nalloc = *chunk_info_len;
+    } /* end else */
 
     /* Get dataspace ranks */
     if ((fspace_ndims = H5Sget_simple_extent_ndims(file_space_id)) < 0)
         D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, FAIL, "can't get file space dimensionality");
     if ((mspace_ndims = H5Sget_simple_extent_ndims(mem_space_id)) < 0)
         D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, FAIL, "can't get memory space dimensionality");
+
+    /* Get dataspace dimensionality */
+    if (H5Sget_simple_extent_dims(file_space_id, file_space_dims, NULL) < 0)
+        D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, FAIL, "can't get file dataspace dimensions");
+    if (H5Sget_simple_extent_dims(mem_space_id, mem_space_dims, NULL) < 0)
+        D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, FAIL, "can't get memory dataspace dimensions");
+
+    /* Get the bounding box for the current selection in the file and memory spaces */
+    if (H5Sget_select_bounds(file_space_id, file_sel_start, file_sel_end) < 0)
+        D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, FAIL, "can't get bounding box for file selection");
+    if (H5Sget_select_bounds(mem_space_id, mem_sel_start, mem_sel_end) < 0)
+        D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, FAIL, "can't get bounding box for memory selection");
+
+    /* Set convenience pointer to chunk dimensions */
+    chunk_dims = dcpl_cache->chunk_dims;
+
+    /* Initialize the curr_chunk_dims array */
+    memcpy(curr_chunk_dims, chunk_dims, (size_t)fspace_ndims * sizeof(hsize_t));
+
+    /* Calculate the coordinates for the initial chunk */
+    for (i = 0; i < (ssize_t)fspace_ndims; i++) {
+        start_coords[i] = selection_start_coords[i] = (file_sel_start[i] / chunk_dims[i]) * chunk_dims[i];
+        end_coords[i] = (start_coords[i] + chunk_dims[i]) - 1;
+    } /* end for */
 
     /* Check if the spaces are the same "shape".  For now, reject spaces that
      * have different ranks, until there's a public interface to
@@ -4501,19 +4531,6 @@ H5_daos_get_selected_chunk_info(H5_daos_dcpl_cache_t *dcpl_cache,
     if(fspace_ndims == mspace_ndims)
         if(FAIL == (space_same_shape = H5Sselect_shape_same(file_space_id, mem_space_id)))
             D_GOTO_ERROR(H5E_DATASPACE, H5E_BADVALUE, FAIL, "can't determine if file and memory dataspaces are the same shape");
-
-    if (H5Sget_simple_extent_dims(file_space_id, file_space_dims, NULL) < 0)
-        D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, FAIL, "can't get file dataspace dimensions");
-
-    /* Get the bounding box for the current selection in the file and memory spaces */
-    if (H5Sget_select_bounds(file_space_id, file_sel_start, file_sel_end) < 0)
-        D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, FAIL, "can't get bounding box for file selection");
-    if (H5Sget_select_bounds(mem_space_id, mem_sel_start, mem_sel_end) < 0)
-        D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, FAIL, "can't get bounding box for memory selection");
-
-    /* Get file selection type */
-    if((file_space_type = H5Sget_select_type(file_space_id)) < 0)
-        D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, FAIL, "can't get file selection type");
 
     if(space_same_shape) {
         /* Calculate the adjustment for the memory selection from the file selection */
@@ -4529,26 +4546,9 @@ H5_daos_get_selected_chunk_info(H5_daos_dcpl_cache_t *dcpl_cache,
             D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTINIT, FAIL, "can't create entire chunk selection dataspace");
     } /* end else */
 
-    /* Allocate selected chunk info buffer or use already-allocated buffer */
-    if(!*chunk_info) {
-        if (NULL == (_chunk_info = (H5_daos_select_chunk_info_t *) DV_malloc(H5_DAOS_DEFAULT_NUM_SEL_CHUNKS * sizeof(*_chunk_info))))
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't allocate space for selected chunk info buffer");
-        chunk_info_nalloc = H5_DAOS_DEFAULT_NUM_SEL_CHUNKS;
-    } /* end if */
-    else {
-        assert(*chunk_info_len > 0);
-        _chunk_info = *chunk_info;
-        chunk_info_nalloc = *chunk_info_len;
-    } /* end else */
-
-    /* Calculate the coordinates for the initial chunk */
-    for (i = 0; i < (ssize_t)fspace_ndims; i++) {
-        start_coords[i] = selection_start_coords[i] = (file_sel_start[i] / chunk_dims[i]) * chunk_dims[i];
-        end_coords[i] = (start_coords[i] + chunk_dims[i]) - 1;
-    } /* end for */
-
-    /* Initialize the curr_chunk_dims array */
-    memcpy(curr_chunk_dims, chunk_dims, (size_t)fspace_ndims * sizeof(hsize_t));
+    /* Get file selection type */
+    if((file_space_type = H5Sget_select_type(file_space_id)) < 0)
+        D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, FAIL, "can't get file selection type");
 
     /* Iterate through each "chunk" in the dataset */
     for(i = -1; ; ) {
@@ -4558,8 +4558,7 @@ H5_daos_get_selected_chunk_info(H5_daos_dcpl_cache_t *dcpl_cache,
          * an intersection, set up a valid memory and file space for the chunk. */
         if (file_space_type == H5S_SEL_ALL)
             intersect = TRUE;
-        else if((H5S_SEL_NONE != file_space_type) &&
-                ((intersect = H5Sselect_intersect_block(file_space_id, start_coords, end_coords)) < 0))
+        else if((intersect = H5Sselect_intersect_block(file_space_id, start_coords, end_coords)) < 0)
             D_GOTO_ERROR(H5E_DATASPACE, H5E_BADVALUE, FAIL, "cannot determine chunk's intersection with the file dataspace");
         if (TRUE == intersect) {
             hssize_t chunk_space_adjust[H5O_LAYOUT_NDIMS];
@@ -4637,16 +4636,8 @@ H5_daos_get_selected_chunk_info(H5_daos_dcpl_cache_t *dcpl_cache,
              * Now set up the memory Dataspace for this chunk.
              */
             if (space_same_shape) {
-                H5S_class_t mem_space_type;
-
-                if (H5S_NO_CLASS == (mem_space_type = H5Sget_simple_extent_type(mem_space_id)))
-                    D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, FAIL, "can't get dataspace extent type");
-
-                if ((_chunk_info[i].mspace_id = H5Screate(mem_space_type)) < 0)
+                if ((_chunk_info[i].mspace_id = H5Screate_simple(mspace_ndims, mem_space_dims, NULL)) < 0)
                     D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTINIT, FAIL, "can't create chunk memory dataspace");
-
-                if (H5Sextent_copy(_chunk_info[i].mspace_id, mem_space_id) < 0)
-                    D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTCOPY, FAIL, "can't copy memory dataspace extent to chunk memory dataspace");
 
                 /* Copy the chunk's file space selection to its memory space selection */
                 if (H5Sselect_copy(_chunk_info[i].mspace_id, _chunk_info[i].fspace_id) < 0)
@@ -4681,14 +4672,14 @@ H5_daos_get_selected_chunk_info(H5_daos_dcpl_cache_t *dcpl_cache,
                 D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, FAIL, "can't get number of points selected in chunk file space");
 
             /* Make sure we didn't process too many points */
-            if((hsize_t)_chunk_info[i].num_elem_sel_file > num_sel_points_cast)
+            if(_chunk_info[i].num_elem_sel_file > num_sel_points)
                 D_GOTO_ERROR(H5E_DATASPACE, H5E_BADVALUE, FAIL, "processed more elements than present in selection");
 
             /* Keep track of the number of elements processed */
-            num_sel_points_cast -= (hsize_t) _chunk_info[i].num_elem_sel_file;
+            num_sel_points -= _chunk_info[i].num_elem_sel_file;
 
             /* Break out if we're done */
-            if(num_sel_points_cast == 0)
+            if(num_sel_points == 0)
                 break;
 
             /* Clean up after partial edge chunk */
@@ -4702,7 +4693,6 @@ H5_daos_get_selected_chunk_info(H5_daos_dcpl_cache_t *dcpl_cache,
         increment_dim = fspace_ndims - 1;
 
         /* Increment chunk location in fastest changing dimension */
-        /* H5_CHECK_OVERFLOW(chunk_dims[increment_dim], hsize_t, hssize_t); */
         start_coords[increment_dim] += chunk_dims[increment_dim];
         end_coords[increment_dim] += chunk_dims[increment_dim];
 
@@ -4743,7 +4733,8 @@ done:
     }
     else {
         *chunk_info = _chunk_info;
-        *chunk_info_len = chunk_info_nalloc;
+        if (chunk_info_len)
+            *chunk_info_len = chunk_info_nalloc;
 
         assert(i + 1 >= 0);
         *nchunks_selected = (size_t)(i + 1);

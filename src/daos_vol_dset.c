@@ -4616,9 +4616,12 @@ H5_daos_get_selected_chunk_info(H5_daos_dcpl_cache_t *dcpl_cache,
                             chunk_dims, start_coords, curr_chunk_dims)) < 0)
                         D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTINIT, FAIL, "can't intersect point selection");
 
+                    /* Move selection back to have correct offset in chunk */
+                    if (H5Sselect_adjust(_chunk_info[i].fspace_id, chunk_space_adjust) < 0)
+                        D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTSELECT, FAIL, "can't adjust chunk selection");
+
                     break;
 
-                case H5S_SEL_ALL:
                 case H5S_SEL_HYPERSLABS:
                     if ((_chunk_info[i].fspace_id = H5Scombine_hyperslab(file_space_id, H5S_SELECT_AND,
                             start_coords, NULL, curr_chunk_dims, NULL)) < 0)
@@ -4628,6 +4631,24 @@ H5_daos_get_selected_chunk_info(H5_daos_dcpl_cache_t *dcpl_cache,
                     if (H5Sset_extent_simple(_chunk_info[i].fspace_id, fspace_ndims, chunk_dims, NULL) < 0)
                         D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTSELECT, FAIL, "can't adjust chunk dimensions");
 
+                    /* Move selection back to have correct offset in chunk */
+                    if (H5Sselect_adjust(_chunk_info[i].fspace_id, chunk_space_adjust) < 0)
+                        D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTSELECT, FAIL, "can't adjust chunk selection");
+
+                    break;
+
+                case H5S_SEL_ALL:
+                    /* Create chunk dataspace with full chunk dimensions */
+                    if ((_chunk_info[i].fspace_id = H5Screate_simple(fspace_ndims, chunk_dims, NULL)) < 0)
+                        D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTSELECT, FAIL, "can't create temporary chunk selection");
+
+                    if (is_partial_edge_chunk) {
+                        hsize_t zero_offset_start[H5S_MAX_RANK] = { 0 };
+                        if (H5Sselect_hyperslab(_chunk_info[i].fspace_id, H5S_SELECT_SET,
+                                zero_offset_start, NULL, curr_chunk_dims, NULL) < 0)
+                            D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTSELECT, FAIL, "can't select partial edge chunk from temporary selection");
+                    } /* end if */
+
                     break;
 
                 case H5S_SEL_NONE:
@@ -4636,10 +4657,6 @@ H5_daos_get_selected_chunk_info(H5_daos_dcpl_cache_t *dcpl_cache,
                 default:
                     D_GOTO_ERROR(H5E_DATASPACE, H5E_BADVALUE, FAIL, "invalid dataspace selection type");
             } /* end switch */
-
-            /* Move selection back to have correct offset in chunk */
-            if (H5Sselect_adjust(_chunk_info[i].fspace_id, chunk_space_adjust) < 0)
-                D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTSELECT, FAIL, "can't adjust chunk selection");
 
             /* Copy the chunk's coordinates to the selected chunk info buffer */
             memcpy(_chunk_info[i].chunk_coords, start_coords, (size_t) fspace_ndims * sizeof(hsize_t));
@@ -4651,19 +4668,26 @@ H5_daos_get_selected_chunk_info(H5_daos_dcpl_cache_t *dcpl_cache,
                 if ((_chunk_info[i].mspace_id = H5Screate_simple(mspace_ndims, mem_space_dims, NULL)) < 0)
                     D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTINIT, FAIL, "can't create chunk memory dataspace");
 
-                /* Copy the chunk's file space selection to its memory space selection */
-                if (H5Sselect_copy(_chunk_info[i].mspace_id, _chunk_info[i].fspace_id) < 0)
-                    D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTCOPY, FAIL, "unable to copy selection from temporary chunk's file dataspace to its memory dataspace");
+                if (H5S_SEL_ALL == file_space_type) {
+                    /* Set to same shape as chunk's file dataspace selection */
+                    if(H5Sselect_hyperslab(_chunk_info[i].mspace_id, H5S_SELECT_SET, start_coords, NULL, curr_chunk_dims, NULL) < 0)
+                        D_GOTO_ERROR(H5E_DATASET, H5E_CANTSELECT, FAIL, "can't create chunk memory selection");
+                } /* end if */
+                else {
+                    /* Copy the chunk's file space selection to its memory space selection */
+                    if (H5Sselect_copy(_chunk_info[i].mspace_id, _chunk_info[i].fspace_id) < 0)
+                        D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTCOPY, FAIL, "unable to copy selection from temporary chunk's file dataspace to its memory dataspace");
 
-                /* Compute the adjustment for the chunk */
-                for (j = 0; j < (ssize_t)fspace_ndims; j++) {
-                    /* H5_CHECK_OVERFLOW(_chunk_info[i].chunk_coords[j], hsize_t, hssize_t); */
-                    chunk_space_adjust[j] = chunk_file_space_adjust[j] - (hssize_t) _chunk_info[i].chunk_coords[j];
-                } /* end for */
+                    /* Compute the adjustment for the chunk */
+                    for (j = 0; j < (ssize_t)fspace_ndims; j++) {
+                        /* H5_CHECK_OVERFLOW(_chunk_info[i].chunk_coords[j], hsize_t, hssize_t); */
+                        chunk_space_adjust[j] = chunk_file_space_adjust[j] - (hssize_t) _chunk_info[i].chunk_coords[j];
+                    } /* end for */
 
-                /* Adjust the selection */
-                if (H5Sselect_adjust(_chunk_info[i].mspace_id, chunk_space_adjust) < 0)
-                    D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTSELECT, FAIL, "can't adjust temporary chunk's memory space selection");
+                    /* Adjust the selection */
+                    if (H5Sselect_adjust(_chunk_info[i].mspace_id, chunk_space_adjust) < 0)
+                        D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTSELECT, FAIL, "can't adjust temporary chunk's memory space selection");
+                } /* end else */
             } /* end if */
             else {
                 /* Select this chunk in the temporary chunk selection dataspace.

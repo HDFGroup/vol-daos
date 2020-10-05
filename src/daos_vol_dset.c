@@ -3209,6 +3209,8 @@ done:
             if((chunk_info[i].mspace_id >= 0) && (chunk_info[i].mspace_id != chunk_info[i].fspace_id)
                     && (H5Sclose(chunk_info[i].mspace_id) < 0))
                 D_DONE_ERROR(H5E_DATASPACE, H5E_CANTCLOSEOBJ, FAIL, "can't close memory space");
+            chunk_info[i].fspace_id = H5I_INVALID_HID;
+            chunk_info[i].mspace_id = H5I_INVALID_HID;
         } /* end for */
     } /* end if */
 
@@ -3466,6 +3468,8 @@ done:
             if((chunk_info[i].mspace_id >= 0) && (chunk_info[i].mspace_id != chunk_info[i].fspace_id)
                     && (H5Sclose(chunk_info[i].mspace_id) < 0))
                 D_DONE_ERROR(H5E_DATASPACE, H5E_CANTCLOSEOBJ, FAIL, "can't close memory space");
+            chunk_info[i].fspace_id = H5I_INVALID_HID;
+            chunk_info[i].mspace_id = H5I_INVALID_HID;
         } /* end for */
     } /* end if */
 

@@ -3066,13 +3066,12 @@ done:
  */
 herr_t
 H5_daos_dataset_read_int(H5_daos_dset_t *dset, hid_t mem_type_id,
-    hid_t mem_space_id, hid_t file_space_id, void *buf, H5_daos_req_t *req,
-    tse_task_t **first_task, tse_task_t **dep_task)
+    hid_t mem_space_id, hid_t file_space_id, htri_t need_tconv, void *buf,
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_select_chunk_info_t *chunk_info = NULL; /* Array of info for each chunk selected in the file */
     H5_daos_chunk_io_func single_chunk_read_func;
     uint64_t i;
-    htri_t need_tconv;
     size_t nchunks_sel;
     hid_t real_file_space_id;
     hid_t real_mem_space_id;
@@ -3156,9 +3155,6 @@ H5_daos_dataset_read_int(H5_daos_dset_t *dset, hid_t mem_type_id,
     assert(nchunks_sel > 0);
 
     /* Setup the appropriate function for reading the selected chunks */
-    /* Check if type conversion is needed */
-    if((need_tconv = H5_daos_need_tconv(dset->file_type_id, mem_type_id)) < 0)
-        D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOMPARE, FAIL, "can't check if type conversion is needed");
     if(need_tconv)
         /* Type conversion necessary */
         single_chunk_read_func = H5_daos_dataset_io_types_unequal;
@@ -3239,6 +3235,7 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
     tse_task_t *first_task = NULL;
     tse_task_t *dep_task = NULL;
     H5_daos_req_t *int_req = NULL;
+    htri_t need_tconv;
     int ret;
     herr_t ret_value = SUCCEED;
 
@@ -3249,13 +3246,17 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
 
     H5_DAOS_MAKE_ASYNC_PROGRESS(dset->obj.item.file->sched, FAIL);
 
-    /* Start H5 operation */
-    if(NULL == (int_req = H5_daos_req_create(dset->obj.item.file, dxpl_id)))
+    /* Check if datatype conversion is needed */
+    if((need_tconv = H5_daos_need_tconv(dset->file_type_id, mem_type_id)) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOMPARE, FAIL, "can't check if type conversion is needed");
+
+    /* Start H5 operation. Currently, the DXPL is only copied when datatype conversion is needed. */
+    if(NULL == (int_req = H5_daos_req_create(dset->obj.item.file, need_tconv ? dxpl_id : H5P_DATASET_XFER_DEFAULT)))
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't create DAOS request");
 
     /* Call internal routine */
     if(H5_daos_dataset_read_int(dset, mem_type_id, mem_space_id, file_space_id,
-            buf, int_req, &first_task, &dep_task) < 0)
+            need_tconv, buf, int_req, &first_task, &dep_task) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_READERROR, FAIL, "failed to read data from dataset");
 
 done:
@@ -3324,13 +3325,12 @@ done:
  */
 herr_t
 H5_daos_dataset_write_int(H5_daos_dset_t *dset, hid_t mem_type_id,
-    hid_t mem_space_id, hid_t file_space_id, const void *buf,
+    hid_t mem_space_id, hid_t file_space_id, htri_t need_tconv, const void *buf,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_select_chunk_info_t *chunk_info = NULL; /* Array of info for each chunk selected in the file */
     H5_daos_chunk_io_func single_chunk_write_func;
     uint64_t i;
-    htri_t need_tconv;
     size_t nchunks_sel;
     hid_t real_file_space_id;
     hid_t real_mem_space_id;
@@ -3414,10 +3414,7 @@ H5_daos_dataset_write_int(H5_daos_dset_t *dset, hid_t mem_type_id,
     } /* end switch */
     assert(nchunks_sel > 0);
 
-    /* Setup the appropriate function for reading the selected chunks */
-    /* Check if type conversion is needed */
-    if((need_tconv = H5_daos_need_tconv(mem_type_id, dset->file_type_id)) < 0)
-        D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOMPARE, FAIL, "can't check if type conversion is needed");
+    /* Setup the appropriate function for writing the selected chunks */
     if(need_tconv)
         /* Type conversion necessary */
         single_chunk_write_func = H5_daos_dataset_io_types_unequal;
@@ -3499,6 +3496,7 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
     tse_task_t *first_task = NULL;
     tse_task_t *dep_task = NULL;
     H5_daos_req_t *int_req = NULL;
+    htri_t need_tconv;
     int ret;
     herr_t ret_value = SUCCEED;
 
@@ -3513,13 +3511,17 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
     if(!(dset->obj.item.file->flags & H5F_ACC_RDWR))
         D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, FAIL, "no write intent on file");
 
-    /* Start H5 operation */
-    if(NULL == (int_req = H5_daos_req_create(dset->obj.item.file, dxpl_id)))
+    /* Check if datatype conversion is needed */
+    if((need_tconv = H5_daos_need_tconv(mem_type_id, dset->file_type_id)) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOMPARE, FAIL, "can't check if type conversion is needed");
+
+    /* Start H5 operation. Currently, the DXPL is only copied when datatype conversion is needed. */
+    if(NULL == (int_req = H5_daos_req_create(dset->obj.item.file, need_tconv ? dxpl_id : H5P_DATASET_XFER_DEFAULT)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, FAIL, "can't create DAOS request");
 
     /* Call internal routine */
     if(H5_daos_dataset_write_int(dset, mem_type_id, mem_space_id, file_space_id,
-            buf, int_req, &first_task, &dep_task) < 0)
+            need_tconv, buf, int_req, &first_task, &dep_task) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_WRITEERROR, FAIL, "failed to write data to dataset");
 
 done:

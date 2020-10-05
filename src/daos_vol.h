@@ -978,12 +978,12 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_dataset_refresh(H5_daos_dset_t *dset,
     hid_t dxpl_id, H5_daos_req_t *req, tse_task_t **first_task,
     tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE herr_t H5_daos_dataset_read_int(H5_daos_dset_t *dset,
-    hid_t mem_type_id, hid_t mem_space_id, hid_t file_space_id, void *buf,
-    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
+    hid_t mem_type_id, hid_t mem_space_id, hid_t file_space_id, htri_t need_tconv,
+    void *buf, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE herr_t H5_daos_dataset_write_int(H5_daos_dset_t *dset,
-    hid_t mem_type_id,  hid_t mem_space_id, hid_t file_space_id,
-    const void *buf, H5_daos_req_t *req, tse_task_t **first_task,
-    tse_task_t **dep_task);
+    hid_t mem_type_id, hid_t mem_space_id, hid_t file_space_id,
+    htri_t need_tconv, const void *buf, H5_daos_req_t *req,
+    tse_task_t **first_task, tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE herr_t H5_daos_dataset_flush(H5_daos_dset_t *dset);
 
 /* Datatype callbacks */

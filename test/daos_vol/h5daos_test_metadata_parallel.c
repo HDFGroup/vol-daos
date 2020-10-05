@@ -31,7 +31,7 @@
 #define TRUE                    1
 #define FALSE                   0
 
-#define FILENAME                "h5daos_test_mdata"
+#define FILENAME                "h5daos_test_mdata.h5"
 #define NAME_LENGTH     	256
 #define DSET_RANK		2
 #define ATTR_RANK		1
@@ -242,10 +242,10 @@ parse_command_line(int argc, char *argv[])
     int opt;
 
     /* Initialize the command line options */
-    hand.numbOfTrees = 1000;
+    hand.numbOfTrees = 10;
     hand.depthOfTree = 0;
     hand.numbOfBranches = 3;
-    hand.numbOfObjs = 4;
+    hand.numbOfObjs = 200;
     hand.dset_dim1 = 16;
     hand.dset_dim2 = 16;
     hand.chunk_dim1 = 16;

@@ -30,7 +30,6 @@
 /* Definitions for chunking code */
 #define H5_DAOS_DEFAULT_NUM_SEL_CHUNKS   64
 #define H5O_LAYOUT_NDIMS                 (H5S_MAX_RANK+1)
-#define CHUNK_DKEY_BUF_SIZE              (1 + (sizeof(uint64_t) * H5S_MAX_RANK))
 
 /* Definitions for automatic chunking */
 /* Maximum size for contiguous datasets (target size * sqrt(2)) */
@@ -66,56 +65,10 @@ typedef struct {
     uint64_t idx;
 } H5_daos_vl_file_ud_t;
 
-/* Enum type for distinguishing between dataset reads and writes. */
-typedef enum dset_io_type {
-    IO_READ,
-    IO_WRITE
-} dset_io_type;
-
 /* Typedef for function to perform I/O on a single chunk */
 typedef herr_t (*H5_daos_chunk_io_func)(H5_daos_select_chunk_info_t *chunk_info,
     H5_daos_dset_t *dset, uint64_t dset_ndims, hid_t mem_type_id, dset_io_type io_type,
     void *buf, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
-
-/* Task user data for raw data I/O */
-typedef struct H5_daos_chunk_io_ud_t {
-    H5_daos_req_t *req;
-    H5_daos_dset_t *dset;
-    daos_key_t dkey;
-    uint8_t dkey_buf[CHUNK_DKEY_BUF_SIZE];
-    uint8_t akey_buf;
-    daos_iod_t iod;
-    daos_sg_list_t sgl;
-    daos_recx_t recx;
-    daos_recx_t *recxs;
-    daos_iov_t sg_iov;
-    daos_iov_t *sg_iovs;
-} H5_daos_chunk_io_ud_t;
-
-/* Task user data for raw data I/O with type conversion */
-typedef struct H5_daos_chunk_io_tconv_ud_t {
-    H5_daos_req_t *req;
-    H5_daos_dset_t *dset;
-    hssize_t num_elem;
-    hid_t mem_type_id;
-    hid_t mem_space_id;
-    void *buf;
-    dset_io_type io_type;
-    daos_key_t dkey;
-    uint8_t dkey_buf[CHUNK_DKEY_BUF_SIZE];
-    uint8_t akey_buf;
-    daos_iod_t iod;
-    daos_sg_list_t sgl;
-    daos_recx_t recx;
-    daos_recx_t *recxs;
-    daos_iov_t sg_iov;
-    H5_daos_tconv_reuse_t reuse;
-    hbool_t fill_bkg;
-    size_t mem_type_size;
-    size_t file_type_size;
-    void *tconv_buf;
-    void *bkg_buf;
-} H5_daos_chunk_io_tconv_ud_t;
 
 /********************/
 /* Local Prototypes */
@@ -2259,7 +2212,6 @@ done:
             DV_free(udata->recxs);
         if(udata->sg_iovs != &udata->sg_iov)
             DV_free(udata->sg_iovs);
-        DV_free(udata);
     } /* end if */
 
     D_FUNC_LEAVE;
@@ -2288,7 +2240,7 @@ H5_daos_dataset_io_types_equal(H5_daos_select_chunk_info_t *chunk_info,
     H5_daos_dset_t *dset, uint64_t dset_ndims, hid_t H5VL_DAOS_UNUSED mem_type_id,
     dset_io_type io_type, void *buf, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
-    H5_daos_chunk_io_ud_t *chunk_io_ud = NULL;
+    H5_daos_chunk_io_ud_t *chunk_io_ud;
     size_t tot_nseq;
     size_t file_type_size;
     tse_task_t *io_task;
@@ -2303,11 +2255,13 @@ H5_daos_dataset_io_types_equal(H5_daos_select_chunk_info_t *chunk_info,
     assert(first_task);
     assert(dep_task);
 
-    /* Allocate argument struct */
-    if(NULL == (chunk_io_ud = (H5_daos_chunk_io_ud_t *)DV_calloc(sizeof(H5_daos_chunk_io_ud_t))))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for I/O callback arguments");
+    /* Point to allocated argument struct */
+    chunk_io_ud = &chunk_info->chunk_io_ud;
     chunk_io_ud->recxs = &chunk_io_ud->recx;
     chunk_io_ud->sg_iovs = &chunk_io_ud->sg_iov;
+
+    /* Ensure that any type-conversion-related info is cleared */
+    memset(&chunk_io_ud->tconv, 0, sizeof(chunk_io_ud->tconv));
 
     /* Point to dset */
     chunk_io_ud->dset = dset;
@@ -2444,8 +2398,6 @@ done:
             DV_free(chunk_io_ud->recxs);
         if(chunk_io_ud->sg_iovs != &chunk_io_ud->sg_iov)
             DV_free(chunk_io_ud->sg_iovs);
-        DV_free(chunk_io_ud->dkey.iov_buf);
-        chunk_io_ud = DV_free(chunk_io_ud);
     } /* end if */
 
     D_FUNC_LEAVE;
@@ -2466,7 +2418,7 @@ done:
 static int
 H5_daos_chunk_io_tconv_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
-    H5_daos_chunk_io_tconv_ud_t *udata;
+    H5_daos_chunk_io_ud_t *udata;
     daos_obj_rw_t *update_args;
     int ret_value = 0;
 
@@ -2493,18 +2445,22 @@ H5_daos_chunk_io_tconv_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     } /* end if */
 
     /* If writing, gather the write buffer data to the type conversion buffer */
-    if(udata->io_type == IO_WRITE) {
+    if(udata->tconv.io_type == IO_WRITE) {
         /* Gather data to conversion buffer */
-        if(H5Dgather(udata->mem_space_id, udata->buf, udata->mem_type_id, (size_t)udata->num_elem * udata->mem_type_size, udata->tconv_buf, NULL, NULL) < 0)
+        if(H5Dgather(udata->tconv.mem_space_id, udata->tconv.buf, udata->tconv.mem_type_id,
+                (size_t)udata->tconv.num_elem * udata->tconv.mem_type_size, udata->tconv.tconv_buf,
+                NULL, NULL) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, H5_DAOS_H5_SCATGATH_ERROR, "can't gather data to conversion buffer");
 
         /* Perform type conversion */
-        if(H5Tconvert(udata->mem_type_id, udata->dset->file_type_id, (size_t)udata->num_elem, udata->tconv_buf, udata->bkg_buf, udata->req->dxpl_id) < 0)
+        if(H5Tconvert(udata->tconv.mem_type_id, udata->dset->file_type_id, (size_t)udata->tconv.num_elem,
+                udata->tconv.tconv_buf, udata->tconv.bkg_buf, udata->req->dxpl_id) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTCONVERT, H5_DAOS_H5_TCONV_ERROR, "can't perform type conversion");
     } /* end if */
 
     /* Set sg_iov to point to tconv_buf */
-    daos_iov_set(&udata->sg_iov, udata->tconv_buf, (daos_size_t)udata->num_elem * (daos_size_t)udata->file_type_size);
+    daos_iov_set(&udata->sg_iov, udata->tconv.tconv_buf,
+            (daos_size_t)udata->tconv.num_elem * (daos_size_t)udata->tconv.file_type_size);
 
     /* Set I/O task arguments */
     if(NULL == (update_args = daos_task_get_args(task))) {
@@ -2539,7 +2495,7 @@ done:
 static int
 H5_daos_chunk_io_tconv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
-    H5_daos_chunk_io_tconv_ud_t *udata;
+    H5_daos_chunk_io_ud_t *udata;
     int ret_value = 0;
 
     /* Get private data */
@@ -2561,18 +2517,20 @@ H5_daos_chunk_io_tconv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     } /* end if */
 
     /* If reading we must perform type conversion on the read data */
-    if(udata->io_type == IO_READ) {
+    if(udata->tconv.io_type == IO_READ) {
         /* Perform type conversion */
-        if(H5Tconvert(udata->dset->file_type_id, udata->mem_type_id, (size_t)udata->num_elem, udata->tconv_buf, udata->bkg_buf, udata->req->dxpl_id) < 0)
+        if(H5Tconvert(udata->dset->file_type_id, udata->tconv.mem_type_id, (size_t)udata->tconv.num_elem,
+                udata->tconv.tconv_buf, udata->tconv.bkg_buf, udata->req->dxpl_id) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTCONVERT, H5_DAOS_H5_TCONV_ERROR, "can't perform type conversion");
 
         /* Scatter data to memory buffer if necessary */
-        if(udata->reuse != H5_DAOS_TCONV_REUSE_TCONV) {
+        if(udata->tconv.reuse != H5_DAOS_TCONV_REUSE_TCONV) {
             H5_daos_scatter_cb_ud_t scatter_cb_ud;
 
-            scatter_cb_ud.buf = udata->tconv_buf;
-            scatter_cb_ud.len = (size_t)udata->num_elem * udata->mem_type_size;
-            if(H5Dscatter(H5_daos_scatter_cb, &scatter_cb_ud, udata->mem_type_id, udata->mem_space_id, udata->buf) < 0)
+            scatter_cb_ud.buf = udata->tconv.tconv_buf;
+            scatter_cb_ud.len = (size_t)udata->tconv.num_elem * udata->tconv.mem_type_size;
+            if(H5Dscatter(H5_daos_scatter_cb, &scatter_cb_ud, udata->tconv.mem_type_id,
+                    udata->tconv.mem_space_id, udata->tconv.buf) < 0)
                 D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, H5_DAOS_H5_SCATGATH_ERROR, "can't scatter data to read buffer");
         } /* end if */
     } /* end if */
@@ -2584,9 +2542,9 @@ done:
             D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
 
         /* Close space and type IDs */
-        if(H5Sclose(udata->mem_space_id) < 0)
+        if(H5Sclose(udata->tconv.mem_space_id) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close memory dataspace");
-        if(H5Tclose(udata->mem_type_id) < 0)
+        if(H5Tclose(udata->tconv.mem_type_id) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close memory datatype");
 
         /* Handle errors in this function */
@@ -2604,11 +2562,10 @@ done:
         /* Free private data */
         if(udata->recxs != &udata->recx)
             DV_free(udata->recxs);
-        if(udata->reuse != H5_DAOS_TCONV_REUSE_TCONV)
-            DV_free(udata->tconv_buf);
-        if(udata->reuse != H5_DAOS_TCONV_REUSE_BKG)
-            DV_free(udata->bkg_buf);
-        DV_free(udata);
+        if(udata->tconv.reuse != H5_DAOS_TCONV_REUSE_TCONV)
+            DV_free(udata->tconv.tconv_buf);
+        if(udata->tconv.reuse != H5_DAOS_TCONV_REUSE_BKG)
+            DV_free(udata->tconv.bkg_buf);
     } /* end if */
 
     D_FUNC_LEAVE;
@@ -2630,7 +2587,7 @@ done:
 static int
 H5_daos_chunk_fill_bkg_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
-    H5_daos_chunk_io_tconv_ud_t *udata;
+    H5_daos_chunk_io_ud_t *udata;
     daos_obj_rw_t *update_args;
     int ret_value = 0;
 
@@ -2657,7 +2614,8 @@ H5_daos_chunk_fill_bkg_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     } /* end if */
 
     /* Set sg_iov to point to background buffer */
-    daos_iov_set(&udata->sg_iov, udata->bkg_buf, (daos_size_t)udata->num_elem * (daos_size_t)udata->file_type_size);
+    daos_iov_set(&udata->sg_iov, udata->tconv.bkg_buf,
+            (daos_size_t)udata->tconv.num_elem * (daos_size_t)udata->tconv.file_type_size);
 
     /* Set I/O task arguments */
     if(NULL == (update_args = daos_task_get_args(task))) {
@@ -2694,7 +2652,7 @@ done:
 static int
 H5_daos_chunk_fill_bkg_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
-    H5_daos_chunk_io_tconv_ud_t *udata;
+    H5_daos_chunk_io_ud_t *udata;
     int ret_value = 0;
 
     /* Get private data */
@@ -2717,7 +2675,7 @@ H5_daos_chunk_fill_bkg_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     /* Reset iod_size, if the dataset was not allocated then it could
      * have been overwritten by daos_obj_fetch */
-    udata->iod.iod_size = udata->file_type_size;
+    udata->iod.iod_size = udata->tconv.file_type_size;
 
 done:
     D_FUNC_LEAVE;
@@ -2746,7 +2704,7 @@ H5_daos_dataset_io_types_unequal(H5_daos_select_chunk_info_t *chunk_info,
     H5_daos_dset_t *dset, uint64_t dset_ndims, hid_t mem_type_id, dset_io_type io_type,
     void *buf, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
-    H5_daos_chunk_io_tconv_ud_t *chunk_io_ud = NULL;
+    H5_daos_chunk_io_ud_t *chunk_io_ud;
     hbool_t contig = FALSE;
     size_t tot_nseq;
     tse_task_t *io_task = NULL;
@@ -2762,19 +2720,23 @@ H5_daos_dataset_io_types_unequal(H5_daos_select_chunk_info_t *chunk_info,
     assert(first_task);
     assert(dep_task);
 
-    /* Allocate argument struct */
-    if(NULL == (chunk_io_ud = (H5_daos_chunk_io_tconv_ud_t *)DV_calloc(sizeof(H5_daos_chunk_io_tconv_ud_t))))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for I/O callback arguments");
-    chunk_io_ud->num_elem = chunk_info->num_elem_sel_file;
-    chunk_io_ud->mem_space_id = H5I_INVALID_HID;
-    if((chunk_io_ud->mem_type_id = H5Tcopy(mem_type_id)) < 0)
+    /* Point to allocated argument struct */
+    chunk_io_ud = &chunk_info->chunk_io_ud;
+
+    /* Ensure that any type-conversion-related info is cleared */
+    memset(&chunk_io_ud->tconv, 0, sizeof(chunk_io_ud->tconv));
+
+    /* Setup type conversion-related fields */
+    chunk_io_ud->tconv.num_elem = chunk_info->num_elem_sel_file;
+    chunk_io_ud->tconv.mem_space_id = H5I_INVALID_HID;
+    if((chunk_io_ud->tconv.mem_type_id = H5Tcopy(mem_type_id)) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, FAIL, "can't copy memory datatype");
-    if((chunk_io_ud->mem_space_id = H5Scopy(chunk_info->mspace_id)) < 0)
+    if((chunk_io_ud->tconv.mem_space_id = H5Scopy(chunk_info->mspace_id)) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, FAIL, "can't copy memory dataspace");
-    chunk_io_ud->buf = buf;
-    chunk_io_ud->io_type = io_type;
+    chunk_io_ud->tconv.buf = buf;
+    chunk_io_ud->tconv.io_type = io_type;
     chunk_io_ud->recxs = &chunk_io_ud->recx;
-    assert(chunk_io_ud->reuse == H5_DAOS_TCONV_REUSE_NONE);
+    assert(chunk_io_ud->tconv.reuse == H5_DAOS_TCONV_REUSE_NONE);
 
     /* Point to dset */
     chunk_io_ud->dset = dset;
@@ -2815,41 +2777,41 @@ H5_daos_dataset_io_types_unequal(H5_daos_select_chunk_info_t *chunk_info,
         /* Initialize type conversion */
         if(H5_daos_tconv_init(
                 dset->file_type_id,
-                &chunk_io_ud->file_type_size,
+                &chunk_io_ud->tconv.file_type_size,
                 mem_type_id,
-                &chunk_io_ud->mem_type_size,
+                &chunk_io_ud->tconv.mem_type_size,
                 (size_t)chunk_info->num_elem_sel_file,
                 dset->dcpl_cache.fill_method == H5_DAOS_ZERO_FILL,
                 FALSE,
-                &chunk_io_ud->tconv_buf,
-                &chunk_io_ud->bkg_buf,
-                contig ? &chunk_io_ud->reuse : NULL,
-                &chunk_io_ud->fill_bkg) < 0)
+                &chunk_io_ud->tconv.tconv_buf,
+                &chunk_io_ud->tconv.bkg_buf,
+                contig ? &chunk_io_ud->tconv.reuse : NULL,
+                &chunk_io_ud->tconv.fill_bkg) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't initialize type conversion");
 
         /* Reuse buffer as appropriate */
         if(contig) {
-            sel_off *= (hsize_t)chunk_io_ud->mem_type_size;
-            if(chunk_io_ud->reuse == H5_DAOS_TCONV_REUSE_TCONV)
-                chunk_io_ud->tconv_buf = (char *)buf + (size_t)sel_off;
-            else if(chunk_io_ud->reuse == H5_DAOS_TCONV_REUSE_BKG)
-                chunk_io_ud->bkg_buf = (char *)buf + (size_t)sel_off;
+            sel_off *= (hsize_t)chunk_io_ud->tconv.mem_type_size;
+            if(chunk_io_ud->tconv.reuse == H5_DAOS_TCONV_REUSE_TCONV)
+                chunk_io_ud->tconv.tconv_buf = (char *)buf + (size_t)sel_off;
+            else if(chunk_io_ud->tconv.reuse == H5_DAOS_TCONV_REUSE_BKG)
+                chunk_io_ud->tconv.bkg_buf = (char *)buf + (size_t)sel_off;
         } /* end if */
     } /* end (io_type == IO_READ) */
     else
         /* Initialize type conversion */
         if(H5_daos_tconv_init(
                 mem_type_id,
-                &chunk_io_ud->mem_type_size,
+                &chunk_io_ud->tconv.mem_type_size,
                 dset->file_type_id,
-                &chunk_io_ud->file_type_size,
+                &chunk_io_ud->tconv.file_type_size,
                 (size_t)chunk_info->num_elem_sel_file,
                 FALSE,
                 TRUE,
-                &chunk_io_ud->tconv_buf,
-                &chunk_io_ud->bkg_buf,
+                &chunk_io_ud->tconv.tconv_buf,
+                &chunk_io_ud->tconv.bkg_buf,
                 NULL,
-                &chunk_io_ud->fill_bkg) < 0)
+                &chunk_io_ud->tconv.fill_bkg) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't initialize type conversion");
 
     /* Set up iod */
@@ -2857,7 +2819,7 @@ H5_daos_dataset_io_types_unequal(H5_daos_select_chunk_info_t *chunk_info,
     chunk_io_ud->akey_buf = H5_DAOS_CHUNK_KEY;
     daos_iov_set(&chunk_io_ud->iod.iod_name, (void *)&chunk_io_ud->akey_buf,
             (daos_size_t)(sizeof(chunk_io_ud->akey_buf)));
-    chunk_io_ud->iod.iod_size = (daos_size_t)chunk_io_ud->file_type_size;
+    chunk_io_ud->iod.iod_size = (daos_size_t)chunk_io_ud->tconv.file_type_size;
     chunk_io_ud->iod.iod_type = DAOS_IOD_ARRAY;
 
     /* Build recxs and sg_iovs */
@@ -2867,7 +2829,7 @@ H5_daos_dataset_io_types_unequal(H5_daos_select_chunk_info_t *chunk_info,
         D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTRESET, FAIL, "can't reset file dataspace selection iterator");
 
     /* Calculate recxs from file space */
-    if(H5_daos_sel_to_recx_iov(dset->io_cache.file_sel_iter_id, chunk_io_ud->file_type_size, buf,
+    if(H5_daos_sel_to_recx_iov(dset->io_cache.file_sel_iter_id, chunk_io_ud->tconv.file_type_size, buf,
             &chunk_io_ud->recxs, NULL, &tot_nseq) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't generate sequence lists for DAOS I/O");
     chunk_io_ud->iod.iod_nr = (unsigned)tot_nseq;
@@ -2884,18 +2846,19 @@ H5_daos_dataset_io_types_unequal(H5_daos_select_chunk_info_t *chunk_info,
 
     if(io_type == IO_READ) {
         /* Gather data to background buffer if necessary */
-        if(chunk_io_ud->fill_bkg && (chunk_io_ud->reuse != H5_DAOS_TCONV_REUSE_BKG))
+        if(chunk_io_ud->tconv.fill_bkg && (chunk_io_ud->tconv.reuse != H5_DAOS_TCONV_REUSE_BKG))
             if(H5Dgather(chunk_info->mspace_id, buf, mem_type_id,
-                    (size_t)chunk_info->num_elem_sel_file * chunk_io_ud->mem_type_size, chunk_io_ud->bkg_buf, NULL, NULL) < 0)
+                    (size_t)chunk_info->num_elem_sel_file * chunk_io_ud->tconv.mem_type_size,
+                    chunk_io_ud->tconv.bkg_buf, NULL, NULL) < 0)
                 D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't gather data to background buffer");
 
         /* Handle fill values */
         if(dset->dcpl_cache.fill_method == H5_DAOS_ZERO_FILL) {
             /* H5_daos_tconv_init() will have cleared the tconv buf, but not if
              * we're reusing buf as tconv_buf */
-            if(chunk_io_ud->reuse == H5_DAOS_TCONV_REUSE_TCONV)
-                (void)memset(chunk_io_ud->tconv_buf, 0,
-                        (daos_size_t)chunk_info->num_elem_sel_file * (daos_size_t)chunk_io_ud->file_type_size);
+            if(chunk_io_ud->tconv.reuse == H5_DAOS_TCONV_REUSE_TCONV)
+                (void)memset(chunk_io_ud->tconv.tconv_buf, 0,
+                        (daos_size_t)chunk_info->num_elem_sel_file * (daos_size_t)chunk_io_ud->tconv.file_type_size);
         } /* end if */
         else if(dset->dcpl_cache.fill_method == H5_DAOS_COPY_FILL) {
             hssize_t j;
@@ -2904,8 +2867,8 @@ H5_daos_dataset_io_types_unequal(H5_daos_select_chunk_info_t *chunk_info,
 
             /* Copy the fill value to every element in tconv_buf */
             for(j = 0; j < chunk_info->num_elem_sel_file; j++)
-                (void)memcpy((uint8_t *)chunk_io_ud->tconv_buf + ((size_t)j * chunk_io_ud->file_type_size),
-                        dset->fill_val, chunk_io_ud->file_type_size);
+                (void)memcpy((uint8_t *)chunk_io_ud->tconv.tconv_buf + ((size_t)j * chunk_io_ud->tconv.file_type_size),
+                        dset->fill_val, chunk_io_ud->tconv.file_type_size);
         } /* end if */
 
         /* Create task to read data from dataset */
@@ -2914,8 +2877,8 @@ H5_daos_dataset_io_types_unequal(H5_daos_select_chunk_info_t *chunk_info,
     } /* end (io_type == IO_READ) */
     else {
         /* Check if we need to fill background buffer */
-        if(chunk_io_ud->fill_bkg) {
-            assert(chunk_io_ud->bkg_buf);
+        if(chunk_io_ud->tconv.fill_bkg) {
+            assert(chunk_io_ud->tconv.bkg_buf);
 
             /* Create task to read data from dataset */
             if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &dset->obj.item.file->sched, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &fill_bkg_task)))
@@ -2966,18 +2929,16 @@ H5_daos_dataset_io_types_unequal(H5_daos_select_chunk_info_t *chunk_info,
 done:
     /* Cleanup on failure */
     if(ret_value < 0 && chunk_io_ud && !fill_bkg_task) {
-        if(chunk_io_ud->mem_type_id >= 0 && H5Tclose(chunk_io_ud->mem_type_id) < 0)
+        if(chunk_io_ud->tconv.mem_type_id >= 0 && H5Tclose(chunk_io_ud->tconv.mem_type_id) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, FAIL, "can't close memory datatype");
-        if(chunk_io_ud->mem_space_id >= 0 && H5Sclose(chunk_io_ud->mem_space_id) < 0)
+        if(chunk_io_ud->tconv.mem_space_id >= 0 && H5Sclose(chunk_io_ud->tconv.mem_space_id) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, FAIL, "can't close memory dataspace");
         if(chunk_io_ud->recxs != &chunk_io_ud->recx)
             DV_free(chunk_io_ud->recxs);
-        DV_free(chunk_io_ud->dkey.iov_buf);
-        if(chunk_io_ud->reuse != H5_DAOS_TCONV_REUSE_TCONV)
-            chunk_io_ud->tconv_buf = DV_free(chunk_io_ud->tconv_buf);
-        if(chunk_io_ud->reuse != H5_DAOS_TCONV_REUSE_BKG)
-            chunk_io_ud->bkg_buf = DV_free(chunk_io_ud->bkg_buf);
-        chunk_io_ud = DV_free(chunk_io_ud);
+        if(chunk_io_ud->tconv.reuse != H5_DAOS_TCONV_REUSE_TCONV)
+            chunk_io_ud->tconv.tconv_buf = DV_free(chunk_io_ud->tconv.tconv_buf);
+        if(chunk_io_ud->tconv.reuse != H5_DAOS_TCONV_REUSE_BKG)
+            chunk_io_ud->tconv.bkg_buf = DV_free(chunk_io_ud->tconv.bkg_buf);
     } /* end if */
 
     D_FUNC_LEAVE;

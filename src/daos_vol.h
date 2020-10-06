@@ -441,6 +441,7 @@ typedef struct H5_daos_select_chunk_info_t {
 /* The dataset struct */
 typedef struct H5_daos_dset_t {
     H5_daos_obj_t obj; /* Must be first */
+    size_t file_type_size;
     hid_t type_id;
     hid_t file_type_id;
     hid_t space_id;
@@ -471,6 +472,8 @@ typedef struct H5_daos_dtype_t {
 /* The map struct */
 typedef struct H5_daos_map_t {
     H5_daos_obj_t obj; /* Must be first */
+    size_t key_file_type_size;
+    size_t val_file_type_size;
     hid_t key_type_id;
     hid_t key_file_type_id;
     hid_t val_type_id;
@@ -483,6 +486,7 @@ typedef struct H5_daos_map_t {
 typedef struct H5_daos_attr_t {
     H5_daos_item_t item; /* Must be first */
     H5_daos_obj_t *parent;
+    size_t file_type_size;
     char *name;
     hid_t type_id;
     hid_t file_type_id;

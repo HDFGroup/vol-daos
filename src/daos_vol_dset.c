@@ -587,6 +587,8 @@ H5_daos_dataset_create_helper(H5_daos_file_t *file, hid_t type_id, hid_t space_i
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, NULL, "failed to copy datatype");
     if((dset->file_type_id = H5VLget_file_type(file, H5_DAOS_g, type_id)) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "failed to get file datatype");
+    if(0 == (dset->file_type_size = H5Tget_size(dset->file_type_id)))
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, NULL, "can't get file datatype size");
     if((dset->space_id = H5Scopy(space_id)) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, NULL, "failed to copy dataspace");
     if(H5Sselect_all(dset->space_id) < 0)
@@ -603,7 +605,7 @@ H5_daos_dataset_create_helper(H5_daos_file_t *file, hid_t type_id, hid_t space_i
     /* If the layout is contiguous try to automatically change to chunked */
     if(dset->dcpl_cache.layout == H5D_CONTIGUOUS) {
         int ndims;
-        size_t type_size;
+        size_t type_size = dset->file_type_size;
         uint64_t extent_size;
         hsize_t extent_dims[H5S_MAX_RANK];
         int i;
@@ -611,10 +613,6 @@ H5_daos_dataset_create_helper(H5_daos_file_t *file, hid_t type_id, hid_t space_i
         /* Get dataspace ranks */
         if((ndims = H5Sget_simple_extent_ndims(space_id)) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, NULL, "can't get dataspace dimensionality");
-
-        /* Get type size */
-        if(0 == (type_size = H5Tget_size(dset->file_type_id)))
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, NULL, "can't get file type size");
 
         /* Get dataspace extent */
         if(H5Sget_simple_extent_dims(space_id, extent_dims, NULL) < 0)
@@ -800,8 +798,8 @@ H5_daos_dataset_create_helper(H5_daos_file_t *file, hid_t type_id, hid_t space_i
          * vl/ref fill values.  Latter would require a different code path for
          * filling in read values after conversion instead of before.  -NAF */
         if(dset->dcpl_cache.fill_status == H5D_FILL_VALUE_USER_DEFINED) {
-            if(0 == (fill_val_size = H5Tget_size(dset->file_type_id)))
-                D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, NULL, "can't get file type size");
+            fill_val_size = dset->file_type_size;
+
             if(NULL == (dset->fill_val = DV_calloc(fill_val_size)))
                 D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for fill value");
             if(H5Pget_fill_value(dset->dcpl_id, dset->file_type_id, dset->fill_val) < 0)
@@ -905,8 +903,8 @@ H5_daos_dataset_create_helper(H5_daos_file_t *file, hid_t type_id, hid_t space_i
 
         /* Handle fill value */
         if(dset->dcpl_cache.fill_status == H5D_FILL_VALUE_USER_DEFINED) {
-            if(0 == (fill_val_size = H5Tget_size(dset->file_type_id)))
-                D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, NULL, "can't get file type size");
+            fill_val_size = dset->file_type_size;
+
             if(NULL == (dset->fill_val = DV_malloc(fill_val_size)))
                 D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for fill value");
 
@@ -1042,6 +1040,8 @@ H5_daos_dset_open_end(H5_daos_dset_t *dset, uint8_t *p, uint64_t type_buf_len,
     /* Finish setting up dataset struct */
     if((dset->file_type_id = H5VLget_file_type(dset->obj.item.file, H5_DAOS_g, dset->type_id)) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, -H5_DAOS_H5_TCONV_ERROR, "failed to get file datatype");
+    if(0 == (dset->file_type_size = H5Tget_size(dset->file_type_id)))
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, -H5_DAOS_H5_GET_ERROR, "can't get file datatype size");
 
     /* Fill DCPL cache */
     if(H5_daos_dset_fill_dcpl_cache(dset) < 0)
@@ -2303,10 +2303,6 @@ H5_daos_dataset_io_types_equal(H5_daos_select_chunk_info_t *chunk_info,
     assert(first_task);
     assert(dep_task);
 
-    /* Get datatype size */
-    if((file_type_size = H5Tget_size(dset->file_type_id)) == 0)
-        D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get datatype size for file datatype");
-
     /* Allocate argument struct */
     if(NULL == (chunk_io_ud = (H5_daos_chunk_io_ud_t *)DV_calloc(sizeof(H5_daos_chunk_io_ud_t))))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for I/O callback arguments");
@@ -2330,6 +2326,8 @@ H5_daos_dataset_io_types_equal(H5_daos_select_chunk_info_t *chunk_info,
     /* Set up dkey */
     daos_iov_set(&chunk_io_ud->dkey, chunk_io_ud->dkey_buf,
             (daos_size_t)(1 + ((size_t)dset_ndims * sizeof(chunk_info->chunk_coords[0]))));
+
+    file_type_size = dset->file_type_size;
 
     /* Set up iod */
     memset(&chunk_io_ud->iod, 0, sizeof(chunk_io_ud->iod));

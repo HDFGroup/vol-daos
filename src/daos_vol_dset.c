@@ -4393,6 +4393,18 @@ done:
  *              passed in always come from the same dataset object with the
  *              same chunk dimensionality.
  *
+ *              NOTE: In several places in this routine, an adjustment is
+ *                    calculated in order to move the selection within a
+ *                    chunk around by using H5Sselect_adjust. Since this
+ *                    API routine accepts an array of signed values, this
+ *                    adjustment is calculated by converting unsigned
+ *                    coordinates to signed coordinates without a check
+ *                    for overflow. In the future, it would be nice if
+ *                    HDF5 could support subtracting and adding of
+ *                    offsets to selections with routines that accept
+ *                    arrays of unsigned offsets so this can be done
+ *                    safely.
+ *
  *              XXX: Note that performance could be increased by
  *                   calculating all of the chunks in the entire dataset
  *                   and then caching them in the dataset object for
@@ -4565,8 +4577,10 @@ H5_daos_get_selected_chunk_info(H5_daos_dcpl_cache_t *dcpl_cache,
 
             /* If this is a partial edge chunk, setup the partial edge chunk dimensions.
              * These will be used to adjust the selection within the edge chunk so that
-             * it falls within the dataset's dataspace boundaries.  Also copy start
-             * coords to hssize_t array.
+             * it falls within the dataset's dataspace boundaries. Also setup a selection
+             * adjustment that can be used to move the selection within the chunk back to
+             * the correct offset within the chunk, if necessary (for point and hyperslab
+             * selections).
              */
             for(j = 0; j < (ssize_t)fspace_ndims; j++) {
                 if(start_coords[j] + chunk_dims[j] > file_space_dims[j]) {
@@ -4597,46 +4611,29 @@ H5_daos_get_selected_chunk_info(H5_daos_dcpl_cache_t *dcpl_cache,
                     break;
 
                 case H5S_SEL_HYPERSLABS:
-                    if (_chunk_info[i].fspace_id <= 0) {
-                        /* Form this chunk's initial file dataspace by selecting out only the
-                         * elements selected in the whole file dataspace that fall within the
-                         * region formed by this chunk's starting coordinates and dimensionality
-                         * (accounting for partial edge chunks).
-                         */
-                        if ((_chunk_info[i].fspace_id = H5Scombine_hyperslab(file_space_id, H5S_SELECT_AND,
-                                start_coords, NULL, curr_chunk_dims, NULL)) < 0)
+                {
+                    /* Create chunk file dataspace if one isn't cached */
+                    if (_chunk_info[i].fspace_id < 0)
+                        if ((_chunk_info[i].fspace_id = H5Screate_simple(fspace_ndims, chunk_dims, NULL)) < 0)
                             D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTSELECT, FAIL, "can't create temporary chunk selection");
 
-                        /* Resize chunk's dataspace dimensions to size of chunk */
-                        if (H5Sset_extent_simple(_chunk_info[i].fspace_id, fspace_ndims, chunk_dims, NULL) < 0)
-                            D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTSELECT, FAIL, "can't adjust chunk dimensions");
-                    } /* end if */
-                    else {
-                        /* Resize chunk dataspace to match dimensionality of whole file dataspace */
-                        if (H5Sset_extent_simple(_chunk_info[i].fspace_id, fspace_ndims, file_space_dims, NULL) < 0)
-                            D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTSELECT, FAIL, "can't adjust chunk file dataspace dimensionality");
+                    /* Select all elements within this chunk's file dataspace as
+                     * a hyperslab (accounting for partial edge chunks) */
+                    if (H5Sselect_hyperslab(_chunk_info[i].fspace_id, H5S_SELECT_SET,
+                            start_coords, NULL, curr_chunk_dims, NULL) < 0)
+                        D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTSELECT, FAIL, "can't set selection in chunk file dataspace");
 
-                        /* Select all elements within this chunk's file dataspace as
-                         * a hyperslab (accounting for partial edge chunks) */
-                        if (H5Sselect_hyperslab(_chunk_info[i].fspace_id, H5S_SELECT_SET,
-                                start_coords, NULL, curr_chunk_dims, NULL) < 0)
-                            D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTSELECT, FAIL, "can't adjust chunk file dataspace dimensionality");
-
-                        /* Refine chunk file dataspace selection with only elements
-                         * that are also selected in whole file dataspace */
-                        if (H5Smodify_select(_chunk_info[i].fspace_id, H5S_SELECT_AND, file_space_id) < 0)
-                            D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTSELECT, FAIL, "can't refine chunk file dataspace selection");
-
-                        /* Resize chunk dataspace back to size of chunk */
-                        if (H5Sset_extent_simple(_chunk_info[i].fspace_id, fspace_ndims, chunk_dims, NULL) < 0)
-                            D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTSELECT, FAIL, "can't adjust chunk file dataspace dimensionality");
-                    } /* end else */
+                    /* Refine chunk file dataspace selection with only elements
+                     * that are also selected in whole file dataspace */
+                    if (H5Smodify_select(_chunk_info[i].fspace_id, H5S_SELECT_AND, file_space_id) < 0)
+                        D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTSELECT, FAIL, "can't refine chunk file dataspace selection");
 
                     /* Move selection back to have correct offset in chunk */
                     if (H5Sselect_adjust(_chunk_info[i].fspace_id, chunk_space_adjust) < 0)
                         D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTSELECT, FAIL, "can't adjust chunk selection");
 
                     break;
+                } /* case H5S_SEL_HYPERSLABS */
 
                 case H5S_SEL_ALL:
                 {

@@ -423,10 +423,14 @@ H5_daos_map_create(void *_item,
         D_GOTO_ERROR(H5E_MAP, H5E_CANTCOPY, NULL, "failed to copy datatype");
     if((map->key_file_type_id = H5VLget_file_type(item->file, H5_DAOS_g, ktype_id)) < 0)
         D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "failed to get file datatype");
+    if(0 == (map->key_file_type_size = H5Tget_size(map->key_file_type_id)))
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, NULL, "can't get key file datatype size");
     if((map->val_type_id = H5Tcopy(vtype_id)) < 0)
         D_GOTO_ERROR(H5E_MAP, H5E_CANTCOPY, NULL, "failed to copy datatype");
     if((map->val_file_type_id = H5VLget_file_type(item->file, H5_DAOS_g, vtype_id)) < 0)
         D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "failed to get file datatype");
+    if(0 == (map->val_file_type_size = H5Tget_size(map->val_file_type_id)))
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, NULL, "can't get value file datatype size");
     if((map->mcpl_id = H5Pcopy(mcpl_id)) < 0)
         D_GOTO_ERROR(H5E_MAP, H5E_CANTCOPY, NULL, "failed to copy gcpl");
     if((map->mapl_id = H5Pcopy(mapl_id)) < 0)
@@ -1287,6 +1291,10 @@ H5_daos_map_open_end(H5_daos_map_t *map, uint8_t *p,
         D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, -H5_DAOS_H5_TCONV_ERROR, "failed to get file datatype");
     if((map->val_file_type_id = H5VLget_file_type(map->obj.item.file, H5_DAOS_g, map->val_type_id)) < 0)
         D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, -H5_DAOS_H5_TCONV_ERROR, "failed to get file datatype");
+    if(0 == (map->key_file_type_size = H5Tget_size(map->key_file_type_id)))
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, -H5_DAOS_H5_GET_ERROR, "can't get key file datatype size");
+    if(0 == (map->val_file_type_size = H5Tget_size(map->val_file_type_id)))
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, -H5_DAOS_H5_GET_ERROR, "can't get value file datatype size");
 
     /* Fill OCPL cache */
     if(H5_daos_fill_ocpl_cache(&map->obj, map->mcpl_id) < 0)
@@ -1973,9 +1981,7 @@ H5_daos_map_get_val(void *_map, hid_t key_mem_type_id, const void *key,
         daos_iov_set(&get_val_udata->md_rw_cb_ud.sg_iov[0], get_val_udata->tconv_buf, (daos_size_t)get_val_udata->val_file_type_size);
     } /* end if */
     else {
-        /* Get datatype size */
-        if((get_val_udata->val_file_type_size = H5Tget_size(map->val_file_type_id)) == 0)
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get datatype size for value datatype");
+        get_val_udata->val_file_type_size = map->val_file_type_size;
 
         /* Set up sgl_iov to point to value */
         daos_iov_set(&get_val_udata->md_rw_cb_ud.sg_iov[0], value, (daos_size_t)get_val_udata->val_file_type_size);
@@ -2254,9 +2260,7 @@ H5_daos_map_put(void *_map, hid_t key_mem_type_id, const void *key,
             D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't initialize type conversion");
     } /* end if */
     else
-        /* Get datatype size */
-        if((write_udata->val_file_type_size = H5Tget_size(map->val_file_type_id)) == 0)
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get datatype size for value datatype");
+        write_udata->val_file_type_size = map->val_file_type_size;
 
     /* Set up iod */
     memset(&write_udata->md_rw_cb_ud.iod[0], 0, sizeof(daos_iod_t));

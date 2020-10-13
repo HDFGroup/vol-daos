@@ -769,6 +769,8 @@ H5_daos_attribute_create_helper(H5_daos_item_t *item, const H5VL_loc_params_t *l
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTCOPY, NULL, "failed to copy datatype");
     if((attr->file_type_id = H5VLget_file_type(item->file, H5_DAOS_g, type_id)) < 0)
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "failed to get file datatype");
+    if(0 == (attr->file_type_size = H5Tget_size(attr->file_type_id)))
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, NULL, "can't get file datatype size");
     if((attr->space_id = H5Scopy(space_id)) < 0)
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTCOPY, NULL, "failed to copy dataspace");
     if((attr->acpl_id = H5Pcopy(acpl_id)) < 0)
@@ -1943,6 +1945,8 @@ H5_daos_attribute_open_end(H5_daos_attr_t *attr, uint8_t *p, uint64_t type_buf_l
      /* Finish setting up attribute struct */
      if((attr->file_type_id = H5VLget_file_type(attr->parent->item.file, H5_DAOS_g, attr->type_id)) < 0)
          D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, -H5_DAOS_H5_TCONV_ERROR, "failed to get file datatype");
+     if(0 == (attr->file_type_size = H5Tget_size(attr->file_type_id)))
+         D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, -H5_DAOS_H5_GET_ERROR, "can't get file datatype size");
 
 done:
     D_FUNC_LEAVE;
@@ -2225,11 +2229,8 @@ H5_daos_attribute_read(void *_attr, hid_t mem_type_id, void *buf,
         if(fill_bkg && (reuse != H5_DAOS_TCONV_REUSE_BKG))
             (void)memcpy(bkg_buf, buf, (size_t)attr_nelmts * mem_type_size);
     } /* end if */
-    else {
-        /* Get datatype size */
-        if((file_type_size = H5Tget_size(attr->file_type_id)) == 0)
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get datatype size for file datatype");
-    } /* end else */
+    else
+        file_type_size = attr->file_type_size;
 
     /* Set up broadcast user data (if appropriate) */
     if(collective && (attr->item.file->num_procs > 1)) {
@@ -2763,9 +2764,7 @@ H5_daos_attribute_write(void *_attr, hid_t mem_type_id, const void *buf,
                 D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't initialize type conversion");
         } /* end if */
         else
-            /* Get datatype size */
-            if((file_type_size = H5Tget_size(attr->file_type_id)) == 0)
-                D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get datatype size for file datatype");
+            file_type_size = attr->file_type_size;
 
         /* Set up operation to write data */
         /* Create akey string (prefix "V-") */
@@ -3511,7 +3510,6 @@ H5_daos_attribute_get_info_task(tse_task_t *task)
 {
     H5_daos_attr_get_info_ud_t *udata = NULL;
     hssize_t dataspace_nelmts = 0;
-    size_t datatype_size = 0;
     int ret_value = 0;
 
     /* Get private data */
@@ -3547,15 +3545,11 @@ H5_daos_attribute_get_info_task(tse_task_t *task)
     /* Only ASCII character set is supported currently */
     udata->info_out->cset = H5T_CSET_ASCII;
 
-    /* Retrieve attribute's data size */
-    if(0 == (datatype_size = H5Tget_size(udata->attr->file_type_id)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, -H5_DAOS_H5_GET_ERROR, "can't retrieve attribute's datatype size");
-
     if((dataspace_nelmts = H5Sget_simple_extent_npoints(udata->attr->space_id)) < 0)
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, -H5_DAOS_H5_GET_ERROR, "can't retrieve number of elements in attribute's dataspace");
 
     /* DSINC - data_size will likely be incorrect currently for VLEN types */
-    udata->info_out->data_size = datatype_size * (size_t)dataspace_nelmts;
+    udata->info_out->data_size = udata->attr->file_type_size * (size_t)dataspace_nelmts;
 
 done:
     /* Complete this task */

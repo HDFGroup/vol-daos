@@ -2044,7 +2044,7 @@ operate_on_files(hid_t fapl_id)
             goto error;
         } 
 
-#ifndef TMP
+#ifdef TMP
         /* File delete - Temporariely disabled until the hanging problem is fixed (Jira issue ID-245) */
         start = MPI_Wtime();
 

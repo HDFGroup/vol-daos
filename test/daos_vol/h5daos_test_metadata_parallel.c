@@ -81,25 +81,27 @@ typedef enum {
   DSET_READ_NUM 	= 8,
   DSET_INFO_NUM		= 9,
   DSET_CLOSE_NUM	= 10,
-  DSET_REMOVE_NUM 	= 11,
-  ATTR_CREATE_NUM 	= 12,
-  ATTR_OPEN_NUM		= 13,
-  ATTR_WRITE_NUM	= 14,
-  ATTR_READ_NUM		= 15,
-  ATTR_CLOSE_NUM	= 16,
-  ATTR_REMOVE_NUM 	= 17,
-  DTYPE_COMMIT_NUM      = 18,
-  DTYPE_OPEN_NUM	= 19,
-  DTYPE_CLOSE_NUM	= 20,
-  MAP_CREATE_NUM 	= 21,
-  MAP_PUT_NUM		= 22,
-  MAP_GET_NUM		= 23,
-  MAP_OPEN_NUM 		= 24,
-  MAP_CLOSE_NUM 	= 25,
-  MAP_REMOVE_NUM 	= 26,
-  LINK_ITERATE_NUM	= 27,
-  LINK_EXIST_NUM	= 28,
-  OBJ_COPY_NUM		= 29,
+  DSET_CREATEWRITECLOSE_NUM = 11,
+  DSET_OPENREADCLOSE_NUM    = 12,
+  DSET_REMOVE_NUM 	= 13,
+  ATTR_CREATE_NUM 	= 14,
+  ATTR_OPEN_NUM		= 15,
+  ATTR_WRITE_NUM	= 16,
+  ATTR_READ_NUM		= 17,
+  ATTR_CLOSE_NUM	= 18,
+  ATTR_REMOVE_NUM 	= 19,
+  DTYPE_COMMIT_NUM      = 20,
+  DTYPE_OPEN_NUM	= 21,
+  DTYPE_CLOSE_NUM	= 22,
+  MAP_CREATE_NUM 	= 23,
+  MAP_PUT_NUM		= 24,
+  MAP_GET_NUM		= 25,
+  MAP_OPEN_NUM 		= 26,
+  MAP_CLOSE_NUM 	= 27,
+  MAP_REMOVE_NUM 	= 28,
+  LINK_ITERATE_NUM	= 29,
+  LINK_EXIST_NUM	= 30,
+  OBJ_COPY_NUM		= 31,
   ENTRY_NUM
 } test_num_t;
 
@@ -116,6 +118,8 @@ const char* metadata_op[] = {
   "Dset read rate",
   "Dset info rate",
   "Dset close rate",
+  "Dset create+write+close rate",
+  "Dset open+read+close rate",
   "Dset remove rate",
   "Attr create rate",
   "Attr open rate",
@@ -554,10 +558,10 @@ initialize_time()
     int i;
 
     for (i = 0; i < ENTRY_NUM; i++) 
-        op_time[i] = (double *)calloc(hand.numbOfTrees, sizeof(double));
+        op_time[i] = (double *)calloc((size_t)hand.numbOfTrees, sizeof(double));
 
     for (i = 0; i < FILE_ENTRY_NUM; i++)
-        file_op_time[i] = (double *)calloc(hand.numbOfObjs, sizeof(double));
+        file_op_time[i] = (double *)calloc((size_t)hand.numbOfObjs, sizeof(double));
 }
 
 static void initialize_data()
@@ -669,14 +673,14 @@ calculate_results()
 
     /* Calculate results of objects */
     for (i = 0; i < ENTRY_NUM; i++)
-        rate_each_tree[i] = (double *)calloc(hand.numbOfTrees, sizeof(double));
+        rate_each_tree[i] = (double *)calloc((size_t)hand.numbOfTrees, sizeof(double));
 
     if (hand.depthOfTree == 0) {
         total_nodes_per_tree = 1;
 
     } else {
         for (i = 0; i <= hand.depthOfTree; i++)
-            total_nodes_per_tree += pow(hand.numbOfBranches, i);
+            total_nodes_per_tree += (int)pow(hand.numbOfBranches, i);
     }
 
     memset(total_rate, 0, sizeof(double) * ENTRY_NUM);
@@ -983,6 +987,13 @@ static int create_ids()
         } 
     }
 
+    /* The S1 object class overwrites the default SX class for the datasets to improve performance */
+    if(hand.uniqueGroupPerRank && H5daos_set_object_class(dcpl_id, "S1") < 0) {
+        H5_FAILED(); AT();
+        printf("    couldn't set object class for dataset creation property list\n");
+        goto error;
+    }
+
     if(!strcmp(hand.map_dtype, "vl")) {
         if((map_vl_key_dtype_id = H5Tcreate(H5T_STRING, H5T_VARIABLE)) < 0) {
             H5_FAILED(); AT();
@@ -1004,6 +1015,7 @@ static int create_ids()
         goto error;
     }
 
+    /* The SX object class is only used for the unique group under which objects are tested */
     if(hand.uniqueGroupPerRank && H5daos_set_object_class(gcpl_id, "SX") < 0) {
         H5_FAILED(); AT();
         printf("    couldn't set object class for group creation property list\n");
@@ -1033,6 +1045,11 @@ error:
 static herr_t
 link_iter_cb(hid_t group_id, const char *name, const H5L_info2_t *info, void *op_data)
 {
+    (void)group_id;
+    (void)name;
+    (void)info;
+    (void)op_data;
+
     return 0;
 }
 
@@ -1051,7 +1068,7 @@ test_group(hid_t loc_id)
         sprintf(gname, "group_object_%d", i + 1);
         start = MPI_Wtime();
 
-        if ((gid = H5Gcreate2(loc_id, gname, H5P_DEFAULT, gcpl_id, H5P_DEFAULT)) < 0) {
+        if ((gid = H5Gcreate2(loc_id, gname, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT)) < 0) {
             H5_FAILED(); AT();
             printf("failed to create group object '%s'\n", gname);
             goto error;
@@ -1070,7 +1087,7 @@ test_group(hid_t loc_id)
             for(j = 0; j < hand.numbOfNestedGroups; j++) {
                 sprintf(nested_gname, "nested_group_%d", j + 1);
 
-                if ((nested_gid = H5Gcreate2(gid, nested_gname, H5P_DEFAULT, gcpl_id, H5P_DEFAULT)) < 0) {
+                if ((nested_gid = H5Gcreate2(gid, nested_gname, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT)) < 0) {
                     H5_FAILED(); AT();
                     printf("failed to create group object '%s'\n", nested_gname);
                     goto error;
@@ -1246,7 +1263,7 @@ test_dataset(hid_t loc_id)
         sprintf(dset_name, "dset_object_%d", i + 1);
         start = MPI_Wtime();
 
-        if ((dset_id = H5Dcreate2(loc_id, dset_name, H5T_NATIVE_INT, file_dspace, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT)) < 0) {
+        if ((dset_id = H5Dcreate2(loc_id, dset_name, H5T_NATIVE_INT, file_dspace, H5P_DEFAULT, dcpl_id, H5P_DEFAULT)) < 0) {
             H5_FAILED(); AT();
             printf("failed to create dataset object '%s'\n", dset_name);
             goto error;
@@ -1255,6 +1272,7 @@ test_dataset(hid_t loc_id)
         end = MPI_Wtime();
         time = end - start;
         op_time[DSET_CREATE_NUM][tree_order] += time;
+        op_time[DSET_CREATEWRITECLOSE_NUM][tree_order] += time;
 
 #ifdef DEBUG
         printf("Dset creation time: %lf, mpi_rank=%d\n", time, mpi_rank);
@@ -1333,6 +1351,7 @@ test_dataset(hid_t loc_id)
             end = MPI_Wtime();
             time = end - start;
             op_time[DSET_WRITE_NUM][tree_order] += time;
+            op_time[DSET_CREATEWRITECLOSE_NUM][tree_order] += time;
 
 #ifdef DEBUG
             printf("Dset write time: %lf, mpi_rank=%d\n", time, mpi_rank);
@@ -1351,6 +1370,7 @@ test_dataset(hid_t loc_id)
         end = MPI_Wtime();
         time = end - start;
         op_time[DSET_CLOSE_NUM][tree_order] += time;
+        op_time[DSET_CREATEWRITECLOSE_NUM][tree_order] += time;
 
 #ifdef DEBUG
         printf("Dset close time: %lf, mpi_rank=%d\n", time, mpi_rank);
@@ -1371,6 +1391,7 @@ test_dataset(hid_t loc_id)
         end = MPI_Wtime();
         time = end - start;
         op_time[DSET_OPEN_NUM][tree_order] += time;
+        op_time[DSET_OPENREADCLOSE_NUM][tree_order] += time;
 
 #ifdef DEBUG
         printf("Dset open time: %lf, mpi_rank=%d\n", time, mpi_rank);
@@ -1449,17 +1470,25 @@ test_dataset(hid_t loc_id)
             end = MPI_Wtime();
             time = end - start;
             op_time[DSET_READ_NUM][tree_order] += time;
+            op_time[DSET_OPENREADCLOSE_NUM][tree_order] += time;
 
 #ifdef DEBUG
             printf("Dset read time: %lf, mpi_rank=%d\n", time, mpi_rank);
 #endif
         }
 
+        /* Dataset close */
+        start = MPI_Wtime();
+
         if (H5Dclose(dset_id) < 0) {
             H5_FAILED(); AT();
             printf("failed to close the dataset '%s'\n", dset_name);
             goto error;
         }
+
+        end = MPI_Wtime();
+        time = end - start;
+        op_time[DSET_OPENREADCLOSE_NUM][tree_order] += time;
     }
 
     /* Dataset info */
@@ -1889,7 +1918,8 @@ create_objects_in_tree_node(hid_t tree_node_gid)
     /* Create a unique group for each rank (-u command-line option) */
     if (hand.uniqueGroupPerRank) {
         sprintf(unique_group_per_rank_name, "unique_group_per_rank_%d", mpi_rank);
-        if ((loc_id = H5Gcreate2(tree_node_gid, unique_group_per_rank_name, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT)) < 0) {
+        /* Use SX object class through GCPL_ID to create this group */
+        if ((loc_id = H5Gcreate2(tree_node_gid, unique_group_per_rank_name, H5P_DEFAULT, gcpl_id, H5P_DEFAULT)) < 0) {
             H5_FAILED(); AT();
             printf("    couldn't create unique group in the tree node '%s'\n", unique_group_per_rank_name);
             goto error;
@@ -2014,7 +2044,7 @@ operate_on_files(hid_t fapl_id)
             goto error;
         } 
 
-#ifdef TMP
+#ifndef TMP
         /* File delete - Temporariely disabled until the hanging problem is fixed (Jira issue ID-245) */
         start = MPI_Wtime();
 
@@ -2106,7 +2136,7 @@ static int create_trees(hid_t file) {
     for(i = 0; i < hand.numbOfTrees; i++) {
         snprintf(tree_root_name, NAME_LENGTH, "tree_root_order_%d", i);
 
-        tree_order = i;
+        tree_order = (unsigned)i;
 
         /* Create the group as the tree root */
         if ((tree_root_id = H5Gcreate2(file, tree_root_name, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT)) < 0) {
@@ -2198,8 +2228,8 @@ main( int argc, char** argv )
         goto error;
     }
 
-    if(hand.testAllObjects || hand.testGroupOnly || hand.testDsetOnly || 
-        hand.testAttrOnly || hand.testDtypeOnly || hand.testMapOnly) {
+    /* If we are testing anything except file operations, go into this block */
+    if(!hand.testFileOnly) {
         if((file_id = H5Fcreate(hand.fileName, H5F_ACC_TRUNC, H5P_DEFAULT, fapl_id)) < 0) {
             nerrors++;
             goto error;

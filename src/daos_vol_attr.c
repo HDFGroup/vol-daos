@@ -65,7 +65,8 @@ typedef struct H5_daos_attr_io_ud_t {
     H5_daos_tconv_reuse_t reuse;
     htri_t need_tconv;
     hid_t mem_type_id;
-    char *akey;
+    daos_key_t akey;
+    void *akey_buf;
     void *buf;
     void *tconv_buf;
     void *bkg_buf;
@@ -2275,7 +2276,6 @@ H5_daos_attribute_read(void *_attr, hid_t mem_type_id, void *buf,
         /* Read from attribute if this process should */
         if(!collective || (attr->item.file->my_rank == 0)) {
             tse_task_t *fetch_task = NULL;
-            size_t akey_len;
 
             /* Set up dkey */
             daos_iov_set(&attr_read_udata->md_rw_cb_ud.dkey, (void *)H5_daos_attr_key_g, H5_daos_attr_key_size_g);
@@ -2296,12 +2296,9 @@ H5_daos_attribute_read(void *_attr, hid_t mem_type_id, void *buf,
             /* Set up operation to read data */
 
             /* Create akey string (prefix "V-") */
-            akey_len = strlen(attr->name) + 2;
-            if(NULL == (attr_read_udata->akey = (char *)DV_malloc(akey_len + 1)))
-                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akey");
-            attr_read_udata->akey[0] = 'V';
-            attr_read_udata->akey[1] = '-';
-            (void)strcpy(attr_read_udata->akey + 2, attr->name);
+            if(H5_daos_attribute_get_akeys(attr->name, NULL, NULL, NULL, NULL,
+                    &attr_read_udata->akey, &attr_read_udata->akey_buf) < 0)
+                D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get akey string for raw data akey");
 
             /* Set up recx */
             attr_read_udata->recx.rx_idx = (uint64_t)0;
@@ -2309,7 +2306,7 @@ H5_daos_attribute_read(void *_attr, hid_t mem_type_id, void *buf,
 
             /* Set up iod */
             daos_iov_set(&attr_read_udata->md_rw_cb_ud.iod[0].iod_name,
-                    (void *)attr_read_udata->akey, (daos_size_t)akey_len);
+                    attr_read_udata->akey.iov_buf, attr_read_udata->akey.iov_len);
             attr_read_udata->md_rw_cb_ud.iod[0].iod_nr = 1u;
             attr_read_udata->md_rw_cb_ud.iod[0].iod_recxs = &attr_read_udata->recx;
             attr_read_udata->md_rw_cb_ud.iod[0].iod_size = (daos_size_t)attr_read_udata->file_type_size;
@@ -2426,7 +2423,7 @@ done:
     if(ret_value < 0) {
         if(attr_read_udata) {
             /* Free memory */
-            attr_read_udata->akey = DV_free(attr_read_udata->akey);
+            attr_read_udata->akey_buf = DV_free(attr_read_udata->akey_buf);
             attr_read_udata = DV_free(attr_read_udata);
         } /* end if */
 
@@ -2523,7 +2520,7 @@ done:
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
 
         /* Free private data */
-        udata->akey = DV_free(udata->akey);
+        udata->akey_buf = DV_free(udata->akey_buf);
         if(udata->reuse != H5_DAOS_TCONV_REUSE_TCONV)
             DV_free(udata->tconv_buf);
         if(udata->reuse != H5_DAOS_TCONV_REUSE_BKG)
@@ -2655,7 +2652,7 @@ done:
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
 
         /* Free private data */
-        udata->akey = DV_free(udata->akey);
+        udata->akey_buf = DV_free(udata->akey_buf);
         if(udata->reuse != H5_DAOS_TCONV_REUSE_TCONV)
             DV_free(udata->tconv_buf);
         if(udata->reuse != H5_DAOS_TCONV_REUSE_BKG)
@@ -2690,9 +2687,9 @@ H5_daos_attribute_write(void *_attr, hid_t mem_type_id, const void *buf,
     H5_daos_attr_t *attr = (H5_daos_attr_t *)_attr;
     int ndims;
     hsize_t dim[H5S_MAX_RANK];
-    size_t akey_len;
     daos_key_t dkey;
-    char *akey = NULL;
+    daos_key_t akey;
+    void *akey_buf = NULL;
     daos_iod_t iod;
     daos_recx_t recx;
     daos_sg_list_t sgl;
@@ -2767,13 +2764,10 @@ H5_daos_attribute_write(void *_attr, hid_t mem_type_id, const void *buf,
             file_type_size = attr->file_type_size;
 
         /* Set up operation to write data */
+
         /* Create akey string (prefix "V-") */
-        akey_len = strlen(attr->name) + 2;
-        if(NULL == (akey = (char *)DV_malloc(akey_len + 1)))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for akey");
-        akey[0] = 'V';
-        akey[1] = '-';
-        (void)strcpy(akey + 2, attr->name);
+        if(H5_daos_attribute_get_akeys(attr->name, NULL, NULL, NULL, NULL, &akey, &akey_buf) < 0)
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get akey string for raw data akey");
 
         /* Set up recx */
         recx.rx_idx = (uint64_t)0;
@@ -2781,7 +2775,7 @@ H5_daos_attribute_write(void *_attr, hid_t mem_type_id, const void *buf,
 
         /* Set up iod */
         memset(&iod, 0, sizeof(iod));
-        daos_iov_set(&iod.iod_name, (void *)akey, (daos_size_t)akey_len);
+        daos_iov_set(&iod.iod_name, akey.iov_buf, akey.iov_len);
         iod.iod_nr = 1u;
         iod.iod_recxs = &recx;
         iod.iod_size = (daos_size_t)file_type_size;
@@ -2830,9 +2824,9 @@ H5_daos_attribute_write(void *_attr, hid_t mem_type_id, const void *buf,
 
 done:
     /* Free memory */
-    akey = (char *)DV_free(akey);
     tconv_buf = DV_free(tconv_buf);
     bkg_buf = DV_free(bkg_buf);
+    akey_buf = DV_free(akey_buf);
 
     D_FUNC_LEAVE_API;
 } /* end H5_daos_attribute_write() */

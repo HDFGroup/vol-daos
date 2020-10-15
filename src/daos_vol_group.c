@@ -299,8 +299,8 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hbool_t is_root,
     grp->obj.item.file = file;
     grp->obj.item.rc = 1;
     grp->obj.obj_oh = DAOS_HDL_INVAL;
-    grp->gcpl_id = H5I_INVALID_HID;
-    grp->gapl_id = H5I_INVALID_HID;
+    grp->gcpl_id = H5P_GROUP_CREATE_DEFAULT;
+    grp->gapl_id = H5P_GROUP_ACCESS_DEFAULT;
 
     if(is_root) {
         /* Encode root group oid */
@@ -436,9 +436,9 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hbool_t is_root,
     } /* end else */
 
     /* Finish setting up group struct */
-    if((grp->gcpl_id = H5Pcopy(gcpl_id)) < 0)
+    if((gcpl_id != H5P_GROUP_CREATE_DEFAULT) && (grp->gcpl_id = H5Pcopy(gcpl_id)) < 0)
         D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, NULL, "failed to copy gcpl");
-    if((grp->gapl_id = H5Pcopy(gapl_id)) < 0)
+    if((gapl_id != H5P_GROUP_ACCESS_DEFAULT) && (grp->gapl_id = H5Pcopy(gapl_id)) < 0)
         D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, NULL, "failed to copy gapl");
 
     /* Fill GCPL cache */
@@ -1101,8 +1101,9 @@ H5_daos_group_open_helper(H5_daos_file_t *file, hid_t gapl_id,
     grp->obj.item.file = file;
     grp->obj.item.rc = 1;
     grp->obj.obj_oh = DAOS_HDL_INVAL;
-    grp->gcpl_id = H5I_INVALID_HID;
-    if((grp->gapl_id = H5Pcopy(gapl_id)) < 0)
+    grp->gcpl_id = H5P_GROUP_CREATE_DEFAULT;
+    grp->gapl_id = H5P_GROUP_ACCESS_DEFAULT;
+    if((gapl_id != H5P_GROUP_ACCESS_DEFAULT) && (grp->gapl_id = H5Pcopy(gapl_id)) < 0)
         D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, NULL, "failed to copy gapl");
 
     /* Set up broadcast user data */
@@ -1686,10 +1687,12 @@ H5_daos_group_close(void *_grp, hid_t H5VL_DAOS_UNUSED dxpl_id,
         if(!daos_handle_is_inval(grp->obj.obj_oh))
             if(0 != (ret = daos_obj_close(grp->obj.obj_oh, NULL /*event*/)))
                 D_DONE_ERROR(H5E_SYM, H5E_CANTCLOSEOBJ, FAIL, "can't close group DAOS object: %s", H5_daos_err_to_string(ret));
-        if(grp->gcpl_id != H5I_INVALID_HID && H5Idec_ref(grp->gcpl_id) < 0)
-            D_DONE_ERROR(H5E_SYM, H5E_CANTDEC, FAIL, "failed to close gcpl");
-        if(grp->gapl_id != H5I_INVALID_HID && H5Idec_ref(grp->gapl_id) < 0)
-            D_DONE_ERROR(H5E_SYM, H5E_CANTDEC, FAIL, "failed to close gapl");
+        if(grp->gcpl_id != H5I_INVALID_HID && grp->gcpl_id != H5P_GROUP_CREATE_DEFAULT)
+            if(H5Idec_ref(grp->gcpl_id) < 0)
+                D_DONE_ERROR(H5E_SYM, H5E_CANTDEC, FAIL, "failed to close gcpl");
+        if(grp->gapl_id != H5I_INVALID_HID && grp->gapl_id != H5P_GROUP_ACCESS_DEFAULT)
+            if(H5Idec_ref(grp->gapl_id) < 0)
+                D_DONE_ERROR(H5E_SYM, H5E_CANTDEC, FAIL, "failed to close gapl");
         grp = H5FL_FREE(H5_daos_group_t, grp);
     } /* end if */
 

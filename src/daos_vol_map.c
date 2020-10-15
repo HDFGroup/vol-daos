@@ -229,8 +229,8 @@ H5_daos_map_create(void *_item,
     map->key_file_type_id = H5I_INVALID_HID;
     map->val_type_id = H5I_INVALID_HID;
     map->val_file_type_id = H5I_INVALID_HID;
-    map->mcpl_id = H5I_INVALID_HID;
-    map->mapl_id = H5I_INVALID_HID;
+    map->mcpl_id = H5P_MAP_CREATE_DEFAULT;
+    map->mapl_id = H5P_MAP_ACCESS_DEFAULT;
 
 #ifdef H5_DAOS_USE_TRANSACTIONS
     /* Start transaction */
@@ -431,10 +431,10 @@ H5_daos_map_create(void *_item,
         D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "failed to get file datatype");
     if(0 == (map->val_file_type_size = H5Tget_size(map->val_file_type_id)))
         D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, NULL, "can't get value file datatype size");
-    if((map->mcpl_id = H5Pcopy(mcpl_id)) < 0)
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTCOPY, NULL, "failed to copy gcpl");
-    if((map->mapl_id = H5Pcopy(mapl_id)) < 0)
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTCOPY, NULL, "failed to copy gapl");
+    if((mcpl_id != H5P_MAP_CREATE_DEFAULT) && (map->mcpl_id = H5Pcopy(mcpl_id)) < 0)
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTCOPY, NULL, "failed to copy mcpl");
+    if((mapl_id != H5P_MAP_ACCESS_DEFAULT) && (map->mapl_id = H5Pcopy(mapl_id)) < 0)
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTCOPY, NULL, "failed to copy mapl");
 
     /* Fill OCPL cache */
     if(H5_daos_fill_ocpl_cache(&map->obj, map->mcpl_id) < 0)
@@ -659,13 +659,13 @@ H5_daos_map_open_helper(H5_daos_file_t *file, hid_t mapl_id, hbool_t collective,
     map->obj.item.file = file;
     map->obj.item.rc = 1;
     map->obj.obj_oh = DAOS_HDL_INVAL;
-    map->key_type_id = FAIL;
-    map->key_file_type_id = FAIL;
-    map->val_type_id = FAIL;
-    map->val_file_type_id = FAIL;
-    map->mcpl_id = FAIL;
-    map->mapl_id = FAIL;
-    if((map->mapl_id = H5Pcopy(mapl_id)) < 0)
+    map->key_type_id = H5I_INVALID_HID;
+    map->key_file_type_id = H5I_INVALID_HID;
+    map->val_type_id = H5I_INVALID_HID;
+    map->val_file_type_id = H5I_INVALID_HID;
+    map->mcpl_id = H5P_MAP_CREATE_DEFAULT;
+    map->mapl_id = H5P_MAP_ACCESS_DEFAULT;
+    if((mapl_id != H5P_MAP_ACCESS_DEFAULT) && (map->mapl_id = H5Pcopy(mapl_id)) < 0)
         D_GOTO_ERROR(H5E_MAP, H5E_CANTCOPY, NULL, "failed to copy mapl");
 
     /* Set up broadcast user data (if appropriate) and calculate initial map
@@ -3974,18 +3974,20 @@ H5_daos_map_close(void *_map, hid_t H5VL_DAOS_UNUSED dxpl_id,
         if(!daos_handle_is_inval(map->obj.obj_oh))
             if(0 != (ret = daos_obj_close(map->obj.obj_oh, NULL /*event*/)))
                 D_DONE_ERROR(H5E_MAP, H5E_CANTCLOSEOBJ, FAIL, "can't close map DAOS object: %s", H5_daos_err_to_string(ret));
-        if(map->key_type_id != FAIL && H5Idec_ref(map->key_type_id) < 0)
+        if(map->key_type_id != H5I_INVALID_HID && H5Idec_ref(map->key_type_id) < 0)
             D_DONE_ERROR(H5E_MAP, H5E_CANTDEC, FAIL, "failed to close datatype");
-        if(map->key_file_type_id != FAIL && H5Idec_ref(map->key_file_type_id) < 0)
+        if(map->key_file_type_id != H5I_INVALID_HID && H5Idec_ref(map->key_file_type_id) < 0)
             D_DONE_ERROR(H5E_MAP, H5E_CANTDEC, FAIL, "failed to close datatype");
-        if(map->val_type_id != FAIL && H5Idec_ref(map->val_type_id) < 0)
+        if(map->val_type_id != H5I_INVALID_HID && H5Idec_ref(map->val_type_id) < 0)
             D_DONE_ERROR(H5E_MAP, H5E_CANTDEC, FAIL, "failed to close datatype");
-        if(map->val_file_type_id != FAIL && H5Idec_ref(map->val_file_type_id) < 0)
+        if(map->val_file_type_id != H5I_INVALID_HID && H5Idec_ref(map->val_file_type_id) < 0)
             D_DONE_ERROR(H5E_MAP, H5E_CANTDEC, FAIL, "failed to close datatype");
-        if(map->mcpl_id != FAIL && H5Idec_ref(map->mcpl_id) < 0)
-            D_DONE_ERROR(H5E_MAP, H5E_CANTDEC, FAIL, "failed to close mcpl");
-        if(map->mapl_id != FAIL && H5Idec_ref(map->mapl_id) < 0)
-            D_DONE_ERROR(H5E_MAP, H5E_CANTDEC, FAIL, "failed to close mapl");
+        if(map->mcpl_id != H5I_INVALID_HID && map->mcpl_id != H5P_MAP_CREATE_DEFAULT)
+            if(H5Idec_ref(map->mcpl_id) < 0)
+                D_DONE_ERROR(H5E_MAP, H5E_CANTDEC, FAIL, "failed to close mcpl");
+        if(map->mapl_id != H5I_INVALID_HID && map->mapl_id != H5P_MAP_ACCESS_DEFAULT)
+            if(H5Idec_ref(map->mapl_id) < 0)
+                D_DONE_ERROR(H5E_MAP, H5E_CANTDEC, FAIL, "failed to close mapl");
         map = H5FL_FREE(H5_daos_map_t, map);
     } /* end if */
 

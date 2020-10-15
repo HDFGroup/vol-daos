@@ -600,7 +600,7 @@ H5_daos_attribute_create_helper(H5_daos_item_t *item, const H5VL_loc_params_t *l
     attr->type_id = H5I_INVALID_HID;
     attr->file_type_id = H5I_INVALID_HID;
     attr->space_id = H5I_INVALID_HID;
-    attr->acpl_id = H5I_INVALID_HID;
+    attr->acpl_id = H5P_ATTRIBUTE_CREATE_DEFAULT;
     if(NULL == (attr->name = strdup(attr_name)))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't copy attribute name");
 
@@ -773,8 +773,8 @@ H5_daos_attribute_create_helper(H5_daos_item_t *item, const H5VL_loc_params_t *l
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, NULL, "can't get file datatype size");
     if((attr->space_id = H5Scopy(space_id)) < 0)
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTCOPY, NULL, "failed to copy dataspace");
-    if((attr->acpl_id = H5Pcopy(acpl_id)) < 0)
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTCOPY, NULL, "failed to copy acpl");
+    if((acpl_id != H5P_ATTRIBUTE_CREATE_DEFAULT) && (attr->acpl_id = H5Pcopy(acpl_id)) < 0)
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTCOPY, NULL, "failed to copy ACPL");
     if(H5Sselect_all(attr->space_id) < 0)
         D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTDELETE, NULL, "can't change selection");
 
@@ -1373,7 +1373,7 @@ H5_daos_attribute_open_helper(H5_daos_item_t *item, const H5VL_loc_params_t *loc
     attr->type_id = H5I_INVALID_HID;
     attr->file_type_id = H5I_INVALID_HID;
     attr->space_id = H5I_INVALID_HID;
-    attr->acpl_id = H5I_INVALID_HID;
+    attr->acpl_id = H5P_ATTRIBUTE_CREATE_DEFAULT;
 
     /* Set up broadcast user data (if appropriate) and calculate initial attribute
      * info buffer size */
@@ -3239,8 +3239,9 @@ H5_daos_attribute_close(void *_attr, hid_t dxpl_id, void **req)
             D_DONE_ERROR(H5E_ATTR, H5E_CANTDEC, FAIL, "failed to close attribute's file datatype");
         if(attr->space_id != H5I_INVALID_HID && H5Idec_ref(attr->space_id) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CANTDEC, FAIL, "failed to close attribute's dataspace");
-        if(attr->acpl_id != H5I_INVALID_HID && H5Idec_ref(attr->acpl_id) < 0)
-            D_DONE_ERROR(H5E_ATTR, H5E_CANTDEC, FAIL, "failed to close acpl");
+        if(attr->acpl_id != H5I_INVALID_HID && attr->acpl_id != H5P_ATTRIBUTE_CREATE_DEFAULT)
+            if(H5Idec_ref(attr->acpl_id) < 0)
+                D_DONE_ERROR(H5E_ATTR, H5E_CANTDEC, FAIL, "failed to close acpl");
         attr = H5FL_FREE(H5_daos_attr_t, attr);
     } /* end if */
 

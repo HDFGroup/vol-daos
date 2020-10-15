@@ -741,8 +741,8 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     file->container_poh = DAOS_HDL_INVAL;
     file->glob_md_oh = DAOS_HDL_INVAL;
     file->root_grp = NULL;
-    file->fapl_id = FAIL;
-    file->vol_id = FAIL;
+    file->fapl_id = H5P_FILE_ACCESS_DEFAULT;
+    file->vol_id = H5I_INVALID_HID;
     file->item.rc = 1;
 
     /* Fill in fields of file we know */
@@ -751,7 +751,7 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     if(NULL == (file->file_name = strdup(name)))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't copy file name");
     file->flags = flags;
-    if((file->fapl_id = H5Pcopy(fapl_id)) < 0)
+    if((fapl_id != H5P_FILE_ACCESS_DEFAULT) && (file->fapl_id = H5Pcopy(fapl_id)) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTCOPY, NULL, "failed to copy fapl");
 
     /* Create DAOS task scheduler */
@@ -1473,8 +1473,8 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     file->container_poh = DAOS_HDL_INVAL;
     file->glob_md_oh = DAOS_HDL_INVAL;
     file->root_grp = NULL;
-    file->fapl_id = FAIL;
-    file->vol_id = FAIL;
+    file->fapl_id = H5P_FILE_ACCESS_DEFAULT;
+    file->vol_id = H5I_INVALID_HID;
     file->item.rc = 1;
 
     /* Fill in fields of file we know */
@@ -1483,7 +1483,7 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     if(NULL == (file->file_name = strdup(name)))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't copy file name");
     file->flags = flags;
-    if((file->fapl_id = H5Pcopy(fapl_id)) < 0)
+    if((fapl_id != H5P_FILE_ACCESS_DEFAULT) && (file->fapl_id = H5Pcopy(fapl_id)) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTCOPY, NULL, "failed to copy fapl");
 
     /* Create DAOS task scheduler */
@@ -2992,8 +2992,9 @@ H5_daos_file_close_helper(H5_daos_file_t *file, hid_t dxpl_id, void **req)
     if(file->comm || file->info)
         if(H5_daos_comm_info_free(&file->comm, &file->info) < 0)
             D_DONE_ERROR(H5E_INTERNAL, H5E_CANTFREE, FAIL, "failed to free copy of MPI communicator and info");
-    if(file->fapl_id != FAIL && H5Idec_ref(file->fapl_id) < 0)
-        D_DONE_ERROR(H5E_SYM, H5E_CANTDEC, FAIL, "failed to close fapl");
+    if(file->fapl_id != H5I_INVALID_HID && file->fapl_id != H5P_FILE_ACCESS_DEFAULT)
+        if(H5Idec_ref(file->fapl_id) < 0)
+            D_DONE_ERROR(H5E_SYM, H5E_CANTDEC, FAIL, "failed to close fapl");
     if(!daos_handle_is_inval(file->glob_md_oh))
         if(0 != (ret = daos_obj_close(file->glob_md_oh, NULL /*event*/)))
             D_DONE_ERROR(H5E_FILE, H5E_CANTCLOSEFILE, FAIL, "can't close global metadata object: %s", H5_daos_err_to_string(ret));

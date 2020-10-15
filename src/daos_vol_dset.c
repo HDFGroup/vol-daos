@@ -529,8 +529,8 @@ H5_daos_dataset_create_helper(H5_daos_file_t *file, hid_t type_id, hid_t space_i
     dset->type_id = H5I_INVALID_HID;
     dset->file_type_id = H5I_INVALID_HID;
     dset->space_id = H5I_INVALID_HID;
-    dset->dcpl_id = H5I_INVALID_HID;
-    dset->dapl_id = H5I_INVALID_HID;
+    dset->dcpl_id = H5P_DATASET_CREATE_DEFAULT;
+    dset->dapl_id = H5P_DATASET_ACCESS_DEFAULT;
     dset->io_cache.file_sel_iter_id = H5I_INVALID_HID;
     dset->io_cache.mem_sel_iter_id = H5I_INVALID_HID;
 
@@ -546,9 +546,9 @@ H5_daos_dataset_create_helper(H5_daos_file_t *file, hid_t type_id, hid_t space_i
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, NULL, "failed to copy dataspace");
     if(H5Sselect_all(dset->space_id) < 0)
         D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTDELETE, NULL, "can't change selection");
-    if((dset->dcpl_id = H5Pcopy(dcpl_id)) < 0)
+    if((dcpl_id != H5P_DATASET_CREATE_DEFAULT) && (dset->dcpl_id = H5Pcopy(dcpl_id)) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, NULL, "failed to copy dcpl");
-    if((dset->dapl_id = H5Pcopy(dapl_id)) < 0)
+    if((dapl_id != H5P_DATASET_ACCESS_DEFAULT) && (dset->dapl_id = H5Pcopy(dapl_id)) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, NULL, "failed to copy dapl");
 
     /* Fill DCPL cache */
@@ -624,6 +624,10 @@ H5_daos_dataset_create_helper(H5_daos_file_t *file, hid_t type_id, hid_t space_i
                     } /* end while */
                 } /* end else */
             } while(i > 0);
+
+            /* Make sure we aren't trying to set chunking on a default DCPL */
+            if((dset->dcpl_id == H5P_DATASET_CREATE_DEFAULT) && (dset->dcpl_id = H5Pcopy(dcpl_id)) < 0)
+                D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, NULL, "failed to copy dcpl");
 
             /* Set chunk info in DCPL cache and DCPL */
             dset->dcpl_cache.layout = H5D_CHUNKED;
@@ -1773,10 +1777,11 @@ H5_daos_dataset_open_helper(H5_daos_file_t *file, hid_t dapl_id, hbool_t collect
     dset->type_id = H5I_INVALID_HID;
     dset->file_type_id = H5I_INVALID_HID;
     dset->space_id = H5I_INVALID_HID;
-    dset->dcpl_id = H5I_INVALID_HID;
+    dset->dcpl_id = H5P_DATASET_CREATE_DEFAULT;
+    dset->dapl_id = H5P_DATASET_ACCESS_DEFAULT;
     dset->io_cache.file_sel_iter_id = H5I_INVALID_HID;
     dset->io_cache.mem_sel_iter_id = H5I_INVALID_HID;
-    if((dset->dapl_id = H5Pcopy(dapl_id)) < 0)
+    if((dapl_id != H5P_DATASET_ACCESS_DEFAULT) && (dset->dapl_id = H5Pcopy(dapl_id)) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, NULL, "failed to copy dapl");
 
     /* Set up broadcast user data (if appropriate) and calculate initial dataset
@@ -3791,10 +3796,12 @@ H5_daos_dataset_close(void *_dset, hid_t H5VL_DAOS_UNUSED dxpl_id,
             D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close dataset's file datatype");
         if(dset->space_id != H5I_INVALID_HID && H5Idec_ref(dset->space_id) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close dataset's dataspace");
-        if(dset->dcpl_id != H5I_INVALID_HID && H5Idec_ref(dset->dcpl_id) < 0)
-            D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close dcpl");
-        if(dset->dapl_id != H5I_INVALID_HID && H5Idec_ref(dset->dapl_id) < 0)
-            D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close dapl");
+        if(dset->dcpl_id != H5I_INVALID_HID && dset->dcpl_id != H5P_DATASET_CREATE_DEFAULT)
+            if(H5Idec_ref(dset->dcpl_id) < 0)
+                D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close dcpl");
+        if(dset->dapl_id != H5I_INVALID_HID && dset->dapl_id != H5P_DATASET_ACCESS_DEFAULT)
+            if(H5Idec_ref(dset->dapl_id) < 0)
+                D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close dapl");
         if(dset->fill_val)
             dset->fill_val = DV_free(dset->fill_val);
         /* Clear dataset I/O cache */

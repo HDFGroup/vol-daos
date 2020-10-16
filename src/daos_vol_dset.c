@@ -497,6 +497,7 @@ H5_daos_dataset_create_helper(H5_daos_file_t *file, hid_t type_id, hid_t space_i
     H5_daos_dset_t *dset = NULL;
     tse_task_t *dataset_metatask;
     tse_task_t *finalize_deps[3];
+    hbool_t default_dcpl = (dcpl_id == H5P_DATASET_CREATE_DEFAULT);
     htri_t is_vl_ref;
     size_t fill_val_size;
     hid_t tmp_dcpl_id = H5I_INVALID_HID;
@@ -546,7 +547,7 @@ H5_daos_dataset_create_helper(H5_daos_file_t *file, hid_t type_id, hid_t space_i
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, NULL, "failed to copy dataspace");
     if(H5Sselect_all(dset->space_id) < 0)
         D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTDELETE, NULL, "can't change selection");
-    if((dcpl_id != H5P_DATASET_CREATE_DEFAULT) && (dset->dcpl_id = H5Pcopy(dcpl_id)) < 0)
+    if(!default_dcpl && (dset->dcpl_id = H5Pcopy(dcpl_id)) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, NULL, "failed to copy dcpl");
     if((dapl_id != H5P_DATASET_ACCESS_DEFAULT) && (dset->dapl_id = H5Pcopy(dapl_id)) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, NULL, "failed to copy dapl");
@@ -638,7 +639,7 @@ H5_daos_dataset_create_helper(H5_daos_file_t *file, hid_t type_id, hid_t space_i
 
     /* Generate dataset oid */
     if(H5_daos_oid_generate(&dset->obj.oid, H5I_DATASET,
-            (dcpl_id == H5P_DATASET_CREATE_DEFAULT ? H5P_DEFAULT : dset->dcpl_id),
+            (default_dcpl ? H5P_DEFAULT : dset->dcpl_id),
             file, collective, req, first_task, dep_task) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't generate object id");
 
@@ -693,13 +694,19 @@ H5_daos_dataset_create_helper(H5_daos_file_t *file, hid_t type_id, hid_t space_i
             } /* end if */
         } /* end if */
 
-        /* Encode DCPL */
-        if(H5Pencode2(tmp_dcpl_id >= 0 ? tmp_dcpl_id : dset->dcpl_id, NULL, &dcpl_size, file->fapl_id) < 0)
-            D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of dcpl");
-        if(NULL == (dcpl_buf = DV_malloc(dcpl_size)))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized dcpl");
-        if(H5Pencode2(tmp_dcpl_id >= 0 ? tmp_dcpl_id : dset->dcpl_id, dcpl_buf, &dcpl_size, file->fapl_id) < 0)
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTENCODE, NULL, "can't serialize dcpl");
+        /* Encode DCPL if not the default */
+        if(!default_dcpl) {
+            if(H5Pencode2(tmp_dcpl_id >= 0 ? tmp_dcpl_id : dset->dcpl_id, NULL, &dcpl_size, file->fapl_id) < 0)
+                D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of dcpl");
+            if(NULL == (dcpl_buf = DV_malloc(dcpl_size)))
+                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized dcpl");
+            if(H5Pencode2(tmp_dcpl_id >= 0 ? tmp_dcpl_id : dset->dcpl_id, dcpl_buf, &dcpl_size, file->fapl_id) < 0)
+                D_GOTO_ERROR(H5E_DATASET, H5E_CANTENCODE, NULL, "can't serialize dcpl");
+        } /* end if */
+        else {
+            dcpl_buf = file->def_plist_cache.dcpl_buf;
+            dcpl_size = file->def_plist_cache.dcpl_size;
+        } /* end else */
 
         /* Set up operation to write datatype, dataspace, and DCPL to dataset */
         /* Point to dset */
@@ -735,14 +742,17 @@ H5_daos_dataset_create_helper(H5_daos_file_t *file, hid_t type_id, hid_t space_i
         update_cb_ud->sgl[0].sg_nr = 1;
         update_cb_ud->sgl[0].sg_nr_out = 0;
         update_cb_ud->sgl[0].sg_iovs = &update_cb_ud->sg_iov[0];
+        update_cb_ud->free_sg_iov[0] = TRUE;
         daos_iov_set(&update_cb_ud->sg_iov[1], space_buf, (daos_size_t)space_size);
         update_cb_ud->sgl[1].sg_nr = 1;
         update_cb_ud->sgl[1].sg_nr_out = 0;
         update_cb_ud->sgl[1].sg_iovs = &update_cb_ud->sg_iov[1];
+        update_cb_ud->free_sg_iov[1] = TRUE;
         daos_iov_set(&update_cb_ud->sg_iov[2], dcpl_buf, (daos_size_t)dcpl_size);
         update_cb_ud->sgl[2].sg_nr = 1;
         update_cb_ud->sgl[2].sg_nr_out = 0;
         update_cb_ud->sgl[2].sg_iovs = &update_cb_ud->sg_iov[2];
+        update_cb_ud->free_sg_iov[2] = !default_dcpl;
 
         /* Set nr */
         update_cb_ud->nr = 3u;
@@ -936,7 +946,7 @@ done:
             D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, NULL, "can't close object");
         type_buf = DV_free(type_buf);
         space_buf = DV_free(space_buf);
-        dcpl_buf = DV_free(dcpl_buf);
+        if(!default_dcpl) dcpl_buf = DV_free(dcpl_buf);
         fill_val_buf = DV_free(fill_val_buf);
         update_cb_ud = DV_free(update_cb_ud);
     } /* end if */
@@ -1872,21 +1882,25 @@ H5_daos_dataset_open_helper(H5_daos_file_t *file, hid_t dapl_id, hbool_t collect
         fetch_udata->md_rw_cb_ud.sgl[0].sg_nr = 1;
         fetch_udata->md_rw_cb_ud.sgl[0].sg_nr_out = 0;
         fetch_udata->md_rw_cb_ud.sgl[0].sg_iovs = &fetch_udata->md_rw_cb_ud.sg_iov[0];
+        fetch_udata->md_rw_cb_ud.free_sg_iov[0] = FALSE;
         p += H5_DAOS_TYPE_BUF_SIZE;
         daos_iov_set(&fetch_udata->md_rw_cb_ud.sg_iov[1], p, (daos_size_t)H5_DAOS_SPACE_BUF_SIZE);
         fetch_udata->md_rw_cb_ud.sgl[1].sg_nr = 1;
         fetch_udata->md_rw_cb_ud.sgl[1].sg_nr_out = 0;
         fetch_udata->md_rw_cb_ud.sgl[1].sg_iovs = &fetch_udata->md_rw_cb_ud.sg_iov[1];
+        fetch_udata->md_rw_cb_ud.free_sg_iov[1] = FALSE;
         p += H5_DAOS_SPACE_BUF_SIZE;
         daos_iov_set(&fetch_udata->md_rw_cb_ud.sg_iov[2], p, (daos_size_t)H5_DAOS_DCPL_BUF_SIZE);
         fetch_udata->md_rw_cb_ud.sgl[2].sg_nr = 1;
         fetch_udata->md_rw_cb_ud.sgl[2].sg_nr_out = 0;
         fetch_udata->md_rw_cb_ud.sgl[2].sg_iovs = &fetch_udata->md_rw_cb_ud.sg_iov[2];
+        fetch_udata->md_rw_cb_ud.free_sg_iov[2] = FALSE;
         p += H5_DAOS_DCPL_BUF_SIZE;
         daos_iov_set(&fetch_udata->md_rw_cb_ud.sg_iov[3], p, (daos_size_t)H5_DAOS_FILL_VAL_BUF_SIZE);
         fetch_udata->md_rw_cb_ud.sgl[3].sg_nr = 1;
         fetch_udata->md_rw_cb_ud.sgl[3].sg_nr_out = 0;
         fetch_udata->md_rw_cb_ud.sgl[3].sg_iovs = &fetch_udata->md_rw_cb_ud.sg_iov[3];
+        fetch_udata->md_rw_cb_ud.free_sg_iov[3] = FALSE;
 
         /* Set nr */
         fetch_udata->md_rw_cb_ud.nr = 4u;
@@ -4092,6 +4106,7 @@ H5_daos_dataset_refresh(H5_daos_dset_t *dset, hid_t H5VL_DAOS_UNUSED dxpl_id,
     fetch_udata->md_rw_cb_ud.sgl[0].sg_nr = 1;
     fetch_udata->md_rw_cb_ud.sgl[0].sg_nr_out = 0;
     fetch_udata->md_rw_cb_ud.sgl[0].sg_iovs = &fetch_udata->md_rw_cb_ud.sg_iov[0];
+    fetch_udata->md_rw_cb_ud.free_sg_iov[0] = TRUE;
 
     fetch_udata->md_rw_cb_ud.nr = 1u;
 
@@ -4245,6 +4260,7 @@ H5_daos_dataset_set_extent(H5_daos_dset_t *dset, const hsize_t *size,
         update_cb_ud->sgl[0].sg_nr = 1;
         update_cb_ud->sgl[0].sg_nr_out = 0;
         update_cb_ud->sgl[0].sg_iovs = &update_cb_ud->sg_iov[0];
+        update_cb_ud->free_sg_iov[0] = TRUE;
 
         update_cb_ud->nr = 1u;
 

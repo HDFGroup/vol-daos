@@ -568,6 +568,7 @@ H5_daos_attribute_create_helper(H5_daos_item_t *item, const H5VL_loc_params_t *l
     H5_daos_attr_create_ud_t *create_ud = NULL;
     H5_daos_attr_t *attr = NULL;
     tse_task_t *update_task;
+    hbool_t default_acpl = (acpl_id == H5P_ATTRIBUTE_CREATE_DEFAULT);
     size_t type_size = 0;
     size_t space_size = 0;
     size_t acpl_size = 0;
@@ -651,13 +652,19 @@ H5_daos_attribute_create_helper(H5_daos_item_t *item, const H5VL_loc_params_t *l
         if(H5Sencode2(space_id, space_buf, &space_size, item->file->fapl_id) < 0)
             D_GOTO_ERROR(H5E_ATTR, H5E_CANTENCODE, NULL, "can't serialize dataspace");
 
-        /* Encode ACPL */
-        if(H5Pencode2(acpl_id, NULL, &acpl_size, item->file->fapl_id) < 0)
-            D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of acpl");
-        if(NULL == (acpl_buf = DV_malloc(acpl_size)))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized acpl");
-        if(H5Pencode2(acpl_id, acpl_buf, &acpl_size, item->file->fapl_id) < 0)
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTENCODE, NULL, "can't serialize acpl");
+        /* Encode ACPL if not the default */
+        if(!default_acpl) {
+            if(H5Pencode2(acpl_id, NULL, &acpl_size, item->file->fapl_id) < 0)
+                D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of acpl");
+            if(NULL == (acpl_buf = DV_malloc(acpl_size)))
+                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized acpl");
+            if(H5Pencode2(acpl_id, acpl_buf, &acpl_size, item->file->fapl_id) < 0)
+                D_GOTO_ERROR(H5E_ATTR, H5E_CANTENCODE, NULL, "can't serialize acpl");
+        } /* end if */
+        else {
+            acpl_buf = item->file->def_plist_cache.acpl_buf;
+            acpl_size = item->file->def_plist_cache.acpl_size;
+        } /* end else */
 
         /* Set up operation to write datatype, dataspace and ACPL to attribute's parent object */
         /* Point to attribute's parent object */
@@ -709,18 +716,21 @@ H5_daos_attribute_create_helper(H5_daos_item_t *item, const H5VL_loc_params_t *l
         create_ud->md_rw_cb_ud.sgl[0].sg_nr = 1;
         create_ud->md_rw_cb_ud.sgl[0].sg_nr_out = 0;
         create_ud->md_rw_cb_ud.sgl[0].sg_iovs = &create_ud->md_rw_cb_ud.sg_iov[0];
+        create_ud->md_rw_cb_ud.free_sg_iov[0] = TRUE;
 
         /* sgl[1] contains the serialized dataspace description */
         daos_iov_set(&create_ud->md_rw_cb_ud.sg_iov[1], space_buf, (daos_size_t)space_size);
         create_ud->md_rw_cb_ud.sgl[1].sg_nr = 1;
         create_ud->md_rw_cb_ud.sgl[1].sg_nr_out = 0;
         create_ud->md_rw_cb_ud.sgl[1].sg_iovs = &create_ud->md_rw_cb_ud.sg_iov[1];
+        create_ud->md_rw_cb_ud.free_sg_iov[1] = TRUE;
 
         /* sgl[2] contains the serialized ACPL */
         daos_iov_set(&create_ud->md_rw_cb_ud.sg_iov[2], acpl_buf, (daos_size_t)acpl_size);
         create_ud->md_rw_cb_ud.sgl[2].sg_nr = 1;
         create_ud->md_rw_cb_ud.sgl[2].sg_nr_out = 0;
         create_ud->md_rw_cb_ud.sgl[2].sg_iovs = &create_ud->md_rw_cb_ud.sg_iov[2];
+        create_ud->md_rw_cb_ud.free_sg_iov[2] = !default_acpl;
 
         /* Set nr */
         create_ud->md_rw_cb_ud.nr = 3u;
@@ -774,7 +784,7 @@ H5_daos_attribute_create_helper(H5_daos_item_t *item, const H5VL_loc_params_t *l
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, NULL, "can't get file datatype size");
     if((attr->space_id = H5Scopy(space_id)) < 0)
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTCOPY, NULL, "failed to copy dataspace");
-    if((acpl_id != H5P_ATTRIBUTE_CREATE_DEFAULT) && (attr->acpl_id = H5Pcopy(acpl_id)) < 0)
+    if(!default_acpl && (attr->acpl_id = H5Pcopy(acpl_id)) < 0)
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTCOPY, NULL, "failed to copy ACPL");
     if(H5Sselect_all(attr->space_id) < 0)
         D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTDELETE, NULL, "can't change selection");
@@ -799,7 +809,7 @@ done:
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, NULL, "can't close object");
         type_buf = DV_free(type_buf);
         space_buf = DV_free(space_buf);
-        acpl_buf = DV_free(acpl_buf);
+        if(!default_acpl) acpl_buf = DV_free(acpl_buf);
         create_ud = DV_free(create_ud);
     } /* end if */
 
@@ -870,9 +880,9 @@ done:
         if(udata->md_rw_cb_ud.free_akeys)
             for(i = 0; i < udata->md_rw_cb_ud.nr; i++)
                 DV_free(udata->md_rw_cb_ud.iod[i].iod_name.iov_buf);
-        DV_free(udata->md_rw_cb_ud.sg_iov[0].iov_buf);
-        DV_free(udata->md_rw_cb_ud.sg_iov[1].iov_buf);
-        DV_free(udata->md_rw_cb_ud.sg_iov[2].iov_buf);
+        for(i = 0; i < udata->md_rw_cb_ud.nr; i++)
+            if(udata->md_rw_cb_ud.free_sg_iov[i])
+                DV_free(udata->md_rw_cb_ud.sg_iov[i].iov_buf);
         DV_free(udata->akeys_buf);
         DV_free(udata);
     }
@@ -951,11 +961,13 @@ H5_daos_attribute_create_get_crt_order_info(H5_daos_attr_create_ud_t *create_ud,
     create_ud->md_rw_cb_ud.sgl[3].sg_nr = 1;
     create_ud->md_rw_cb_ud.sgl[3].sg_nr_out = 0;
     create_ud->md_rw_cb_ud.sgl[3].sg_iovs = &create_ud->md_rw_cb_ud.sg_iov[3];
+    create_ud->md_rw_cb_ud.free_sg_iov[3] = FALSE;
 
     daos_iov_set(&create_ud->md_rw_cb_ud.sg_iov[4], create_ud->max_corder_old_buf, (daos_size_t)8);
     create_ud->md_rw_cb_ud.sgl[4].sg_nr = 1;
     create_ud->md_rw_cb_ud.sgl[4].sg_nr_out = 0;
     create_ud->md_rw_cb_ud.sgl[4].sg_iovs = &create_ud->md_rw_cb_ud.sg_iov[4];
+    create_ud->md_rw_cb_ud.free_sg_iov[4] = FALSE;
 
     /* Temporarily set nr for fetch task */
     create_ud->md_rw_cb_ud.nr = 2u;
@@ -1174,6 +1186,7 @@ H5_daos_attribute_create_get_crt_order_info_comp_cb(tse_task_t *task,
         udata->md_rw_cb_ud.sgl[3].sg_nr = 1;
         udata->md_rw_cb_ud.sgl[3].sg_nr_out = 0;
         udata->md_rw_cb_ud.sgl[3].sg_iovs = &udata->md_rw_cb_ud.sg_iov[3];
+        udata->md_rw_cb_ud.free_sg_iov[3] = FALSE;
 
         /* sgl[4] contains the object's maximum creation order value, updated
          * to include the new attribute
@@ -1182,6 +1195,7 @@ H5_daos_attribute_create_get_crt_order_info_comp_cb(tse_task_t *task,
         udata->md_rw_cb_ud.sgl[4].sg_nr = 1;
         udata->md_rw_cb_ud.sgl[4].sg_nr_out = 0;
         udata->md_rw_cb_ud.sgl[4].sg_iovs = &udata->md_rw_cb_ud.sg_iov[4];
+        udata->md_rw_cb_ud.free_sg_iov[4] = FALSE;
 
         /* sgl[5] contains the attribute name, here indexed using the creation
          * order as the akey to enable attribute lookup by creation order */
@@ -1189,6 +1203,7 @@ H5_daos_attribute_create_get_crt_order_info_comp_cb(tse_task_t *task,
         udata->md_rw_cb_ud.sgl[5].sg_nr = 1;
         udata->md_rw_cb_ud.sgl[5].sg_nr_out = 0;
         udata->md_rw_cb_ud.sgl[5].sg_iovs = &udata->md_rw_cb_ud.sg_iov[5];
+        udata->md_rw_cb_ud.free_sg_iov[5] = FALSE;
 
         /* sgl[6] contains the creation order (with no leading 0), to enable
          * attribute creation order lookup by name */
@@ -1196,6 +1211,7 @@ H5_daos_attribute_create_get_crt_order_info_comp_cb(tse_task_t *task,
         udata->md_rw_cb_ud.sgl[6].sg_nr = 1;
         udata->md_rw_cb_ud.sgl[6].sg_nr_out = 0;
         udata->md_rw_cb_ud.sgl[6].sg_iovs = &udata->md_rw_cb_ud.sg_iov[6];
+        udata->md_rw_cb_ud.free_sg_iov[6] = FALSE;
 
         /* Update nr for subsequent daos_obj_update call */
         udata->md_rw_cb_ud.nr = 7u;
@@ -1506,16 +1522,19 @@ H5_daos_attribute_open_helper(H5_daos_item_t *item, const H5VL_loc_params_t *loc
         open_udata->fetch_ud.md_rw_cb_ud.sgl[0].sg_nr = 1;
         open_udata->fetch_ud.md_rw_cb_ud.sgl[0].sg_nr_out = 0;
         open_udata->fetch_ud.md_rw_cb_ud.sgl[0].sg_iovs = &open_udata->fetch_ud.md_rw_cb_ud.sg_iov[0];
+        open_udata->fetch_ud.md_rw_cb_ud.free_sg_iov[0] = FALSE;
         p += H5_DAOS_TYPE_BUF_SIZE;
         daos_iov_set(&open_udata->fetch_ud.md_rw_cb_ud.sg_iov[1], p, (daos_size_t)H5_DAOS_SPACE_BUF_SIZE);
         open_udata->fetch_ud.md_rw_cb_ud.sgl[1].sg_nr = 1;
         open_udata->fetch_ud.md_rw_cb_ud.sgl[1].sg_nr_out = 0;
         open_udata->fetch_ud.md_rw_cb_ud.sgl[1].sg_iovs = &open_udata->fetch_ud.md_rw_cb_ud.sg_iov[1];
+        open_udata->fetch_ud.md_rw_cb_ud.free_sg_iov[1] = FALSE;
         p += H5_DAOS_SPACE_BUF_SIZE;
         daos_iov_set(&open_udata->fetch_ud.md_rw_cb_ud.sg_iov[2], p, (daos_size_t)H5_DAOS_ACPL_BUF_SIZE);
         open_udata->fetch_ud.md_rw_cb_ud.sgl[2].sg_nr = 1;
         open_udata->fetch_ud.md_rw_cb_ud.sgl[2].sg_nr_out = 0;
         open_udata->fetch_ud.md_rw_cb_ud.sgl[2].sg_iovs = &open_udata->fetch_ud.md_rw_cb_ud.sg_iov[2];
+        open_udata->fetch_ud.md_rw_cb_ud.free_sg_iov[2] = FALSE;
 
         /* Set nr */
         open_udata->fetch_ud.md_rw_cb_ud.nr = 3u;
@@ -2286,6 +2305,7 @@ H5_daos_attribute_read(void *_attr, hid_t mem_type_id, void *buf,
                 /* Set up sgl_iov to point to tconv_buf */
                 daos_iov_set(&attr_read_udata->md_rw_cb_ud.sg_iov[0], attr_read_udata->tconv_buf,
                         (daos_size_t)(attr_nelmts * (uint64_t)attr_read_udata->file_type_size));
+                attr_read_udata->md_rw_cb_ud.free_sg_iov[0] = TRUE;
             } /* end if */
             else {
                 /* Set up sgl_iov to point to buf */
@@ -4734,6 +4754,7 @@ H5_daos_attribute_iterate_by_name_order(H5_daos_attr_iterate_ud_t *iterate_udata
     iterate_udata->u.name_order_data.md_rw_cb_ud.sgl[0].sg_nr = 1;
     iterate_udata->u.name_order_data.md_rw_cb_ud.sgl[0].sg_nr_out = 0;
     iterate_udata->u.name_order_data.md_rw_cb_ud.sgl[0].sg_iovs = &iterate_udata->u.name_order_data.md_rw_cb_ud.sg_iov[0];
+    iterate_udata->u.name_order_data.md_rw_cb_ud.free_sg_iov[0] = TRUE;
 
     /* Set nr */
     iterate_udata->u.name_order_data.md_rw_cb_ud.nr = 1u;
@@ -5328,7 +5349,8 @@ H5_daos_attribute_iterate_finish(tse_task_t *task)
 
     /* Free private data */
     if(udata->iter_data.index_type == H5_INDEX_NAME)
-        DV_free(udata->u.name_order_data.md_rw_cb_ud.sg_iov[0].iov_buf);
+        if(udata->u.name_order_data.md_rw_cb_ud.free_sg_iov[0])
+            DV_free(udata->u.name_order_data.md_rw_cb_ud.sg_iov[0].iov_buf);
 
     DV_free(udata);
 
@@ -5948,6 +5970,7 @@ H5_daos_attribute_get_name_by_crt_order(H5_daos_attr_get_name_by_idx_ud_t *get_n
         get_name_udata->u.by_crt_order_data.md_rw_cb_ud.sgl[0].sg_nr_out = 0;
         get_name_udata->u.by_crt_order_data.md_rw_cb_ud.sgl[0].sg_iovs =
                 &get_name_udata->u.by_crt_order_data.md_rw_cb_ud.sg_iov[0];
+        get_name_udata->u.by_crt_order_data.md_rw_cb_ud.free_sg_iov[0] = FALSE;
     } /* end if */
 
     get_name_udata->u.by_crt_order_data.md_rw_cb_ud.nr = 1u;

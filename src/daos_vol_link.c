@@ -595,7 +595,8 @@ done:
             D_DONE_ERROR(H5E_LINK, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close group");
 
         /* Free buffer if we still own it */
-        DV_free(udata->md_rw_cb_ud.sg_iov[0].iov_buf);
+        if(udata->md_rw_cb_ud.free_sg_iov[0])
+            DV_free(udata->md_rw_cb_ud.sg_iov[0].iov_buf);
 
         /* Handle errors in this function */
         /* Do not place any code that can issue errors after this block, except
@@ -690,6 +691,7 @@ H5_daos_link_read(H5_daos_group_t *grp, const char *name, size_t name_len,
     read_udata->md_rw_cb_ud.sgl[0].sg_nr = 1;
     read_udata->md_rw_cb_ud.sgl[0].sg_nr_out = 0;
     read_udata->md_rw_cb_ud.sgl[0].sg_iovs = &read_udata->md_rw_cb_ud.sg_iov[0];
+    read_udata->md_rw_cb_ud.free_sg_iov[0] = TRUE;
 
     /* Set task name */
     read_udata->md_rw_cb_ud.task_name = "link read";
@@ -876,6 +878,7 @@ H5_daos_link_read_late_name(H5_daos_group_t *grp, const char **name, size_t *nam
     read_udata->md_rw_cb_ud.sgl[0].sg_nr = 1;
     read_udata->md_rw_cb_ud.sgl[0].sg_nr_out = 0;
     read_udata->md_rw_cb_ud.sgl[0].sg_iovs = &read_udata->md_rw_cb_ud.sg_iov[0];
+    read_udata->md_rw_cb_ud.free_sg_iov[0] = TRUE;
 
     /* Set task name */
     read_udata->md_rw_cb_ud.task_name = "link read (late name)";
@@ -1116,6 +1119,7 @@ H5_daos_link_write_end_task(tse_task_t *task)
     udata->md_rw_cb_ud.sgl[1].sg_nr = 1;
     udata->md_rw_cb_ud.sgl[1].sg_nr_out = 0;
     udata->md_rw_cb_ud.sgl[1].sg_iovs = &udata->md_rw_cb_ud.sg_iov[1];
+    udata->md_rw_cb_ud.free_sg_iov[1] = FALSE;
 
     /* Create a task for writing the link creation order info to the
      * target group */
@@ -1389,6 +1393,7 @@ H5_daos_link_write_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     udata->md_rw_cb_ud.sgl[0].sg_nr = 1;
     udata->md_rw_cb_ud.sgl[0].sg_nr_out = 0;
     udata->md_rw_cb_ud.sgl[0].sg_iovs = &udata->md_rw_cb_ud.sg_iov[0];
+    udata->md_rw_cb_ud.free_sg_iov[0] = TRUE;
 
     /* Set update task arguments */
     if(NULL == (update_args = daos_task_get_args(task))) {
@@ -1567,12 +1572,14 @@ H5_daos_link_wr_corder_info_task(tse_task_t *task)
     udata->md_rw_cb_ud.sgl[0].sg_nr = 1;
     udata->md_rw_cb_ud.sgl[0].sg_nr_out = 0;
     udata->md_rw_cb_ud.sgl[0].sg_iovs = &udata->md_rw_cb_ud.sg_iov[0];
+    udata->md_rw_cb_ud.free_sg_iov[0] = FALSE;
 
     /* Value for new number of links in group */
     daos_iov_set(&udata->md_rw_cb_ud.sg_iov[1], udata->nlinks_new_buf, (daos_size_t)H5_DAOS_ENCODED_NUM_LINKS_SIZE);
     udata->md_rw_cb_ud.sgl[1].sg_nr = 1;
     udata->md_rw_cb_ud.sgl[1].sg_nr_out = 0;
     udata->md_rw_cb_ud.sgl[1].sg_iovs = &udata->md_rw_cb_ud.sg_iov[1];
+    udata->md_rw_cb_ud.free_sg_iov[1] = FALSE;
 
     /* Link name value for mapping from link creation order value -> link name */
     daos_iov_set(&udata->md_rw_cb_ud.sg_iov[2], (void *)udata->link_write_ud->link_name_buf,
@@ -1580,6 +1587,7 @@ H5_daos_link_wr_corder_info_task(tse_task_t *task)
     udata->md_rw_cb_ud.sgl[2].sg_nr = 1;
     udata->md_rw_cb_ud.sgl[2].sg_nr_out = 0;
     udata->md_rw_cb_ud.sgl[2].sg_iovs = &udata->md_rw_cb_ud.sg_iov[2];
+    udata->md_rw_cb_ud.free_sg_iov[2] = TRUE;
 
     /* Link target value for mapping from link creation order value -> link target */
     daos_iov_set(&udata->md_rw_cb_ud.sg_iov[3], udata->link_write_ud->link_val_buf,
@@ -1587,6 +1595,7 @@ H5_daos_link_wr_corder_info_task(tse_task_t *task)
     udata->md_rw_cb_ud.sgl[3].sg_nr = 1;
     udata->md_rw_cb_ud.sgl[3].sg_nr_out = 0;
     udata->md_rw_cb_ud.sgl[3].sg_iovs = &udata->md_rw_cb_ud.sg_iov[3];
+    udata->md_rw_cb_ud.free_sg_iov[3] = TRUE;
 
     /* Create task for writing link creation order information
      * to the target group.
@@ -6580,6 +6589,7 @@ H5_daos_link_delete_corder_unl_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *
     udata->unl_data.unl_ud.sgl[0].sg_nr = 1;
     udata->unl_data.unl_ud.sgl[0].sg_nr_out = 0;
     udata->unl_data.unl_ud.sgl[0].sg_iovs = &udata->unl_data.unl_ud.sg_iov[0];
+    udata->unl_data.unl_ud.free_sg_iov[0] = FALSE;
 
     udata->unl_data.unl_ud.nr = 1u;
 
@@ -7809,6 +7819,7 @@ H5_daos_link_gnbc_task(tse_task_t *task)
         udata->md_rw_cb_ud.sgl[0].sg_nr = 1;
         udata->md_rw_cb_ud.sgl[0].sg_nr_out = 0;
         udata->md_rw_cb_ud.sgl[0].sg_iovs = &udata->md_rw_cb_ud.sg_iov[0];
+        udata->md_rw_cb_ud.free_sg_iov[0] = FALSE;
     } /* end if */
 
     /* Do not free buffers */
@@ -8428,6 +8439,7 @@ H5_daos_link_get_crt_order_by_name(H5_daos_group_t *target_grp, const char *link
     fetch_udata->md_rw_cb_ud.sgl[0].sg_nr = 1;
     fetch_udata->md_rw_cb_ud.sgl[0].sg_nr_out = 0;
     fetch_udata->md_rw_cb_ud.sgl[0].sg_iovs = &fetch_udata->md_rw_cb_ud.sg_iov[0];
+    fetch_udata->md_rw_cb_ud.free_sg_iov[0] = FALSE;
 
     /* Do not free buffers */
     fetch_udata->md_rw_cb_ud.free_akeys = FALSE;

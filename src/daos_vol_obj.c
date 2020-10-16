@@ -4707,6 +4707,7 @@ H5_daos_object_get_num_attrs(H5_daos_obj_t *target_obj, hsize_t *num_attrs,
         get_num_attr_udata->md_rw_cb_ud.sgl[0].sg_nr = 1;
         get_num_attr_udata->md_rw_cb_ud.sgl[0].sg_nr_out = 0;
         get_num_attr_udata->md_rw_cb_ud.sgl[0].sg_iovs = &get_num_attr_udata->md_rw_cb_ud.sg_iov[0];
+        get_num_attr_udata->md_rw_cb_ud.free_sg_iov[0] = FALSE;
 
         get_num_attr_udata->md_rw_cb_ud.nr = 1u;
 
@@ -4959,6 +4960,7 @@ H5_daos_object_update_num_attrs_key(H5_daos_obj_t *target_obj, hsize_t *new_natt
     update_udata->update_ud.sgl[0].sg_nr = 1;
     update_udata->update_ud.sgl[0].sg_nr_out = 0;
     update_udata->update_ud.sgl[0].sg_iovs = &update_udata->update_ud.sg_iov[0];
+    update_udata->update_ud.free_sg_iov[0] = FALSE;
 
     update_udata->update_ud.nr = 1u;
 

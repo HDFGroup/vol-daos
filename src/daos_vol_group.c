@@ -282,6 +282,7 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hbool_t is_root,
     tse_task_t *group_metatask;
     int gmt_ndeps = 0;
     tse_task_t *gmt_deps[2];
+    hbool_t default_gcpl = (gcpl_id == H5P_GROUP_CREATE_DEFAULT);
     int ret;
     void *ret_value = NULL;
 
@@ -305,14 +306,14 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hbool_t is_root,
     if(is_root) {
         /* Encode root group oid */
         if(H5_daos_oid_encode(&grp->obj.oid, H5_DAOS_OIDX_ROOT, H5I_GROUP,
-                (gcpl_id == H5P_GROUP_CREATE_DEFAULT ? H5P_DEFAULT : gcpl_id),
+                (default_gcpl ? H5P_DEFAULT : gcpl_id),
                 H5_DAOS_OBJ_CLASS_NAME, file) < 0)
             D_GOTO_ERROR(H5E_FILE, H5E_CANTENCODE, NULL, "can't encode object ID");
     }
     else {
         /* Generate an oid for the group */
         if(H5_daos_oid_generate(&grp->obj.oid, H5I_GROUP,
-                (gcpl_id == H5P_GROUP_CREATE_DEFAULT ? H5P_DEFAULT : gcpl_id),
+                (default_gcpl ? H5P_DEFAULT : gcpl_id),
                 file, collective, req, first_task, dep_task) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't generate object id");
     }
@@ -332,13 +333,19 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hbool_t is_root,
         if(NULL == (update_cb_ud = (H5_daos_md_rw_cb_ud_t *)DV_calloc(sizeof(H5_daos_md_rw_cb_ud_t))))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for update callback arguments");
 
-        /* Encode GCPL */
-        if(H5Pencode2(gcpl_id, NULL, &gcpl_size, file->fapl_id) < 0)
-            D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of gcpl");
-        if(NULL == (gcpl_buf = DV_malloc(gcpl_size)))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized gcpl");
-        if(H5Pencode2(gcpl_id, gcpl_buf, &gcpl_size, file->fapl_id) < 0)
-            D_GOTO_ERROR(H5E_SYM, H5E_CANTENCODE, NULL, "can't serialize gcpl");
+        /* Encode GCPL if not the default */
+        if(!default_gcpl) {
+            if(H5Pencode2(gcpl_id, NULL, &gcpl_size, file->fapl_id) < 0)
+                D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of gcpl");
+            if(NULL == (gcpl_buf = DV_malloc(gcpl_size)))
+                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized gcpl");
+            if(H5Pencode2(gcpl_id, gcpl_buf, &gcpl_size, file->fapl_id) < 0)
+                D_GOTO_ERROR(H5E_SYM, H5E_CANTENCODE, NULL, "can't serialize gcpl");
+        } /* end if */
+        else {
+            gcpl_buf = file->def_plist_cache.gcpl_buf;
+            gcpl_size = file->def_plist_cache.gcpl_size;
+        } /* end else */
 
         /* Set up operation to write GCPL to group */
         /* Point to grp */
@@ -366,6 +373,7 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hbool_t is_root,
         update_cb_ud->sgl[0].sg_nr = 1;
         update_cb_ud->sgl[0].sg_nr_out = 0;
         update_cb_ud->sgl[0].sg_iovs = &update_cb_ud->sg_iov[0];
+        update_cb_ud->free_sg_iov[0] = !default_gcpl;
 
         /* Set task name */
         update_cb_ud->task_name = "group metadata write";
@@ -436,7 +444,7 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hbool_t is_root,
     } /* end else */
 
     /* Finish setting up group struct */
-    if((gcpl_id != H5P_GROUP_CREATE_DEFAULT) && (grp->gcpl_id = H5Pcopy(gcpl_id)) < 0)
+    if(!default_gcpl && (grp->gcpl_id = H5Pcopy(gcpl_id)) < 0)
         D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, NULL, "failed to copy gcpl");
     if((gapl_id != H5P_GROUP_ACCESS_DEFAULT) && (grp->gapl_id = H5Pcopy(gapl_id)) < 0)
         D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, NULL, "failed to copy gapl");
@@ -486,7 +494,7 @@ done:
         /* Free memory */
         if(update_cb_ud && update_cb_ud->obj && H5_daos_object_close(update_cb_ud->obj, req->dxpl_id, NULL) < 0)
             D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, NULL, "can't close object");
-        gcpl_buf = DV_free(gcpl_buf);
+        if(!default_gcpl) gcpl_buf = DV_free(gcpl_buf);
         update_cb_ud = DV_free(update_cb_ud);
     } /* end if */
 
@@ -1167,6 +1175,7 @@ H5_daos_group_open_helper(H5_daos_file_t *file, hid_t gapl_id,
         fetch_udata->md_rw_cb_ud.sgl[0].sg_nr = 1;
         fetch_udata->md_rw_cb_ud.sgl[0].sg_nr_out = 0;
         fetch_udata->md_rw_cb_ud.sgl[0].sg_iovs = &fetch_udata->md_rw_cb_ud.sg_iov[0];
+        fetch_udata->md_rw_cb_ud.free_sg_iov[0] = FALSE;
 
         /* Set task name */
         fetch_udata->md_rw_cb_ud.task_name = "group metadata read";
@@ -2055,6 +2064,7 @@ H5_daos_group_gnl_task(tse_task_t *task)
         udata->md_rw_cb_ud.sgl[0].sg_nr = 1;
         udata->md_rw_cb_ud.sgl[0].sg_nr_out = 0;
         udata->md_rw_cb_ud.sgl[0].sg_iovs = &udata->md_rw_cb_ud.sg_iov[0];
+        udata->md_rw_cb_ud.free_sg_iov[0] = FALSE;
 
         /* Do not free buffers */
         udata->md_rw_cb_ud.free_akeys = FALSE;
@@ -2434,6 +2444,7 @@ H5_daos_group_get_max_crt_order(H5_daos_group_t *target_grp,
     fetch_udata->md_rw_cb_ud.sgl[0].sg_nr = 1;
     fetch_udata->md_rw_cb_ud.sgl[0].sg_nr_out = 0;
     fetch_udata->md_rw_cb_ud.sgl[0].sg_iovs = &fetch_udata->md_rw_cb_ud.sg_iov[0];
+    fetch_udata->md_rw_cb_ud.free_sg_iov[0] = FALSE;
 
     /* Do not free buffers */
     fetch_udata->md_rw_cb_ud.free_akeys = FALSE;

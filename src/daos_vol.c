@@ -3660,7 +3660,8 @@ H5_daos_md_update_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         for(i = 0; i < udata->nr; i++)
             DV_free(udata->iod[i].iod_name.iov_buf);
     for(i = 0; i < udata->nr; i++)
-        DV_free(udata->sg_iov[i].iov_buf);
+        if(udata->free_sg_iov[i])
+            DV_free(udata->sg_iov[i].iov_buf);
     DV_free(udata);
 
 done:

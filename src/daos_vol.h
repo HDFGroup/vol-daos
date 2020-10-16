@@ -375,6 +375,22 @@ typedef struct H5_daos_fapl_cache_t {
     hbool_t is_collective_md_write;
 } H5_daos_fapl_cache_t;
 
+/* Encoded default property list buffer cache */
+typedef struct H5_daos_enc_plist_cache_t {
+    size_t buffer_size;
+    void  *plist_buffer;
+    size_t dcpl_size;
+    void  *dcpl_buf;
+    size_t gcpl_size;
+    void  *gcpl_buf;
+    size_t tcpl_size;
+    void  *tcpl_buf;
+    size_t mcpl_size;
+    void  *mcpl_buf;
+    size_t acpl_size;
+    void  *acpl_buf;
+} H5_daos_enc_plist_cache_t;
+
 /* The file struct */
 typedef struct H5_daos_file_t {
     H5_daos_item_t item; /* Must be first */
@@ -390,6 +406,7 @@ typedef struct H5_daos_file_t {
     struct H5_daos_group_t *root_grp;
     hid_t fapl_id;
     H5_daos_fapl_cache_t fapl_cache;
+    H5_daos_enc_plist_cache_t def_plist_cache;
     MPI_Comm comm;
     MPI_Info info;
     int my_rank;
@@ -609,6 +626,7 @@ typedef struct H5_daos_md_rw_cb_ud_t {
     daos_iov_t sg_iov[7];
     hbool_t free_dkey;
     hbool_t free_akeys;
+    hbool_t free_sg_iov[7];
     const char *task_name;
 } H5_daos_md_rw_cb_ud_t;
 

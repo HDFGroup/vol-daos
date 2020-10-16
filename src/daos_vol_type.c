@@ -642,6 +642,7 @@ H5_daos_datatype_commit_helper(H5_daos_file_t *file, hid_t type_id,
     H5_daos_dtype_t *dtype = NULL;
     tse_task_t *datatype_metatask;
     tse_task_t *finalize_deps[2];
+    hbool_t default_tcpl = (tcpl_id == H5P_DATATYPE_CREATE_DEFAULT);
     void *type_buf = NULL;
     void *tcpl_buf = NULL;
     int finalize_ndeps = 0;
@@ -669,7 +670,7 @@ H5_daos_datatype_commit_helper(H5_daos_file_t *file, hid_t type_id,
 
     /* Generate datatype oid */
     if(H5_daos_oid_generate(&dtype->obj.oid, H5I_DATATYPE,
-            (tcpl_id == H5P_DATATYPE_CREATE_DEFAULT ? H5P_DEFAULT : tcpl_id),
+            (default_tcpl ? H5P_DEFAULT : tcpl_id),
             file, collective, req, first_task, dep_task) < 0)
         D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't generate object id");
 
@@ -698,13 +699,19 @@ H5_daos_datatype_commit_helper(H5_daos_file_t *file, hid_t type_id,
         if(H5Tencode(type_id, type_buf, &type_size) < 0)
             D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTENCODE, NULL, "can't serialize datatype");
 
-        /* Encode TCPL */
-        if(H5Pencode2(tcpl_id, NULL, &tcpl_size, file->fapl_id) < 0)
-            D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of tcpl");
-        if(NULL == (tcpl_buf = DV_malloc(tcpl_size)))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized tcpl");
-        if(H5Pencode2(tcpl_id, tcpl_buf, &tcpl_size, file->fapl_id) < 0)
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTENCODE, NULL, "can't serialize tcpl");
+        /* Encode TCPL if not the default */
+        if(!default_tcpl) {
+            if(H5Pencode2(tcpl_id, NULL, &tcpl_size, file->fapl_id) < 0)
+                D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of tcpl");
+            if(NULL == (tcpl_buf = DV_malloc(tcpl_size)))
+                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized tcpl");
+            if(H5Pencode2(tcpl_id, tcpl_buf, &tcpl_size, file->fapl_id) < 0)
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTENCODE, NULL, "can't serialize tcpl");
+        } /* end if */
+        else {
+            tcpl_buf = file->def_plist_cache.tcpl_buf;
+            tcpl_size = file->def_plist_cache.tcpl_size;
+        } /* end else */
 
         /* Set up operation to write datatype and TCPL to datatype */
         /* Point to datatype object */
@@ -735,10 +742,12 @@ H5_daos_datatype_commit_helper(H5_daos_file_t *file, hid_t type_id,
         update_cb_ud->sgl[0].sg_nr = 1;
         update_cb_ud->sgl[0].sg_nr_out = 0;
         update_cb_ud->sgl[0].sg_iovs = &update_cb_ud->sg_iov[0];
+        update_cb_ud->free_sg_iov[0] = TRUE;
         daos_iov_set(&update_cb_ud->sg_iov[1], tcpl_buf, (daos_size_t)tcpl_size);
         update_cb_ud->sgl[1].sg_nr = 1;
         update_cb_ud->sgl[1].sg_nr_out = 0;
         update_cb_ud->sgl[1].sg_iovs = &update_cb_ud->sg_iov[1];
+        update_cb_ud->free_sg_iov[1] = !default_tcpl;
 
         /* Set nr */
         update_cb_ud->nr = 2u;
@@ -813,7 +822,7 @@ H5_daos_datatype_commit_helper(H5_daos_file_t *file, hid_t type_id,
     /* Finish setting up datatype struct */
     if((dtype->type_id = H5Tcopy(type_id)) < 0)
         D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTCOPY, NULL, "failed to copy datatype");
-    if((tcpl_id != H5P_DATATYPE_CREATE_DEFAULT) && (dtype->tcpl_id = H5Pcopy(tcpl_id)) < 0)
+    if(!default_tcpl && (dtype->tcpl_id = H5Pcopy(tcpl_id)) < 0)
         D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTCOPY, NULL, "failed to copy tcpl");
     if((tapl_id != H5P_DATATYPE_ACCESS_DEFAULT) && (dtype->tapl_id = H5Pcopy(tapl_id)) < 0)
         D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTCOPY, NULL, "failed to copy tapl");
@@ -860,7 +869,7 @@ done:
         if(update_cb_ud && update_cb_ud->obj && H5_daos_object_close(update_cb_ud->obj, req->dxpl_id, NULL) < 0)
             D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, NULL, "can't close object");
         type_buf = DV_free(type_buf);
-        tcpl_buf = DV_free(tcpl_buf);
+        if(!default_tcpl) tcpl_buf = DV_free(tcpl_buf);
         update_cb_ud = DV_free(update_cb_ud);
     } /* end if */
 
@@ -1191,11 +1200,13 @@ H5_daos_datatype_open_helper(H5_daos_file_t *file, hid_t tapl_id, hbool_t collec
         fetch_udata->md_rw_cb_ud.sgl[0].sg_nr = 1;
         fetch_udata->md_rw_cb_ud.sgl[0].sg_nr_out = 0;
         fetch_udata->md_rw_cb_ud.sgl[0].sg_iovs = &fetch_udata->md_rw_cb_ud.sg_iov[0];
+        fetch_udata->md_rw_cb_ud.free_sg_iov[0] = FALSE;
         p += H5_DAOS_TYPE_BUF_SIZE;
         daos_iov_set(&fetch_udata->md_rw_cb_ud.sg_iov[1], p, (daos_size_t)H5_DAOS_TCPL_BUF_SIZE);
         fetch_udata->md_rw_cb_ud.sgl[1].sg_nr = 1;
         fetch_udata->md_rw_cb_ud.sgl[1].sg_nr_out = 0;
         fetch_udata->md_rw_cb_ud.sgl[1].sg_iovs = &fetch_udata->md_rw_cb_ud.sg_iov[1];
+        fetch_udata->md_rw_cb_ud.free_sg_iov[1] = FALSE;
         p += H5_DAOS_TCPL_BUF_SIZE;
 
         /* Set nr */

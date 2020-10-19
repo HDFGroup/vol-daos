@@ -1680,6 +1680,10 @@ H5_daos_group_close(void *_grp, hid_t H5VL_DAOS_UNUSED dxpl_id,
 
     if(--grp->obj.item.rc == 0) {
         /* Free group data structures */
+        if(grp->obj.cur_op_pool) {
+            assert(grp->obj.cur_op_pool->type == H5_DAOS_OP_TYPE_EMPTY);
+            grp->obj.cur_op_pool = DV_free(grp->obj.cur_op_pool);
+        } /* end if */
         if(grp->obj.item.open_req)
             if(H5_daos_req_free_int(grp->obj.item.open_req) < 0)
                 D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't free request");

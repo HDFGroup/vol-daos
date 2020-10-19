@@ -2411,7 +2411,7 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
                 void *opened_file = NULL;
 
                 H5E_BEGIN_TRY {
-                    opened_file = H5_daos_file_open(filename, H5F_ACC_RDONLY, file_fapl, dxpl_id, req);
+                    opened_file = H5_daos_file_open(filename, H5F_ACC_RDONLY, file_fapl, dxpl_id, NULL);
                 } H5E_END_TRY;
 
                 *ret_is_accessible = opened_file ? TRUE : FALSE;
@@ -2989,8 +2989,12 @@ H5_daos_file_close_helper(H5_daos_file_t *file, hid_t dxpl_id, void **req)
     herr_t ret_value = SUCCEED;
 
     assert(file);
-
+printf("%s: file = %p\n", __func__, (void *)file); fflush(stdout);
     /* Free file data structures */
+    if(file->cur_op_pool) {
+        assert(file->cur_op_pool->type == H5_DAOS_OP_TYPE_EMPTY);
+        file->cur_op_pool = DV_free(file->cur_op_pool);
+    } /* end if */
     if(file->item.open_req)
         if(H5_daos_req_free_int(file->item.open_req) < 0)
             D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, FAIL, "can't free request");

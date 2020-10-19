@@ -1875,6 +1875,10 @@ H5_daos_datatype_close(void *_dtype, hid_t H5VL_DAOS_UNUSED dxpl_id,
 
     if(--dtype->obj.item.rc == 0) {
         /* Free datatype data structures */
+        if(dtype->obj.cur_op_pool) {
+            assert(dtype->obj.cur_op_pool->type == H5_DAOS_OP_TYPE_EMPTY);
+            dtype->obj.cur_op_pool = DV_free(dtype->obj.cur_op_pool);
+        } /* end if */
         if(dtype->obj.item.open_req)
             if(H5_daos_req_free_int(dtype->obj.item.open_req) < 0)
                 D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, FAIL, "can't free request");

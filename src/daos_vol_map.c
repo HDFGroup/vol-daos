@@ -3964,6 +3964,10 @@ H5_daos_map_close(void *_map, hid_t H5VL_DAOS_UNUSED dxpl_id,
 
     if(--map->obj.item.rc == 0) {
         /* Free map data structures */
+        if(map->obj.cur_op_pool) {
+            assert(map->obj.cur_op_pool->type == H5_DAOS_OP_TYPE_EMPTY);
+            map->obj.cur_op_pool = DV_free(map->obj.cur_op_pool);
+        } /* end if */
         if(map->obj.item.open_req)
             if(H5_daos_req_free_int(map->obj.item.open_req) < 0)
                 D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't free request");

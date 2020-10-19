@@ -31,6 +31,7 @@
 
 /* System headers */
 #include <assert.h>
+#include <errno.h>
 
 /* Hash table */
 #include "util/daos_vol_hash_table.h"
@@ -353,12 +354,16 @@ typedef struct H5_daos_ocpl_cache_t {
     hbool_t track_acorder;
 } H5_daos_ocpl_cache_t;
 
+/* Forward declaration of operation pool struct */
+typedef struct H5_daos_op_pool_t H5_daos_op_pool_t;
+
 /* Common object information */
 typedef struct H5_daos_obj_t {
     H5_daos_item_t item; /* Must be first */
     daos_obj_id_t oid;
     daos_handle_t obj_oh;
     H5_daos_ocpl_cache_t ocpl_cache;
+    H5_daos_op_pool_t *cur_op_pool;
 } H5_daos_obj_t;
 
 /* The FAPL cache struct */
@@ -392,6 +397,7 @@ typedef struct H5_daos_file_t {
     uint64_t max_oidx;
     uint64_t next_oidx_collective;
     uint64_t max_oidx_collective;
+    H5_daos_op_pool_t *cur_op_pool;
     hid_t vol_id;
     void *vol_info;
 } H5_daos_file_t;
@@ -520,6 +526,33 @@ struct H5_daos_req_t {
         H5_daos_mpi_ibcast_ud_t err_check_ud;
         int coll_status;
     } collective;
+};
+
+/* Different types of operation pools - can be either for read ops, for write
+ * ops, or empty */
+typedef enum H5_daos_op_pool_type_t {
+    H5_DAOS_OP_TYPE_READ,
+    H5_DAOS_OP_TYPE_WRITE,
+    H5_DAOS_OP_TYPE_EMPTY,
+} H5_daos_op_pool_type_t;
+
+/* Different scopes for operation pools - can be either specific to an object, a
+ * file, or global */
+typedef enum H5_daos_op_pool_scope_t {
+    H5_DAOS_OP_SCOPE_OBJ,
+    H5_DAOS_OP_SCOPE_FILE,
+    H5_DAOS_OP_SCOPE_GLOB,
+} H5_daos_op_pool_scope_t;
+
+/* Struct for an operation pool */
+struct H5_daos_op_pool_t {
+    H5_daos_op_pool_type_t type;
+    tse_task_t *start_task;
+    tse_task_t *end_task;
+    struct H5_daos_op_pool_t **parent_cur_op_pool;
+    tse_sched_t *sched;
+    H5_daos_item_t *item;
+    uint64_t op_gens[3];
 };
 
 /* Enum for denoting scheduler location for cross file operations */
@@ -740,6 +773,13 @@ extern H5VL_DAOS_PRIVATE hbool_t H5_daos_bypass_duns_g;
 /* Target chunk size for automatic chunking */
 extern H5VL_DAOS_PRIVATE uint64_t H5_daos_chunk_target_size_g;
 
+/* Global scheduler - used for tasks that are not tied to any open file */
+extern tse_sched_t H5_daos_glob_sched_g;
+
+/* Global ooperation pool - used for operations that are not tied to a single
+ * file */
+extern H5_daos_op_pool_t *H5_daos_glob_cur_op_pool_g;
+
 /* DAOS task and MPI request for current in-flight MPI operation.  Only allow
  * one at a time for now since:
  * - All MPI operations must be in the same order across all ranks, therefore
@@ -749,6 +789,13 @@ extern H5VL_DAOS_PRIVATE uint64_t H5_daos_chunk_target_size_g;
  *   time */
 extern tse_task_t *H5_daos_mpi_task_g;
 extern MPI_Request H5_daos_mpi_req_g;
+
+/* Last collective request scheduled.  As described above, only one collective
+ * operation can be in flight at any one time. */
+extern struct H5_daos_req_t *H5_daos_collective_req_tail;
+
+/* Scheduler for H5_daos_collective_req_tail */
+extern tse_sched_t *H5_daos_collective_req_tail_sched;
 
 /* Constant Keys */
 extern H5VL_DAOS_PRIVATE const char H5_daos_int_md_key_g[];
@@ -1117,6 +1164,10 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_req_free(void *req);
 H5VL_DAOS_PRIVATE H5_daos_req_t *H5_daos_req_create(H5_daos_file_t *file,
     hid_t dxpl_id);
 H5VL_DAOS_PRIVATE herr_t H5_daos_req_free_int(H5_daos_req_t *req);
+H5VL_DAOS_PRIVATE herr_t H5_daos_req_enqueue(H5_daos_req_t *req,
+    tse_sched_t *req_sched, tse_task_t *first_task, H5_daos_obj_t *obj,
+    H5_daos_op_pool_type_t op_type, H5_daos_op_pool_scope_t scope,
+    hbool_t collective, H5_daos_req_t *dep_req, tse_sched_t *dep_req_sched);
 
 /* Generic Asynchronous routines */
 H5VL_DAOS_PRIVATE herr_t H5_daos_progress(tse_sched_t *sched,

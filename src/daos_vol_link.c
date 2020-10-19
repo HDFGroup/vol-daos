@@ -1891,8 +1891,10 @@ done:
             udata->req->failed_task = "link copy task";
         } /* end if */
     } /* end if */
-    else
+    else {
         assert(ret_value == -H5_DAOS_DAOS_GET_ERROR);
+        assert(!first_task);
+    } /* end else */
 
     /* Complete this task */
     tse_task_complete(task, ret_value);
@@ -2645,7 +2647,7 @@ H5_daos_link_copy_move_int(H5_daos_item_t *src_item, const H5VL_loc_params_t *lo
 done:
     if(collective && ((src_item ? src_item->file->num_procs : dst_item->file->num_procs) > 1)) {
         tse_sched_t *sched = (*sched_loc == H5_DAOS_SCHED_LOC_SRC) ? src_sched : dst_sched;
-        if(H5_daos_collective_error_check(NULL, src_sched, req, first_task, dep_task) < 0)
+        if(H5_daos_collective_error_check(NULL, sched, req, first_task, dep_task) < 0)
             D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't perform collective error check");
     } /* end if */
 

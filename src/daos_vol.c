@@ -308,9 +308,23 @@ hbool_t H5_daos_bypass_duns_g = FALSE;
 /* Target chunk size for automatic chunking */
 uint64_t H5_daos_chunk_target_size_g = H5_DAOS_CHUNK_TARGET_SIZE_DEF;
 
+/* Global scheduler - used for tasks that are not tied to any open file */
+tse_sched_t H5_daos_glob_sched_g;
+
+/* Global ooperation pool - used for operations that are not tied to a single
+ * file */
+H5_daos_op_pool_t *H5_daos_glob_cur_op_pool_g = NULL;
+
 /* DAOS task and MPI request for current in-flight MPI operation */
 tse_task_t *H5_daos_mpi_task_g = NULL;
 MPI_Request H5_daos_mpi_req_g;
+
+/* Last collective request scheduled.  Only one collective operation can be in
+ * flight at any one time. */
+struct H5_daos_req_t *H5_daos_collective_req_tail = NULL;
+
+/* Scheduler for H5_daos_collective_req_tail */
+tse_sched_t *H5_daos_collective_req_tail_sched = NULL;
 
 /* Constant Keys */
 const char H5_daos_int_md_key_g[]          = "/Internal Metadata";
@@ -1231,10 +1245,15 @@ H5_daos_init(hid_t H5VL_DAOS_UNUSED vipl_id)
     if(NULL != (auto_chunk_str = getenv("H5_DAOS_CHUNK_TARGET_SIZE"))) {
         long long chunk_target_size_ll;
 
-        if((chunk_target_size_ll = strtoll(auto_chunk_str, NULL, 10)) <= 0)
+        errno = 0;
+        if((chunk_target_size_ll = strtoll(auto_chunk_str, NULL, 10)) < 0 || errno)
             D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "failed to parse automatic chunking target size from environment or invalid value (H5_DAOS_CHUNK_TARGET_SIZE)");
         H5_daos_chunk_target_size_g = (uint64_t)chunk_target_size_ll;
     } /* end if */
+
+    /* Initialize global scheduler */
+    if(0 != (ret = tse_sched_init(&H5_daos_glob_sched_g, NULL, NULL)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create global task scheduler: %s", H5_daos_err_to_string(ret));
 
     /* Initialized */
     H5_daos_initialized_g = TRUE;
@@ -1268,6 +1287,17 @@ H5_daos_term(void)
      */
     if(!H5_daos_initialized_g)
         D_GOTO_DONE(ret_value);
+
+    /* Free op pool */
+    if(H5_daos_glob_cur_op_pool_g) {
+        assert(H5_daos_glob_cur_op_pool_g->type == H5_DAOS_OP_TYPE_EMPTY);
+        H5_daos_glob_cur_op_pool_g = DV_free(H5_daos_glob_cur_op_pool_g);
+    } /* end if */
+
+    /* Close global scheduler */
+    if(H5_daos_progress(&H5_daos_glob_sched_g, NULL, H5_DAOS_PROGRESS_WAIT) < 0)
+        D_DONE_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't progress scheduler");
+    tse_sched_fini(&H5_daos_glob_sched_g);
 
     /* Terminate DAOS */
     if(daos_fini() < 0)
@@ -3233,10 +3263,6 @@ H5_daos_tx_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     req->th_open = FALSE;
 
 done:
-    /* Complete finalize task in engine */
-    tse_task_complete(req->finalize_task, ret_value);
-    req->finalize_task = NULL;
-
     /* Make notify callback */
     if(req->notify_cb) {
         H5ES_status_t req_status;
@@ -3255,10 +3281,18 @@ done:
             D_DONE_ERROR(H5E_VOL, H5E_CANTOPERATE, -H5_DAOS_CALLBACK_ERROR, "notify callback returned failure");
     } /* end if */
 
+    /* Clear H5_daos_collective_req_tail if it refers to this request */
+    if(H5_daos_collective_req_tail == req)
+        H5_daos_collective_req_tail = NULL;
+
     /* Mark request as completed */
     if(ret_value >= 0 && (req->status == -H5_DAOS_INCOMPLETE
             || req->status == -H5_DAOS_SHORT_CIRCUIT))
         req->status = 0;
+
+    /* Complete finalize task in engine */
+    tse_task_complete(req->finalize_task, ret_value);
+    req->finalize_task = NULL;
 
     /* Handle errors in this function */
     /* Do not place any code that can issue errors after this block, except for
@@ -3395,7 +3429,7 @@ H5_daos_h5op_finalize(tse_task_t *task)
 
 done:
     if(req) {
-        /* Check if we failed to start tx commit/abour task */
+        /* Check if we failed to start tx commit/abort task */
         if(close_tx) {
             /* Close transaction */
             if(0 != (ret = daos_tx_close(req->th, NULL /*event*/)))
@@ -3411,6 +3445,10 @@ done:
                         || req->status == -H5_DAOS_SHORT_CIRCUIT) ? H5ES_STATUS_SUCCEED
                         : req->status == -H5_DAOS_CANCELED ? H5ES_STATUS_CANCELED : H5ES_STATUS_FAIL) < 0)
                     D_DONE_ERROR(H5E_VOL, H5E_CANTOPERATE, -H5_DAOS_CALLBACK_ERROR, "notify callback returned failure");
+
+            /* Clear H5_daos_collective_req_tail if it refers to this request */
+            if(H5_daos_collective_req_tail == req)
+                H5_daos_collective_req_tail = NULL;
 
             /* Mark request as completed if there were no errors */
             if(ret_value >= 0 && (req->status == -H5_DAOS_INCOMPLETE

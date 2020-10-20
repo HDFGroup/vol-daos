@@ -790,6 +790,7 @@ H5_daos_dataset_create_helper(H5_daos_file_t *file, hid_t type_id, hid_t space_i
             update_cb_ud->sgl[update_cb_ud->nr].sg_nr = 1;
             update_cb_ud->sgl[update_cb_ud->nr].sg_nr_out = 0;
             update_cb_ud->sgl[update_cb_ud->nr].sg_iovs = &update_cb_ud->sg_iov[update_cb_ud->nr];
+            update_cb_ud->free_sg_iov[update_cb_ud->nr] = TRUE;
 
             /* Adjust nr */
             update_cb_ud->nr++;

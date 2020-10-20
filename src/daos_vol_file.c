@@ -2989,7 +2989,7 @@ H5_daos_file_close_helper(H5_daos_file_t *file, hid_t dxpl_id, void **req)
     herr_t ret_value = SUCCEED;
 
     assert(file);
-printf("%s: file = %p\n", __func__, (void *)file); fflush(stdout);
+
     /* Free file data structures */
     if(file->cur_op_pool) {
         assert(file->cur_op_pool->type == H5_DAOS_OP_TYPE_EMPTY);

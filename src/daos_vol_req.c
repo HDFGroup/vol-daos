@@ -18,6 +18,11 @@
 #include "util/daos_vol_err.h"  /* DAOS connector error handling           */
 #include "util/daos_vol_mem.h"  /* DAOS connector memory management        */
 
+
+static int H5_daos_op_pool_start_task(tse_task_t *task);
+static int H5_daos_op_pool_end_task(tse_task_t *task);
+
+
 
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_req_wait
@@ -233,7 +238,20 @@ H5_daos_req_free_int(H5_daos_req_t *req)
     D_FUNC_LEAVE;
 } /* end H5_daos_req_free_int() */
 
-
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_op_pool_start_task
+ *
+ * Purpose:     Task to begin an operation pool.  Only clears the start
+ *              task from the pool struct and completes itself.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ * Programmer:  Neil Fortner
+ *              October, 2020
+ *
+ *-------------------------------------------------------------------------
+ */
 static int
 H5_daos_op_pool_start_task(tse_task_t *task)
 {
@@ -257,7 +275,20 @@ done:
     D_FUNC_LEAVE;
 } /* end H5_daos_op_pool_start_task() */
 
-
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_op_pool_end_task
+ *
+ * Purpose:     Task to finalize an operation pool.  Either frees the pool
+ *              or empties it, then releases any reference counts.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ * Programmer:  Neil Fortner
+ *              October, 2020
+ *
+ *-------------------------------------------------------------------------
+ */
 static int
 H5_daos_op_pool_end_task(tse_task_t *task)
 {
@@ -312,7 +343,22 @@ done:
     D_FUNC_LEAVE;
 } /* end H5_daos_op_pool_end_task() */
 
-
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_req_enqueue
+ *
+ * Purpose:     Adds a request to an object, file, or global operation
+ *              pool.  If collective is true it is also added to the
+ *              collective operation queue.  If dep_req is provided that
+ *              is added as a dependency.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ * Programmer:  Neil Fortner
+ *              October, 2020
+ *
+ *-------------------------------------------------------------------------
+ */
 herr_t
 H5_daos_req_enqueue(H5_daos_req_t *req, tse_sched_t *req_sched,
     tse_task_t *first_task, H5_daos_obj_t *obj, H5_daos_op_pool_type_t op_type,

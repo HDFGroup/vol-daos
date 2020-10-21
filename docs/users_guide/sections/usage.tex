@@ -144,11 +144,11 @@ int main(void)
     /* Parse the pool UUID. */
     uuid_parse("fce30f79-b34b-46c1-9b1f-bb52d99dacca", pool_uuid);
 
-    /* Initialize DAOS VOL connector using MPI_COMM_WORLD for the pool
-     * communicator, the above parsed UUID for the pool UUID, "daos_server"
-     * as the group name for the DAOS servers managing the pool and
-     * simply rank 0 as the only rank in the pool service list. */
-    H5daos_init(MPI_COMM_WORLD, pool_uuid, "daos_server", "0");
+    /* Initialize DAOS VOL connector using the above parsed UUID for
+     * the pool UUID, "daos_server" as the group name for the DAOS
+     * servers managing the pool and simply rank 0 as the only rank
+     * in the pool service list. */
+    H5daos_init(pool_uuid, "daos_server", "0");
 
     fapl_id = H5Pcreate(H5P_FILE_ACCESS);
     H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL);

@@ -2802,7 +2802,7 @@ H5_daos_dataset_copy_data_task(tse_task_t *task)
 
     /* Read data from source */
     if(H5_daos_dataset_read_int(udata->src_dset, udata->src_dset->type_id, H5S_ALL, H5S_ALL,
-            udata->data_buf, udata->req, &first_task, &dep_task) < 0)
+            FALSE, udata->data_buf, udata->req, &first_task, &dep_task) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_READERROR, -H5_DAOS_DAOS_GET_ERROR, "can't read data from source dataset");
     assert(dep_task);
     sched_loc = H5_DAOS_SCHED_LOC_SRC;
@@ -2815,7 +2815,7 @@ H5_daos_dataset_copy_data_task(tse_task_t *task)
 
     /* Write data to destination */
     if(H5_daos_dataset_write_int(udata->dst_dset, udata->src_dset->type_id, H5S_ALL, H5S_ALL,
-            udata->data_buf, udata->req, &first_task, &dep_task) < 0)
+            FALSE, udata->data_buf, udata->req, &first_task, &dep_task) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_WRITEERROR, -H5_DAOS_H5_COPY_ERROR, "can't write data to copied dataset");
 
 done:

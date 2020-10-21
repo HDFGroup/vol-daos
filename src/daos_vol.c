@@ -3590,7 +3590,7 @@ H5_daos_md_rw_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     } /* end if */
     update_args->oh = udata->obj->obj_oh;
     update_args->th = udata->req->th;
-    update_args->flags = 0;
+    update_args->flags = udata->flags;
     update_args->dkey = &udata->dkey;
     update_args->nr = udata->nr;
     update_args->iods = udata->iod;

@@ -533,7 +533,7 @@ H5_daos_datatype_commit(void *_item,
 
 #ifdef H5_DAOS_USE_TRANSACTIONS
     /* Start transaction */
-    if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, NULL /*event*/)))
+    if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, 0, NULL /*event*/)))
         D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't start transaction");
     int_req->th_open = TRUE;
 #endif /* H5_DAOS_USE_TRANSACTIONS */
@@ -935,7 +935,7 @@ H5_daos_datatype_open(void *_item,
 
 #ifdef H5_DAOS_USE_TRANSACTIONS
     /* Start transaction */
-    if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, NULL /*event*/)))
+    if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, DAOS_TF_RDONLY, NULL /*event*/)))
         D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't start transaction");
     int_req->th_open = TRUE;
 #endif /* H5_DAOS_USE_TRANSACTIONS */

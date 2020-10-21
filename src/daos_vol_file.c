@@ -264,6 +264,7 @@ H5_daos_tx_open_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     } /* end if */
     tx_open_args->coh = udata->req->file->coh;
     tx_open_args->th = &udata->req->th;
+    tx_open_args->flags = 0;
 
 done:
     D_FUNC_LEAVE;
@@ -1630,6 +1631,7 @@ H5_daos_cont_open(H5_daos_file_t *file, unsigned flags,
     H5_daos_generic_cb_ud_t *tx_open_udata = NULL;
 #ifdef H5_DAOS_USE_TRANSACTIONS
     tse_task_t *tx_open_task;
+    int ret;
 #endif
     herr_t ret_value = SUCCEED;
 

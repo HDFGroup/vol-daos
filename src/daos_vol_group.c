@@ -561,7 +561,7 @@ H5_daos_group_create(void *_item,
 
 #ifdef H5_DAOS_USE_TRANSACTIONS
     /* Start transaction */
-    if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, NULL /*event*/)))
+    if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, 0, NULL /*event*/)))
         D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't start transaction");
     int_req->th_open = TRUE;
 #endif /* H5_DAOS_USE_TRANSACTIONS */
@@ -1441,7 +1441,7 @@ H5_daos_group_open(void *_item, const H5VL_loc_params_t *loc_params,
 
 #ifdef H5_DAOS_USE_TRANSACTIONS
     /* Start transaction */
-    if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, NULL /*event*/)))
+    if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, DAOS_TF_RDONLY, NULL /*event*/)))
         D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't start transaction");
     int_req->th_open = TRUE;
 #endif /* H5_DAOS_USE_TRANSACTIONS */
@@ -1535,7 +1535,7 @@ H5_daos_group_get(void *_item, H5VL_group_get_t get_type, hid_t dxpl_id,
 
 #ifdef H5_DAOS_USE_TRANSACTIONS
     /* Start transaction */
-    if(0 != (ret = daos_tx_open(grp->obj.item.file->coh, &int_req->th, NULL /*event*/)))
+    if(0 != (ret = daos_tx_open(grp->obj.item.file->coh, &int_req->th, DAOS_TF_RDONLY, NULL /*event*/)))
         D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't start transaction");
     int_req->th_open = TRUE;
 #endif /* H5_DAOS_USE_TRANSACTIONS */

@@ -388,7 +388,7 @@ H5_daos_dataset_create(void *_item,
 
 #ifdef H5_DAOS_USE_TRANSACTIONS
     /* Start transaction */
-    if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, NULL /*event*/)))
+    if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, 0, NULL /*event*/)))
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't start transaction");
     int_req->th_open = TRUE;
 #endif /* H5_DAOS_USE_TRANSACTIONS */
@@ -1596,7 +1596,7 @@ H5_daos_dataset_open(void *_item,
 
 #ifdef H5_DAOS_USE_TRANSACTIONS
     /* Start transaction */
-    if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, NULL /*event*/)))
+    if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, DAOS_TF_RDONLY, NULL /*event*/)))
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't start transaction");
     int_req->th_open = TRUE;
 #endif /* H5_DAOS_USE_TRANSACTIONS */
@@ -3688,8 +3688,8 @@ H5_daos_dataset_specific(void *_item, H5VL_dataset_specific_t specific_type,
 
 #ifdef H5_DAOS_USE_TRANSACTIONS
                 /* Start transaction */
-                if(0 != (ret = daos_tx_open(dset->obj.item.file->coh, &int_req->th, NULL /*event*/)))
-                    D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't start transaction");
+                if(0 != (ret = daos_tx_open(dset->obj.item.file->coh, &int_req->th, 0, NULL /*event*/)))
+                    D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't start transaction");
                 int_req->th_open = TRUE;
 #endif /* H5_DAOS_USE_TRANSACTIONS */
 
@@ -3713,8 +3713,8 @@ H5_daos_dataset_specific(void *_item, H5VL_dataset_specific_t specific_type,
             {
 #ifdef H5_DAOS_USE_TRANSACTIONS
                 /* Start transaction */
-                if(0 != (ret = daos_tx_open(dset->obj.item.file->coh, &int_req->th, NULL /*event*/)))
-                    D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't start transaction");
+                if(0 != (ret = daos_tx_open(dset->obj.item.file->coh, &int_req->th, DAOS_TF_RDONLY, NULL /*event*/)))
+                    D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't start transaction");
                 int_req->th_open = TRUE;
 #endif /* H5_DAOS_USE_TRANSACTIONS */
 

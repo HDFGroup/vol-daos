@@ -235,7 +235,7 @@ H5_daos_map_create(void *_item,
 
 #ifdef H5_DAOS_USE_TRANSACTIONS
     /* Start transaction */
-    if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, NULL /*event*/)))
+    if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, 0, NULL /*event*/)))
         D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't start transaction");
     int_req->th_open = TRUE;
 #endif /* H5_DAOS_USE_TRANSACTIONS */
@@ -569,7 +569,7 @@ H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
 
 #ifdef H5_DAOS_USE_TRANSACTIONS
     /* Start transaction */
-    if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, NULL /*event*/)))
+    if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, DAOS_TF_RDONLY, NULL /*event*/)))
         D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't start transaction");
     int_req->th_open = TRUE;
 #endif /* H5_DAOS_USE_TRANSACTIONS */
@@ -2751,7 +2751,7 @@ H5_daos_map_exists_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for metadata I/O task");
     rw_args->oh = udata->md_rw_cb_ud.obj->obj_oh;
     rw_args->th = udata->md_rw_cb_ud.req->th;
-    rw_args->flags = 0;
+    rw_args->flags = udata->md_rw_cb_ud.flags;
     rw_args->dkey = &udata->md_rw_cb_ud.dkey;
     rw_args->nr = udata->md_rw_cb_ud.nr;
     rw_args->iods = udata->md_rw_cb_ud.iod;

@@ -621,6 +621,7 @@ typedef struct H5_daos_md_rw_cb_ud_t {
     H5_daos_obj_t *obj;
     daos_key_t dkey;
     unsigned nr;
+    uint64_t flags;
     daos_iod_t iod[7];
     daos_sg_list_t sgl[7];
     daos_iov_t sg_iov[7];

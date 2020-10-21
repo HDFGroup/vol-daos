@@ -421,7 +421,7 @@ H5_daos_attribute_md_rw_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for attribute metadata I/O task");
     op_args->oh = udata->fetch_ud.md_rw_cb_ud.obj->obj_oh;
     op_args->th = DAOS_TX_NONE;
-    op_args->flags = 0;
+    op_args->flags = udata->fetch_ud.md_rw_cb_ud.flags;
     op_args->dkey = &udata->fetch_ud.md_rw_cb_ud.dkey;
     op_args->nr = udata->fetch_ud.md_rw_cb_ud.nr;
     op_args->iods = udata->fetch_ud.md_rw_cb_ud.iod;
@@ -488,7 +488,7 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
 
 #ifdef H5_DAOS_USE_TRANSACTIONS
     /* Start transaction */
-    if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, NULL /*event*/)))
+    if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, 0, NULL /*event*/)))
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't start transaction");
     int_req->th_open = TRUE;
 #endif /* H5_DAOS_USE_TRANSACTIONS */
@@ -1047,7 +1047,7 @@ H5_daos_attribute_create_get_crt_order_info_prep_cb(tse_task_t *task,
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for metadata I/O task");
     update_args->oh = udata->obj->obj_oh;
     update_args->th = DAOS_TX_NONE;
-    update_args->flags = 0;
+    update_args->flags = udata->flags;
     update_args->dkey = &udata->dkey;
     update_args->nr = udata->nr;
     update_args->iods = &udata->iod[3];
@@ -6067,7 +6067,7 @@ H5_daos_attribute_get_name_by_crt_order_prep_cb(tse_task_t *task, void H5VL_DAOS
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for attribute name fetch task");
     fetch_args->oh = udata->u.by_crt_order_data.md_rw_cb_ud.obj->obj_oh;
     fetch_args->th = DAOS_TX_NONE;
-    fetch_args->flags = 0;
+    fetch_args->flags = udata->u.by_crt_order_data.md_rw_cb_ud.flags;
     fetch_args->dkey = &udata->u.by_crt_order_data.md_rw_cb_ud.dkey;
     fetch_args->nr = udata->u.by_crt_order_data.md_rw_cb_ud.nr;
     fetch_args->iods = udata->u.by_crt_order_data.md_rw_cb_ud.iod;

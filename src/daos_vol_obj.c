@@ -325,7 +325,7 @@ H5_daos_object_open(void *_item, const H5VL_loc_params_t *loc_params,
 
 #ifdef H5_DAOS_USE_TRANSACTIONS
     /* Start transaction */
-    if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, NULL /*event*/)))
+    if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, DAOS_TF_RDONLY, NULL /*event*/)))
         D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, NULL, "can't start transaction");
     int_req->th_open = TRUE;
 #endif /* H5_DAOS_USE_TRANSACTIONS */
@@ -1319,7 +1319,7 @@ H5_daos_object_copy(void *src_loc_obj, const H5VL_loc_params_t *src_loc_params,
 
 #ifdef H5_DAOS_USE_TRANSACTIONS
     /* Start transaction */
-    if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, NULL /*event*/)))
+    if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, 0, NULL /*event*/)))
         D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't start transaction");
     int_req->th_open = TRUE;
 #endif /* H5_DAOS_USE_TRANSACTIONS */
@@ -3288,7 +3288,7 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
         if(H5VL_OBJECT_EXISTS == specific_type) {
 #ifdef H5_DAOS_USE_TRANSACTIONS
             /* Start transaction */
-            if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, NULL /*event*/)))
+            if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, DAOS_TF_RDONLY, NULL /*event*/)))
                 D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't start transaction");
             int_req->th_open = TRUE;
 #endif /* H5_DAOS_USE_TRANSACTIONS */
@@ -4807,7 +4807,7 @@ H5_daos_get_num_attrs_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for metadata I/O task");
     fetch_args->oh = udata->md_rw_cb_ud.obj->obj_oh;
     fetch_args->th = DAOS_TX_NONE;
-    fetch_args->flags = 0;
+    fetch_args->flags = udata->md_rw_cb_ud.flags;
     fetch_args->dkey = &udata->md_rw_cb_ud.dkey;
     fetch_args->nr = udata->md_rw_cb_ud.nr;
     fetch_args->iods = udata->md_rw_cb_ud.iod;
@@ -5045,7 +5045,7 @@ H5_daos_object_update_num_attrs_key_prep_cb(tse_task_t *task, void H5VL_DAOS_UNU
         D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for metadata I/O task");
     update_args->oh = udata->update_ud.obj->obj_oh;
     update_args->th = DAOS_TX_NONE;
-    update_args->flags = 0;
+    update_args->flags = udata->update_ud.flags;
     update_args->dkey = &udata->update_ud.dkey;
     update_args->nr = 1;
     update_args->iods = udata->update_ud.iod;

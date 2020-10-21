@@ -3417,7 +3417,7 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
         req_dxpl_id = need_tconv ? dxpl_id : H5P_DATASET_XFER_DEFAULT;
     } /* end if */
     else
-        req_dxpl_id = H5P_DATASET_XFER_DEFAULT;
+        req_dxpl_id = dxpl_id;
 
     /* Start H5 operation. Currently, the DXPL is only copied when datatype conversion is needed. */
     if(NULL == (int_req = H5_daos_req_create(dset->obj.item.file, req_dxpl_id)))
@@ -3429,8 +3429,6 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
      * global level pools could have the tail emptied by a lower level pool). */
     if((dset->obj.item.open_req->status == 0) && (!dset->obj.cur_op_pool
             || dset->obj.cur_op_pool->type == H5_DAOS_OP_TYPE_EMPTY)) {
-        
-
         /* Call internal routine */
         if(H5_daos_dataset_read_int(dset, mem_type_id, mem_space_id, file_space_id,
                 need_tconv, buf, int_req, &first_task, &dep_task) < 0)
@@ -3468,7 +3466,7 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
         if(0 != (ret = tse_task_create(H5_daos_dset_io_int_task, &dset->obj.item.file->sched, task_ud, &io_task)))
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create task to perform I/O operation: %s", H5_daos_err_to_string(ret));
 
-        /* Save task to be scheduled later and give it a refernce to req and
+        /* Save task to be scheduled later and give it a reference to req and
          * dset */
         assert(!first_task);
         first_task = io_task;
@@ -3539,7 +3537,6 @@ done:
             D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, FAIL, "can't close file dataspace");
         task_ud = DV_free(task_ud);
     } /* end if */
-
 
     D_FUNC_LEAVE_API;
 } /* end H5_daos_dataset_read() */
@@ -3716,10 +3713,13 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
     hid_t file_space_id, hid_t dxpl_id, const void *buf, void **req)
 {
     H5_daos_dset_t *dset = (H5_daos_dset_t *)_dset;
+    H5_daos_io_task_ud_t *task_ud = NULL;
+    tse_task_t *io_task = NULL;
     tse_task_t *first_task = NULL;
     tse_task_t *dep_task = NULL;
     H5_daos_req_t *int_req = NULL;
     htri_t need_tconv;
+    hid_t req_dxpl_id;
     int ret;
     herr_t ret_value = SUCCEED;
 
@@ -3734,18 +3734,73 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
     if(!(dset->obj.item.file->flags & H5F_ACC_RDWR))
         D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, FAIL, "no write intent on file");
 
-    /* Check if datatype conversion is needed */
-    if((need_tconv = H5_daos_need_tconv(mem_type_id, dset->file_type_id)) < 0)
-        D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOMPARE, FAIL, "can't check if type conversion is needed");
+    /* If the dataset's datatype is complete, check if type conversion is needed
+     */
+    if(dset->obj.item.open_req->status == 0 || dset->obj.item.created) {
+        /* Check if datatype conversion is needed */
+        if((need_tconv = H5_daos_need_tconv(dset->file_type_id, mem_type_id)) < 0)
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOMPARE, FAIL, "can't check if type conversion is needed");
+        req_dxpl_id = need_tconv ? dxpl_id : H5P_DATASET_XFER_DEFAULT;
+    } /* end if */
+    else
+        req_dxpl_id = dxpl_id;
 
     /* Start H5 operation. Currently, the DXPL is only copied when datatype conversion is needed. */
-    if(NULL == (int_req = H5_daos_req_create(dset->obj.item.file, need_tconv ? dxpl_id : H5P_DATASET_XFER_DEFAULT)))
+    if(NULL == (int_req = H5_daos_req_create(dset->obj.item.file, req_dxpl_id)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, FAIL, "can't create DAOS request");
 
-    /* Call internal routine */
-    if(H5_daos_dataset_write_int(dset, mem_type_id, mem_space_id, file_space_id,
-            need_tconv, buf, int_req, &first_task, &dep_task) < 0)
-        D_GOTO_ERROR(H5E_DATASET, H5E_WRITEERROR, FAIL, "failed to write data to dataset");
+    /* Check if we can call the internal routine directly - the dataset open
+     * must be complete and the request queue must be empty (note we can only
+     * check for emptiness using this method at the object level, as file and
+     * global level pools could have the tail emptied by a lower level pool). */
+    if((dset->obj.item.open_req->status == 0) && (!dset->obj.cur_op_pool
+            || dset->obj.cur_op_pool->type == H5_DAOS_OP_TYPE_EMPTY)) {
+        /* Call internal routine */
+        if(H5_daos_dataset_write_int(dset, mem_type_id, mem_space_id, file_space_id,
+                need_tconv, buf, int_req, &first_task, &dep_task) < 0)
+            D_GOTO_ERROR(H5E_DATASET, H5E_WRITEERROR, FAIL, "failed to write data to dataset");
+    } /* end if */
+    else {
+        /* Allocate argument struct */
+        if(NULL == (task_ud = (H5_daos_io_task_ud_t *)DV_calloc(sizeof(H5_daos_io_task_ud_t))))
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't allocate space for I/O task udata struct");
+        task_ud->req = int_req;
+        task_ud->io_type = IO_WRITE;
+        task_ud->dset = dset;
+        task_ud->mem_type_id = H5I_INVALID_HID;
+        task_ud->mem_space_id = H5I_INVALID_HID;
+        task_ud->file_space_id = H5I_INVALID_HID;
+        task_ud->buf.wbuf = buf;
+
+        /* Copy dataspaces and datatype */
+        if((task_ud->mem_type_id = H5Tcopy(mem_type_id)) < 0)
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, FAIL, "can't copy memory type ID");
+        if(mem_space_id == H5S_ALL)
+            task_ud->mem_space_id = H5S_ALL;
+        else if((task_ud->mem_space_id = H5Scopy(mem_space_id)) < 0)
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, FAIL, "can't copy memory space ID");
+        if(file_space_id == H5S_ALL)
+            task_ud->file_space_id = H5S_ALL;
+        else if((task_ud->file_space_id = H5Scopy(file_space_id)) < 0)
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, FAIL, "can't copy file space ID");
+
+        /* Create end task for writing data */
+        if(0 != (ret = tse_task_create(H5_daos_dset_io_int_end_task, &dset->obj.item.file->sched, task_ud, &task_ud->end_task)))
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create task to finish performing I/O operation: %s", H5_daos_err_to_string(ret));
+
+        /* Create task to write data */
+        if(0 != (ret = tse_task_create(H5_daos_dset_io_int_task, &dset->obj.item.file->sched, task_ud, &io_task)))
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create task to perform I/O operation: %s", H5_daos_err_to_string(ret));
+
+        /* Save task to be scheduled later and give it a reference to req and
+         * dset */
+        assert(!first_task);
+        first_task = io_task;
+        dep_task = task_ud->end_task;
+        dset->obj.item.rc++;
+        int_req->rc++;
+        task_ud = NULL;
+    } /* end else */
 
 done:
     if(int_req) {
@@ -3766,9 +3821,12 @@ done:
         if(ret_value < 0)
             int_req->status = -H5_DAOS_SETUP_ERROR;
 
-        /* Schedule first task */
-        if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
-            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
+        /* Add the request to the object's request queue.  This will add the
+         * dependency on the dataset open if necessary. */
+        if(H5_daos_req_enqueue(int_req, &dset->obj.item.file->sched,
+                first_task, &dset->obj, H5_DAOS_OP_TYPE_READ, H5_DAOS_OP_SCOPE_OBJ,
+               FALSE, dset->obj.item.open_req, &dset->obj.item.file->sched) < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
         /* Check for external async */
         if(req) {
@@ -3792,6 +3850,18 @@ done:
             if(H5_daos_req_free_int(int_req) < 0)
                 D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, FAIL, "can't free request");
         } /* end else */
+    } /* end if */
+
+    /* Cleanup on error */
+    if(task_ud) {
+        assert(ret_value < 0);
+        if(task_ud->mem_type_id >= 0 && H5Tclose(task_ud->mem_type_id) < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, FAIL, "can't close memory datatype");
+        if(task_ud->mem_space_id >= 0 && task_ud->mem_space_id != H5S_ALL && H5Sclose(task_ud->mem_space_id) < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, FAIL, "can't close memory dataspace");
+        if(task_ud->file_space_id >= 0 && task_ud->file_space_id != H5S_ALL && H5Sclose(task_ud->file_space_id) < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, FAIL, "can't close file dataspace");
+        task_ud = DV_free(task_ud);
     } /* end if */
 
     D_FUNC_LEAVE_API;

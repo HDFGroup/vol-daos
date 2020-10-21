@@ -69,7 +69,6 @@ do { \
 
 /* Constant keys */
 #define H5_DAOS_CHUNK_KEY 0u
-#define CHUNK_DKEY_BUF_SIZE (1 + (sizeof(uint64_t) * H5S_MAX_RANK))
 
 /* Default target chunk size for automatic chunking */
 #define H5_DAOS_CHUNK_TARGET_SIZE_DEF ((uint64_t)(1024 * 1024))
@@ -334,12 +333,6 @@ do {                                                                  \
 /* Private Typedefs */
 /********************/
 
-/* Forward declaration for generic request struct */
-typedef struct H5_daos_req_t H5_daos_req_t;
-
-/* Forward declarations for HDF5-DAOS objects */
-typedef struct H5_daos_dset_t H5_daos_dset_t;
-
 /* DAOS-specific file access properties */
 typedef struct H5_daos_fapl_t {
     MPI_Comm            comm;           /* communicator                  */
@@ -426,20 +419,6 @@ typedef enum {
     H5_DAOS_COPY_FILL
 } H5_daos_fill_method_t;
 
-/* Enum type for distinguishing between dataset reads and writes. */
-typedef enum dset_io_type {
-    IO_READ,
-    IO_WRITE
-} dset_io_type;
-
-/* Enum to indicate if the supplied read buffer can be used as a type conversion
- * or background buffer */
-typedef enum {
-    H5_DAOS_TCONV_REUSE_NONE,    /* Cannot reuse buffer */
-    H5_DAOS_TCONV_REUSE_TCONV,   /* Use buffer as type conversion buffer */
-    H5_DAOS_TCONV_REUSE_BKG      /* Use buffer as background buffer */
-} H5_daos_tconv_reuse_t;
-
 /* The DCPL cache struct */
 typedef struct H5_daos_dcpl_cache_t {
     H5D_layout_t layout;
@@ -447,36 +426,6 @@ typedef struct H5_daos_dcpl_cache_t {
     H5D_fill_value_t fill_status;
     H5_daos_fill_method_t fill_method;
 } H5_daos_dcpl_cache_t;
-
-/* Task user data for raw data I/O on a single chunk */
-typedef struct H5_daos_chunk_io_ud_t {
-    H5_daos_req_t *req;
-    H5_daos_dset_t *dset;
-    daos_key_t dkey;
-    uint8_t dkey_buf[CHUNK_DKEY_BUF_SIZE];
-    uint8_t akey_buf;
-    daos_iod_t iod;
-    daos_sg_list_t sgl;
-    daos_recx_t recx;
-    daos_recx_t *recxs;
-    daos_iov_t sg_iov;
-    daos_iov_t *sg_iovs;
-
-    /* Fields used for datatype conversion */
-    struct {
-        hssize_t num_elem;
-        hid_t mem_type_id;
-        hid_t mem_space_id;
-        void *buf;
-        dset_io_type io_type;
-        H5_daos_tconv_reuse_t reuse;
-        hbool_t fill_bkg;
-        size_t mem_type_size;
-        size_t file_type_size;
-        void *tconv_buf;
-        void *bkg_buf;
-    } tconv;
-} H5_daos_chunk_io_ud_t;
 
 /* Information about a singular selected chunk during a dataset read/write */
 typedef struct H5_daos_select_chunk_info_t {
@@ -486,11 +435,10 @@ typedef struct H5_daos_select_chunk_info_t {
                                             selection in the chunk in memory */
     hid_t    fspace_id;                  /* The file space corresponding to the
                                             selection in the chunk in the file */
-    H5_daos_chunk_io_ud_t chunk_io_ud;   /* Task udata for performing raw data I/O on this chunk */
 } H5_daos_select_chunk_info_t;
 
 /* The dataset struct */
-struct H5_daos_dset_t {
+typedef struct H5_daos_dset_t {
     H5_daos_obj_t obj; /* Must be first */
     size_t file_type_size;
     hid_t type_id;
@@ -508,7 +456,7 @@ struct H5_daos_dset_t {
         hid_t mem_sel_iter_id;
         hid_t file_sel_iter_id;
     } io_cache;
-};
+} H5_daos_dset_t;
 
 /* The datatype struct */
 /* Note we could speed things up a bit by caching the serialized datatype.  We
@@ -554,6 +502,17 @@ typedef struct H5_daos_link_val_t {
         char *soft;
     } target;
 } H5_daos_link_val_t;
+
+/* Enum to indicate if the supplied read buffer can be used as a type conversion
+ * or background buffer */
+typedef enum {
+    H5_DAOS_TCONV_REUSE_NONE,    /* Cannot reuse buffer */
+    H5_DAOS_TCONV_REUSE_TCONV,   /* Use buffer as type conversion buffer */
+    H5_DAOS_TCONV_REUSE_BKG      /* Use buffer as background buffer */
+} H5_daos_tconv_reuse_t;
+
+/* Forward declaration for generic request struct */
+typedef struct H5_daos_req_t H5_daos_req_t;
 
 /* Task user data for asynchronous MPI broadcast */
 typedef struct H5_daos_mpi_ibcast_ud_t {

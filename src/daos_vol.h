@@ -375,6 +375,44 @@ typedef struct H5_daos_fapl_cache_t {
     hbool_t is_collective_md_write;
 } H5_daos_fapl_cache_t;
 
+/* Structure for caching the default values
+ * for various properties in HDF5's default
+ * property lists */
+typedef struct H5_daos_plist_cache_t {
+    struct {
+        unsigned link_corder_flags;
+        unsigned acorder_flags;
+    } gcpl_cache;
+
+    struct {
+        H5D_layout_t layout;
+        H5D_fill_value_t fill_status;
+        H5D_fill_time_t fill_time;
+        unsigned acorder_flags;
+    } dcpl_cache;
+
+    struct {
+        unsigned acorder_flags;
+    } tcpl_cache;
+
+    struct {
+        unsigned acorder_flags;
+    } mcpl_cache;
+
+    struct {
+        size_t dkey_prefetch_size;
+        size_t dkey_alloc_size;
+    } mapl_cache;
+
+    struct {
+        unsigned crt_intermed_grp;
+    } lcpl_cache;
+
+    struct {
+        unsigned obj_copy_options;
+    } ocpypl_cache;
+} H5_daos_plist_cache_t;
+
 /* Encoded default property list buffer cache */
 typedef struct H5_daos_enc_plist_cache_t {
     size_t buffer_size;
@@ -820,6 +858,9 @@ extern H5VL_DAOS_PRIVATE hbool_t H5_daos_bypass_duns_g;
 
 /* Target chunk size for automatic chunking */
 extern H5VL_DAOS_PRIVATE uint64_t H5_daos_chunk_target_size_g;
+
+/* Global variable for HDF5 property list cache */
+extern H5VL_DAOS_PRIVATE const H5_daos_plist_cache_t *H5_daos_plist_cache_g;
 
 /* DAOS task and MPI request for current in-flight MPI operation.  Only allow
  * one at a time for now since:

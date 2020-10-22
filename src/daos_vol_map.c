@@ -3240,7 +3240,11 @@ H5_daos_map_iterate(H5_daos_map_t *map, H5_daos_iter_data_t *iter_data,
         D_GOTO_ERROR(H5E_MAP, H5E_UNSUPPORTED, FAIL, "iteration restart not supported (must start from 0)");
 
     /* Get map iterate hints */
-    if(H5Pget_map_iterate_hints(map->mapl_id, &dkey_prefetch_size, &dkey_alloc_size) < 0)
+    if(map->mapl_id == H5P_MAP_ACCESS_DEFAULT) {
+        dkey_prefetch_size = H5_daos_plist_cache_g->mapl_cache.dkey_prefetch_size;
+        dkey_alloc_size = H5_daos_plist_cache_g->mapl_cache.dkey_alloc_size;
+    }
+    else if(H5Pget_map_iterate_hints(map->mapl_id, &dkey_prefetch_size, &dkey_alloc_size) < 0)
         D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get map iterate hints");
 
     /* Increment reference count on map ID */

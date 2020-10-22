@@ -139,7 +139,9 @@ H5_daos_group_traverse(H5_daos_item_t *item, const char *path,
             D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "cannot initiate traversal from non-group object");
 
         /* Determine if intermediate groups should be created */
-        if((H5P_LINK_CREATE_DEFAULT != lcpl_id) && H5Pget_create_intermediate_group(lcpl_id, &crt_intermed_grp) < 0)
+        if(H5P_LINK_CREATE_DEFAULT == lcpl_id)
+            crt_intermed_grp = H5_daos_plist_cache_g->lcpl_cache.crt_intermed_grp;
+        else if(H5Pget_create_intermediate_group(lcpl_id, &crt_intermed_grp) < 0)
             D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, NULL, "can't get intermediate group creation property value");
 
         /* Create copy of path for use by async tasks and make obj_name point
@@ -246,7 +248,9 @@ H5_daos_group_fill_gcpl_cache(H5_daos_group_t *grp)
     assert(grp);
 
     /* Determine if this group is tracking link creation order */
-    if(H5Pget_link_creation_order(grp->gcpl_id, &corder_flags) < 0)
+    if(grp->gcpl_id == H5P_GROUP_CREATE_DEFAULT)
+        corder_flags = H5_daos_plist_cache_g->gcpl_cache.link_corder_flags;
+    else if(H5Pget_link_creation_order(grp->gcpl_id, &corder_flags) < 0)
         D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't get link creation order flags");
     assert(!grp->gcpl_cache.track_corder);
     if(corder_flags & H5P_CRT_ORDER_TRACKED)

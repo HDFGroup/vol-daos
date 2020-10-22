@@ -1349,9 +1349,10 @@ H5_daos_object_copy(void *src_loc_obj, const H5VL_loc_params_t *src_loc_params,
          *   H5O_COPY_EXPAND_REFERENCE_FLAG
          *   H5O_COPY_MERGE_COMMITTED_DTYPE_FLAG
          */
-        if(H5P_OBJECT_COPY_DEFAULT != ocpypl_id)
-            if(H5Pget_copy_object(ocpypl_id, &obj_copy_options) < 0)
-                D_GOTO_ERROR(H5E_OBJECT, H5E_CANTGET, FAIL, "failed to retrieve object copy options");
+        if(H5P_OBJECT_COPY_DEFAULT == ocpypl_id)
+            obj_copy_options = H5_daos_plist_cache_g->ocpypl_cache.obj_copy_options;
+        else if(H5Pget_copy_object(ocpypl_id, &obj_copy_options) < 0)
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTGET, FAIL, "failed to retrieve object copy options");
 
         /* Perform the object copy */
         if(H5_daos_object_copy_helper(src_loc_obj, src_loc_params, src_name,
@@ -3604,12 +3605,42 @@ herr_t
 H5_daos_fill_ocpl_cache(H5_daos_obj_t *obj, hid_t ocpl_id)
 {
     unsigned acorder_flags = 0;
+    hbool_t default_plist;
     herr_t ret_value = SUCCEED;
 
     assert(obj);
 
+    default_plist = ocpl_id == H5P_FILE_CREATE_DEFAULT
+                 || ocpl_id == H5P_GROUP_CREATE_DEFAULT
+                 || ocpl_id == H5P_DATASET_CREATE_DEFAULT
+                 || ocpl_id == H5P_DATATYPE_CREATE_DEFAULT
+                 || ocpl_id == H5P_MAP_CREATE_DEFAULT;
+
     /* Determine if this object is tracking attribute creation order */
-    if(H5Pget_attr_creation_order(ocpl_id, &acorder_flags) < 0)
+    if(default_plist) {
+        switch(obj->item.type) {
+            case H5I_FILE:
+            case H5I_GROUP:
+                acorder_flags = H5_daos_plist_cache_g->gcpl_cache.acorder_flags;
+                break;
+
+            case H5I_DATASET:
+                acorder_flags = H5_daos_plist_cache_g->dcpl_cache.acorder_flags;
+                break;
+
+            case H5I_DATATYPE:
+                acorder_flags = H5_daos_plist_cache_g->tcpl_cache.acorder_flags;
+                break;
+
+            case H5I_MAP:
+                acorder_flags = H5_daos_plist_cache_g->mcpl_cache.acorder_flags;
+                break;
+
+            default:
+                D_GOTO_ERROR(H5E_OBJECT, H5E_BADVALUE, FAIL, "invalid object type");
+        }
+    }
+    else if(H5Pget_attr_creation_order(ocpl_id, &acorder_flags) < 0)
         D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't get attribute creation order flags");
     assert(!obj->ocpl_cache.track_acorder);
     if(acorder_flags & H5P_CRT_ORDER_TRACKED)

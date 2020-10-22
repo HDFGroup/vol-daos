@@ -122,6 +122,7 @@ static int H5_daos_bool_prop_compare(const void *_value1, const void *_value2,
 static herr_t H5_daos_init(hid_t vipl_id);
 static herr_t H5_daos_term(void);
 static herr_t H5_daos_set_pool_globals(uuid_t pool_uuid, const char *pool_grp, const char *pool_svcl);
+static herr_t H5_daos_fill_def_plist_cache(void);
 static herr_t H5_daos_pool_create_bcast(uuid_t pool_uuid, d_rank_list_t *pool_svcl,
     MPI_Comm comm, int rank);
 static void *H5_daos_fapl_copy(const void *_old_fa);
@@ -307,6 +308,9 @@ hbool_t H5_daos_bypass_duns_g = FALSE;
 
 /* Target chunk size for automatic chunking */
 uint64_t H5_daos_chunk_target_size_g = H5_DAOS_CHUNK_TARGET_SIZE_DEF;
+
+/* Global variable for HDF5 property list cache */
+const H5_daos_plist_cache_t *H5_daos_plist_cache_g;
 
 /* DAOS task and MPI request for current in-flight MPI operation */
 tse_task_t *H5_daos_mpi_task_g = NULL;
@@ -1236,6 +1240,10 @@ H5_daos_init(hid_t H5VL_DAOS_UNUSED vipl_id)
         H5_daos_chunk_target_size_g = (uint64_t)chunk_target_size_ll;
     } /* end if */
 
+    /* Setup HDF5 default property list cache */
+    if(H5_daos_fill_def_plist_cache() < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't populate HDF5 default property list cache");
+
     /* Initialized */
     H5_daos_initialized_g = TRUE;
 
@@ -1278,6 +1286,9 @@ H5_daos_term(void)
     if(H5Punregister(H5P_FILE_ACCESS, H5_DAOS_SNAP_OPEN_ID) < 0)
         D_GOTO_ERROR(H5E_VOL, H5E_CLOSEERROR, FAIL, "can't unregister DAOS SNAP_OPEN_ID property");
 #endif
+
+    /* Free default property list cache */
+    DV_free((void *)H5_daos_plist_cache_g);
 
     /* "Forget" connector id.  This should normally be called by the library
      * when it is closing the id, so no need to close it here. */
@@ -1356,6 +1367,74 @@ done:
 
     D_FUNC_LEAVE;
 } /* end H5_daos_set_pool_globals() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_fill_def_plist_cache
+ *
+ * Purpose:     Sets up a global cache of the default values for several
+ *              properties of HDF5's default property lists. This can avoid
+ *              some overhead from H5P calls when default property lists
+ *              are used.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_fill_def_plist_cache(void)
+{
+    H5_daos_plist_cache_t *cache_ptr = NULL;
+    herr_t ret_value = SUCCEED;
+
+    if(NULL == (cache_ptr = DV_malloc(sizeof(H5_daos_plist_cache_t))))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate property list cache");
+
+    /* GCPL cache */
+    if(H5Pget_link_creation_order(H5P_GROUP_CREATE_DEFAULT, &cache_ptr->gcpl_cache.link_corder_flags) < 0)
+        D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, FAIL, "can't get default link creation order flags");
+    if(H5Pget_attr_creation_order(H5P_GROUP_CREATE_DEFAULT, &cache_ptr->gcpl_cache.acorder_flags) < 0)
+        D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, FAIL, "can't get default attribute creation order flags for groups");
+
+    /* DCPL cache */
+    if((cache_ptr->dcpl_cache.layout = H5Pget_layout(H5P_DATASET_CREATE_DEFAULT)) < 0)
+        D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, FAIL, "can't get default dataset layout property");
+    if(H5Pfill_value_defined(H5P_DATASET_CREATE_DEFAULT, &cache_ptr->dcpl_cache.fill_status) < 0)
+        D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, FAIL, "can't get default dataset fill value status");
+    if(H5Pget_fill_time(H5P_DATASET_CREATE_DEFAULT, &cache_ptr->dcpl_cache.fill_time) < 0)
+        D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, FAIL, "can't get default dataset fill time");
+    if(H5Pget_attr_creation_order(H5P_DATASET_CREATE_DEFAULT, &cache_ptr->dcpl_cache.acorder_flags) < 0)
+        D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, FAIL, "can't get default attribute creation order flags for datasets");
+
+    /* TCPL cache */
+    if(H5Pget_attr_creation_order(H5P_DATATYPE_CREATE_DEFAULT, &cache_ptr->tcpl_cache.acorder_flags) < 0)
+        D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, FAIL, "can't get default attribute creation order flags for committed datatypes");
+
+    /* MCPL cache */
+    if(H5Pget_attr_creation_order(H5P_MAP_CREATE_DEFAULT, &cache_ptr->mcpl_cache.acorder_flags) < 0)
+        D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, FAIL, "can't get default attribute creation order flags for maps");
+
+    /* MAPL cache */
+    if(H5Pget_map_iterate_hints(H5P_MAP_ACCESS_DEFAULT, &cache_ptr->mapl_cache.dkey_prefetch_size,
+            &cache_ptr->mapl_cache.dkey_alloc_size) < 0)
+        D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, FAIL, "can't get map iterate hints");
+
+    /* LCPL cache */
+    if(H5Pget_create_intermediate_group(H5P_LINK_CREATE_DEFAULT, &cache_ptr->lcpl_cache.crt_intermed_grp) < 0)
+        D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, FAIL, "can't get default intermediate group creation property value");
+
+    /* OcopyPL cache */
+    if(H5Pget_copy_object(H5P_OBJECT_COPY_DEFAULT, &cache_ptr->ocpypl_cache.obj_copy_options) < 0)
+        D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, FAIL, "failed to retrieve default object copy options");
+
+    H5_daos_plist_cache_g = cache_ptr;
+
+done:
+    if(ret_value < 0 && cache_ptr)
+        DV_free(cache_ptr);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_fill_def_plist_cache() */
 
 
 /*-------------------------------------------------------------------------

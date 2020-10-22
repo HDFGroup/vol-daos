@@ -136,7 +136,9 @@ H5_daos_dset_fill_dcpl_cache(H5_daos_dset_t *dset)
     assert(dset);
 
     /* Retrieve layout */
-    if((dset->dcpl_cache.layout = H5Pget_layout(dset->dcpl_id)) < 0)
+    if(dset->dcpl_id == H5P_DATASET_CREATE_DEFAULT)
+        dset->dcpl_cache.layout = H5_daos_plist_cache_g->dcpl_cache.layout;
+    else if((dset->dcpl_cache.layout = H5Pget_layout(dset->dcpl_id)) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get layout property");
 
     /* Retrieve chunk dimensions */
@@ -145,7 +147,9 @@ H5_daos_dset_fill_dcpl_cache(H5_daos_dset_t *dset)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get chunk dimensions");
 
     /* Retrieve fill status */
-    if(H5Pfill_value_defined(dset->dcpl_id, &dset->dcpl_cache.fill_status) < 0)
+    if(dset->dcpl_id == H5P_DATASET_CREATE_DEFAULT)
+        dset->dcpl_cache.fill_status = H5_daos_plist_cache_g->dcpl_cache.fill_status;
+    else if(H5Pfill_value_defined(dset->dcpl_id, &dset->dcpl_cache.fill_status) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get fill value status");
 
     /* Check for vlen or reference */
@@ -153,7 +157,9 @@ H5_daos_dset_fill_dcpl_cache(H5_daos_dset_t *dset)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't check for vl or reference type");
 
     /* Retrieve fill time */
-    if(H5Pget_fill_time(dset->dcpl_id, &fill_time) < 0)
+    if(dset->dcpl_id == H5P_DATASET_CREATE_DEFAULT)
+        fill_time = H5_daos_plist_cache_g->dcpl_cache.fill_time;
+    else if(H5Pget_fill_time(dset->dcpl_id, &fill_time) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get fill time");
 
     /* Determine fill method */

@@ -22,6 +22,8 @@
 /* Local Macros */
 /****************/
 
+#define H5_DAOS_LINK_VAL_BUF_SIZE_INIT 4096
+#define H5_DAOS_LINK_NAME_BUF_SIZE_INIT 255
 #define H5_DAOS_HARD_LINK_VAL_SIZE (H5_DAOS_ENCODED_OID_SIZE + 1)
 #define H5_DAOS_RECURSE_LINK_PATH_BUF_INIT 1024
 
@@ -106,8 +108,10 @@ typedef struct H5_daos_link_write_ud_t {
     H5_daos_link_val_t link_val;
     unsigned rc;
     char *link_name_buf;
+    char link_name_buf_static[H5_DAOS_LINK_NAME_BUF_SIZE_INIT];
     size_t link_name_buf_size;
     uint8_t *link_val_buf;
+    uint8_t link_val_buf_static[H5_DAOS_LINK_VAL_BUF_SIZE_INIT];
     size_t link_val_buf_size;
     uint8_t prev_max_corder_buf[H5_DAOS_ENCODED_CRT_ORDER_SIZE];
     uint64_t max_corder;
@@ -1047,8 +1051,10 @@ done:
             tse_task_complete(udata->link_write_task, ret_value);
 
             /* Free memory */
-            DV_free(udata->link_name_buf);
-            DV_free(udata->link_val_buf);
+            if(udata->link_name_buf != udata->link_name_buf_static)
+                DV_free(udata->link_name_buf);
+            if(udata->link_val_buf != udata->link_val_buf_static)
+                DV_free(udata->link_val_buf);
             DV_free(udata);
         } /* end if */
     } /* end if */
@@ -1169,8 +1175,10 @@ done:
             tse_task_complete(udata->link_write_task, ret_value);
 
             /* Free memory */
-            DV_free(udata->link_name_buf);
-            DV_free(udata->link_val_buf);
+            if(udata->link_name_buf != udata->link_name_buf_static)
+                DV_free(udata->link_name_buf);
+            if(udata->link_val_buf != udata->link_val_buf_static)
+                DV_free(udata->link_val_buf);
             DV_free(udata);
         } /* end if */
     } /* end if */
@@ -1218,15 +1226,16 @@ H5_daos_link_write(H5_daos_group_t *target_grp, const char *name,
     if(NULL == (link_write_ud = (H5_daos_link_write_ud_t *)DV_calloc(sizeof(H5_daos_link_write_ud_t))))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate buffer for link write callback arguments");
     link_write_ud->link_val = *link_val;
+    link_write_ud->link_val_buf = link_write_ud->link_val_buf_static;
+    link_write_ud->link_name_buf = link_write_ud->link_name_buf_static;
 
     /* Allocate buffer for link value and encode type-specific value information */
     switch(link_val->type) {
         case H5L_TYPE_HARD:
             assert(H5_DAOS_HARD_LINK_VAL_SIZE == sizeof(link_val->target.hard) + 1);
+            assert(H5_DAOS_HARD_LINK_VAL_SIZE <= H5_DAOS_LINK_VAL_BUF_SIZE_INIT);
 
             link_write_ud->link_val_buf_size = H5_DAOS_HARD_LINK_VAL_SIZE;
-            if(NULL == (link_write_ud->link_val_buf = (uint8_t *)DV_malloc(link_write_ud->link_val_buf_size)))
-                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate space for link target");
 
             /* For hard links, encoding of the OID into the link's value buffer
              * is delayed until the link write task's preparation callback. This
@@ -1238,8 +1247,9 @@ H5_daos_link_write(H5_daos_group_t *target_grp, const char *name,
 
         case H5L_TYPE_SOFT:
             link_write_ud->link_val_buf_size = strlen(link_val->target.soft) + 1;
-            if(NULL == (link_write_ud->link_val_buf = (uint8_t *)DV_malloc(link_write_ud->link_val_buf_size)))
-                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate space for link target");
+            if(link_write_ud->link_val_buf_size > H5_DAOS_LINK_VAL_BUF_SIZE_INIT)
+                if(NULL == (link_write_ud->link_val_buf = (uint8_t *)DV_malloc(link_write_ud->link_val_buf_size)))
+                    D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate space for link target");
 
             H5_DAOS_ENCODE_LINK_VALUE(link_write_ud->link_val_buf, link_write_ud->link_val_buf_size,
                     link_write_ud->link_val, H5L_TYPE_SOFT);
@@ -1254,8 +1264,9 @@ H5_daos_link_write(H5_daos_group_t *target_grp, const char *name,
     } /* end switch */
 
     /* Copy name */
-    if(NULL == (link_write_ud->link_name_buf = (char *)DV_malloc(name_len)))
-        D_GOTO_ERROR(H5E_SYM, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate space for name buffer");
+    if(name_len > H5_DAOS_LINK_NAME_BUF_SIZE_INIT)
+        if(NULL == (link_write_ud->link_name_buf = (char *)DV_malloc(name_len)))
+            D_GOTO_ERROR(H5E_SYM, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate space for name buffer");
     (void)memcpy(link_write_ud->link_name_buf, name, name_len);
     link_write_ud->link_name_buf_size = name_len;
 
@@ -1319,8 +1330,10 @@ done:
     /* Cleanup on failure */
     if(link_write_ud) {
         assert(ret_value < 0);
-        link_write_ud->link_name_buf = DV_free(link_write_ud->link_name_buf);
-        link_write_ud->link_val_buf = DV_free(link_write_ud->link_val_buf);
+        if(link_write_ud->link_name_buf != link_write_ud->link_name_buf_static)
+            link_write_ud->link_name_buf = DV_free(link_write_ud->link_name_buf);
+        if(link_write_ud->link_val_buf != link_write_ud->link_val_buf_static)
+            link_write_ud->link_val_buf = DV_free(link_write_ud->link_val_buf);
         link_write_ud = DV_free(link_write_ud);
     } /* end if */
 
@@ -1478,8 +1491,10 @@ done:
             tse_task_complete(udata->link_write_task, ret_value);
 
             /* Free memory */
-            DV_free(udata->link_name_buf);
-            DV_free(udata->link_val_buf);
+            if(udata->link_name_buf != udata->link_name_buf_static)
+                DV_free(udata->link_name_buf);
+            if(udata->link_val_buf != udata->link_val_buf_static)
+                DV_free(udata->link_val_buf);
             DV_free(udata);
         } /* end if */
     } /* end if */
@@ -1650,8 +1665,10 @@ done:
             tse_task_complete(udata->link_write_ud->link_write_task, ret_value);
 
             /* Free memory */
-            DV_free(udata->link_write_ud->link_name_buf);
-            DV_free(udata->link_write_ud->link_val_buf);
+            if(udata->link_write_ud->link_name_buf != udata->link_write_ud->link_name_buf_static)
+                DV_free(udata->link_write_ud->link_name_buf);
+            if(udata->link_write_ud->link_val_buf != udata->link_write_ud->link_val_buf_static)
+                DV_free(udata->link_write_ud->link_val_buf);
             udata->link_write_ud = DV_free(udata->link_write_ud);
         } /* end if */
 
@@ -1826,8 +1843,10 @@ done:
             tse_task_complete(udata->link_write_ud->link_write_task, ret_value);
 
             /* Free memory */
-            DV_free(udata->link_write_ud->link_val_buf);
-            DV_free(udata->link_write_ud->link_name_buf);
+            if(udata->link_write_ud->link_val_buf != udata->link_write_ud->link_val_buf_static)
+                DV_free(udata->link_write_ud->link_val_buf);
+            if(udata->link_write_ud->link_name_buf != udata->link_write_ud->link_name_buf_static)
+                DV_free(udata->link_write_ud->link_name_buf);
             udata->link_write_ud = DV_free(udata->link_write_ud);
         } /* end if */
 

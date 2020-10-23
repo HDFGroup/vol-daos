@@ -991,13 +991,13 @@ H5_daos_link_write_task(tse_task_t *task)
 
         /* Register task dependency */
         if(dep_task && 0 != (ret = tse_task_register_deps(end_task, 1, &dep_task)))
-            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create dependencies for link write end task: %s", H5_daos_err_to_string(ret));
+            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, ret, "can't create dependencies for link write end task: %s", H5_daos_err_to_string(ret));
 
         /* Schedule link write end task (or save it to be scheduled later) and
          * transfer ownership of udata */
         if(first_task) {
             if(0 != (ret = tse_task_schedule(end_task, false)))
-                D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't schedule end task for link write: %s", H5_daos_err_to_string(ret));
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, ret, "can't schedule end task for link write: %s", H5_daos_err_to_string(ret));
         } /* end if */
         else
             first_task = end_task;
@@ -1049,6 +1049,10 @@ done:
             /* Complete link write task */
             assert(task == udata->link_write_task);
             tse_task_complete(udata->link_write_task, ret_value);
+
+            /* Complete link write update task */
+            (void)tse_task_set_priv(udata->update_task, NULL);
+            tse_task_complete(udata->update_task, ret_value);
 
             /* Free memory */
             if(udata->link_name_buf != udata->link_name_buf_static)

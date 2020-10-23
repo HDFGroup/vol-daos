@@ -1554,11 +1554,18 @@ H5_daos_datatype_open_end(H5_daos_dtype_t *dtype, uint8_t *p, uint64_t type_buf_
     assert(p);
     assert(type_buf_len > 0);
 
-    /* Decode datatype and TCPL */
+    /* Decode datatype */
     if((dtype->type_id = H5Tdecode(p)) < 0)
         D_GOTO_ERROR(H5E_ARGS, H5E_CANTDECODE, -H5_DAOS_H5_DECODE_ERROR, "can't deserialize datatype");
     p += type_buf_len;
-    if((dtype->tcpl_id = H5Pdecode(p)) < 0)
+
+    /* Check if the datatype's TCPL is the default TCPL.
+     * Otherwise, decode the datatype's TCPL.
+     */
+    if(!memcmp(p, dtype->obj.item.file->def_plist_cache.tcpl_buf,
+            dtype->obj.item.file->def_plist_cache.tcpl_size))
+        dtype->tcpl_id = H5P_DATATYPE_CREATE_DEFAULT;
+    else if((dtype->tcpl_id = H5Pdecode(p)) < 0)
         D_GOTO_ERROR(H5E_ARGS, H5E_CANTDECODE, -H5_DAOS_H5_DECODE_ERROR, "can't deserialize datatype creation property list");
 
     /* Fill OCPL cache */

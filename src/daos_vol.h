@@ -416,6 +416,8 @@ typedef struct H5_daos_plist_cache_t {
 typedef struct H5_daos_enc_plist_cache_t {
     size_t buffer_size;
     void  *plist_buffer;
+    size_t fcpl_size;
+    void  *fcpl_buf;
     size_t dcpl_size;
     void  *dcpl_buf;
     size_t gcpl_size;

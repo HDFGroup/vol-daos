@@ -3233,6 +3233,8 @@ H5_daos_fill_enc_plist_cache(H5_daos_file_t *file, hid_t fapl_id)
     assert(file);
 
     /* Determine sizes of various property list buffers */
+    if(H5Pencode2(H5P_FILE_CREATE_DEFAULT, NULL, &file->def_plist_cache.fcpl_size, fapl_id) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "can't determine serialized length of FCPL");
     if(H5Pencode2(H5P_DATASET_CREATE_DEFAULT, NULL, &file->def_plist_cache.dcpl_size, fapl_id) < 0)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "can't determine serialized length of DCPL");
     if(H5Pencode2(H5P_GROUP_CREATE_DEFAULT, NULL, &file->def_plist_cache.gcpl_size, fapl_id) < 0)
@@ -3245,7 +3247,8 @@ H5_daos_fill_enc_plist_cache(H5_daos_file_t *file, hid_t fapl_id)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "can't determine serialized length of ACPL");
 
     /* Allocate single buffer to hold all encoded plists */
-    file->def_plist_cache.buffer_size = file->def_plist_cache.dcpl_size
+    file->def_plist_cache.buffer_size = file->def_plist_cache.fcpl_size
+                                      + file->def_plist_cache.dcpl_size
                                       + file->def_plist_cache.gcpl_size
                                       + file->def_plist_cache.tcpl_size
                                       + file->def_plist_cache.mcpl_size
@@ -3254,9 +3257,16 @@ H5_daos_fill_enc_plist_cache(H5_daos_file_t *file, hid_t fapl_id)
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate encoded property list cache buffer");
     plist_buffer = (char *)file->def_plist_cache.plist_buffer;
 
-    /* Encode DCPL */
+    /* Encode FCPL */
     cur_buf_idx = 0;
-    file->def_plist_cache.dcpl_buf = (void *)plist_buffer;
+    file->def_plist_cache.fcpl_buf = (void *)plist_buffer;
+    if(H5Pencode2(H5P_FILE_CREATE_DEFAULT, file->def_plist_cache.fcpl_buf,
+            &file->def_plist_cache.fcpl_size, fapl_id) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "can't serialize FCPL");
+
+    /* Encode DCPL */
+    cur_buf_idx += file->def_plist_cache.fcpl_size;
+    file->def_plist_cache.dcpl_buf = (void *)&(plist_buffer[cur_buf_idx]);
     if(H5Pencode2(H5P_DATASET_CREATE_DEFAULT, file->def_plist_cache.dcpl_buf,
             &file->def_plist_cache.dcpl_size, fapl_id) < 0)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "can't serialize DCPL");

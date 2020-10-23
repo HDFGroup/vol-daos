@@ -1265,14 +1265,21 @@ H5_daos_map_open_end(H5_daos_map_t *map, uint8_t *p,
     assert(ktype_buf_len > 0);
     assert(vtype_buf_len > 0);
 
-    /* Decode datatypes and MCPL */
+    /* Decode datatypes */
     if((map->key_type_id = H5Tdecode(p)) < 0)
         D_GOTO_ERROR(H5E_MAP, H5E_CANTDECODE, -H5_DAOS_H5_DECODE_ERROR, "can't deserialize datatype");
     p += ktype_buf_len;
     if((map->val_type_id = H5Tdecode(p)) < 0)
         D_GOTO_ERROR(H5E_MAP, H5E_CANTDECODE, -H5_DAOS_H5_DECODE_ERROR, "can't deserialize datatype");
     p += vtype_buf_len;
-    if((map->mcpl_id = H5Pdecode(p)) < 0)
+
+    /* Check if the map's MCPL is the default MCPL.
+     * Otherwise, decode the map's MCPL.
+     */
+    if(!memcmp(p, map->obj.item.file->def_plist_cache.mcpl_buf,
+            map->obj.item.file->def_plist_cache.mcpl_size))
+        map->mcpl_id = H5P_MAP_CREATE_DEFAULT;
+    else if((map->mcpl_id = H5Pdecode(p)) < 0)
         D_GOTO_ERROR(H5E_MAP, H5E_CANTDECODE, -H5_DAOS_H5_DECODE_ERROR, "can't deserialize map creation property list");
 
     /* Check validity of key type.  Vlens are only allowed at the top level, no

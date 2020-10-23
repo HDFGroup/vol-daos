@@ -50,6 +50,7 @@ typedef struct H5_daos_group_gmco_ud_t {
 /********************/
 
 static herr_t H5_daos_group_fill_gcpl_cache(H5_daos_group_t *grp);
+static int H5_daos_group_open_end(H5_daos_group_t *grp, uint8_t *p, uint64_t gcpl_buf_len);
 static int H5_daos_group_open_bcast_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_group_open_recv_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_group_get_info_task(tse_task_t *task);
@@ -248,7 +249,7 @@ H5_daos_group_fill_gcpl_cache(H5_daos_group_t *grp)
     assert(grp);
 
     /* Determine if this group is tracking link creation order */
-    if(grp->gcpl_id == H5P_GROUP_CREATE_DEFAULT)
+    if(grp->gcpl_id == H5P_GROUP_CREATE_DEFAULT || grp->gcpl_id == H5P_FILE_CREATE_DEFAULT)
         corder_flags = H5_daos_plist_cache_g->gcpl_cache.link_corder_flags;
     else if(H5Pget_link_creation_order(grp->gcpl_id, &corder_flags) < 0)
         D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't get link creation order flags");
@@ -286,7 +287,8 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hbool_t is_root,
     tse_task_t *group_metatask;
     int gmt_ndeps = 0;
     tse_task_t *gmt_deps[2];
-    hbool_t default_gcpl = (gcpl_id == H5P_GROUP_CREATE_DEFAULT);
+    hbool_t default_gcpl = (gcpl_id == H5P_GROUP_CREATE_DEFAULT
+                         || gcpl_id == H5P_FILE_CREATE_DEFAULT);
     int ret;
     void *ret_value = NULL;
 
@@ -304,7 +306,8 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hbool_t is_root,
     grp->obj.item.file = file;
     grp->obj.item.rc = 1;
     grp->obj.obj_oh = DAOS_HDL_INVAL;
-    grp->gcpl_id = H5P_GROUP_CREATE_DEFAULT;
+    grp->gcpl_id = (gcpl_id == H5P_FILE_CREATE_DEFAULT) ?
+            H5P_FILE_CREATE_DEFAULT : H5P_GROUP_CREATE_DEFAULT;
     grp->gapl_id = H5P_GROUP_ACCESS_DEFAULT;
 
     if(is_root) {
@@ -347,8 +350,10 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hbool_t is_root,
                 D_GOTO_ERROR(H5E_SYM, H5E_CANTENCODE, NULL, "can't serialize gcpl");
         } /* end if */
         else {
-            gcpl_buf = file->def_plist_cache.gcpl_buf;
-            gcpl_size = file->def_plist_cache.gcpl_size;
+            gcpl_buf = (gcpl_id == H5P_FILE_CREATE_DEFAULT) ?
+                    file->def_plist_cache.fcpl_buf : file->def_plist_cache.gcpl_buf;
+            gcpl_size = (gcpl_id == H5P_FILE_CREATE_DEFAULT) ?
+                    file->def_plist_cache.fcpl_size : file->def_plist_cache.gcpl_size;
         } /* end else */
 
         /* Set up operation to write GCPL to group */
@@ -656,6 +661,51 @@ done:
 
 
 /*-------------------------------------------------------------------------
+ * Function:    H5_daos_group_open_end
+ *
+ * Purpose:     Decode serialized group info from a buffer and fill caches.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_group_open_end(H5_daos_group_t *grp, uint8_t *p, uint64_t gcpl_buf_len)
+{
+    int ret_value = 0;
+
+    assert(grp);
+    assert(p);
+    assert(gcpl_buf_len > 0);
+
+    /* Check if the group's GCPL is the default GCPL or FCPL.
+     * Otherwise, decode the group's GCPL.
+     */
+    if(!memcmp(p, grp->obj.item.file->def_plist_cache.gcpl_buf,
+            grp->obj.item.file->def_plist_cache.gcpl_size))
+        grp->gcpl_id = H5P_GROUP_CREATE_DEFAULT;
+    else if(!memcmp(p, grp->obj.item.file->def_plist_cache.fcpl_buf,
+            grp->obj.item.file->def_plist_cache.fcpl_size))
+        grp->gcpl_id = H5P_FILE_CREATE_DEFAULT;
+    else if((grp->gcpl_id = H5Pdecode(p)) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_CANTDECODE, -H5_DAOS_H5_DECODE_ERROR, "can't deserialize GCPL");
+    p += gcpl_buf_len;
+
+    /* Fill GCPL cache */
+    if(H5_daos_group_fill_gcpl_cache(grp) < 0)
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, -H5_DAOS_CPL_CACHE_ERROR, "failed to fill GCPL cache");
+
+    /* Fill OCPL cache */
+    if(H5_daos_fill_ocpl_cache(&grp->obj, grp->gcpl_id) < 0)
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, -H5_DAOS_CPL_CACHE_ERROR, "failed to fill OCPL cache");
+
+done:
+    D_FUNC_LEAVE;
+} /* end H5_daos_group_open_end() */
+
+
+/*-------------------------------------------------------------------------
  * Function:    H5_daos_group_open_bcast_comp_cb
  *
  * Purpose:     Complete callback for asynchronous MPI_ibcast for group
@@ -843,22 +893,13 @@ H5_daos_group_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
             udata = NULL;
         } /* end if */
         else {
-            /* Finish building group object */
             /* Open group */
             if(0 != (ret = daos_obj_open(udata->obj->item.file->coh, udata->obj->oid, udata->obj->item.file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &udata->obj->obj_oh, NULL /*event*/)))
                 D_GOTO_ERROR(H5E_SYM, H5E_CANTOPENOBJ, ret, "can't open group: %s", H5_daos_err_to_string(ret));
 
-            /* Decode GCPL */
-            if((((H5_daos_group_t *)udata->obj)->gcpl_id = H5Pdecode(p)) < 0)
-                D_GOTO_ERROR(H5E_SYM, H5E_CANTDECODE, -H5_DAOS_H5_DECODE_ERROR, "can't deserialize GCPL");
-
-            /* Fill GCPL cache */
-            if(H5_daos_group_fill_gcpl_cache((H5_daos_group_t *)udata->obj) < 0)
-                D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, -H5_DAOS_CPL_CACHE_ERROR, "failed to fill GCPL cache");
-
-            /* Fill OCPL cache */
-            if(H5_daos_fill_ocpl_cache(udata->obj, ((H5_daos_group_t *)udata->obj)->gcpl_id) < 0)
-                D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, -H5_DAOS_CPL_CACHE_ERROR, "failed to fill OCPL cache");
+            /* Finish building group object */
+            if(0 != (ret = H5_daos_group_open_end((H5_daos_group_t *)udata->obj, p, gcpl_len)))
+                D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, ret, "can't finish opening group");
         } /* end else */
     } /* end else */
 
@@ -1013,17 +1054,9 @@ H5_daos_ginfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
             } /* end if */
 
             /* Finish building group object */
-            /* Decode GCPL */
-            if((((H5_daos_group_t *)udata->md_rw_cb_ud.obj)->gcpl_id = H5Pdecode(udata->md_rw_cb_ud.sg_iov[0].iov_buf)) < 0)
-                D_GOTO_ERROR(H5E_SYM, H5E_CANTDECODE, -H5_DAOS_H5_DECODE_ERROR, "can't deserialize GCPL");
-
-            /* Fill GCPL cache */
-            if(H5_daos_group_fill_gcpl_cache((H5_daos_group_t *)udata->md_rw_cb_ud.obj) < 0)
-                D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, -H5_DAOS_CPL_CACHE_ERROR, "failed to fill GCPL cache");
-
-            /* Fill OCPL cache */
-            if(H5_daos_fill_ocpl_cache(udata->md_rw_cb_ud.obj, ((H5_daos_group_t *)udata->md_rw_cb_ud.obj)->gcpl_id) < 0)
-                D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, -H5_DAOS_CPL_CACHE_ERROR, "failed to fill OCPL cache");
+            if(0 != (ret = H5_daos_group_open_end((H5_daos_group_t *)udata->md_rw_cb_ud.obj,
+                    udata->md_rw_cb_ud.sg_iov[0].iov_buf, (uint64_t)udata->md_rw_cb_ud.iod[0].iod_size)))
+                D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, ret, "can't finish opening group");
         } /* end else */
     } /* end else */
 
@@ -1693,6 +1726,10 @@ H5_daos_group_close(void *_grp, hid_t H5VL_DAOS_UNUSED dxpl_id,
         H5_DAOS_MAKE_ASYNC_PROGRESS(grp->obj.item.file->sched, FAIL);
 
     if(--grp->obj.item.rc == 0) {
+        hbool_t close_gcpl = grp->gcpl_id != H5I_INVALID_HID
+                          && grp->gcpl_id != H5P_GROUP_CREATE_DEFAULT
+                          && grp->gcpl_id != H5P_FILE_CREATE_DEFAULT;
+
         /* Free group data structures */
         if(grp->obj.item.open_req)
             if(H5_daos_req_free_int(grp->obj.item.open_req) < 0)
@@ -1700,9 +1737,8 @@ H5_daos_group_close(void *_grp, hid_t H5VL_DAOS_UNUSED dxpl_id,
         if(!daos_handle_is_inval(grp->obj.obj_oh))
             if(0 != (ret = daos_obj_close(grp->obj.obj_oh, NULL /*event*/)))
                 D_DONE_ERROR(H5E_SYM, H5E_CANTCLOSEOBJ, FAIL, "can't close group DAOS object: %s", H5_daos_err_to_string(ret));
-        if(grp->gcpl_id != H5I_INVALID_HID && grp->gcpl_id != H5P_GROUP_CREATE_DEFAULT)
-            if(H5Idec_ref(grp->gcpl_id) < 0)
-                D_DONE_ERROR(H5E_SYM, H5E_CANTDEC, FAIL, "failed to close gcpl");
+        if(close_gcpl && H5Idec_ref(grp->gcpl_id) < 0)
+            D_DONE_ERROR(H5E_SYM, H5E_CANTDEC, FAIL, "failed to close gcpl");
         if(grp->gapl_id != H5I_INVALID_HID && grp->gapl_id != H5P_GROUP_ACCESS_DEFAULT)
             if(H5Idec_ref(grp->gapl_id) < 0)
                 D_DONE_ERROR(H5E_SYM, H5E_CANTDEC, FAIL, "failed to close gapl");

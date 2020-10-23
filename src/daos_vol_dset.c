@@ -1007,8 +1007,13 @@ H5_daos_dset_open_end(H5_daos_dset_t *dset, uint8_t *p, uint64_t type_buf_len,
         D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTDELETE, -H5_DAOS_H5_DECODE_ERROR, "can't change selection");
     p += space_buf_len;
 
-    /* Decode DCPL */
-    if((dset->dcpl_id = H5Pdecode(p)) < 0)
+    /* Check if the dataset's DCPL is the default DCPL.
+     * Otherwise, decode the dataset's DCPL.
+     */
+    if(!memcmp(p, dset->obj.item.file->def_plist_cache.dcpl_buf,
+            dset->obj.item.file->def_plist_cache.dcpl_size))
+        dset->dcpl_id = H5P_DATASET_CREATE_DEFAULT;
+    else if((dset->dcpl_id = H5Pdecode(p)) < 0)
         D_GOTO_ERROR(H5E_ARGS, H5E_CANTDECODE, -H5_DAOS_H5_DECODE_ERROR, "can't deserialize DCPL");
 
     /* Finish setting up dataset struct */

@@ -205,7 +205,7 @@ static herr_t H5_daos_attribute_open_by_idx_helper(H5_daos_obj_t *target_obj, co
 static int H5_daos_attribute_open_bcast_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_attribute_open_recv_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_attribute_open_end(H5_daos_attr_t *attr, uint8_t *p, uint64_t type_buf_len,
-    uint64_t space_buf_len);
+    uint64_t space_buf_len, uint64_t acpl_buf_len);
 static int H5_daos_ainfo_read_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_attribute_read_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_attribute_read_bcast_comp_cb(tse_task_t *task, void *args);
@@ -1887,7 +1887,7 @@ H5_daos_attribute_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *arg
         }
         else {
             /* Finish building attribute object */
-            if(0 != (ret = H5_daos_attribute_open_end(udata->attr, p, type_buf_len, space_buf_len)))
+            if(0 != (ret = H5_daos_attribute_open_end(udata->attr, p, type_buf_len, space_buf_len, acpl_buf_len)))
                 D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, ret, "can't finish opening attribute");
         } /* end else */
     } /* end else */
@@ -1937,7 +1937,7 @@ done:
  */
 static int
 H5_daos_attribute_open_end(H5_daos_attr_t *attr, uint8_t *p, uint64_t type_buf_len,
-    uint64_t space_buf_len)
+    uint64_t space_buf_len, uint64_t acpl_buf_len)
 {
     int ret_value = 0;
 
@@ -1958,8 +1958,13 @@ H5_daos_attribute_open_end(H5_daos_attr_t *attr, uint8_t *p, uint64_t type_buf_l
          D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTDELETE, -H5_DAOS_H5_DECODE_ERROR, "can't change selection");
      p += space_buf_len;
 
-     /* Decode ACPL */
-     if((attr->acpl_id = H5Pdecode(p)) < 0)
+     /* Check if the attribute's ACPL is the default ACPL.
+      * Otherwise, decode the attribute's ACPL.
+      */
+     if(!memcmp(p, attr->item.file->def_plist_cache.acpl_buf,
+             attr->item.file->def_plist_cache.acpl_size))
+         attr->acpl_id = H5P_ATTRIBUTE_CREATE_DEFAULT;
+     else if((attr->acpl_id = H5Pdecode(p)) < 0)
          D_GOTO_ERROR(H5E_ARGS, H5E_CANTDECODE, -H5_DAOS_H5_DECODE_ERROR, "can't deserialize ACPL");
 
      /* Finish setting up attribute struct */
@@ -2100,7 +2105,7 @@ H5_daos_ainfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
             /* Finish building attribute object */
             if(0 != (ret = H5_daos_attribute_open_end(udata->attr,
-                    udata->fetch_ud.md_rw_cb_ud.sg_iov[0].iov_buf, type_buf_len, space_buf_len)))
+                    udata->fetch_ud.md_rw_cb_ud.sg_iov[0].iov_buf, type_buf_len, space_buf_len, acpl_buf_len)))
                 D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, ret, "can't finish opening attribute");
         } /* end else */
     } /* end else */

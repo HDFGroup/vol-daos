@@ -98,6 +98,7 @@ typedef struct H5_daos_link_read_ud_t {
     const char **name;
     size_t *name_len;
     H5_daos_link_val_t *link_val;
+    uint8_t link_val_buf_static[H5_DAOS_LINK_VAL_BUF_SIZE_INIT];
     hbool_t *link_read; /* Whether the link exists */
     tse_task_t *read_metatask;
 } H5_daos_link_read_ud_t;
@@ -498,15 +499,17 @@ H5_daos_link_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         tse_task_t *read_task;
 
         /* Verify iod size makes sense */
-        if(udata->md_rw_cb_ud.sg_iov[0].iov_buf_len != H5_DAOS_LINK_VAL_BUF_SIZE)
+        if(udata->md_rw_cb_ud.sg_iov[0].iov_buf_len != H5_DAOS_LINK_VAL_BUF_SIZE_INIT)
             D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, -H5_DAOS_BAD_VALUE, "buffer length does not match expected value");
-        if(udata->md_rw_cb_ud.iod[0].iod_size <= H5_DAOS_LINK_VAL_BUF_SIZE)
+        if(udata->md_rw_cb_ud.iod[0].iod_size <= H5_DAOS_LINK_VAL_BUF_SIZE_INIT)
             D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, -H5_DAOS_BAD_VALUE, "invalid iod_size returned from DAOS (buffer should have been large enough)");
 
         /* Reallocate link value buffer */
-        udata->md_rw_cb_ud.sg_iov[0].iov_buf = DV_free(udata->md_rw_cb_ud.sg_iov[0].iov_buf);
+        if(udata->md_rw_cb_ud.free_sg_iov[0])
+            udata->md_rw_cb_ud.sg_iov[0].iov_buf = DV_free(udata->md_rw_cb_ud.sg_iov[0].iov_buf);
         if(NULL == (udata->md_rw_cb_ud.sg_iov[0].iov_buf = DV_malloc(udata->md_rw_cb_ud.iod[0].iod_size)))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate buffer for link value");
+        udata->md_rw_cb_ud.free_sg_iov[0] = TRUE;
 
         /* Set up sgl */
         udata->md_rw_cb_ud.sg_iov[0].iov_buf_len = udata->md_rw_cb_ud.iod[0].iod_size;
@@ -564,14 +567,32 @@ H5_daos_link_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
                         break;
 
                     case H5L_TYPE_SOFT:
-                        /* The buffer allocated is guaranteed to be big enough to
-                         * hold the soft link path, since the path needs an extra
-                         * byte for the null terminator but loses the byte
-                         * specifying the type.  Take ownership of the buffer and
-                         * shift the value down one byte. */
-                        udata->link_val->target.soft = (char *)udata->md_rw_cb_ud.sg_iov[0].iov_buf;
+                        /* If a buffer has already been allocated to hold the soft link's
+                         * value, just point to it here. Otherwise, the soft link value
+                         * resides within the link read udata's static buffer, so we must
+                         * allocate a buffer to hold the value for the caller.
+                         */
+                        if(udata->md_rw_cb_ud.sg_iov[0].iov_buf != udata->link_val_buf_static) {
+                            /* The buffer allocated is guaranteed to be big enough to
+                             * hold the soft link path, since the path needs an extra
+                             * byte for the null terminator but loses the byte
+                             * specifying the type. */
+                            udata->link_val->target.soft = (char *)udata->md_rw_cb_ud.sg_iov[0].iov_buf;
+
+                            /* Shift the value down one byte. */
+                            memmove(udata->link_val->target.soft, udata->link_val->target.soft + 1, udata->md_rw_cb_ud.iod[0].iod_size - 1);
+                        } /* end if */
+                        else {
+                            /* Allocate a buffer to hold the soft link value */
+                            if(NULL == (udata->link_val->target.soft = (char *)DV_malloc(udata->md_rw_cb_ud.iod[0].iod_size)))
+                                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_FREE_ERROR, "can't allocate soft link value buffer");
+
+                            memcpy(udata->link_val->target.soft, (char *)udata->md_rw_cb_ud.sg_iov[0].iov_buf + 1,
+                                    udata->md_rw_cb_ud.iod[0].iod_size - 1);
+                        } /* end else */
+
+                        /* Take ownership of the buffer. */
                         udata->md_rw_cb_ud.sg_iov[0].iov_buf = NULL;
-                        memmove(udata->link_val->target.soft, udata->link_val->target.soft + 1, udata->md_rw_cb_ud.iod[0].iod_size - 1);
 
                         /* Add null terminator */
                         udata->link_val->target.soft[udata->md_rw_cb_ud.iod[0].iod_size - 1] = '\0';
@@ -651,7 +672,6 @@ H5_daos_link_read(H5_daos_group_t *grp, const char *name, size_t name_len,
     tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_link_read_ud_t *read_udata = NULL;
-    uint8_t *val_buf = NULL;
     tse_task_t *read_task;
     int ret;
     herr_t ret_value = SUCCEED;
@@ -686,16 +706,13 @@ H5_daos_link_read(H5_daos_group_t *grp, const char *name, size_t name_len,
     read_udata->md_rw_cb_ud.iod[0].iod_size = DAOS_REC_ANY;
     read_udata->md_rw_cb_ud.iod[0].iod_type = DAOS_IOD_SINGLE;
 
-    /* Allocate initial link vallue buffer */
-    if(NULL == (val_buf = DV_malloc(H5_DAOS_LINK_VAL_BUF_SIZE)))
-        D_GOTO_ERROR(H5E_LINK, H5E_CANTALLOC, FAIL, "can't allocate buffer for link value");
-
     /* Set up sgl */
-    daos_iov_set(&read_udata->md_rw_cb_ud.sg_iov[0], val_buf, (daos_size_t)H5_DAOS_LINK_VAL_BUF_SIZE);
+    daos_iov_set(&read_udata->md_rw_cb_ud.sg_iov[0],
+            read_udata->link_val_buf_static, (daos_size_t)H5_DAOS_LINK_VAL_BUF_SIZE_INIT);
     read_udata->md_rw_cb_ud.sgl[0].sg_nr = 1;
     read_udata->md_rw_cb_ud.sgl[0].sg_nr_out = 0;
     read_udata->md_rw_cb_ud.sgl[0].sg_iovs = &read_udata->md_rw_cb_ud.sg_iov[0];
-    read_udata->md_rw_cb_ud.free_sg_iov[0] = TRUE;
+    read_udata->md_rw_cb_ud.free_sg_iov[0] = FALSE;
 
     /* Set task name */
     read_udata->md_rw_cb_ud.task_name = "link read";
@@ -733,18 +750,15 @@ H5_daos_link_read(H5_daos_group_t *grp, const char *name, size_t name_len,
     req->rc++;
     grp->obj.item.rc++;
     read_udata = NULL;
-    val_buf = NULL;
 
 done:
     /* Cleanup on failure */
     if(ret_value < 0) {
         read_udata = DV_free(read_udata);
-        val_buf = DV_free(val_buf);
     } /* end if */
 
     /* Make sure we cleaned up */
     assert(!read_udata);
-    assert(!val_buf);
 
     D_FUNC_LEAVE;
 } /* end H5_daos_link_read() */
@@ -839,7 +853,6 @@ H5_daos_link_read_late_name(H5_daos_group_t *grp, const char **name, size_t *nam
     tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_link_read_ud_t *read_udata = NULL;
-    uint8_t *val_buf = NULL;
     tse_task_t *read_task;
     int ret;
     herr_t ret_value = SUCCEED;
@@ -873,16 +886,13 @@ H5_daos_link_read_late_name(H5_daos_group_t *grp, const char **name, size_t *nam
     read_udata->md_rw_cb_ud.iod[0].iod_size = DAOS_REC_ANY;
     read_udata->md_rw_cb_ud.iod[0].iod_type = DAOS_IOD_SINGLE;
 
-    /* Allocate initial link vallue buffer */
-    if(NULL == (val_buf = DV_malloc(H5_DAOS_LINK_VAL_BUF_SIZE)))
-        D_GOTO_ERROR(H5E_LINK, H5E_CANTALLOC, FAIL, "can't allocate buffer for link value");
-
     /* Set up sgl */
-    daos_iov_set(&read_udata->md_rw_cb_ud.sg_iov[0], val_buf, (daos_size_t)H5_DAOS_LINK_VAL_BUF_SIZE);
+    daos_iov_set(&read_udata->md_rw_cb_ud.sg_iov[0],
+            read_udata->link_val_buf_static, (daos_size_t)H5_DAOS_LINK_VAL_BUF_SIZE_INIT);
     read_udata->md_rw_cb_ud.sgl[0].sg_nr = 1;
     read_udata->md_rw_cb_ud.sgl[0].sg_nr_out = 0;
     read_udata->md_rw_cb_ud.sgl[0].sg_iovs = &read_udata->md_rw_cb_ud.sg_iov[0];
-    read_udata->md_rw_cb_ud.free_sg_iov[0] = TRUE;
+    read_udata->md_rw_cb_ud.free_sg_iov[0] = FALSE;
 
     /* Set task name */
     read_udata->md_rw_cb_ud.task_name = "link read (late name)";
@@ -920,18 +930,15 @@ H5_daos_link_read_late_name(H5_daos_group_t *grp, const char **name, size_t *nam
     req->rc++;
     grp->obj.item.rc++;
     read_udata = NULL;
-    val_buf = NULL;
 
 done:
     /* Cleanup on failure */
     if(ret_value < 0) {
         read_udata = DV_free(read_udata);
-        val_buf = DV_free(val_buf);
     } /* end if */
 
     /* Make sure we cleaned up */
     assert(!read_udata);
-    assert(!val_buf);
 
     D_FUNC_LEAVE;
 } /* end H5_daos_link_read_late_name() */

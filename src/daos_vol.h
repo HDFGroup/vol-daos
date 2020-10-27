@@ -550,10 +550,14 @@ struct H5_daos_req_t {
 };
 
 /* Different types of operation pools - can be either for read ops, for write
- * ops, or empty */
+ * ops, order-enforced versions of these, close ops, or empty.  Order is
+ * important, when combining ops the pool is upgraded to the highest value
+ * (closest to EMPTY) */
 typedef enum H5_daos_op_pool_type_t {
     H5_DAOS_OP_TYPE_READ,
     H5_DAOS_OP_TYPE_WRITE,
+    H5_DAOS_OP_TYPE_READ_ORDERED,
+    H5_DAOS_OP_TYPE_WRITE_ORDERED,
     H5_DAOS_OP_TYPE_CLOSE,
     H5_DAOS_OP_TYPE_EMPTY,
 } H5_daos_op_pool_type_t;

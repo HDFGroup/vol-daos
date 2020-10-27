@@ -440,7 +440,16 @@ H5_daos_req_enqueue(H5_daos_req_t *req, tse_sched_t *req_sched,
         /* Assign tmp_pool pointer */
         tmp_pool = *parent_cur_op_pool[0];
     } /* end if */
-    else if(op_type == H5_DAOS_OP_TYPE_READ && (*parent_cur_op_pool[0])->type == H5_DAOS_OP_TYPE_READ) {
+    else if((op_type == H5_DAOS_OP_TYPE_READ
+                && ((*parent_cur_op_pool[0])->type == H5_DAOS_OP_TYPE_READ
+                || (*parent_cur_op_pool[0])->type == H5_DAOS_OP_TYPE_WRITE
+                || (*parent_cur_op_pool[0])->type == H5_DAOS_OP_TYPE_READ_ORDERED))
+            || (op_type == H5_DAOS_OP_TYPE_WRITE
+                && ((*parent_cur_op_pool[0])->type == H5_DAOS_OP_TYPE_READ
+                || (*parent_cur_op_pool[0])->type == H5_DAOS_OP_TYPE_WRITE))
+            || (op_type == H5_DAOS_OP_TYPE_READ_ORDERED
+                && ((*parent_cur_op_pool[0])->type == H5_DAOS_OP_TYPE_READ
+                || (*parent_cur_op_pool[0])->type == H5_DAOS_OP_TYPE_READ_ORDERED))) {
         /* Can potentially add to existing pool, check if the higher level pools
          * have the same operation generation */
 
@@ -458,6 +467,10 @@ H5_daos_req_enqueue(H5_daos_req_t *req, tse_sched_t *req_sched,
                 tmp_pool = NULL;
                 break;
             } /* end if */
+
+        /* Upgrade pool type if appropriate */
+        if(!init_pool && op_type > (*parent_cur_op_pool[0])->type)
+            (*parent_cur_op_pool[0])->type = op_type;
     } /* end if */
     else {
         /* Cannot combine with existing pool, create new one */

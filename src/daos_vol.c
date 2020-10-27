@@ -3676,7 +3676,7 @@ H5_daos_md_update_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     } /* end if */
 
     /* Close object */
-    if(H5_daos_object_close(udata->obj, H5I_INVALID_HID, NULL) < 0)
+    if(H5_daos_object_close(&udata->obj->item) < 0)
         D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
 
     /* Handle errors in this function */
@@ -3934,7 +3934,7 @@ H5_daos_list_key_finish(tse_task_t *task)
         assert(udata->iter_data->is_recursive);
     
     /* Close target_obj */
-    if(H5_daos_object_close(udata->target_obj, H5I_INVALID_HID, NULL) < 0)
+    if(H5_daos_object_close(&udata->target_obj->item) < 0)
         D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
 
     /* Free buffer */
@@ -4600,7 +4600,7 @@ H5_daos_collective_error_check_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *
 done:
     if(udata) {
         /* Close object */
-        if(udata->obj && H5_daos_object_close(udata->obj, H5I_INVALID_HID, NULL) < 0)
+        if(udata->obj && H5_daos_object_close(&udata->obj->item) < 0)
             D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
 
         /* Release our reference to req */

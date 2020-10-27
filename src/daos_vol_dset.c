@@ -283,8 +283,8 @@ H5_daos_fill_val_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 done:
     /* Free private data if we haven't released ownership */
     if(udata) {
-        /* Close group */
-        if(H5_daos_dataset_close((H5_daos_dset_t *)udata->obj, H5I_INVALID_HID, NULL) < 0)
+        /* Close dataset */
+        if(H5_daos_dataset_close_real((H5_daos_dset_t *)udata->obj) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close dataset");
 
         /* Handle errors in this function */
@@ -403,7 +403,7 @@ void *
 H5_daos_dataset_create(void *_item,
     const H5VL_loc_params_t H5VL_DAOS_UNUSED *loc_params, const char *name,
     hid_t lcpl_id, hid_t type_id, hid_t space_id, hid_t dcpl_id,
-    hid_t dapl_id, hid_t dxpl_id, void H5VL_DAOS_UNUSED **req)
+    hid_t dapl_id, hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_dset_t *dset = NULL;
@@ -478,7 +478,7 @@ H5_daos_dataset_create(void *_item,
 
 done:
     /* Close target object */
-    if(target_obj && H5_daos_object_close(target_obj, dxpl_id, NULL) < 0)
+    if(target_obj && H5_daos_object_close(&target_obj->item) < 0)
         D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, NULL, "can't close object");
 
     if(int_req) {
@@ -524,7 +524,7 @@ done:
     /* Destroy DAOS object if created before failure DSINC */
     if(NULL == ret_value)
         /* Close dataset */
-        if(dset && H5_daos_dataset_close(dset, dxpl_id, NULL) < 0)
+        if(dset && H5_daos_dataset_close_real(dset) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, NULL, "can't close dataset");
 
     D_FUNC_LEAVE_API;
@@ -979,11 +979,11 @@ done:
     /* Destroy DAOS object if created before failure DSINC */
     if(NULL == ret_value) {
         /* Close dataset */
-        if(dset && H5_daos_dataset_close(dset, req->dxpl_id, NULL) < 0)
+        if(dset && H5_daos_dataset_close_real(dset) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, NULL, "can't close dataset");
 
         /* Free memory */
-        if(update_cb_ud && update_cb_ud->obj && H5_daos_object_close(update_cb_ud->obj, req->dxpl_id, NULL) < 0)
+        if(update_cb_ud && update_cb_ud->obj && H5_daos_object_close(&update_cb_ud->obj->item) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, NULL, "can't close object");
         type_buf = DV_free(type_buf);
         space_buf = DV_free(space_buf);
@@ -1209,7 +1209,7 @@ done:
     /* Free private data if we haven't released ownership */
     if(udata) {
         /* Close dataset */
-        if(H5_daos_dataset_close((H5_daos_dset_t *)udata->obj, H5I_INVALID_HID, NULL) < 0)
+        if(H5_daos_dataset_close_real((H5_daos_dset_t *)udata->obj) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close dataset");
 
         /* Handle errors in this function */
@@ -1350,7 +1350,7 @@ done:
     /* Free private data if we haven't released ownership */
     if(udata) {
         /* Close dataset */
-        if(H5_daos_dataset_close((H5_daos_dset_t *)udata->obj, H5I_INVALID_HID, NULL) < 0)
+        if(H5_daos_dataset_close_real((H5_daos_dset_t *)udata->obj) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close dataset");
 
         /* Handle errors in this function */
@@ -1543,7 +1543,7 @@ done:
     /* Clean up if this is the last fetch task */
     if(udata) {
         /* Close dataset */
-        if(H5_daos_dataset_close((H5_daos_dset_t *)udata->md_rw_cb_ud.obj, H5I_INVALID_HID, NULL) < 0)
+        if(H5_daos_dataset_close_real((H5_daos_dset_t *)udata->md_rw_cb_ud.obj) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close dataset");
 
         if(udata->bcast_udata) {
@@ -1725,7 +1725,7 @@ done:
             D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "failed to broadcast empty dataset info buffer to signal failure");
 
         /* Close dataset */
-        if(dset && H5_daos_dataset_close(dset, dxpl_id, NULL) < 0)
+        if(dset && H5_daos_dataset_close_real(dset) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, NULL, "can't close dataset");
     } /* end if */
     else
@@ -1772,11 +1772,11 @@ done:
     } /* end if */
 
     /* Close target object */
-    if(target_obj && H5_daos_object_close(target_obj, dxpl_id, NULL) < 0)
+    if(target_obj && H5_daos_object_close(&target_obj->item) < 0)
         D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, NULL, "can't close object");
 
     /* If we are not returning a dataset we must close it */
-    if(ret_value == NULL && dset && H5_daos_dataset_close(dset, dxpl_id, NULL) < 0)
+    if(ret_value == NULL && dset && H5_daos_dataset_close_real(dset) < 0)
         D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, NULL, "can't close dataset");
 
     D_FUNC_LEAVE_API;
@@ -2009,7 +2009,7 @@ done:
     /* Cleanup on failure */
     if(NULL == ret_value) {
         /* Close dataset */
-        if(dset && H5_daos_dataset_close(dset, req->dxpl_id, NULL) < 0)
+        if(dset && H5_daos_dataset_close_real(dset) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, NULL, "can't close dataset");
 
         /* Free memory */
@@ -2247,7 +2247,7 @@ H5_daos_chunk_io_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 done:
     if(udata) {
         /* Close dataset */
-        if(H5_daos_dataset_close(udata->dset, udata->req->dxpl_id, NULL) < 0)
+        if(H5_daos_dataset_close_real(udata->dset) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
 
         /* Handle errors in this function */
@@ -2594,7 +2594,7 @@ H5_daos_chunk_io_tconv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 done:
     if(udata) {
         /* Close dataset */
-        if(H5_daos_dataset_close(udata->dset, udata->req->dxpl_id, NULL) < 0)
+        if(H5_daos_dataset_close_real(udata->dset) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
 
         /* Close space and type IDs */
@@ -3188,15 +3188,15 @@ H5_daos_dset_io_int_end_task(tse_task_t *task)
 
     /* Free IDs */
     if(H5Tclose(udata->mem_type_id) < 0)
-        D_GOTO_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close memory datatype");
+        D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close memory datatype");
     if(udata->mem_space_id != H5S_ALL && H5Sclose(udata->mem_space_id) < 0)
-        D_GOTO_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close memory dataspace");
+        D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close memory dataspace");
     if(udata->file_space_id != H5S_ALL && H5Sclose(udata->file_space_id) < 0)
-        D_GOTO_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close file dataspace");
+        D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close file dataspace");
 
     /* Close dataset */
-    if(H5_daos_dataset_close(udata->dset, udata->req->dxpl_id, NULL) < 0)
-        D_GOTO_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close dataset used for I/O");
+    if(H5_daos_dataset_close_real(udata->dset) < 0)
+        D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close dataset used for I/O");
 
     /* Handle errors in this function */
     /* Do not place any code that can issue errors after this block, except for
@@ -3208,7 +3208,7 @@ H5_daos_dset_io_int_end_task(tse_task_t *task)
 
     /* Release our reference to req */
     if(H5_daos_req_free_int(udata->req) < 0)
-        D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+        D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
 
     /* Free udata */
     udata = DV_free(udata);
@@ -3427,8 +3427,8 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
      * must be complete and the request queue must be empty (note we can only
      * check for emptiness using this method at the object level, as file and
      * global level pools could have the tail emptied by a lower level pool). */
-    if((dset->obj.item.open_req->status == 0) && (!dset->obj.cur_op_pool
-            || dset->obj.cur_op_pool->type == H5_DAOS_OP_TYPE_EMPTY)) {
+    if((dset->obj.item.open_req->status == 0) && (!dset->obj.item.cur_op_pool
+            || dset->obj.item.cur_op_pool->type == H5_DAOS_OP_TYPE_EMPTY)) {
         /* Call internal routine */
         if(H5_daos_dataset_read_int(dset, mem_type_id, mem_space_id, file_space_id,
                 need_tconv, buf, int_req, &first_task, &dep_task) < 0)
@@ -3498,8 +3498,8 @@ done:
         /* Add the request to the object's request queue.  This will add the
          * dependency on the dataset open if necessary. */
         if(H5_daos_req_enqueue(int_req, &dset->obj.item.file->sched,
-                first_task, &dset->obj, H5_DAOS_OP_TYPE_READ, H5_DAOS_OP_SCOPE_OBJ,
-               FALSE, dset->obj.item.open_req, &dset->obj.item.file->sched) < 0)
+                first_task, &dset->obj.item, H5_DAOS_OP_TYPE_READ, H5_DAOS_OP_SCOPE_OBJ,
+                FALSE, dset->obj.item.open_req, &dset->obj.item.file->sched) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
         /* Check for external async */
@@ -3753,8 +3753,8 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
      * must be complete and the request queue must be empty (note we can only
      * check for emptiness using this method at the object level, as file and
      * global level pools could have the tail emptied by a lower level pool). */
-    if((dset->obj.item.open_req->status == 0) && (!dset->obj.cur_op_pool
-            || dset->obj.cur_op_pool->type == H5_DAOS_OP_TYPE_EMPTY)) {
+    if((dset->obj.item.open_req->status == 0) && (!dset->obj.item.cur_op_pool
+            || dset->obj.item.cur_op_pool->type == H5_DAOS_OP_TYPE_EMPTY)) {
         /* Call internal routine */
         if(H5_daos_dataset_write_int(dset, mem_type_id, mem_space_id, file_space_id,
                 need_tconv, buf, int_req, &first_task, &dep_task) < 0)
@@ -3824,8 +3824,8 @@ done:
         /* Add the request to the object's request queue.  This will add the
          * dependency on the dataset open if necessary. */
         if(H5_daos_req_enqueue(int_req, &dset->obj.item.file->sched,
-                first_task, &dset->obj, H5_DAOS_OP_TYPE_READ, H5_DAOS_OP_SCOPE_OBJ,
-               FALSE, dset->obj.item.open_req, &dset->obj.item.file->sched) < 0)
+                first_task, &dset->obj.item, H5_DAOS_OP_TYPE_WRITE, H5_DAOS_OP_SCOPE_OBJ,
+                FALSE, dset->obj.item.open_req, &dset->obj.item.file->sched) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
         /* Check for external async */
@@ -4112,38 +4112,33 @@ done:
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_dataset_close
+ * Function:    H5_daos_dataset_close_real
  *
- * Purpose:     Closes a DAOS HDF5 dataset.
+ * Purpose:     Internal version of H5_daos_dataset_close().
  *
  * Return:      Success:        0
  *              Failure:        -1
  *
  * Programmer:  Neil Fortner
- *              November, 2016
+ *              October, 2020
  *
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_dataset_close(void *_dset, hid_t H5VL_DAOS_UNUSED dxpl_id,
-    void H5VL_DAOS_UNUSED **req)
+H5_daos_dataset_close_real(H5_daos_dset_t *dset)
 {
-    H5_daos_dset_t *dset = (H5_daos_dset_t *)_dset;
     size_t i;
     int ret;
     herr_t ret_value = SUCCEED;
 
-    if(!_dset)
+    if(!dset)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "dataset object is NULL");
-
-    //if(!dset->obj.item.file->closed)
-        //H5_DAOS_MAKE_ASYNC_PROGRESS(dset->obj.item.file->sched, FAIL);
 
     if(--dset->obj.item.rc == 0) {
         /* Free dataset data structures */
-        if(dset->obj.cur_op_pool) {
-            assert(dset->obj.cur_op_pool->type == H5_DAOS_OP_TYPE_EMPTY);
-            dset->obj.cur_op_pool = DV_free(dset->obj.cur_op_pool);
+        if(dset->obj.item.cur_op_pool) {
+            assert(dset->obj.item.cur_op_pool->type == H5_DAOS_OP_TYPE_EMPTY);
+            dset->obj.item.cur_op_pool = DV_free(dset->obj.item.cur_op_pool);
         } /* end if */
         if(dset->obj.item.open_req)
             if(H5_daos_req_free_int(dset->obj.item.open_req) < 0)
@@ -4189,6 +4184,131 @@ H5_daos_dataset_close(void *_dset, hid_t H5VL_DAOS_UNUSED dxpl_id,
     } /* end if */
 
 done:
+    D_FUNC_LEAVE;
+} /* end H5_daos_dataset_close_real() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_dataset_close
+ *
+ * Purpose:     Closes a DAOS HDF5 dataset.
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ * Programmer:  Neil Fortner
+ *              November, 2016
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_dataset_close(void *_dset, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
+{
+    H5_daos_dset_t *dset = (H5_daos_dset_t *)_dset;
+    H5_daos_obj_close_task_ud_t *task_ud = NULL;
+    tse_task_t *first_task = NULL;
+    tse_task_t *dep_task = NULL;
+    H5_daos_req_t *int_req = NULL;
+    int ret;
+    herr_t ret_value = SUCCEED;
+
+    if(!_dset)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "dataset object is NULL");
+
+    if(!dset->obj.item.file->closed)
+        H5_DAOS_MAKE_ASYNC_PROGRESS(dset->obj.item.file->sched, FAIL);
+
+    /* Check if the dataset's request queue is empty, if so we can close it
+     * immediately */
+    if((dset->obj.item.open_req->status == 0) && (!dset->obj.item.cur_op_pool
+            || dset->obj.item.cur_op_pool->type == H5_DAOS_OP_TYPE_EMPTY)) {
+        if(H5_daos_dataset_close_real(dset) < 0)
+            D_GOTO_ERROR(H5E_DATASET, H5E_CLOSEERROR, FAIL, "can't close dataset");
+    } /* end if */
+    else {
+        tse_task_t *close_task = NULL;
+
+        /* Start H5 operation. Currently, the DXPL is only copied when datatype conversion is needed. */
+        if(NULL == (int_req = H5_daos_req_create(dset->obj.item.file, H5P_DATASET_XFER_DEFAULT)))
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't create DAOS request");
+
+        /* Allocate argument struct */
+        if(NULL == (task_ud = (H5_daos_obj_close_task_ud_t *)DV_calloc(sizeof(H5_daos_obj_close_task_ud_t))))
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't allocate space for close task udata struct");
+        task_ud->req = int_req;
+        task_ud->item = &dset->obj.item;
+
+        /* Create task to close dataset */
+        if(0 != (ret = tse_task_create(H5_daos_object_close_task, &dset->obj.item.file->sched, task_ud, &close_task)))
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create task to close dataset: %s", H5_daos_err_to_string(ret));
+
+        /* Save task to be scheduled later and give it a reference to req and
+         * dset */
+        assert(!first_task);
+        first_task = close_task;
+        dep_task = dep_task;
+        /* No need to take a reference to dset here since the purpose is to
+         * release the API's reference */
+        int_req->rc++;
+        task_ud = NULL;
+    } /* end else */
+
+done:
+    if(int_req) {
+        /* Create task to finalize H5 operation */
+        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &dset->obj.item.file->sched, int_req, &int_req->finalize_task)))
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        /* Register dependencies (if any) */
+        else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        /* Schedule finalize task */
+        else if(0 != (ret = tse_task_schedule(int_req->finalize_task, false)))
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        else
+            /* finalize_task now owns a reference to req */
+            int_req->rc++;
+
+        /* If there was an error during setup, pass it to the request */
+        if(ret_value < 0)
+            int_req->status = -H5_DAOS_SETUP_ERROR;
+
+        /* Add the request to the object's request queue.  This will add the
+         * dependency on the dataset open if necessary. */
+        if(H5_daos_req_enqueue(int_req, &dset->obj.item.file->sched,
+                first_task, &dset->obj.item, H5_DAOS_OP_TYPE_CLOSE, H5_DAOS_OP_SCOPE_OBJ,
+                FALSE, dset->obj.item.open_req, &dset->obj.item.file->sched) < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't add request to request queue");
+
+        /* Check for external async */
+        if(req) {
+            /* Return int_req as req */
+            *req = int_req;
+
+            /* Kick task engine */
+            if(H5_daos_progress(&dset->obj.item.file->sched, NULL, H5_DAOS_PROGRESS_KICK) < 0)
+                D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't progress scheduler");
+        } /* end if */
+        else {
+            /* Block until operation completes */
+            if(H5_daos_progress(&dset->obj.item.file->sched, int_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't progress scheduler");
+
+            /* Check for failure */
+            if(int_req->status < 0)
+                D_DONE_ERROR(H5E_DATASET, H5E_CANTOPERATE, FAIL, "dataset close failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status));
+
+            /* Release our reference to the internal request */
+            if(H5_daos_req_free_int(int_req) < 0)
+                D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, FAIL, "can't free request");
+        } /* end else */
+    } /* end if */
+
+    /* Cleanup on error */
+    if(task_ud) {
+        assert(ret_value < 0);
+        task_ud = DV_free(task_ud);
+    } /* end if */
+
     D_FUNC_LEAVE_API;
 } /* end H5_daos_dataset_close() */
 
@@ -4348,7 +4468,7 @@ done:
     /* Clean up if this is the last fetch task */
     if(udata) {
         /* Close dataset */
-        if(H5_daos_dataset_close((H5_daos_dset_t *)udata->md_rw_cb_ud.obj, H5I_INVALID_HID, NULL) < 0)
+        if(H5_daos_dataset_close_real((H5_daos_dset_t *)udata->md_rw_cb_ud.obj) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close dataset");
 
         if(udata->bcast_udata) {

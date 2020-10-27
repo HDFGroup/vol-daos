@@ -450,7 +450,7 @@ done:
 void *
 H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
     const char *name, hid_t type_id, hid_t space_id, hid_t acpl_id,
-    hid_t aapl_id, hid_t dxpl_id, void **req)
+    hid_t aapl_id, hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_attr_t *attr = NULL;
@@ -541,7 +541,7 @@ done:
     /* Destroy DAOS object if created before failure DSINC */
     if(NULL == ret_value)
         /* Close attribute */
-        if(attr && H5_daos_attribute_close(attr, dxpl_id, req) < 0)
+        if(attr && H5_daos_attribute_close_real(attr) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, NULL, "can't close attribute");
 
     D_FUNC_LEAVE_API;
@@ -789,12 +789,12 @@ done:
     /* Destroy DAOS object if created before failure DSINC */
     if(NULL == ret_value) {
         /* Close attribute */
-        if(attr && H5_daos_attribute_close(attr, req->dxpl_id, NULL) < 0)
+        if(attr && H5_daos_attribute_close_real(attr) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, NULL, "can't close attribute");
 
         /* Free memory */
         if(create_ud && create_ud->md_rw_cb_ud.obj &&
-                H5_daos_object_close(create_ud->md_rw_cb_ud.obj, req->dxpl_id, NULL) < 0)
+                H5_daos_object_close(&create_ud->md_rw_cb_ud.obj->item) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, NULL, "can't close object");
         type_buf = DV_free(type_buf);
         space_buf = DV_free(space_buf);
@@ -848,7 +848,7 @@ H5_daos_attribute_create_helper_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED 
 done:
     if(udata) {
         /* Close object */
-        if(H5_daos_object_close(udata->md_rw_cb_ud.obj, H5I_INVALID_HID, NULL) < 0)
+        if(H5_daos_object_close(&udata->md_rw_cb_ud.obj->item) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
 
         /* Handle errors in this function */
@@ -1202,7 +1202,7 @@ H5_daos_attribute_create_get_crt_order_info_comp_cb(tse_task_t *task,
 
 done:
     if(udata) {
-        if(H5_daos_attribute_close(udata->attr, udata->req->dxpl_id, NULL) < 0)
+        if(H5_daos_attribute_close_real(udata->attr) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close attribute");
 
         /* Handle errors in this function */
@@ -1316,7 +1316,7 @@ done:
     } /* end if */
 
     /* If we are not returning an attribute we must close it */
-    if(ret_value == NULL && attr && H5_daos_attribute_close(attr, dxpl_id, NULL) < 0)
+    if(ret_value == NULL && attr && H5_daos_attribute_close_real(attr) < 0)
         D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, NULL, "can't close attribute");
 
     D_FUNC_LEAVE_API;
@@ -1595,7 +1595,7 @@ done:
     /* Cleanup on failure */
     if(NULL == ret_value) {
         /* Close attribute */
-        if(attr && H5_daos_attribute_close(attr, req->dxpl_id, NULL) < 0)
+        if(attr && H5_daos_attribute_close_real(attr) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, NULL, "can't close attribute");
 
         /* Free memory */
@@ -1680,7 +1680,7 @@ done:
 
     /* Cleanup on failure */
     if(ret_value < 0)
-        if(attr_parent_obj && H5_daos_object_close(attr_parent_obj, req->dxpl_id, NULL) < 0)
+        if(attr_parent_obj && H5_daos_object_close(&attr_parent_obj->item) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close attribute's parent object");
 
     D_FUNC_LEAVE;
@@ -2090,7 +2090,7 @@ done:
     if(udata) {
         /* Close attribute's parent object */
         if(udata->fetch_ud.md_rw_cb_ud.obj &&
-                H5_daos_object_close(udata->fetch_ud.md_rw_cb_ud.obj, H5I_INVALID_HID, NULL) < 0)
+                H5_daos_object_close(&udata->fetch_ud.md_rw_cb_ud.obj->item) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close attribute's parent object");
 
         if(udata->fetch_ud.bcast_udata) {
@@ -2507,7 +2507,7 @@ H5_daos_attribute_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 done:
     if(udata) {
         /* Close object */
-        if(H5_daos_object_close(udata->md_rw_cb_ud.obj, udata->md_rw_cb_ud.req->dxpl_id, NULL) < 0)
+        if(H5_daos_object_close(&udata->md_rw_cb_ud.obj->item) < 0)
             D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
 
         /* Handle errors in this function */
@@ -2571,7 +2571,7 @@ H5_daos_attribute_read_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *ar
     } /* end if */
 
     /* Close object */
-    if(H5_daos_object_close(udata->obj, H5I_INVALID_HID, NULL) < 0)
+    if(H5_daos_object_close(&udata->obj->item) < 0)
         D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
 
     /* Handle errors in this function */
@@ -2639,7 +2639,7 @@ H5_daos_attr_read_tconv(tse_task_t *task)
 done:
     if(udata) {
         /* Close object */
-        if(H5_daos_object_close(udata->md_rw_cb_ud.obj, udata->md_rw_cb_ud.req->dxpl_id, NULL) < 0)
+        if(H5_daos_object_close(&udata->md_rw_cb_ud.obj->item) < 0)
             D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
 
         /* Handle errors in this function */
@@ -2998,7 +2998,7 @@ done:
  */
 herr_t
 H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
-    H5VL_attr_specific_t specific_type, hid_t dxpl_id, void **req,
+    H5VL_attr_specific_t specific_type, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req,
     va_list arguments)
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
@@ -3191,13 +3191,58 @@ done:
     } /* end if */
 
     if(target_obj) {
-        if(H5_daos_object_close(target_obj, dxpl_id, req) < 0)
+        if(H5_daos_object_close(&target_obj->item) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close object");
         target_obj = NULL;
     } /* end else */
 
     D_FUNC_LEAVE_API;
 } /* end H5_daos_attribute_specific() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_attribute_close_real
+ *
+ * Purpose:     Internal version of H5_daos_attribute_close()
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ * Programmer:  Neil Fortner
+ *              October, 2020
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_attribute_close_real(H5_daos_attr_t *attr)
+{
+    herr_t ret_value = SUCCEED;
+
+    if(!attr)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "attribute object is NULL");
+
+    if(--attr->item.rc == 0) {
+        /* Free attribute data structures */
+        if(attr->item.open_req)
+            if(H5_daos_req_free_int(attr->item.open_req) < 0)
+                D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't free request");
+        if(attr->parent && H5_daos_object_close(&attr->parent->item))
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close attribute's parent object");
+        attr->name = DV_free(attr->name);
+        if(attr->type_id != H5I_INVALID_HID && H5Idec_ref(attr->type_id) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTDEC, FAIL, "failed to close attribute's datatype");
+        if(attr->file_type_id != H5I_INVALID_HID && H5Idec_ref(attr->file_type_id) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTDEC, FAIL, "failed to close attribute's file datatype");
+        if(attr->space_id != H5I_INVALID_HID && H5Idec_ref(attr->space_id) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTDEC, FAIL, "failed to close attribute's dataspace");
+        if(attr->acpl_id != H5I_INVALID_HID && H5Idec_ref(attr->acpl_id) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTDEC, FAIL, "failed to close acpl");
+        attr = H5FL_FREE(H5_daos_attr_t, attr);
+    } /* end if */
+
+done:
+    D_FUNC_LEAVE;
+} /* end H5_daos_attribute_close_real() */
 
 
 /*-------------------------------------------------------------------------
@@ -3214,9 +3259,14 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_attribute_close(void *_attr, hid_t dxpl_id, void **req)
+H5_daos_attribute_close(void *_attr, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
 {
     H5_daos_attr_t *attr = (H5_daos_attr_t *)_attr;
+    H5_daos_obj_close_task_ud_t *task_ud = NULL;
+    tse_task_t *first_task = NULL;
+    tse_task_t *dep_task = NULL;
+    H5_daos_req_t *int_req = NULL;
+    int ret;
     herr_t ret_value = SUCCEED;
 
     if(!_attr)
@@ -3225,26 +3275,97 @@ H5_daos_attribute_close(void *_attr, hid_t dxpl_id, void **req)
     if(!attr->item.file->closed)
         H5_DAOS_MAKE_ASYNC_PROGRESS(attr->item.file->sched, FAIL);
 
-    if(--attr->item.rc == 0) {
-        /* Free attribute data structures */
-        if(attr->item.open_req)
-            if(H5_daos_req_free_int(attr->item.open_req) < 0)
-                D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't free request");
-        if(attr->parent && H5_daos_object_close(attr->parent, dxpl_id, req))
-            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close attribute's parent object");
-        attr->name = DV_free(attr->name);
-        if(attr->type_id != H5I_INVALID_HID && H5Idec_ref(attr->type_id) < 0)
-            D_DONE_ERROR(H5E_ATTR, H5E_CANTDEC, FAIL, "failed to close attribute's datatype");
-        if(attr->file_type_id != H5I_INVALID_HID && H5Idec_ref(attr->file_type_id) < 0)
-            D_DONE_ERROR(H5E_ATTR, H5E_CANTDEC, FAIL, "failed to close attribute's file datatype");
-        if(attr->space_id != H5I_INVALID_HID && H5Idec_ref(attr->space_id) < 0)
-            D_DONE_ERROR(H5E_ATTR, H5E_CANTDEC, FAIL, "failed to close attribute's dataspace");
-        if(attr->acpl_id != H5I_INVALID_HID && H5Idec_ref(attr->acpl_id) < 0)
-            D_DONE_ERROR(H5E_ATTR, H5E_CANTDEC, FAIL, "failed to close acpl");
-        attr = H5FL_FREE(H5_daos_attr_t, attr);
+    /* Check if the attribute's request queue is empty, if so we can close it
+     * immediately */
+    if((attr->item.open_req->status == 0) && (!attr->item.cur_op_pool
+            || attr->item.cur_op_pool->type == H5_DAOS_OP_TYPE_EMPTY)) {
+        if(H5_daos_attribute_close_real(attr) < 0)
+            D_GOTO_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close attribute");
     } /* end if */
+    else {
+        tse_task_t *close_task = NULL;
+
+        /* Start H5 operation. Currently, the DXPL is only copied when datatype conversion is needed. */
+        if(NULL == (int_req = H5_daos_req_create(attr->item.file, H5P_DATASET_XFER_DEFAULT)))
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTALLOC, FAIL, "can't create DAOS request");
+
+        /* Allocate argument struct */
+        if(NULL == (task_ud = (H5_daos_obj_close_task_ud_t *)DV_calloc(sizeof(H5_daos_obj_close_task_ud_t))))
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTALLOC, FAIL, "can't allocate space for close task udata struct");
+        task_ud->req = int_req;
+        task_ud->item = &attr->item;
+
+        /* Create task to close attribute */
+        if(0 != (ret = tse_task_create(H5_daos_object_close_task, &attr->item.file->sched, task_ud, &close_task)))
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to close attribute: %s", H5_daos_err_to_string(ret));
+
+        /* Save task to be scheduled later and give it a reference to req and
+         * attr */
+        assert(!first_task);
+        first_task = close_task;
+        dep_task = dep_task;
+        /* No need to take a reference to attr here since the purpose is to
+         * release the API's reference */
+        int_req->rc++;
+        task_ud = NULL;
+    } /* end else */
 
 done:
+    if(int_req) {
+        /* Create task to finalize H5 operation */
+        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &attr->item.file->sched, int_req, &int_req->finalize_task)))
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        /* Register dependencies (if any) */
+        else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        /* Schedule finalize task */
+        else if(0 != (ret = tse_task_schedule(int_req->finalize_task, false)))
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        else
+            /* finalize_task now owns a reference to req */
+            int_req->rc++;
+
+        /* If there was an error during setup, pass it to the request */
+        if(ret_value < 0)
+            int_req->status = -H5_DAOS_SETUP_ERROR;
+
+        /* Add the request to the object's request queue.  This will add the
+         * dependency on the attribute open if necessary. */
+        if(H5_daos_req_enqueue(int_req, &attr->item.file->sched,
+                first_task, &attr->item, H5_DAOS_OP_TYPE_CLOSE, H5_DAOS_OP_SCOPE_ATTR,
+                FALSE, attr->item.open_req, &attr->item.file->sched) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't add request to request queue");
+
+        /* Check for external async */
+        if(req) {
+            /* Return int_req as req */
+            *req = int_req;
+
+            /* Kick task engine */
+            if(H5_daos_progress(&attr->item.file->sched, NULL, H5_DAOS_PROGRESS_KICK) < 0)
+                D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't progress scheduler");
+        } /* end if */
+        else {
+            /* Block until operation completes */
+            if(H5_daos_progress(&attr->item.file->sched, int_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't progress scheduler");
+
+            /* Check for failure */
+            if(int_req->status < 0)
+                D_DONE_ERROR(H5E_ATTR, H5E_CANTOPERATE, FAIL, "attribute close failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status));
+
+            /* Release our reference to the internal request */
+            if(H5_daos_req_free_int(int_req) < 0)
+                D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't free request");
+        } /* end else */
+    } /* end if */
+
+    /* Cleanup on error */
+    if(task_ud) {
+        assert(ret_value < 0);
+        task_ud = DV_free(task_ud);
+    } /* end if */
+
     D_FUNC_LEAVE_API;
 } /* end H5_daos_attribute_close() */
 
@@ -3333,7 +3454,7 @@ H5_daos_attribute_get_name(H5_daos_obj_t *target_obj, const H5VL_loc_params_t *l
     } /* end switch */
 
 done:
-    if(parent_obj && H5_daos_object_close(parent_obj, req->dxpl_id, NULL) < 0)
+    if(parent_obj && H5_daos_object_close(&parent_obj->item) < 0)
         D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, (-1), "can't close object");
 
     D_FUNC_LEAVE;
@@ -3598,7 +3719,7 @@ H5_daos_attribute_get_info_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args
 
 done:
     if(udata) {
-        if(H5_daos_attribute_close(udata->attr, udata->req->dxpl_id, NULL) < 0)
+        if(H5_daos_attribute_close_real(udata->attr) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close attribute");
 
         /* Handle errors in this function */
@@ -3837,7 +3958,7 @@ H5_daos_attribute_delete_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
 done:
     if(udata) {
-        if(H5_daos_object_close(udata->attr_parent_obj, H5I_INVALID_HID, NULL) < 0)
+        if(H5_daos_object_close(&udata->attr_parent_obj->item) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
 
         /* Handle errors in this function */
@@ -4483,7 +4604,7 @@ done:
     if(udata) {
         /* Close object */
         if(udata->attr_container_obj &&
-                H5_daos_object_close(udata->attr_container_obj, udata->req->dxpl_id, NULL) < 0)
+                H5_daos_object_close(&udata->attr_container_obj->item) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
 
         /* Handle errors in this function */
@@ -4558,7 +4679,7 @@ done:
     /* Free private data */
     if(udata) {
         /* Close object */
-        if(udata->obj && H5_daos_object_close(udata->obj, H5I_INVALID_HID, NULL) < 0)
+        if(udata->obj && H5_daos_object_close(&udata->obj->item) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
 
         /* Handle errors in this function */
@@ -5246,7 +5367,7 @@ done:
             D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, ret, "can't schedule initial task for attribute iteration op: %s", H5_daos_err_to_string(ret));
 
         /* Close attribute */
-        if(H5_daos_attribute_close(udata->get_info_ud.attr, udata->get_info_ud.req->dxpl_id, NULL) < 0)
+        if(H5_daos_attribute_close_real(udata->get_info_ud.attr) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close attribute");
 
         /* Handle errors in this function */
@@ -5313,7 +5434,7 @@ H5_daos_attribute_iterate_finish(tse_task_t *task)
         *udata->iter_data.op_ret_p = udata->iter_data.op_ret;
 
     /* Close object */
-    if(H5_daos_object_close(udata->attr_container_obj, H5I_INVALID_HID, NULL) < 0)
+    if(H5_daos_object_close(&udata->attr_container_obj->item) < 0)
         D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
 
     if(udata->iter_data.iter_root_obj >= 0 && H5Idec_ref(udata->iter_data.iter_root_obj) < 0)
@@ -5448,12 +5569,12 @@ done:
     attr_data_buf = DV_free(attr_data_buf);
 
     if(new_attr) {
-        if(H5_daos_attribute_close(new_attr, H5P_DATASET_XFER_DEFAULT, NULL) < 0)
+        if(H5_daos_attribute_close_real(new_attr) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close attribute");
             new_attr = NULL;
     }
     if(cur_attr) {
-        if(H5_daos_attribute_close(cur_attr, H5P_DATASET_XFER_DEFAULT, NULL) < 0)
+        if(H5_daos_attribute_close_real(cur_attr) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close attribute");
         cur_attr = NULL;
     }
@@ -5523,7 +5644,7 @@ done:
             *udata->attr_name_buf_size = udata->cur_attr_name_size;
 
         /* Close target_obj */
-        if(H5_daos_object_close(udata->target_obj, H5I_INVALID_HID, NULL) < 0)
+        if(H5_daos_object_close(&udata->target_obj->item) < 0)
             D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
         udata->target_obj = NULL;
 
@@ -6191,7 +6312,7 @@ H5_daos_attribute_get_name_by_idx_free_udata_task(tse_task_t *task)
 done:
     if(udata) {
         /* Close object */
-        if(H5_daos_object_close(udata->target_obj, H5I_INVALID_HID, NULL) < 0)
+        if(H5_daos_object_close(&udata->target_obj->item) < 0)
             D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
 
         /* Handle errors in this function */

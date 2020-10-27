@@ -2975,7 +2975,8 @@ H5_daos_file_decref(H5_daos_file_t *file)
  *-------------------------------------------------------------------------
  */
 static herr_t
-H5_daos_file_close_helper(H5_daos_file_t *file, hid_t dxpl_id, void **req)
+H5_daos_file_close_helper(H5_daos_file_t *file, hid_t H5VL_DAOS_UNUSED dxpl_id,
+    void H5VL_DAOS_UNUSED **req)
 {
     int ret;
     herr_t ret_value = SUCCEED;
@@ -2983,9 +2984,9 @@ H5_daos_file_close_helper(H5_daos_file_t *file, hid_t dxpl_id, void **req)
     assert(file);
 
     /* Free file data structures */
-    if(file->cur_op_pool) {
-        assert(file->cur_op_pool->type == H5_DAOS_OP_TYPE_EMPTY);
-        file->cur_op_pool = DV_free(file->cur_op_pool);
+    if(file->item.cur_op_pool) {
+        assert(file->item.cur_op_pool->type == H5_DAOS_OP_TYPE_EMPTY);
+        file->item.cur_op_pool = DV_free(file->item.cur_op_pool);
     } /* end if */
     if(file->item.open_req)
         if(H5_daos_req_free_int(file->item.open_req) < 0)
@@ -3002,7 +3003,7 @@ H5_daos_file_close_helper(H5_daos_file_t *file, hid_t dxpl_id, void **req)
         if(0 != (ret = daos_obj_close(file->glob_md_oh, NULL /*event*/)))
             D_DONE_ERROR(H5E_FILE, H5E_CANTCLOSEFILE, FAIL, "can't close global metadata object: %s", H5_daos_err_to_string(ret));
     if(file->root_grp)
-        if(H5_daos_group_close(file->root_grp, dxpl_id, req) < 0)
+        if(H5_daos_group_close_real(file->root_grp) < 0)
             D_DONE_ERROR(H5E_FILE, H5E_CANTCLOSEFILE, FAIL, "can't close root group");
     if(!daos_handle_is_inval(file->coh))
         if(0 != (ret = daos_cont_close(file->coh, NULL /*event*/)))

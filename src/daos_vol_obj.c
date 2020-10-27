@@ -379,7 +379,7 @@ done:
         ret_value = NULL;
 
     /* Clean up ret_obj if we had a failure and we're not returning ret_obj */
-    if(NULL == ret_value && ret_obj && H5_daos_object_close(ret_obj, dxpl_id, NULL) < 0)
+    if(NULL == ret_value && ret_obj && H5_daos_object_close(&ret_obj->item) < 0)
         D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, NULL, "can't close object");
 
     D_FUNC_LEAVE_API;
@@ -632,13 +632,13 @@ done:
         D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't schedule task to open object: %s", H5_daos_err_to_string(ret));
 
     if(udata) {
-        if(udata->loc_obj && H5_daos_object_close(udata->loc_obj, udata->req->dxpl_id, NULL) < 0)
+        if(udata->loc_obj && H5_daos_object_close(udata->loc_obj) < 0)
             D_DONE_ERROR(H5E_OBJECT, H5E_CANTCLOSEOBJ, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
         if(H5P_LINK_ACCESS_DEFAULT != udata->lapl_id && H5Pclose(udata->lapl_id) < 0)
             D_DONE_ERROR(H5E_PLIST, H5E_CANTCLOSEOBJ, -H5_DAOS_H5_CLOSE_ERROR, "can't close link access plist");
 
         if(ret_value < 0) {
-            if(obj && H5_daos_object_close(obj, udata->req->dxpl_id, NULL) < 0)
+            if(obj && H5_daos_object_close(&obj->item) < 0)
                 D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
 
             /* Handle errors in this function */
@@ -774,7 +774,7 @@ done:
         D_DONE_ERROR(H5E_OBJECT, H5E_CANTFREE, FAIL, "can't free path buffer");
 
     /* Close target object */
-    if(target_obj && H5_daos_object_close(target_obj, req->dxpl_id, NULL) < 0)
+    if(target_obj && H5_daos_object_close(&target_obj->item) < 0)
         D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, FAIL, "can't close object");
 
     D_FUNC_LEAVE;
@@ -945,7 +945,7 @@ done:
 
     if(udata) {
         /* Close group */
-        if(H5_daos_group_close(udata->target_grp, H5I_INVALID_HID, NULL) < 0)
+        if(H5_daos_group_close_real(udata->target_grp) < 0)
             D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close group");
 
         /* Handle errors in this function */
@@ -995,7 +995,7 @@ H5_daos_object_get_oid_by_idx_finish(tse_task_t *task)
     assert(udata->target_grp);
     assert(task == udata->oid_retrieval_metatask);
 
-    if(H5_daos_group_close(udata->target_grp, udata->req->dxpl_id, NULL) < 0)
+    if(H5_daos_group_close_real(udata->target_grp) < 0)
         D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close group");
 
     /* Handle errors in this function */
@@ -1574,7 +1574,7 @@ H5_daos_object_copy_helper(void *src_loc_obj, const H5VL_loc_params_t *src_loc_p
 done:
     /* Cleanup on failure */
     if(ret_value < 0) {
-        if(obj_copy_udata->dst_grp && H5_daos_group_close(obj_copy_udata->dst_grp, req->dxpl_id, NULL) < 0)
+        if(obj_copy_udata->dst_grp && H5_daos_group_close_real(obj_copy_udata->dst_grp) < 0)
             D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group");
 
         if(!copy_task_scheduled) {
@@ -1787,15 +1787,15 @@ H5_daos_object_copy_free_copy_udata_task(tse_task_t *task)
         ret_value = -H5_DAOS_SHORT_CIRCUIT;
 
     /* Close source object that was opened during copying */
-    if(udata->src_obj && H5_daos_object_close(udata->src_obj, H5I_INVALID_HID, NULL) < 0)
+    if(udata->src_obj && H5_daos_object_close(&udata->src_obj->item) < 0)
         D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
 
     /* Close destination group that was opened during copying */
-    if(udata->dst_grp && H5_daos_group_close(udata->dst_grp, H5I_INVALID_HID, NULL) < 0)
+    if(udata->dst_grp && H5_daos_group_close_real(udata->dst_grp) < 0)
         D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close group");
 
     /* Close copied object */
-    if(udata->copied_obj && H5_daos_object_close(udata->copied_obj, H5I_INVALID_HID, NULL) < 0)
+    if(udata->copied_obj && H5_daos_object_close(&udata->copied_obj->item) < 0)
         D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close newly-copied object");
 
     /* Handle errors in this function */
@@ -2146,15 +2146,15 @@ H5_daos_object_copy_single_attribute_free_udata_task(tse_task_t *task)
         ret_value = -H5_DAOS_SHORT_CIRCUIT;
 
     /* Close source attribute */
-    if(H5_daos_attribute_close(udata->src_attr, H5I_INVALID_HID, NULL) < 0)
+    if(H5_daos_attribute_close_real(udata->src_attr) < 0)
         D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close attribute");
 
     /* Close newly-copied attribute */
-    if(H5_daos_attribute_close(udata->new_attr, H5I_INVALID_HID, NULL) < 0)
+    if(H5_daos_attribute_close_real(udata->new_attr) < 0)
         D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close attribute");
 
     /* Close object */
-    if(H5_daos_object_close(udata->target_obj, H5I_INVALID_HID, NULL) < 0)
+    if(H5_daos_object_close(&udata->target_obj->item) < 0)
         D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
 
     /* Handle errors in this function */
@@ -2345,7 +2345,7 @@ static H5_daos_group_t *H5_daos_group_copy_helper(H5_daos_group_t *src_grp,
 
 done:
     if(!ret_value && copied_group)
-        if(H5_daos_group_close(copied_group, req->dxpl_id, NULL) < 0)
+        if(H5_daos_group_close_real(copied_group) < 0)
             D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, NULL, "can't close group");
 
     D_FUNC_LEAVE;
@@ -2431,7 +2431,7 @@ H5_daos_group_copy_cb(hid_t group, const char *name, const H5L_info2_t *info,
                     D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, H5_ITER_ERROR, "failed to perform shallow copy of group");
 
                 /* Close group now that copying task owns it */
-                if(H5_daos_group_close(copied_group, obj_copy_udata->req->dxpl_id, NULL) < 0)
+                if(H5_daos_group_close_real(copied_group) < 0)
                     D_GOTO_ERROR(H5E_SYM, H5E_CLOSEERROR, H5_ITER_ERROR, "can't close group");
             }
             else {
@@ -2510,7 +2510,7 @@ H5_daos_group_copy_cb(hid_t group, const char *name, const H5L_info2_t *info,
 
 done:
     if(ret_value < 0 && copied_group)
-        if(H5_daos_group_close(copied_group, obj_copy_udata->req->dxpl_id, NULL) < 0)
+        if(H5_daos_group_close_real(copied_group) < 0)
             D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, H5_ITER_ERROR, "can't close copied group");
 
     *op_ret = ret_value;
@@ -2583,7 +2583,7 @@ H5_daos_datatype_copy(H5_daos_object_copy_ud_t *obj_copy_udata, H5_daos_sched_lo
 
 done:
     if(ret_value < 0 && obj_copy_udata->copied_obj)
-        if(H5_daos_datatype_close(obj_copy_udata->copied_obj, obj_copy_udata->req->dxpl_id, NULL) < 0)
+        if(H5_daos_datatype_close_real((H5_daos_dtype_t *)obj_copy_udata->copied_obj) < 0)
             D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, FAIL, "can't close datatype");
 
     D_FUNC_LEAVE;
@@ -2660,7 +2660,7 @@ H5_daos_dataset_copy(H5_daos_object_copy_ud_t *obj_copy_udata, H5_daos_sched_loc
 
 done:
     if(ret_value < 0 && obj_copy_udata->copied_obj)
-        if(H5_daos_dataset_close(obj_copy_udata->copied_obj, obj_copy_udata->req->dxpl_id, NULL) < 0)
+        if(H5_daos_dataset_close_real((H5_daos_dset_t *)obj_copy_udata->copied_obj) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, FAIL, "can't close dataset");
 
     D_FUNC_LEAVE;
@@ -2910,10 +2910,10 @@ H5_daos_dset_copy_data_end_task(tse_task_t *task)
         D_DONE_ERROR(H5E_DATASET, H5E_CANTGC, -H5_DAOS_FREE_ERROR, "can't reclaim memory from fill value conversion buffer");
 
     /* Close datasets */
-    if(H5_daos_dataset_close(udata->src_dset, udata->req->dxpl_id, NULL) < 0)
+    if(H5_daos_dataset_close_real(udata->src_dset) < 0)
         D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close dataset");
 
-    if(H5_daos_dataset_close(udata->dst_dset, udata->req->dxpl_id, NULL) < 0)
+    if(H5_daos_dataset_close_real(udata->dst_dset) < 0)
         D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close dataset");
 
     /* Handle errors in this function */
@@ -3135,7 +3135,7 @@ done:
     } /* end if */
 
     if(target_obj) {
-        if(H5_daos_object_close(target_obj, dxpl_id, NULL) < 0)
+        if(H5_daos_object_close(&target_obj->item) < 0)
             D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, FAIL, "can't close object");
         target_obj = NULL;
     } /* end if */
@@ -3186,7 +3186,7 @@ done:
     /* Clean up */
     if(udata) {
         if(udata->target_obj) {
-            if(H5_daos_object_close(udata->target_obj, udata->req->dxpl_id, NULL) < 0)
+            if(H5_daos_object_close(&udata->target_obj->item) < 0)
                 D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
             udata->target_obj = NULL;
         } /* end if */
@@ -3525,7 +3525,7 @@ done:
     } /* end if */
 
     if(target_obj) {
-        if(H5_daos_object_close(target_obj, dxpl_id, NULL) < 0)
+        if(H5_daos_object_close(&target_obj->item) < 0)
             D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, FAIL, "can't close object");
         target_obj = NULL;
     } /* end if */
@@ -3537,6 +3537,69 @@ done:
 
     D_FUNC_LEAVE_API;
 } /* end H5_daos_object_specific() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_object_close_task
+ *
+ * Purpose:     Asynchronous task to close a DAOS HDF5 object.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ * Programmer:  Neil Fortner
+ *              October, 2020
+ *
+ *-------------------------------------------------------------------------
+ */
+int
+H5_daos_object_close_task(tse_task_t *task)
+{
+    H5_daos_obj_close_task_ud_t *udata = NULL;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for object close task");
+
+    /* Handle errors in previous tasks */
+    /* Probably not necessary here? -NAF */
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    } /* end if */
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT) {
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
+    } /* end if */
+
+    /* Call real close function */
+    if(H5_daos_object_close(udata->item) < 0)
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
+
+done:
+    if(udata) {
+        /* Handle errors in this function */
+        /* Do not place any code that can issue errors after this block, except for
+         * H5_daos_req_free_int, which updates req->status if it sees an error */
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+            udata->req->status = ret_value;
+            udata->req->failed_task = "object close task";
+        } /* end if */
+
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(udata->req) < 0)
+            D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+        /* Free udata */
+        udata = DV_free(udata);
+    } /* end if */
+    else
+        assert(ret_value == -H5_DAOS_DAOS_GET_ERROR);
+
+    /* Complete this task */
+    tse_task_complete(task, ret_value);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_object_close_task() */
 
 
 /*-------------------------------------------------------------------------
@@ -3553,33 +3616,29 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_object_close(void *_obj, hid_t dxpl_id, void **req)
+H5_daos_object_close(H5_daos_item_t *item)
 {
-    H5_daos_obj_t *obj = (H5_daos_obj_t *)_obj;
-    herr_t ret_value = SUCCEED;
-
-    if(!_obj)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is NULL");
+    int ret_value = 0;
 
     /* Call type's close function */
-    if(obj->item.type == H5I_GROUP) {
-        if(H5_daos_group_close(obj, dxpl_id, req))
+    if(item->type == H5I_GROUP) {
+        if(H5_daos_group_close_real((H5_daos_group_t *)item) < 0)
             D_GOTO_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group");
     } /* end if */
-    else if(obj->item.type == H5I_DATASET) {
-        if(H5_daos_dataset_close(obj, dxpl_id, req))
+    else if(item->type == H5I_DATASET) {
+        if(H5_daos_dataset_close_real((H5_daos_dset_t *)item) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CLOSEERROR, FAIL, "can't close dataset");
     } /* end if */
-    else if(obj->item.type == H5I_DATATYPE) {
-        if(H5_daos_datatype_close(obj, dxpl_id, req))
+    else if(item->type == H5I_DATATYPE) {
+        if(H5_daos_datatype_close_real((H5_daos_dtype_t *)item) < 0)
             D_GOTO_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, FAIL, "can't close datatype");
     } /* end if */
-    else if(obj->item.type == H5I_ATTR) {
-        if(H5_daos_attribute_close(obj, dxpl_id, req))
+    else if(item->type == H5I_ATTR) {
+        if(H5_daos_attribute_close_real((H5_daos_attr_t *)item) < 0)
             D_GOTO_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close attribute");
     } /* end if */
-    else if(obj->item.type == H5I_MAP) {
-        if(H5_daos_map_close(obj, dxpl_id, req))
+    else if(item->type == H5I_MAP) {
+        if(H5_daos_map_close_real((H5_daos_map_t *)item) < 0)
             D_GOTO_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't close map");
     } /* end if */
     else
@@ -3587,7 +3646,7 @@ H5_daos_object_close(void *_obj, hid_t dxpl_id, void **req)
 
 done:
     D_FUNC_LEAVE;
-} /* end H5_daos_object_close() */
+} /* end H5_daos_obj_close() */
 
 
 /*-------------------------------------------------------------------------
@@ -3742,7 +3801,7 @@ H5_daos_object_exists_finish(tse_task_t *task)
 done:
     if(udata) {
         /* Close group */
-        if(H5_daos_group_close(udata->target_grp, H5I_INVALID_HID, NULL) < 0)
+        if(H5_daos_group_close_real(udata->target_grp) < 0)
             D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close group");
 
         /* Release our reference to req */
@@ -4240,12 +4299,12 @@ done:
         D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't schedule task to visit object: %s", H5_daos_err_to_string(ret));
 
     /* Close object since object visiting task should now own it */
-    if(target_obj && H5_daos_object_close(target_obj, H5I_INVALID_HID, NULL) < 0)
+    if(target_obj && H5_daos_object_close(&target_obj->item) < 0)
         D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
 
     if(udata) {
         /* Close group */
-        if(H5_daos_group_close(udata->target_grp, H5I_INVALID_HID, NULL) < 0)
+        if(H5_daos_group_close_real(udata->target_grp) < 0)
             D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close group");
 
         /* Handle errors in this function */
@@ -4314,7 +4373,7 @@ H5_daos_object_visit_finish(tse_task_t *task)
         D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object ID");
 
     /* Close object */
-    if(H5_daos_object_close(udata->target_obj, H5I_INVALID_HID, NULL) < 0)
+    if(H5_daos_object_close(&udata->target_obj->item) < 0)
         D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
 
     /* Handle errors in this function */
@@ -4568,7 +4627,7 @@ done:
     if(udata) {
         assert(ret_value < 0);
 
-        if(udata->target_obj && H5_daos_object_close(udata->target_obj, H5I_INVALID_HID, NULL) < 0)
+        if(udata->target_obj && H5_daos_object_close(&udata->target_obj->item) < 0)
             D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
 
         udata = DV_free(udata);
@@ -4624,7 +4683,7 @@ H5_daos_object_get_info_end(tse_task_t *task)
     assert(udata->req->file);
 
     /* Close target object */
-    if(udata->target_obj && H5_daos_object_close(udata->target_obj, H5I_INVALID_HID, NULL) < 0)
+    if(udata->target_obj && H5_daos_object_close(&udata->target_obj->item) < 0)
         D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
 
     /* Handle errors in this function */
@@ -4875,7 +4934,7 @@ H5_daos_get_num_attrs_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
 done:
     if(udata) {
-        if(H5_daos_object_close(udata->md_rw_cb_ud.obj, H5I_INVALID_HID, NULL) < 0)
+        if(H5_daos_object_close(&udata->md_rw_cb_ud.obj->item) < 0)
             D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
 
         /* Handle errors in this function */
@@ -5095,7 +5154,7 @@ H5_daos_object_update_num_attrs_key_comp_cb(tse_task_t *task, void H5VL_DAOS_UNU
 
 done:
     if(udata) {
-        if(H5_daos_object_close(udata->update_ud.obj, H5I_INVALID_HID, NULL) < 0)
+        if(H5_daos_object_close(&udata->update_ud.obj->item) < 0)
             D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
 
         /* Handle errors in this function */
@@ -5258,7 +5317,7 @@ done:
     /* Clean up */
     if(udata) {
         /* Close object if a direct pointer was provided */
-        if(udata->obj && H5_daos_object_close(udata->obj, udata->req->dxpl_id, NULL) < 0)
+        if(udata->obj && H5_daos_object_close(&udata->obj->item) < 0)
             D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
 
         /* Handle errors in this function */
@@ -5523,7 +5582,7 @@ done:
         assert(ret_value < 0);
 
         /* Close object if a direct pointer was provided */
-        if(udata->obj && H5_daos_object_close(udata->obj, udata->req->dxpl_id, NULL) < 0)
+        if(udata->obj && H5_daos_object_close(&udata->obj->item) < 0)
             D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
 
         /* Release our reference to req */
@@ -5576,7 +5635,7 @@ done:
     /* Clean up */
     if(udata) {
         /* Close object if a direct pointer was provided */
-        if(udata->obj && H5_daos_object_close(udata->obj, udata->req->dxpl_id, NULL) < 0)
+        if(udata->obj && H5_daos_object_close(&udata->obj->item) < 0)
             D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
 
         /* Handle errors in this function */

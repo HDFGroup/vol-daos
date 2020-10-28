@@ -477,11 +477,10 @@ H5_daos_dataset_create(void *_item,
     ret_value = (void *)dset;
 
 done:
-    /* Close target object */
-    if(target_obj && H5_daos_object_close(&target_obj->item) < 0)
-        D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, NULL, "can't close object");
-
     if(int_req) {
+        H5_daos_item_t *pool_item;
+        H5_daos_op_pool_type_t op_type;
+
         /* Free path_buf if necessary */
         if(path_buf && H5_daos_free_async(item->file, path_buf, &first_task, &dep_task) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CANTFREE, NULL, "can't free path buffer");
@@ -503,22 +502,61 @@ done:
         if(NULL == ret_value)
             int_req->status = -H5_DAOS_SETUP_ERROR;
 
-        /* Schedule first task */
-        if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
-            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
+        /* Determine operation type - we will add the operation to the target
+         * object's op pool.  If there is no target object, it is not a group,
+         * or if we know it does not have creation order tracked we can use
+         * H5_DAOS_OP_TYPE_WRITE, otherwise use H5_DAOS_OP_TYPE_WRITE_ORDERED.
+         * Add to target object's pool because that's where we're creating the
+         * link.  No need to add to dataset's pool since it's the open request.
+         */
+        if(!target_obj || target_obj->item.type != H5I_GROUP) {
+            pool_item = NULL;
+            op_type = H5_DAOS_OP_TYPE_WRITE;
+        } /* end if */
+        else {
+            pool_item = &target_obj->item;
+            if((target_obj->item.open_req->status == 0
+                || target_obj->item.created)
+                && !((H5_daos_group_t *)target_obj)->gcpl_cache.track_corder)
+                op_type = H5_DAOS_OP_TYPE_WRITE;
+            else
+                op_type = H5_DAOS_OP_TYPE_WRITE_ORDERED;
+        } /* end else */
 
-        /* Block until operation completes */
-        if(H5_daos_progress(&item->file->sched, int_req, H5_DAOS_PROGRESS_WAIT) < 0)
-            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't progress scheduler");
+        /* Add the request to the object's request queue.  This will add the
+         * dependency on the dataset open if necessary. */
+        if(H5_daos_req_enqueue(int_req, &item->file->sched,
+                first_task, pool_item, op_type, H5_DAOS_OP_SCOPE_OBJ,
+                collective, pool_item ? pool_item->open_req : NULL, &item->file->sched) < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't add request to request queue");
 
-        /* Check for failure */
-        if(int_req->status < 0)
-            D_DONE_ERROR(H5E_DATASET, H5E_CANTOPERATE, NULL, "dataset creation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status));
+        /* Check for external async */
+        if(req) {
+            /* Return int_req as req */
+            *req = int_req;
 
-        /* Close internal request */
-        if(H5_daos_req_free_int(int_req) < 0)
-            D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, NULL, "can't free request");
+            /* Kick task engine */
+            if(H5_daos_progress(&item->file->sched, NULL, H5_DAOS_PROGRESS_KICK) < 0)
+                D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't progress scheduler");
+        } /* end if */
+        else {
+            /* Block until operation completes */
+            if(H5_daos_progress(&item->file->sched, int_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't progress scheduler");
+
+            /* Check for failure */
+            if(int_req->status < 0)
+                D_DONE_ERROR(H5E_DATASET, H5E_CANTOPERATE, NULL, "dataset write failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status));
+
+            /* Close internal request */
+            if(H5_daos_req_free_int(int_req) < 0)
+                D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, NULL, "can't free request");
+        } /* end else */
     } /* end if */
+
+    /* Close target object */
+    if(target_obj && H5_daos_object_close(&target_obj->item) < 0)
+        D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, NULL, "can't close object");
 
     /* Cleanup on failure */
     /* Destroy DAOS object if created before failure DSINC */
@@ -575,6 +613,7 @@ H5_daos_dataset_create_helper(H5_daos_file_t *file, hid_t type_id, hid_t space_i
     if(NULL == (dset = H5FL_CALLOC(H5_daos_dset_t)))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate DAOS dataset struct");
     dset->obj.item.type = H5I_DATASET;
+    dset->obj.item.created = TRUE;
     dset->obj.item.open_req = req;
     req->rc++;
     dset->obj.item.file = file;
@@ -3672,7 +3711,7 @@ H5_daos_dataset_write_int(H5_daos_dset_t *dset, hid_t mem_type_id,
     for(i = 0; i < nchunks_sel; i++) {
         io_task = *dep_task;
         if(single_chunk_write_func(&chunk_info[i], dset, (uint64_t)ndims, mem_type_id,
-                IO_WRITE, buf, req, first_task, &io_task) < 0)
+                IO_WRITE, (void *)buf, req, first_task, &io_task) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_WRITEERROR, FAIL, "dataset write failed");
 
         /* Set up dependency on io_task for end task */
@@ -3898,6 +3937,14 @@ H5_daos_dataset_get(void *_dset, H5VL_dataset_get_t get_type,
             {
                 hid_t *plist_id = va_arg(arguments, hid_t *);
 
+                /* Wait for the dataset to open if necessary */
+                if(!dset->obj.item.created || dset->obj.item.open_req->status != 0) {
+                    if(H5_daos_progress(&dset->obj.item.file->sched, dset->obj.item.open_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't progress scheduler");
+                    if(dset->obj.item.open_req->status != 0)
+                        D_GOTO_ERROR(H5E_DATASET, H5E_CANTOPENOBJ, FAIL, "dataset open failed");
+                } /* end if */
+
                 /* Retrieve the dataset's creation property list */
                 if((*plist_id = H5Pcopy(dset->dcpl_id)) < 0)
                     D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get dataset creation property list");
@@ -3912,6 +3959,14 @@ H5_daos_dataset_get(void *_dset, H5VL_dataset_get_t get_type,
             {
                 hid_t *plist_id = va_arg(arguments, hid_t *);
 
+                /* Wait for the dataset to open if necessary */
+                if(!dset->obj.item.created || dset->obj.item.open_req->status != 0) {
+                    if(H5_daos_progress(&dset->obj.item.file->sched, dset->obj.item.open_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't progress scheduler");
+                    if(dset->obj.item.open_req->status != 0)
+                        D_GOTO_ERROR(H5E_DATASET, H5E_CANTOPENOBJ, FAIL, "dataset open failed");
+                } /* end if */
+
                 /* Retrieve the dataset's access property list */
                 if((*plist_id = H5Pcopy(dset->dapl_id)) < 0)
                     D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get dataset access property list");
@@ -3921,6 +3976,14 @@ H5_daos_dataset_get(void *_dset, H5VL_dataset_get_t get_type,
         case H5VL_DATASET_GET_SPACE:
             {
                 hid_t *ret_id = va_arg(arguments, hid_t *);
+
+                /* Wait for the dataset to open if necessary */
+                if(!dset->obj.item.created || dset->obj.item.open_req->status != 0) {
+                    if(H5_daos_progress(&dset->obj.item.file->sched, dset->obj.item.open_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't progress scheduler");
+                    if(dset->obj.item.open_req->status != 0)
+                        D_GOTO_ERROR(H5E_DATASET, H5E_CANTOPENOBJ, FAIL, "dataset open failed");
+                } /* end if */
 
                 /* Retrieve the dataset's dataspace */
                 if((*ret_id = H5Scopy(dset->space_id)) < 0)
@@ -3939,6 +4002,14 @@ H5_daos_dataset_get(void *_dset, H5VL_dataset_get_t get_type,
             {
                 hid_t *ret_id = va_arg(arguments, hid_t *);
 
+                /* Wait for the dataset to open if necessary */
+                if(!dset->obj.item.created || dset->obj.item.open_req->status != 0) {
+                    if(H5_daos_progress(&dset->obj.item.file->sched, dset->obj.item.open_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't progress scheduler");
+                    if(dset->obj.item.open_req->status != 0)
+                        D_GOTO_ERROR(H5E_DATASET, H5E_CANTOPENOBJ, FAIL, "dataset open failed");
+                } /* end if */
+
                 /* Retrieve the dataset's datatype */
                 if((*ret_id = H5Tcopy(dset->type_id)) < 0)
                     D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get datatype ID of dataset");
@@ -3949,6 +4020,14 @@ H5_daos_dataset_get(void *_dset, H5VL_dataset_get_t get_type,
                 hsize_t     *ret = va_arg(arguments, hsize_t *);
                 hssize_t    nelements = 0;
                 size_t      dtype_size = 0;
+
+                /* Wait for the dataset to open if necessary */
+                if(!dset->obj.item.created || dset->obj.item.open_req->status != 0) {
+                    if(H5_daos_progress(&dset->obj.item.file->sched, dset->obj.item.open_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't progress scheduler");
+                    if(dset->obj.item.open_req->status != 0)
+                        D_GOTO_ERROR(H5E_DATASET, H5E_CANTOPENOBJ, FAIL, "dataset open failed");
+                } /* end if */
 
                 *ret = 0;
 
@@ -4025,13 +4104,21 @@ H5_daos_dataset_specific(void *_item, H5VL_dataset_specific_t specific_type,
                 if(!size)
                     D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "size parameter is NULL");
 
+                /* Wait for the dataset to open if necessary */
+                if(!dset->obj.item.created || dset->obj.item.open_req->status != 0) {
+                    if(H5_daos_progress(&dset->obj.item.file->sched, dset->obj.item.open_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't progress scheduler");
+                    if(dset->obj.item.open_req->status != 0)
+                        D_GOTO_ERROR(H5E_DATASET, H5E_CANTOPENOBJ, FAIL, "dataset open failed");
+                } /* end if */
+
                 if(H5D_CHUNKED != dset->dcpl_cache.layout)
                     D_GOTO_ERROR(H5E_DATASET, H5E_BADVALUE, FAIL, "dataset storage layout is not chunked");
 
 #ifdef H5_DAOS_USE_TRANSACTIONS
                 /* Start transaction */
                 if(0 != (ret = daos_tx_open(dset->obj.item.file->coh, &int_req->th, NULL /*event*/)))
-                    D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't start transaction");
+                    D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't start transaction");
                 int_req->th_open = TRUE;
 #endif /* H5_DAOS_USE_TRANSACTIONS */
 
@@ -4056,9 +4143,17 @@ H5_daos_dataset_specific(void *_item, H5VL_dataset_specific_t specific_type,
 #ifdef H5_DAOS_USE_TRANSACTIONS
                 /* Start transaction */
                 if(0 != (ret = daos_tx_open(dset->obj.item.file->coh, &int_req->th, NULL /*event*/)))
-                    D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't start transaction");
+                    D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't start transaction");
                 int_req->th_open = TRUE;
 #endif /* H5_DAOS_USE_TRANSACTIONS */
+
+                /* Wait for the dataset to open if necessary */
+                if(!dset->obj.item.created || dset->obj.item.open_req->status != 0) {
+                    if(H5_daos_progress(&dset->obj.item.file->sched, dset->obj.item.open_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't progress scheduler");
+                    if(dset->obj.item.open_req->status != 0)
+                        D_GOTO_ERROR(H5E_DATASET, H5E_CANTOPENOBJ, FAIL, "dataset open failed");
+                } /* end if */
 
                 /* Call main routine */
                 if(H5_daos_dataset_refresh(dset, dxpl_id, int_req, &first_task, &dep_task) < 0)

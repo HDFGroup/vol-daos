@@ -333,7 +333,7 @@ done:
  * Purpose:     Adds a request to an object, file, or global operation
  *              pool.  If collective is true it is also added to the
  *              collective operation queue.  If dep_req is provided that
- *              is added as a dependency.
+ *              is added as a dependency.  Also schedules first_task.
  *
  * Return:      Non-negative on success/Negative on failure
  *
@@ -363,289 +363,297 @@ H5_daos_req_enqueue(H5_daos_req_t *req, tse_sched_t *req_sched,
 
     assert(req);
     assert(req_sched);
-    assert(op_type == H5_DAOS_OP_TYPE_READ || op_type == H5_DAOS_OP_TYPE_WRITE
-        || op_type == H5_DAOS_OP_TYPE_CLOSE);
-    assert(scope == H5_DAOS_OP_SCOPE_OBJ || scope == H5_DAOS_OP_SCOPE_FILE
-            || scope == H5_DAOS_OP_SCOPE_GLOB);
+    assert(op_type >= H5_DAOS_OP_TYPE_READ && op_type <= H5_DAOS_OP_TYPE_CLOSE);
+    assert(scope >= H5_DAOS_OP_SCOPE_ATTR &&  scope <= H5_DAOS_OP_SCOPE_GLOB);
     assert(!(dep_req && !dep_req_sched));
 
     /* If there's no first task there's nothing to do */
     if(!first_task)
         D_GOTO_DONE(SUCCEED);
 
-    /* Assign parent_cur_op_pool and parent_static_op_pool */
-    switch(scope) {
-        case H5_DAOS_OP_SCOPE_ATTR:
-            assert(item);
-            assert(item->file == req->file);
-            assert(item->type == H5I_ATTR);
-            parent_cur_op_pool[0] = &item->cur_op_pool;
-            parent_cur_op_pool[1] = &((H5_daos_attr_t *)item)->parent->item.cur_op_pool;
-            parent_cur_op_pool[2] = &item->file->item.cur_op_pool;
-            parent_cur_op_pool[3] = &H5_daos_glob_cur_op_pool_g;
-            sched[0] = &item->file->sched;
-            sched[1] = &item->file->sched;
-            sched[2] = &item->file->sched;
-            sched[3] = &H5_daos_glob_sched_g;
-            nlevels = 4;
-            break;
-
-        case H5_DAOS_OP_SCOPE_OBJ:
-            assert(item);
-            assert(item->file == req->file);
-            parent_cur_op_pool[0] = &item->cur_op_pool;
-            parent_cur_op_pool[1] = &item->file->item.cur_op_pool;
-            parent_cur_op_pool[2] = &H5_daos_glob_cur_op_pool_g;
-            sched[0] = &item->file->sched;
-            sched[1] = &item->file->sched;
-            sched[2] = &H5_daos_glob_sched_g;
-            nlevels = 3;
-            break;
-
-        case H5_DAOS_OP_SCOPE_FILE:
-            assert(item);
-            assert(item->file == req->file);
-            assert(item == &item->file->item);
-            parent_cur_op_pool[0] = &item->file->item.cur_op_pool;
-            parent_cur_op_pool[1] = &H5_daos_glob_cur_op_pool_g;
-            sched[0] = &item->file->sched;
-            sched[1] = &H5_daos_glob_sched_g;
-            nlevels = 2;
-            break;
-
-        case H5_DAOS_OP_SCOPE_GLOB:
-            parent_cur_op_pool[0] = &H5_daos_glob_cur_op_pool_g;
-            sched[0] = &H5_daos_glob_sched_g;
-            nlevels = 1;
-            break;
-
-        default:
-            assert(0 && "Unknown scope");
-    } /* end switch */
-
-    /* Determine if we need to allocate and/or initialize a new pool */
-    if(!*parent_cur_op_pool[0]) {
-        /* No pool present at this level, must create a new one */
-        create_new_pool = TRUE;
-        init_pool = TRUE;
-    } /* end if */
-    else if((*parent_cur_op_pool[0])->type == H5_DAOS_OP_TYPE_EMPTY) {
-        /* Empty pool present, must initialize */
-        assert((*parent_cur_op_pool[0])->start_task);
-
-        /* Take over empty pool */
-        create_new_pool = FALSE;
-        init_pool = TRUE;
-
-        /* Assign tmp_pool pointer */
-        tmp_pool = *parent_cur_op_pool[0];
-    } /* end if */
-    else if((op_type == H5_DAOS_OP_TYPE_READ
-                && ((*parent_cur_op_pool[0])->type == H5_DAOS_OP_TYPE_READ
-                || (*parent_cur_op_pool[0])->type == H5_DAOS_OP_TYPE_WRITE
-                || (*parent_cur_op_pool[0])->type == H5_DAOS_OP_TYPE_READ_ORDERED))
-            || (op_type == H5_DAOS_OP_TYPE_WRITE
-                && ((*parent_cur_op_pool[0])->type == H5_DAOS_OP_TYPE_READ
-                || (*parent_cur_op_pool[0])->type == H5_DAOS_OP_TYPE_WRITE))
-            || (op_type == H5_DAOS_OP_TYPE_READ_ORDERED
-                && ((*parent_cur_op_pool[0])->type == H5_DAOS_OP_TYPE_READ
-                || (*parent_cur_op_pool[0])->type == H5_DAOS_OP_TYPE_READ_ORDERED))) {
-        /* Can potentially add to existing pool, check if the higher level pools
-         * have the same operation generation */
-
-        /* Start off using existing pool */
-        create_new_pool = FALSE;
-        init_pool = FALSE;
-        tmp_pool = *parent_cur_op_pool[0];
-
-        /* Check if we must create a new pool */
-        for(i = 1; i < nlevels; i++)
-            if(*parent_cur_op_pool[i] && (*parent_cur_op_pool[0])->op_gens[i]
-                    != (*parent_cur_op_pool[i])->op_gens[0]) {
-                create_new_pool = TRUE;
-                init_pool = TRUE;
-                tmp_pool = NULL;
+    /* Check if we don't need to add to a pool */
+    if(item || scope == H5_DAOS_OP_SCOPE_GLOB) {
+        /* Assign parent_cur_op_pool and parent_static_op_pool */
+        switch(scope) {
+            case H5_DAOS_OP_SCOPE_ATTR:
+                assert(item);
+                assert(item->file == req->file);
+                assert(item->type == H5I_ATTR);
+                parent_cur_op_pool[0] = &item->cur_op_pool;
+                parent_cur_op_pool[1] = &((H5_daos_attr_t *)item)->parent->item.cur_op_pool;
+                parent_cur_op_pool[2] = &item->file->item.cur_op_pool;
+                parent_cur_op_pool[3] = &H5_daos_glob_cur_op_pool_g;
+                sched[0] = &item->file->sched;
+                sched[1] = &item->file->sched;
+                sched[2] = &item->file->sched;
+                sched[3] = &H5_daos_glob_sched_g;
+                nlevels = 4;
                 break;
+
+            case H5_DAOS_OP_SCOPE_OBJ:
+                assert(item);
+                assert(item->file == req->file);
+                parent_cur_op_pool[0] = &item->cur_op_pool;
+                parent_cur_op_pool[1] = &item->file->item.cur_op_pool;
+                parent_cur_op_pool[2] = &H5_daos_glob_cur_op_pool_g;
+                sched[0] = &item->file->sched;
+                sched[1] = &item->file->sched;
+                sched[2] = &H5_daos_glob_sched_g;
+                nlevels = 3;
+                break;
+
+            case H5_DAOS_OP_SCOPE_FILE:
+                assert(item);
+                assert(item->file == req->file);
+                assert(item == &item->file->item);
+                parent_cur_op_pool[0] = &item->file->item.cur_op_pool;
+                parent_cur_op_pool[1] = &H5_daos_glob_cur_op_pool_g;
+                sched[0] = &item->file->sched;
+                sched[1] = &H5_daos_glob_sched_g;
+                nlevels = 2;
+                break;
+
+            case H5_DAOS_OP_SCOPE_GLOB:
+                parent_cur_op_pool[0] = &H5_daos_glob_cur_op_pool_g;
+                sched[0] = &H5_daos_glob_sched_g;
+                nlevels = 1;
+                break;
+
+            default:
+                assert(0 && "Unknown scope");
+        } /* end switch */
+
+        /* Determine if we need to allocate and/or initialize a new pool */
+        if(!*parent_cur_op_pool[0]) {
+            /* No pool present at this level, must create a new one */
+            create_new_pool = TRUE;
+            init_pool = TRUE;
+        } /* end if */
+        else if((*parent_cur_op_pool[0])->type == H5_DAOS_OP_TYPE_EMPTY) {
+            /* Empty pool present, must initialize */
+            assert((*parent_cur_op_pool[0])->start_task);
+
+            /* Take over empty pool */
+            create_new_pool = FALSE;
+            init_pool = TRUE;
+
+            /* Assign tmp_pool pointer */
+            tmp_pool = *parent_cur_op_pool[0];
+        } /* end if */
+        else if((op_type == H5_DAOS_OP_TYPE_READ
+                    && ((*parent_cur_op_pool[0])->type == H5_DAOS_OP_TYPE_READ
+                    || (*parent_cur_op_pool[0])->type == H5_DAOS_OP_TYPE_WRITE
+                    || (*parent_cur_op_pool[0])->type == H5_DAOS_OP_TYPE_READ_ORDERED))
+                || (op_type == H5_DAOS_OP_TYPE_WRITE
+                    && ((*parent_cur_op_pool[0])->type == H5_DAOS_OP_TYPE_READ
+                    || (*parent_cur_op_pool[0])->type == H5_DAOS_OP_TYPE_WRITE))
+                || (op_type == H5_DAOS_OP_TYPE_READ_ORDERED
+                    && ((*parent_cur_op_pool[0])->type == H5_DAOS_OP_TYPE_READ
+                    || (*parent_cur_op_pool[0])->type == H5_DAOS_OP_TYPE_READ_ORDERED))) {
+            /* Can potentially add to existing pool, check if the higher level pools
+             * have the same operation generation */
+
+            /* Start off using existing pool */
+            create_new_pool = FALSE;
+            init_pool = FALSE;
+            tmp_pool = *parent_cur_op_pool[0];
+
+            /* Check if we must create a new pool */
+            for(i = 1; i < nlevels; i++)
+                if(*parent_cur_op_pool[i] && (*parent_cur_op_pool[0])->op_gens[i]
+                        != (*parent_cur_op_pool[i])->op_gens[0]) {
+                    create_new_pool = TRUE;
+                    init_pool = TRUE;
+                    tmp_pool = NULL;
+                    break;
+                } /* end if */
+
+            /* Upgrade pool type if appropriate */
+            if(!init_pool && op_type > (*parent_cur_op_pool[0])->type)
+                (*parent_cur_op_pool[0])->type = op_type;
+        } /* end if */
+        else {
+            /* Cannot combine with existing pool, create new one */
+            create_new_pool = TRUE;
+            init_pool = TRUE;
+        } /* end else */
+
+        /* Create new pool if appropriate */
+        if(create_new_pool) {
+            /* Allocate pool struct */
+            if(NULL == (tmp_new_pool_alloc = (H5_daos_op_pool_t *)DV_calloc(sizeof(H5_daos_op_pool_t))))
+                D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTALLOC, FAIL, "can't allocate operation pool struct");
+            tmp_pool = tmp_new_pool_alloc;
+
+            /* Create start task */
+            if(0 != (ret = tse_task_create(H5_daos_op_pool_start_task, sched[0], tmp_pool, &tmp_pool->start_task)))
+                D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't create start task for operation pool: %s", H5_daos_err_to_string(ret));
+
+            /* Create end task */
+            if(0 != (ret = tse_task_create(H5_daos_op_pool_end_task, sched[0], tmp_pool, &tmp_pool->end_task)))
+                D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't create end task for operation pool: %s", H5_daos_err_to_string(ret));
+
+            /* Handle previous pool */
+            if(*parent_cur_op_pool[0]) {
+                assert((*parent_cur_op_pool[0])->type != H5_DAOS_OP_TYPE_EMPTY);
+                assert((*parent_cur_op_pool[0])->end_task);
+
+                /* Create dependency on current pool end task */
+                if((ret = tse_task_register_deps(tmp_pool->start_task, 1, &(*parent_cur_op_pool[0])->end_task)) < 0)
+                    D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't create dependencies for start task for operation pool: %s", H5_daos_err_to_string(ret));
+
+                /* Schedule previous pool end task */
+                if(0 != (ret = tse_task_schedule((*parent_cur_op_pool[0])->end_task, false)))
+                    D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't schedule task to end operation pool: %s", H5_daos_err_to_string(ret));
             } /* end if */
 
-        /* Upgrade pool type if appropriate */
-        if(!init_pool && op_type > (*parent_cur_op_pool[0])->type)
-            (*parent_cur_op_pool[0])->type = op_type;
-    } /* end if */
-    else {
-        /* Cannot combine with existing pool, create new one */
-        create_new_pool = TRUE;
-        init_pool = TRUE;
-    } /* end else */
+            /* Assign parent_cur_op_pool pointer */
+            tmp_pool->parent_cur_op_pool = parent_cur_op_pool[0];
 
-    /* Create new pool if appropriate */
-    if(create_new_pool) {
-        /* Allocate pool struct */
-        if(NULL == (tmp_new_pool_alloc = (H5_daos_op_pool_t *)DV_calloc(sizeof(H5_daos_op_pool_t))))
-            D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTALLOC, FAIL, "can't allocate operation pool struct");
-        tmp_pool = tmp_new_pool_alloc;
+            /* Set scheduler */
+            tmp_pool->sched = sched[0];
 
-        /* Create start task */
-        if(0 != (ret = tse_task_create(H5_daos_op_pool_start_task, sched[0], tmp_pool, &tmp_pool->start_task)))
-            D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't create start task for operation pool: %s", H5_daos_err_to_string(ret));
-
-        /* Create end task */
-        if(0 != (ret = tse_task_create(H5_daos_op_pool_end_task, sched[0], tmp_pool, &tmp_pool->end_task)))
-            D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't create end task for operation pool: %s", H5_daos_err_to_string(ret));
-
-        /* Handle previous pool */
-        if(*parent_cur_op_pool[0]) {
-            assert((*parent_cur_op_pool[0])->type != H5_DAOS_OP_TYPE_EMPTY);
-            assert((*parent_cur_op_pool[0])->end_task);
-
-            /* Create dependency on current pool end task */
-            if((ret = tse_task_register_deps(tmp_pool->start_task, 1, &(*parent_cur_op_pool[0])->end_task)) < 0)
-                D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't create dependencies for start task for operation pool: %s", H5_daos_err_to_string(ret));
-
-            /* Schedule previous pool end task */
-            if(0 != (ret = tse_task_schedule((*parent_cur_op_pool[0])->end_task, false)))
-                D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't schedule task to end operation pool: %s", H5_daos_err_to_string(ret));
+            /* Initialize op_gen */
+            tmp_pool->op_gens[0] = *parent_cur_op_pool[0] ? (*parent_cur_op_pool[0])->op_gens[0] : 0;
         } /* end if */
 
-        /* Assign parent_cur_op_pool pointer */
-        tmp_pool->parent_cur_op_pool = parent_cur_op_pool[0];
+        /* Initialize pool if appropriate */
+        if(init_pool) {
+            assert(tmp_pool->start_task);
+            assert(tmp_pool->end_task);
 
-        /* Set scheduler */
-        tmp_pool->sched = sched[0];
+            /* Assign pool type */
+            tmp_pool->type = op_type;
 
-        /* Initialize op_gen */
-        tmp_pool->op_gens[0] = *parent_cur_op_pool[0] ? (*parent_cur_op_pool[0])->op_gens[0] : 0;
-    } /* end if */
+            /* If any higher level pools are non-empty, close them and create a new
+             * empty pool */
+            /* Adjust higher level pools if necessary */
+            for(i = 1; i < nlevels; i++) {
+                /* Check for higher level pool */
+                if(*parent_cur_op_pool[i]) {
+                    /* If the pool is non-empty, create a dependency on it, close
+                     * it, and create a new empty pool */
+                    if((*parent_cur_op_pool[i])->type != H5_DAOS_OP_TYPE_EMPTY) {
+                        /* Create the dependency on the higher level pool's end
+                         * task.  If the higher level pool is empty, the previous
+                         * dependency will have been handled at a lower level than
+                         * the current pool (by this line of code). */
+                        assert((*parent_cur_op_pool[i])->end_task);
 
-    /* Initialize pool if appropriate */
-    if(init_pool) {
-        assert(tmp_pool->start_task);
-        assert(tmp_pool->end_task);
+                        /* Change the scheduler if necessary */
+                        tmp_task = (*parent_cur_op_pool[i])->end_task;
+                        if((ret = H5_daos_sched_link(sched[i], sched[0], &tmp_task)) < 0)
+                            D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't change scheduler: %s", H5_daos_err_to_string(ret));
 
-        /* Assign pool type */
-        tmp_pool->type = op_type;
+                        /* Create dependency */
+                        if((ret = tse_task_register_deps(tmp_pool->start_task, 1, &tmp_task)) < 0)
+                            D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't register task dependency: %s", H5_daos_err_to_string(ret));
 
-        /* If any higher level pools are non-empty, close them and create a new
-         * empty pool */
-        /* Adjust higher level pools if necessary */
-        for(i = 1; i < nlevels; i++) {
-            /* Check for higher level pool */
-            if(*parent_cur_op_pool[i]) {
-                /* If the pool is non-empty, create a dependency on it, close
-                 * it, and create a new empty pool */
-                if((*parent_cur_op_pool[i])->type != H5_DAOS_OP_TYPE_EMPTY) {
-                    /* Create the dependency on the higher level pool's end
-                     * task.  If the higher level pool is empty, the previous
-                     * dependency will have been handled at a lower level than
-                     * the current pool (by this line of code). */
-                    assert((*parent_cur_op_pool[i])->end_task);
+                        /* Allocate pool struct */
+                        if(NULL == (tmp_new_pool_alloc_2 = (H5_daos_op_pool_t *)DV_calloc(sizeof(H5_daos_op_pool_t))))
+                            D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTALLOC, FAIL, "can't allocate operation pool struct");
 
-                    /* Change the scheduler if necessary */
-                    tmp_task = (*parent_cur_op_pool[i])->end_task;
-                    if((ret = H5_daos_sched_link(sched[i], sched[0], &tmp_task)) < 0)
-                        D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't change scheduler: %s", H5_daos_err_to_string(ret));
+                        /* Set op_type */
+                        tmp_new_pool_alloc_2->type = H5_DAOS_OP_TYPE_EMPTY;
 
-                    /* Create dependency */
-                    if((ret = tse_task_register_deps(tmp_pool->start_task, 1, &tmp_task)) < 0)
-                        D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't register task dependency: %s", H5_daos_err_to_string(ret));
+                        /* Create start task */
+                        if(0 != (ret = tse_task_create(H5_daos_op_pool_start_task, sched[i], tmp_new_pool_alloc_2, &tmp_new_pool_alloc_2->start_task)))
+                            D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't create start task for operation pool: %s", H5_daos_err_to_string(ret));
 
-                    /* Allocate pool struct */
-                    if(NULL == (tmp_new_pool_alloc_2 = (H5_daos_op_pool_t *)DV_calloc(sizeof(H5_daos_op_pool_t))))
-                        D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTALLOC, FAIL, "can't allocate operation pool struct");
+                        /* Create end task */
+                        if(0 != (ret = tse_task_create(H5_daos_op_pool_end_task, sched[i], tmp_new_pool_alloc_2, &tmp_new_pool_alloc_2->end_task)))
+                            D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't create end task for operation pool: %s", H5_daos_err_to_string(ret));
 
-                    /* Set op_type */
-                    tmp_new_pool_alloc_2->type = H5_DAOS_OP_TYPE_EMPTY;
+                        /* Change the scheduler if necessary */
+                        tmp_task = tmp_pool->end_task;
+                        if((ret = H5_daos_sched_link(sched[0], sched[i], &tmp_task)) < 0)
+                            D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't change scheduler: %s", H5_daos_err_to_string(ret));
 
-                    /* Create start task */
-                    if(0 != (ret = tse_task_create(H5_daos_op_pool_start_task, sched[i], tmp_new_pool_alloc_2, &tmp_new_pool_alloc_2->start_task)))
-                        D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't create start task for operation pool: %s", H5_daos_err_to_string(ret));
+                        /* Create dependency on new pool end task */
+                        if((ret = tse_task_register_deps(tmp_new_pool_alloc_2->start_task, 1, &tmp_task)) < 0)
+                            D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't register task dependency: %s", H5_daos_err_to_string(ret));
 
-                    /* Create end task */
-                    if(0 != (ret = tse_task_create(H5_daos_op_pool_end_task, sched[i], tmp_new_pool_alloc_2, &tmp_new_pool_alloc_2->end_task)))
-                        D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't create end task for operation pool: %s", H5_daos_err_to_string(ret));
+                        /* Set scheduler */
+                        tmp_new_pool_alloc_2->sched = sched[i];
 
+                        /* Schedule previous higher level pool end task */
+                        if(0 != (ret = tse_task_schedule((*parent_cur_op_pool[i])->end_task, false)))
+                            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't schedule task to end operation pool: %s", H5_daos_err_to_string(ret));
+
+                        /* Initialize op_gen - it will retain the same op_gen as
+                         * previous pool at this level until it is non-empty */
+                        tmp_new_pool_alloc_2->op_gens[0] = (*parent_cur_op_pool[i])->op_gens[0];
+
+                        /* Set new pool in parent object */
+                        *parent_cur_op_pool[i] = tmp_new_pool_alloc_2;
+                        tmp_new_pool_alloc_2 = NULL;
+                    } /* end if */
+
+                    /* The higher level pool is now empty, register this pool's end
+                     * task as a dependency for the higher level pools' start tasks
+                     */
                     /* Change the scheduler if necessary */
                     tmp_task = tmp_pool->end_task;
                     if((ret = H5_daos_sched_link(sched[0], sched[i], &tmp_task)) < 0)
                         D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't change scheduler: %s", H5_daos_err_to_string(ret));
 
-                    /* Create dependency on new pool end task */
-                    if((ret = tse_task_register_deps(tmp_new_pool_alloc_2->start_task, 1, &tmp_task)) < 0)
+                    /* Create dependency */
+                    if((ret = tse_task_register_deps((*parent_cur_op_pool[i])->start_task, 1, &tmp_task)) < 0)
                         D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't register task dependency: %s", H5_daos_err_to_string(ret));
 
-                    /* Set scheduler */
-                    tmp_new_pool_alloc_2->sched = sched[i];
-
-                    /* Schedule previous higher level pool end task */
-                    if(0 != (ret = tse_task_schedule((*parent_cur_op_pool[i])->end_task, false)))
-                        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't schedule task to end operation pool: %s", H5_daos_err_to_string(ret));
-
-                    /* Initialize op_gen - it will retain the same op_gen as
-                     * previous pool at this level until it is non-empty */
-                    tmp_new_pool_alloc_2->op_gens[0] = (*parent_cur_op_pool[i])->op_gens[0];
-
-                    /* Set new pool in parent object */
-                    *parent_cur_op_pool[i] = tmp_new_pool_alloc_2;
-                    tmp_new_pool_alloc_2 = NULL;
+                    /* Assign higher level op_gen */
+                    tmp_pool->op_gens[i] = (*parent_cur_op_pool[i])->op_gens[0];
                 } /* end if */
+                else
+                    /* Assign higher level op_gen */
+                    tmp_pool->op_gens[i] = 0;
+            } /* end for */
 
-                /* The higher level pool is now empty, register this pool's end
-                 * task as a dependency for the higher level pools' start tasks
-                 */
-                /* Change the scheduler if necessary */
-                tmp_task = tmp_pool->end_task;
-                if((ret = H5_daos_sched_link(sched[0], sched[i], &tmp_task)) < 0)
-                    D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't change scheduler: %s", H5_daos_err_to_string(ret));
+            /* Adjust base level op_gen */
+            tmp_pool->op_gens[0]++;
 
-                /* Create dependency */
-                if((ret = tse_task_register_deps((*parent_cur_op_pool[i])->start_task, 1, &tmp_task)) < 0)
-                    D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't register task dependency: %s", H5_daos_err_to_string(ret));
+            /* Take a reference to the object/file */
+            if(item)
+                item->rc++;
+        } /* end if */
 
-                /* Assign higher level op_gen */
-                tmp_pool->op_gens[i] = (*parent_cur_op_pool[i])->op_gens[0];
-            } /* end if */
-            else
-                /* Assign higher level op_gen */
-                tmp_pool->op_gens[i] = 0;
-        } /* end for */
+        /* Add request to the pool */
+        assert(tmp_pool);
+        if(tmp_pool->start_task) {
+            /* Change the scheduler if necessary */
+            tmp_task = tmp_pool->start_task;
+            if((ret = H5_daos_sched_link(sched[0], req_sched, &tmp_task)) < 0)
+                D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't change scheduler: %s", H5_daos_err_to_string(ret));
 
-        /* Adjust base level op_gen */
-        tmp_pool->op_gens[0]++;
+            /* Register dependency for first task */
+            if((ret = tse_task_register_deps(first_task, 1, &tmp_task)) < 0)
+                D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't register task dependency: %s", H5_daos_err_to_string(ret));
 
-        /* Take a reference to the object/file */
-        if(item)
-            item->rc++;
-    } /* end if */
+            /* Schedule pool start task if appropriate.  If we initialized the pool
+             * then this is the first task and we must schedule the start task,
+             * otherwise this is not the first task. */
+            if(init_pool)
+                if(0 != (ret = tse_task_schedule(tmp_pool->start_task, false)))
+                    D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't schedule task to start operation pool: %s", H5_daos_err_to_string(ret));
+        } /* end if */
 
-    /* Add request to the pool */
-    assert(tmp_pool);
-    if(tmp_pool->start_task) {
         /* Change the scheduler if necessary */
-        tmp_task = tmp_pool->start_task;
-        if((ret = H5_daos_sched_link(sched[0], req_sched, &tmp_task)) < 0)
+        tmp_task = req->finalize_task;
+        if((ret = H5_daos_sched_link(req_sched, sched[0], &tmp_task)) < 0)
             D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't change scheduler: %s", H5_daos_err_to_string(ret));
 
-        /* Register dependency for first task */
-        if((ret = tse_task_register_deps(first_task, 1, &tmp_task)) < 0)
+        /* Register dependency for pool end task on this request */
+        assert(tmp_pool->end_task);
+        if((ret = tse_task_register_deps(tmp_pool->end_task, 1, &tmp_task)) < 0)
             D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't register task dependency: %s", H5_daos_err_to_string(ret));
 
-        /* Schedule pool start task if appropriate.  If we initialized the pool
-         * then this is the first task and we must schedule the start task,
-         * otherwise this is not the first task. */
-        if(init_pool)
-            if(0 != (ret = tse_task_schedule(tmp_pool->start_task, false)))
-                D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't schedule task to start operation pool: %s", H5_daos_err_to_string(ret));
+        /* Set new pool as current pool if appropriate */
+        if(create_new_pool) {
+            *parent_cur_op_pool[0] = tmp_pool;
+            tmp_pool = NULL;
+            tmp_new_pool_alloc = NULL;
+        } /* end if */
     } /* end if */
-
-    /* Change the scheduler if necessary */
-    tmp_task = req->finalize_task;
-    if((ret = H5_daos_sched_link(req_sched, sched[0], &tmp_task)) < 0)
-        D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't change scheduler: %s", H5_daos_err_to_string(ret));
-
-    /* Register dependency for pool end task on this request */
-    assert(tmp_pool->end_task);
-    if((ret = tse_task_register_deps(tmp_pool->end_task, 1, &tmp_task)) < 0)
-        D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't register task dependency: %s", H5_daos_err_to_string(ret));
 
     /* Add dependency on H5_daos_collective_req_tail and update it if this is a
      * collective operation.  This cannot cause a deadlock since this schedules
@@ -678,13 +686,6 @@ H5_daos_req_enqueue(H5_daos_req_t *req, tse_sched_t *req_sched,
         /* Register dependency */
         if((ret = tse_task_register_deps(first_task, 1, &tmp_task)) < 0)
             D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't register task dependency: %s", H5_daos_err_to_string(ret));
-    } /* end if */
-
-    /* Set new pool as current pool if appropriate */
-    if(create_new_pool) {
-        *parent_cur_op_pool[0] = tmp_pool;
-        tmp_pool = NULL;
-        tmp_new_pool_alloc = NULL;
     } /* end if */
 
 done:

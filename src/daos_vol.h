@@ -374,6 +374,7 @@ typedef struct H5_daos_file_t {
     daos_handle_t coh;
     daos_handle_t container_poh;
     tse_sched_t sched;
+    hbool_t sched_init;
     char *file_name;
     uuid_t uuid;
     unsigned flags;

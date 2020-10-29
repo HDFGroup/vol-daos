@@ -703,7 +703,6 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
 {
     H5_daos_file_t *file = NULL;
     H5_daos_fapl_t fapl_info = {0};
-    hbool_t sched_init = FALSE;
     H5_daos_req_t *int_req = NULL;
     tse_task_t *first_task = NULL;
     tse_task_t *dep_task = NULL;
@@ -757,7 +756,7 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     /* Create DAOS task scheduler */
     if(0 != (ret = tse_sched_init(&file->sched, NULL, NULL)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create task scheduler: %s", H5_daos_err_to_string(ret));
-    sched_init = TRUE;
+    file->sched_init = TRUE;
 
     /* Get information from the FAPL */
     if(H5_daos_cont_get_fapl_info(fapl_id, &fapl_info) < 0)
@@ -882,7 +881,7 @@ done:
             D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
 
         /* Block until operation completes */
-        if(sched_init && H5_daos_progress(&file->sched, int_req, H5_DAOS_PROGRESS_WAIT) < 0)
+        if(file->sched_init && H5_daos_progress(&file->sched, int_req, H5_DAOS_PROGRESS_WAIT) < 0)
             D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't progress scheduler");
 
         /* Check for failure */
@@ -1489,6 +1488,7 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     /* Create DAOS task scheduler */
     if(0 != (ret = tse_sched_init(&file->sched, NULL, NULL)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create task scheduler: %s", H5_daos_err_to_string(ret));
+    file->sched_init = TRUE;
 
     /* Get information from the FAPL */
     if(H5_daos_cont_get_fapl_info(fapl_id, &fapl_info) < 0)
@@ -3015,10 +3015,12 @@ H5_daos_file_close_helper(H5_daos_file_t *file, hid_t dxpl_id, void **req)
             D_DONE_ERROR(H5E_FILE, H5E_CANTDEC, FAIL, "can't decrement VOL connector ID");
     } /* end if */
 
-    /* Finish the scheduler *//* Make this cancel tasks?  Only if flush progresses until empty.  Otherwise change to custom progress function DSINC */
-    if(H5_daos_progress(&file->sched, NULL, H5_DAOS_PROGRESS_WAIT) < 0)
-        D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't progress scheduler");
-    tse_sched_fini(&file->sched);
+    if(file->sched_init) {
+        /* Finish the scheduler *//* Make this cancel tasks?  Only if flush progresses until empty.  Otherwise change to custom progress function DSINC */
+        if(H5_daos_progress(&file->sched, NULL, H5_DAOS_PROGRESS_WAIT) < 0)
+            D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't progress scheduler");
+        tse_sched_fini(&file->sched);
+    }
 
     /* File is closed */
     file->closed = TRUE;

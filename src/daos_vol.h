@@ -377,6 +377,7 @@ typedef struct H5_daos_file_t {
     hbool_t sched_init;
     char *file_name;
     uuid_t uuid;
+    uuid_t puuid;
     unsigned flags;
     hbool_t closed;
     daos_handle_t glob_md_oh;
@@ -752,7 +753,6 @@ extern size_t daos_vol_curr_alloc_bytes;
 #endif
 
 /* Global variables used to connect to DAOS pools */
-extern H5VL_DAOS_PRIVATE uuid_t H5_daos_pool_uuid_g;
 extern H5VL_DAOS_PRIVATE char H5_daos_pool_grp_g[];
 extern H5VL_DAOS_PRIVATE d_rank_list_t H5_daos_pool_svcl_g;
 
@@ -820,8 +820,6 @@ extern "C" {
 #endif
 
 /* General routines */
-H5VL_DAOS_PRIVATE herr_t H5_daos_pool_create(uuid_t uuid, const char **pool_grp, d_rank_list_t **svcl,
-    MPI_Comm comm);
 H5VL_DAOS_PRIVATE herr_t H5_daos_pool_connect(uuid_t *pool_uuid, char *pool_grp,
     d_rank_list_t *svcl, unsigned int flags, daos_handle_t *poh_out, daos_pool_info_t *pool_info_out,
     tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);

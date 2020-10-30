@@ -2202,11 +2202,10 @@ done:
         } /* end else */
     } /* end if */
 
-    /* Close link object */
-    if(link_obj && H5_daos_object_close(&link_obj->item) < 0)
-        D_DONE_ERROR(H5E_LINK, H5E_CLOSEERROR, FAIL, "can't close group");
-
     if(int_req) {
+        H5_daos_item_t *pool_item;
+        H5_daos_op_pool_type_t op_type;
+
         /* Free path_buf and soft link value if necessary */
         if(path_buf && H5_daos_free_async(item->file, path_buf, &first_task, &dep_tasks[0]) < 0)
             D_DONE_ERROR(H5E_LINK, H5E_CANTFREE, FAIL, "can't free path buffer");
@@ -2231,22 +2230,61 @@ done:
         if(ret_value < 0)
             int_req->status = -H5_DAOS_SETUP_ERROR;
 
-        /* Schedule first task */
-        if(first_task &&(0 != (ret = tse_task_schedule(first_task, false))))
-            D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't schedule first task: %s", H5_daos_err_to_string(ret));
+        /* Determine operation type - we will add the operation to the target
+         * object's op pool.  If there is no target object, it is not a group,
+         * or if we know it does not have creation order tracked we can use
+         * H5_DAOS_OP_TYPE_WRITE, otherwise use H5_DAOS_OP_TYPE_WRITE_ORDERED.
+         * Add to target object's pool because that's where we're creating the
+         * link.
+         */
+        if(!link_obj || link_obj->item.type != H5I_GROUP) {
+            pool_item = NULL;
+            op_type = H5_DAOS_OP_TYPE_WRITE;
+        } /* end if */
+        else {
+            pool_item = &link_obj->item;
+            if((link_obj->item.open_req->status == 0
+                || link_obj->item.created)
+                && !((H5_daos_group_t *)link_obj)->gcpl_cache.track_corder)
+                op_type = H5_DAOS_OP_TYPE_WRITE;
+            else
+                op_type = H5_DAOS_OP_TYPE_WRITE_ORDERED;
+        } /* end else */
 
-        /* Block until operation completes */
-        if(H5_daos_progress(&item->file->sched, int_req, H5_DAOS_PROGRESS_WAIT) < 0)
-            D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't progress scheduler");
+        /* Add the request to the object's request queue.  This will add the
+         * dependency on the group open if necessary. */
+        if(H5_daos_req_enqueue(int_req, &item->file->sched,
+                first_task, pool_item, op_type, H5_DAOS_OP_SCOPE_OBJ,
+                collective, pool_item ? pool_item->open_req : NULL, &item->file->sched) < 0)
+            D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
-        /* Check for failure */
-        if(int_req->status < 0)
-            D_DONE_ERROR(H5E_LINK, H5E_CANTOPERATE, FAIL, "link creation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status));
+        /* Check for external async */
+        if(req) {
+            /* Return int_req as req */
+            *req = int_req;
 
-        /* Close internal request */
-        if(H5_daos_req_free_int(int_req) < 0)
-            D_DONE_ERROR(H5E_LINK, H5E_CLOSEERROR, FAIL, "can't free request");
+            /* Kick task engine */
+            if(H5_daos_progress(&item->file->sched, NULL, H5_DAOS_PROGRESS_KICK) < 0)
+                D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't progress scheduler");
+        } /* end if */
+        else {
+            /* Block until operation completes */
+            if(H5_daos_progress(&item->file->sched, int_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't progress scheduler");
+
+            /* Check for failure */
+            if(int_req->status < 0)
+                D_DONE_ERROR(H5E_LINK, H5E_CANTOPERATE, FAIL, "link creation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status));
+
+            /* Close internal request */
+            if(H5_daos_req_free_int(int_req) < 0)
+                D_DONE_ERROR(H5E_LINK, H5E_CLOSEERROR, FAIL, "can't free request");
+        } /* end else */
     } /* end if */
+
+    /* Close link object */
+    if(link_obj && H5_daos_object_close(&link_obj->item) < 0)
+        D_DONE_ERROR(H5E_LINK, H5E_CLOSEERROR, FAIL, "can't close group");
 
     D_FUNC_LEAVE_API;
 } /* end H5_daos_link_create() */
@@ -3051,6 +3089,8 @@ H5_daos_link_get(void *_item, const H5VL_loc_params_t *loc_params,
 
 done:
     if(int_req) {
+        H5_daos_item_t *pool_item;
+
         /* Create task to finalize H5 operation */
         if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &item->file->sched, int_req, &int_req->finalize_task)))
             D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
@@ -3068,21 +3108,43 @@ done:
         if(ret_value < 0)
             int_req->status = -H5_DAOS_SETUP_ERROR;
 
-        /* Schedule first_task */
-        if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
-            D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't schedule first task: %s", H5_daos_err_to_string(ret));
+        /* Determine operation object pool - we will add the operation to the
+         * target object's op pool.  If there is no target object, it is not a
+         * group, we will not add the op to a pool */
+        if(!target_grp || target_grp->obj.item.type != H5I_GROUP)
+            pool_item = NULL;
+        else
+            pool_item = &target_grp->obj.item;
 
-        /* Block until operation completes */
-        if(H5_daos_progress(&item->file->sched, int_req, H5_DAOS_PROGRESS_WAIT) < 0)
-            D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't progress scheduler");
+        /* Add the request to the object's request queue.  This will add the
+         * dependency on the group open if necessary. */
+        if(H5_daos_req_enqueue(int_req, &item->file->sched,
+                first_task, pool_item, H5_DAOS_OP_TYPE_READ, H5_DAOS_OP_SCOPE_OBJ,
+                FALSE, pool_item ? pool_item->open_req : NULL, &item->file->sched) < 0)
+            D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
-        /* Check for failure */
-        if(int_req->status < 0)
-            D_DONE_ERROR(H5E_LINK, H5E_CANTOPERATE, FAIL, "link creation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status));
+        /* Check for external async */
+        if(req) {
+            /* Return int_req as req */
+            *req = int_req;
 
-        /* Close internal request */
-        if(H5_daos_req_free_int(int_req) < 0)
-            D_DONE_ERROR(H5E_LINK, H5E_CLOSEERROR, FAIL, "can't free request");
+            /* Kick task engine */
+            if(H5_daos_progress(&item->file->sched, NULL, H5_DAOS_PROGRESS_KICK) < 0)
+                D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't progress scheduler");
+        } /* end if */
+        else {
+            /* Block until operation completes */
+            if(H5_daos_progress(&item->file->sched, int_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't progress scheduler");
+
+            /* Check for failure */
+            if(int_req->status < 0)
+                D_DONE_ERROR(H5E_LINK, H5E_CANTOPERATE, FAIL, "link creation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status));
+
+            /* Close internal request */
+            if(H5_daos_req_free_int(int_req) < 0)
+                D_DONE_ERROR(H5E_LINK, H5E_CLOSEERROR, FAIL, "can't free request");
+        } /* end else */
     } /* end if */
 
     if(target_grp && H5_daos_group_close_real(target_grp) < 0)
@@ -3250,6 +3312,9 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
 
 done:
     if(int_req) {
+        H5_daos_item_t *pool_item;
+        H5_daos_op_pool_type_t op_type;
+
         /* Create task to finalize H5 operation */
         if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &item->file->sched, int_req, &int_req->finalize_task)))
             D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
@@ -3267,26 +3332,64 @@ done:
         if(ret_value < 0)
             int_req->status = -H5_DAOS_SETUP_ERROR;
 
-        /* Schedule first_task */
-        if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
-            D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't schedule first task: %s", H5_daos_err_to_string(ret));
+        /* Determine operation type - we will add the operation to the target
+         * object's op pool.  If this is not a link delete we can use
+         * H5_DAOS_OP_TYPE_READ.  Otherwise if there is no target object, it is
+         * not a group, or if we know it does not have creation order tracked we
+         * can use H5_DAOS_OP_TYPE_WRITE, otherwise use
+         * H5_DAOS_OP_TYPE_WRITE_ORDERED. Add to target object's pool because
+         * that's where we're creating the link. */
+        if(!target_grp || target_grp->obj.item.type != H5I_GROUP) {
+            pool_item = NULL;
+            op_type = specific_type == H5VL_LINK_DELETE ? H5_DAOS_OP_TYPE_WRITE
+                    : H5_DAOS_OP_TYPE_READ;
+        } /* end if */
+        else {
+            pool_item = &target_grp->obj.item;
+            if(specific_type != H5VL_LINK_DELETE)
+                op_type = H5_DAOS_OP_TYPE_READ;
+            else if((target_grp->obj.item.open_req->status == 0
+                || target_grp->obj.item.created)
+                && !target_grp->gcpl_cache.track_corder)
+                op_type = H5_DAOS_OP_TYPE_WRITE;
+            else
+                op_type = H5_DAOS_OP_TYPE_WRITE_ORDERED;
+        } /* end else */
 
-        /* Block until operation completes */
-        if(H5_daos_progress(&item->file->sched, int_req, H5_DAOS_PROGRESS_WAIT) < 0)
-            D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't progress scheduler");
+        /* Add the request to the object's request queue.  This will add the
+         * dependency on the group open if necessary. */
+        if(H5_daos_req_enqueue(int_req, &item->file->sched,
+                first_task, pool_item, op_type, H5_DAOS_OP_SCOPE_OBJ,
+                FALSE, pool_item ? pool_item->open_req : NULL, &item->file->sched) < 0)
+            D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
-        /* Check for failure */
-        if(int_req->status < 0)
-            D_DONE_ERROR(H5E_LINK, H5E_CANTOPERATE, FAIL, "link specific operation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status));
+        /* Check for external async */
+        if(req) {
+            /* Return int_req as req */
+            *req = int_req;
 
-        /* Close internal request */
-        if(H5_daos_req_free_int(int_req) < 0)
-            D_DONE_ERROR(H5E_LINK, H5E_CLOSEERROR, FAIL, "can't free request");
+            /* Kick task engine */
+            if(H5_daos_progress(&item->file->sched, NULL, H5_DAOS_PROGRESS_KICK) < 0)
+                D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't progress scheduler");
+        } /* end if */
+        else {
+            /* Block until operation completes */
+            if(H5_daos_progress(&item->file->sched, int_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't progress scheduler");
 
-        /* Set return value for link iteration, unless this function failed but
-         * the iteration did not */
-        if(specific_type == H5VL_LINK_ITER && !(ret_value < 0 && iter_ret >= 0))
-            ret_value = iter_ret;
+            /* Check for failure */
+            if(int_req->status < 0)
+                D_DONE_ERROR(H5E_LINK, H5E_CANTOPERATE, FAIL, "link specific operation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status));
+
+            /* Close internal request */
+            if(H5_daos_req_free_int(int_req) < 0)
+                D_DONE_ERROR(H5E_LINK, H5E_CLOSEERROR, FAIL, "can't free request");
+
+            /* Set return value for link iteration, unless this function failed but
+             * the iteration did not */
+            if(specific_type == H5VL_LINK_ITER && !(ret_value < 0 && iter_ret >= 0))
+                ret_value = iter_ret;
+        } /* end else */
     } /* end if */
 
     if(target_grp_id >= 0) {
@@ -3900,8 +4003,8 @@ H5_daos_link_get_info(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
             /* Open the group containing the target link */
             sub_loc_params.type = H5VL_OBJECT_BY_SELF;
             sub_loc_params.obj_type = item->type;
-            if(NULL == (task_udata->target_obj = (H5_daos_obj_t *)H5_daos_group_open(item, &sub_loc_params,
-                    loc_params->loc_data.loc_by_idx.name, loc_params->loc_data.loc_by_idx.lapl_id, req->dxpl_id, NULL)))
+            if(NULL == (task_udata->target_obj = (H5_daos_obj_t *)H5_daos_group_open_int(item, &sub_loc_params,
+                    loc_params->loc_data.loc_by_idx.name, loc_params->loc_data.loc_by_idx.lapl_id, req, FALSE, first_task, dep_task)))
                 D_GOTO_ERROR(H5E_LINK, H5E_CANTOPENOBJ, -H5_DAOS_H5_OPEN_ERROR, "can't open group containing target link");
 
             /* Retrieve the link name */
@@ -4109,8 +4212,8 @@ H5_daos_link_get_val(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
             /* Open the group containing the target link */
             sub_loc_params.type = H5VL_OBJECT_BY_SELF;
             sub_loc_params.obj_type = item->type;
-            if(NULL == (task_udata->target_obj = (H5_daos_obj_t *)H5_daos_group_open(item, &sub_loc_params,
-                    loc_params->loc_data.loc_by_idx.name, loc_params->loc_data.loc_by_idx.lapl_id, req->dxpl_id, NULL)))
+            if(NULL == (task_udata->target_obj = (H5_daos_obj_t *)H5_daos_group_open_int(item, &sub_loc_params,
+                    loc_params->loc_data.loc_by_idx.name, loc_params->loc_data.loc_by_idx.lapl_id, req, FALSE, first_task, dep_task)))
                 D_GOTO_ERROR(H5E_LINK, H5E_CANTOPENOBJ, -H5_DAOS_H5_OPEN_ERROR, "can't open group containing target link");
 
             /* Retrieve the link name */

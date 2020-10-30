@@ -294,6 +294,7 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hbool_t is_root,
     if(NULL == (grp = H5FL_CALLOC(H5_daos_group_t)))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate DAOS group struct");
     grp->obj.item.type = H5I_GROUP;
+    grp->obj.item.created = TRUE;
     grp->obj.item.open_req = req;
     req->rc++;
     grp->obj.item.file = file;
@@ -589,11 +590,10 @@ H5_daos_group_create(void *_item,
     ret_value = (void *)grp;
 
 done:
-    /* Close target object */
-    if(target_obj && H5_daos_object_close(&target_obj->item) < 0)
-        D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, NULL, "can't close object");
-
     if(int_req) {
+        H5_daos_item_t *pool_item;
+        H5_daos_op_pool_type_t op_type;
+
         /* Free path_buf if necessary */
         if(path_buf && H5_daos_free_async(item->file, path_buf, &first_task, &dep_task) < 0)
             D_DONE_ERROR(H5E_SYM, H5E_CANTFREE, NULL, "can't free path buffer");
@@ -615,22 +615,61 @@ done:
         if(NULL == ret_value)
             int_req->status = -H5_DAOS_SETUP_ERROR;
 
-        /* Schedule first task */
-        if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
-            D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
+        /* Determine operation type - we will add the operation to the target
+         * object's op pool.  If there is no target object, it is not a group,
+         * or if we know it does not have creation order tracked we can use
+         * H5_DAOS_OP_TYPE_WRITE, otherwise use H5_DAOS_OP_TYPE_WRITE_ORDERED.
+         * Add to target object's pool because that's where we're creating the
+         * link.  No need to add to this group's pool since it's the open
+         * request. */
+        if(!target_obj || target_obj->item.type != H5I_GROUP) {
+            pool_item = NULL;
+            op_type = H5_DAOS_OP_TYPE_WRITE;
+        } /* end if */
+        else {
+            pool_item = &target_obj->item;
+            if((target_obj->item.open_req->status == 0
+                || target_obj->item.created)
+                && !((H5_daos_group_t *)target_obj)->gcpl_cache.track_corder)
+                op_type = H5_DAOS_OP_TYPE_WRITE;
+            else
+                op_type = H5_DAOS_OP_TYPE_WRITE_ORDERED;
+        } /* end else */
 
-        /* Block until operation completes */
-        if(H5_daos_progress(&item->file->sched, int_req, H5_DAOS_PROGRESS_WAIT) < 0)
-            D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't progress scheduler");
+        /* Add the request to the object's request queue.  This will add the
+         * dependency on the group open if necessary. */
+        if(H5_daos_req_enqueue(int_req, &item->file->sched, first_task,
+                pool_item, op_type, H5_DAOS_OP_SCOPE_OBJ, collective,
+                pool_item ? pool_item->open_req : NULL, &item->file->sched) < 0)
+            D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't add request to request queue");
 
-        /* Check for failure */
-        if(int_req->status < 0)
-            D_DONE_ERROR(H5E_SYM, H5E_CANTOPERATE, NULL, "group creation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status));
+        /* Check for external async */
+        if(req) {
+            /* Return int_req as req */
+            *req = int_req;
 
-        /* Close internal request */
-        if(H5_daos_req_free_int(int_req) < 0)
-            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, NULL, "can't free request");
+            /* Kick task engine */
+            if(H5_daos_progress(&item->file->sched, NULL, H5_DAOS_PROGRESS_KICK) < 0)
+                D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't progress scheduler");
+        } /* end if */
+        else {
+            /* Block until operation completes */
+            if(H5_daos_progress(&item->file->sched, int_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't progress scheduler");
+
+            /* Check for failure */
+            if(int_req->status < 0)
+                D_DONE_ERROR(H5E_SYM, H5E_CANTOPERATE, NULL, "group creation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status));
+
+            /* Close internal request */
+            if(H5_daos_req_free_int(int_req) < 0)
+                D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, NULL, "can't free request");
+        } /* end else */
     } /* end if */
+
+    /* Close target object */
+    if(target_obj && H5_daos_object_close(&target_obj->item) < 0)
+        D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, NULL, "can't close object");
 
     /* Cleanup on failure */
     /* Destroy DAOS object if created before failure DSINC */
@@ -1519,10 +1558,6 @@ H5_daos_group_get(void *_item, H5VL_group_get_t get_type, hid_t dxpl_id,
 
     H5_DAOS_MAKE_ASYNC_PROGRESS(grp->obj.item.file->sched, FAIL);
 
-    /* Start H5 operation */
-    if(NULL == (int_req = H5_daos_req_create(grp->obj.item.file, dxpl_id)))
-        D_GOTO_ERROR(H5E_SYM, H5E_CANTALLOC, FAIL, "can't create DAOS request");
-
 #ifdef H5_DAOS_USE_TRANSACTIONS
     /* Start transaction */
     if(0 != (ret = daos_tx_open(grp->obj.item.file->coh, &int_req->th, NULL /*event*/)))
@@ -1535,6 +1570,14 @@ H5_daos_group_get(void *_item, H5VL_group_get_t get_type, hid_t dxpl_id,
         case H5VL_GROUP_GET_GCPL:
         {
             hid_t *ret_id = va_arg(arguments, hid_t *);
+
+            /* Wait for the group to open if necessary */
+            if(!grp->obj.item.created || grp->obj.item.open_req->status != 0) {
+                if(H5_daos_progress(&grp->obj.item.file->sched, grp->obj.item.open_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                    D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't progress scheduler");
+                if(grp->obj.item.open_req->status != 0)
+                    D_GOTO_ERROR(H5E_SYM, H5E_CANTOPENOBJ, FAIL, "group open failed");
+            } /* end if */
 
             if((*ret_id = H5Pcopy(grp->gcpl_id)) < 0)
                 D_GOTO_ERROR(H5E_PLIST, H5E_CANTCOPY, FAIL, "can't get group's GCPL");
@@ -1551,6 +1594,10 @@ H5_daos_group_get(void *_item, H5VL_group_get_t get_type, hid_t dxpl_id,
         {
             const H5VL_loc_params_t *loc_params = va_arg(arguments, const H5VL_loc_params_t *);
             H5G_info_t *group_info = va_arg(arguments, H5G_info_t *);
+
+            /* Start H5 operation */
+            if(NULL == (int_req = H5_daos_req_create(grp->obj.item.file, dxpl_id)))
+                D_GOTO_ERROR(H5E_SYM, H5E_CANTALLOC, FAIL, "can't create DAOS request");
 
             if(H5_daos_group_get_info(grp, loc_params, group_info, int_req, &first_task, &dep_task) < 0)
                 D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, FAIL, "can't get group's info");
@@ -1581,21 +1628,35 @@ done:
         if(ret_value < 0)
             int_req->status = -H5_DAOS_SETUP_ERROR;
 
-        /* Schedule first_task */
-        if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
-            D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't schedule first task: %s", H5_daos_err_to_string(ret));
+        /* Add the request to the object's request queue.  This will add the
+         * dependency on the group open if necessary. */
+        if(H5_daos_req_enqueue(int_req, &grp->obj.item.file->sched,
+                first_task, &grp->obj.item, H5_DAOS_OP_TYPE_READ, H5_DAOS_OP_SCOPE_OBJ,
+                FALSE, grp->obj.item.open_req, &grp->obj.item.file->sched) < 0)
+            D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
-        /* Block until operation completes */
-        if(H5_daos_progress(&grp->obj.item.file->sched, int_req, H5_DAOS_PROGRESS_WAIT) < 0)
-            D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't progress scheduler");
+        /* Check for external async */
+        if(req) {
+            /* Return int_req as req */
+            *req = int_req;
 
-        /* Check for failure */
-        if(int_req->status < 0)
-            D_DONE_ERROR(H5E_SYM, H5E_CANTOPERATE, FAIL, "group get operation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status));
+            /* Kick task engine */
+            if(H5_daos_progress(&grp->obj.item.file->sched, NULL, H5_DAOS_PROGRESS_KICK) < 0)
+                D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't progress scheduler");
+        } /* end if */
+        else {
+            /* Block until operation completes */
+            if(H5_daos_progress(&grp->obj.item.file->sched, int_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't progress scheduler");
 
-        /* Close internal request */
-        if(H5_daos_req_free_int(int_req) < 0)
-            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't free request");
+            /* Check for failure */
+            if(int_req->status < 0)
+                D_DONE_ERROR(H5E_SYM, H5E_CANTOPERATE, FAIL, "group get operation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status));
+
+            /* Close internal request */
+            if(H5_daos_req_free_int(int_req) < 0)
+                D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't free request");
+        } /* end else */
     } /* end if */
 
     D_FUNC_LEAVE_API;

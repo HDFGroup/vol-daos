@@ -524,7 +524,7 @@ done:
         } /* end else */
 
         /* Add the request to the object's request queue.  This will add the
-         * dependency on the dataset open if necessary. */
+         * dependency on the group open if necessary. */
         if(H5_daos_req_enqueue(int_req, &item->file->sched,
                 first_task, pool_item, op_type, H5_DAOS_OP_SCOPE_OBJ,
                 collective, pool_item ? pool_item->open_req : NULL, &item->file->sched) < 0)

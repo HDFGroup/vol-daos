@@ -821,10 +821,12 @@ H5_daos_object_get_oid_by_idx(H5_daos_obj_t *loc_obj, const H5VL_loc_params_t *l
     get_oid_udata->path_buf = NULL;
 
     /* Open the group containing the target object */
+    /* We should implement oid bcast here (or in calling function(s)) so all
+     * ranks don't need to independently grab the oid -NAF */
     sub_loc_params.type = H5VL_OBJECT_BY_SELF;
     sub_loc_params.obj_type = H5I_GROUP;
-    if(NULL == (get_oid_udata->target_grp = (H5_daos_group_t *)H5_daos_group_open(loc_obj, &sub_loc_params,
-            loc_params->loc_data.loc_by_idx.name, loc_params->loc_data.loc_by_idx.lapl_id, req->dxpl_id, NULL)))
+    if(NULL == (get_oid_udata->target_grp = (H5_daos_group_t *)H5_daos_group_open_int(&loc_obj->item, &sub_loc_params,
+            loc_params->loc_data.loc_by_idx.name, loc_params->loc_data.loc_by_idx.lapl_id, req, FALSE, first_task, dep_task)))
         D_GOTO_ERROR(H5E_OBJECT, H5E_CANTOPENOBJ, FAIL, "can't open group containing target object");
 
     /* Retrieve the name of the link at the given index */

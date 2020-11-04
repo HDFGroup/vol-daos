@@ -66,7 +66,7 @@ H5VL_DAOS_PUBLIC herr_t H5Pset_daos_snap_open(hid_t fapl_id,
 #endif
 
 H5VL_DAOS_PUBLIC herr_t H5daos_get_poh(hid_t file_id, daos_handle_t *poh);
-H5VL_DAOS_PUBLIC herr_t H5daos_get_global_pool_uuid(uuid_t *pool_uuid);
+H5VL_DAOS_PUBLIC herr_t H5daos_get_pool_uuid(hid_t file_id, uuid_t *pool_uuid);
 H5VL_DAOS_PUBLIC herr_t H5daos_get_global_svcl(d_rank_list_t *svcl);
 
 #ifdef __cplusplus

@@ -825,6 +825,9 @@ H5_daos_map_open_helper(H5_daos_file_t *file, hid_t mapl_id, hbool_t collective,
         fetch_udata->md_rw_cb_ud.free_sg_iov[2] = FALSE;
         p += H5_DAOS_MCPL_BUF_SIZE;
 
+        /* Set conditional akey fetch for map metadata read operation */
+        fetch_udata->md_rw_cb_ud.flags = DAOS_COND_AKEY_FETCH;
+
         /* Set nr */
         fetch_udata->md_rw_cb_ud.nr = 3u;
 
@@ -3959,7 +3962,7 @@ H5_daos_map_delete_key_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     punch_args->th = DAOS_TX_NONE;
     punch_args->dkey = &udata->dkey;
     punch_args->akeys = udata->shared_dkey ? &udata->akey : NULL;
-    punch_args->flags = 0;
+    punch_args->flags = DAOS_COND_PUNCH;
     punch_args->akey_nr = udata->shared_dkey ? 1 : 0;
 
 done:

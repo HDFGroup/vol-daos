@@ -1307,6 +1307,9 @@ H5_daos_link_write(H5_daos_group_t *target_grp, const char *name,
     link_write_ud->md_rw_cb_ud.iod[0].iod_type = DAOS_IOD_SINGLE;
     link_write_ud->md_rw_cb_ud.free_akeys = FALSE;
 
+    /* Set conditional dkey insert for the link write operation */
+    link_write_ud->md_rw_cb_ud.flags = DAOS_COND_DKEY_INSERT;
+
     /* SGL is setup by link write task prep callback */
 
     /* Create task for link write update */
@@ -6249,7 +6252,7 @@ H5_daos_link_delete_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     punch_args->th = DAOS_TX_NONE;
     punch_args->dkey = &udata->dkey;
     punch_args->akeys = NULL;
-    punch_args->flags = 0;
+    punch_args->flags = DAOS_COND_PUNCH;
     punch_args->akey_nr = 0;
 
 done:
@@ -6613,6 +6616,8 @@ H5_daos_link_delete_corder_unl_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *
 
     udata->unl_data.unl_ud.task_name = "group number of links update task";
 
+    udata->unl_data.unl_ud.flags = DAOS_COND_AKEY_UPDATE;
+
     /* Set update task arguments */
     if(NULL == (update_args = daos_task_get_args(task))) {
         tse_task_complete(task, -H5_DAOS_DAOS_GET_ERROR);
@@ -6704,7 +6709,7 @@ H5_daos_link_delete_corder_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args
     punch_args->th = DAOS_TX_NONE;
     punch_args->dkey = &udata->dkey;
     punch_args->akeys = udata->akeys;
-    punch_args->flags = 0;
+    punch_args->flags = DAOS_COND_PUNCH;
     punch_args->akey_nr = 2;
 
 done:
@@ -6988,7 +6993,7 @@ H5_daos_link_bookkeep_phase1_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *ar
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for link creation order index akey size fetch task");
     fetch_args->oh = udata->target_grp->obj.obj_oh;
     fetch_args->th = DAOS_TX_NONE;
-    fetch_args->flags = 0;
+    fetch_args->flags = DAOS_COND_AKEY_FETCH;
     fetch_args->dkey = &udata->index_data.dkey;
     fetch_args->nr = (uint32_t)(2 * udata->index_data.nlinks_shift);
     fetch_args->iods = udata->index_data.iods;
@@ -7095,7 +7100,7 @@ H5_daos_link_bookkeep_phase2_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *ar
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for link creation order index akey fetch task");
     fetch_args->oh = udata->target_grp->obj.obj_oh;
     fetch_args->th = DAOS_TX_NONE;
-    fetch_args->flags = 0;
+    fetch_args->flags = DAOS_COND_AKEY_FETCH;
     fetch_args->dkey = &udata->index_data.dkey;
     fetch_args->nr = (uint32_t)(2 * udata->index_data.nlinks_shift);
     fetch_args->iods = udata->index_data.iods;
@@ -7257,7 +7262,7 @@ H5_daos_link_bookkeep_phase4_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *ar
     punch_args->th = DAOS_TX_NONE;
     punch_args->dkey = &udata->index_data.dkey;
     punch_args->akeys = udata->index_data.tail_akeys;
-    punch_args->flags = 0;
+    punch_args->flags = DAOS_COND_PUNCH;
     punch_args->akey_nr = 2;
 
 done:
@@ -7846,6 +7851,9 @@ H5_daos_link_gnbc_task(tse_task_t *task)
     /* Do not free buffers */
     udata->md_rw_cb_ud.free_akeys = FALSE;
     udata->md_rw_cb_ud.free_dkey = FALSE;
+
+    /* Set conditional akey fetch for link name fetch operation */
+    udata->md_rw_cb_ud.flags = DAOS_COND_AKEY_FETCH;
 
     /* Set task name */
     udata->md_rw_cb_ud.task_name = "link get name by crt order fetch";
@@ -8471,6 +8479,9 @@ H5_daos_link_get_crt_order_by_name(H5_daos_group_t *target_grp, const char *link
     /* Do not free buffers */
     fetch_udata->md_rw_cb_ud.free_akeys = FALSE;
     fetch_udata->md_rw_cb_ud.free_dkey = FALSE;
+
+    /* Set conditional akey fetch for link creation order fetch operation */
+    fetch_udata->md_rw_cb_ud.flags = DAOS_COND_AKEY_FETCH;
 
     /* Set task name */
     fetch_udata->md_rw_cb_ud.task_name = "link get crt order by name fetch";

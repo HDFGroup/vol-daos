@@ -2983,11 +2983,12 @@ H5_daos_file_close_helper(H5_daos_file_t *file, hid_t H5VL_DAOS_UNUSED dxpl_id,
 
     assert(file);
 
+    /* Finish all tasks in the scheduler */
+    if(H5_daos_progress(&file->sched, NULL, H5_DAOS_PROGRESS_WAIT) < 0)
+        D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't progress scheduler");
+
     /* Free file data structures */
-    if(file->item.cur_op_pool) {
-        assert(file->item.cur_op_pool->type == H5_DAOS_OP_TYPE_EMPTY);
-        file->item.cur_op_pool = DV_free(file->item.cur_op_pool);
-    } /* end if */
+    assert(!file->item.cur_op_pool);
     if(file->item.open_req)
         if(H5_daos_req_free_int(file->item.open_req) < 0)
             D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, FAIL, "can't free request");
@@ -3020,9 +3021,7 @@ H5_daos_file_close_helper(H5_daos_file_t *file, hid_t H5VL_DAOS_UNUSED dxpl_id,
             D_DONE_ERROR(H5E_FILE, H5E_CANTDEC, FAIL, "can't decrement VOL connector ID");
     } /* end if */
 
-    /* Finish the scheduler *//* Make this cancel tasks?  Only if flush progresses until empty.  Otherwise change to custom progress function DSINC */
-    if(H5_daos_progress(&file->sched, NULL, H5_DAOS_PROGRESS_WAIT) < 0)
-        D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't progress scheduler");
+    /* Finalize the scheduler */
     tse_sched_fini(&file->sched);
 
     /* File is closed */
@@ -3053,9 +3052,7 @@ herr_t
 H5_daos_file_close(void *_file, hid_t dxpl_id, void **req)
 {
     H5_daos_file_t *file = (H5_daos_file_t *)_file;
-#if 0 /* DSINC */
     int ret;
-#endif
     herr_t ret_value = SUCCEED;
 
     if(!_file)
@@ -3065,11 +3062,51 @@ H5_daos_file_close(void *_file, hid_t dxpl_id, void **req)
     if(H5_daos_file_flush(file) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_WRITEERROR, FAIL, "can't flush file");
 
-#if 0 /* DSINC */
-    /* Flush the epoch */
-    if(0 != (ret = daos_epoch_flush(file->coh, epoch, NULL /*state*/, NULL /*event*/)))
-        D_DONE_ERROR(H5E_FILE, H5E_CANTFLUSH, FAIL, "can't flush epoch: %s", H5_daos_err_to_string(ret));
-#endif
+    /* Finalize root group's operation pool */
+    if(file->root_grp->obj.item.cur_op_pool) {
+//printf("root group pool start task: %p end task: %p\n", file->root_grp->obj.item.cur_op_pool->start_task, file->root_grp->obj.item.cur_op_pool->end_task); fflush(stdout);
+        if(file->root_grp->obj.item.cur_op_pool->start_task) {
+            /* Create dependency for pool end task on pool start task */
+            if((ret = tse_task_register_deps(file->root_grp->obj.item.cur_op_pool->end_task, 1, &file->root_grp->obj.item.cur_op_pool->start_task)) < 0)
+                D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create dependencies for end task for operation pool: %s", H5_daos_err_to_string(ret)); 
+
+            /* Schedule pool start task if necessary */
+            if(file->root_grp->obj.item.cur_op_pool->type == H5_DAOS_OP_TYPE_EMPTY
+                    && 0 != (ret = tse_task_schedule(file->root_grp->obj.item.cur_op_pool->start_task, false)))
+                D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't schedule task to end operation pool: %s", H5_daos_err_to_string(ret));
+        } /* end if */
+
+        /* Schedule pool end task */
+        if(0 != (ret = tse_task_schedule(file->root_grp->obj.item.cur_op_pool->end_task, false)))
+            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't schedule task to end operation pool: %s", H5_daos_err_to_string(ret));
+
+        /* Set pool type to CLOSE, this will cause the pool end task to free the
+         * pool */
+        file->root_grp->obj.item.cur_op_pool->type = H5_DAOS_OP_TYPE_CLOSE;
+    } /* end if */
+
+    /* Finalize file's operation pool */
+    if(file->item.cur_op_pool) {
+//printf("file pool start task: %p end task: %p\n", file->item.cur_op_pool->start_task, file->item.cur_op_pool->end_task); fflush(stdout);
+        if(file->item.cur_op_pool->start_task) {
+            /* Create dependency for pool end task on pool start task */
+            if((ret = tse_task_register_deps(file->item.cur_op_pool->end_task, 1, &file->item.cur_op_pool->start_task)) < 0)
+                D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create dependencies for end task for operation pool: %s", H5_daos_err_to_string(ret));
+
+            /* Schedule pool start task */
+            if(file->item.cur_op_pool->type == H5_DAOS_OP_TYPE_EMPTY
+                    && 0 != (ret = tse_task_schedule(file->item.cur_op_pool->start_task, false)))
+                D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't schedule task to end operation pool: %s", H5_daos_err_to_string(ret));
+        } /* end if */
+
+        /* Schedule pool end task */
+        if(0 != (ret = tse_task_schedule(file->item.cur_op_pool->end_task, false)))
+            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't schedule task to end operation pool: %s", H5_daos_err_to_string(ret));
+
+        /* Set pool type to CLOSE, this will cause the pool end task to free the
+         * pool */
+        file->item.cur_op_pool->type = H5_DAOS_OP_TYPE_CLOSE;
+    } /* end if */
 
     /*
      * Ensure that all other processes are done with the file before

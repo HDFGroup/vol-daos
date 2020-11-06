@@ -591,7 +591,6 @@ H5_daos_group_create(void *_item,
 
 done:
     if(int_req) {
-        H5_daos_item_t *pool_item;
         H5_daos_op_pool_type_t op_type;
 
         /* Free path_buf if necessary */
@@ -615,32 +614,28 @@ done:
         if(NULL == ret_value)
             int_req->status = -H5_DAOS_SETUP_ERROR;
 
-        /* Determine operation type - we will add the operation to the target
-         * object's op pool.  If there is no target object, it is not a group,
-         * or if we know it does not have creation order tracked we can use
-         * H5_DAOS_OP_TYPE_WRITE, otherwise use H5_DAOS_OP_TYPE_WRITE_ORDERED.
-         * Add to target object's pool because that's where we're creating the
-         * link.  No need to add to this group's pool since it's the open
-         * request. */
-        if(!target_obj || target_obj->item.type != H5I_GROUP) {
-            pool_item = NULL;
-            op_type = H5_DAOS_OP_TYPE_WRITE;
-        } /* end if */
-        else {
-            pool_item = &target_obj->item;
-            if((target_obj->item.open_req->status == 0
+        /* Determine operation type - we will add the operation to item's
+         * op pool.  If target_obj is NULL (anonymous create), use
+         * H5_DAOS_OP_TYPE_NOPOOL.  If the target_obj might have link creation
+         * order tracked and target_obj is not different from item use
+         * H5_DAOS_OP_TYPE_WRITE_ORDERED, otherwise use H5_DAOS_OP_TYPE_WRITE.
+         * Add to item's pool because that's where we're creating the link.  No
+         * need to add to this group's pool since it's the open request. */
+        if(!target_obj)
+            op_type = H5_DAOS_OP_TYPE_NOPOOL;
+        else if(&target_obj->item != item || target_obj->item.type != H5I_GROUP
+                || ((target_obj->item.open_req->status == 0
                 || target_obj->item.created)
-                && !((H5_daos_group_t *)target_obj)->gcpl_cache.track_corder)
-                op_type = H5_DAOS_OP_TYPE_WRITE;
-            else
-                op_type = H5_DAOS_OP_TYPE_WRITE_ORDERED;
-        } /* end else */
+                && !((H5_daos_group_t *)target_obj)->gcpl_cache.track_corder))
+            op_type = H5_DAOS_OP_TYPE_WRITE;
+        else
+            op_type = H5_DAOS_OP_TYPE_WRITE_ORDERED;
 
         /* Add the request to the object's request queue.  This will add the
          * dependency on the group open if necessary. */
         if(H5_daos_req_enqueue(int_req, &item->file->sched, first_task,
-                pool_item, op_type, H5_DAOS_OP_SCOPE_OBJ, collective,
-                pool_item ? pool_item->open_req : NULL, &item->file->sched) < 0)
+                item, op_type, H5_DAOS_OP_SCOPE_OBJ, collective,
+                item->open_req, &item->file->sched) < 0)
             D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't add request to request queue");
 
         /* Check for external async */
@@ -1572,7 +1567,7 @@ H5_daos_group_get(void *_item, H5VL_group_get_t get_type, hid_t dxpl_id,
             hid_t *ret_id = va_arg(arguments, hid_t *);
 
             /* Wait for the group to open if necessary */
-            if(!grp->obj.item.created || grp->obj.item.open_req->status != 0) {
+            if(!grp->obj.item.created && grp->obj.item.open_req->status != 0) {
                 if(H5_daos_progress(&grp->obj.item.file->sched, grp->obj.item.open_req, H5_DAOS_PROGRESS_WAIT) < 0)
                     D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't progress scheduler");
                 if(grp->obj.item.open_req->status != 0)
@@ -1736,10 +1731,7 @@ H5_daos_group_close_real(H5_daos_group_t *grp)
 
     if(--grp->obj.item.rc == 0) {
         /* Free group data structures */
-        if(grp->obj.item.cur_op_pool) {
-            assert(grp->obj.item.cur_op_pool->type == H5_DAOS_OP_TYPE_EMPTY);
-            grp->obj.item.cur_op_pool = DV_free(grp->obj.item.cur_op_pool);
-        } /* end if */
+        assert(!grp->obj.item.cur_op_pool);
         if(grp->obj.item.open_req)
             if(H5_daos_req_free_int(grp->obj.item.open_req) < 0)
                 D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't free request");
@@ -1816,7 +1808,7 @@ H5_daos_group_close(void *_grp, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
          * grp */
         assert(!first_task);
         first_task = close_task;
-        dep_task = dep_task;
+        dep_task = close_task;
         /* No need to take a reference to grp here since the purpose is to
          * release the API's reference */
         int_req->rc++;

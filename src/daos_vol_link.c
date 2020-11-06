@@ -2203,8 +2203,9 @@ done:
     } /* end if */
 
     if(int_req) {
-        H5_daos_item_t *pool_item;
         H5_daos_op_pool_type_t op_type;
+
+        assert(item);
 
         /* Free path_buf and soft link value if necessary */
         if(path_buf && H5_daos_free_async(item->file, path_buf, &first_task, &dep_tasks[0]) < 0)
@@ -2230,32 +2231,27 @@ done:
         if(ret_value < 0)
             int_req->status = -H5_DAOS_SETUP_ERROR;
 
-        /* Determine operation type - we will add the operation to the target
-         * object's op pool.  If there is no target object, it is not a group,
-         * or if we know it does not have creation order tracked we can use
-         * H5_DAOS_OP_TYPE_WRITE, otherwise use H5_DAOS_OP_TYPE_WRITE_ORDERED.
-         * Add to target object's pool because that's where we're creating the
-         * link.
-         */
-        if(!link_obj || link_obj->item.type != H5I_GROUP) {
-            pool_item = NULL;
-            op_type = H5_DAOS_OP_TYPE_WRITE;
-        } /* end if */
-        else {
-            pool_item = &link_obj->item;
-            if((link_obj->item.open_req->status == 0
+        /* Determine operation type - we will add the operation to item's
+         * op pool.  If link_obj is NULL (something failed), use
+         * H5_DAOS_OP_TYPE_NOPOOL.  If the link_obj might have link creation
+         * order tracked and link_obj is not different from item use
+         * H5_DAOS_OP_TYPE_WRITE_ORDERED, otherwise use H5_DAOS_OP_TYPE_WRITE.
+         * Add to item's pool because that's where we're creating the link.  */
+        if(!link_obj)
+            op_type = H5_DAOS_OP_TYPE_NOPOOL;
+        if(&link_obj->item != item
+                || ((link_obj->item.open_req->status == 0
                 || link_obj->item.created)
-                && !((H5_daos_group_t *)link_obj)->gcpl_cache.track_corder)
-                op_type = H5_DAOS_OP_TYPE_WRITE;
-            else
-                op_type = H5_DAOS_OP_TYPE_WRITE_ORDERED;
-        } /* end else */
+                && !((H5_daos_group_t *)link_obj)->gcpl_cache.track_corder))
+            op_type = H5_DAOS_OP_TYPE_WRITE;
+        else
+            op_type = H5_DAOS_OP_TYPE_WRITE_ORDERED;
 
         /* Add the request to the object's request queue.  This will add the
          * dependency on the group open if necessary. */
         if(H5_daos_req_enqueue(int_req, &item->file->sched,
-                first_task, pool_item, op_type, H5_DAOS_OP_SCOPE_OBJ,
-                collective, pool_item ? pool_item->open_req : NULL, &item->file->sched) < 0)
+                first_task, item, op_type, H5_DAOS_OP_SCOPE_OBJ,
+                collective, item->open_req, &item->file->sched) < 0)
             D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
         /* Check for external async */
@@ -3089,8 +3085,6 @@ H5_daos_link_get(void *_item, const H5VL_loc_params_t *loc_params,
 
 done:
     if(int_req) {
-        H5_daos_item_t *pool_item;
-
         /* Create task to finalize H5 operation */
         if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &item->file->sched, int_req, &int_req->finalize_task)))
             D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
@@ -3108,19 +3102,11 @@ done:
         if(ret_value < 0)
             int_req->status = -H5_DAOS_SETUP_ERROR;
 
-        /* Determine operation object pool - we will add the operation to the
-         * target object's op pool.  If there is no target object, it is not a
-         * group, we will not add the op to a pool */
-        if(!target_grp || target_grp->obj.item.type != H5I_GROUP)
-            pool_item = NULL;
-        else
-            pool_item = &target_grp->obj.item;
-
         /* Add the request to the object's request queue.  This will add the
          * dependency on the group open if necessary. */
         if(H5_daos_req_enqueue(int_req, &item->file->sched,
-                first_task, pool_item, H5_DAOS_OP_TYPE_READ, H5_DAOS_OP_SCOPE_OBJ,
-                FALSE, pool_item ? pool_item->open_req : NULL, &item->file->sched) < 0)
+                first_task, item, H5_DAOS_OP_TYPE_READ, H5_DAOS_OP_SCOPE_OBJ,
+                FALSE, item->open_req, &item->file->sched) < 0)
             D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
         /* Check for external async */
@@ -3312,7 +3298,6 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
 
 done:
     if(int_req) {
-        H5_daos_item_t *pool_item;
         H5_daos_op_pool_type_t op_type;
 
         /* Create task to finalize H5 operation */
@@ -3334,33 +3319,27 @@ done:
 
         /* Determine operation type - we will add the operation to the target
          * object's op pool.  If this is not a link delete we can use
-         * H5_DAOS_OP_TYPE_READ.  Otherwise if there is no target object, it is
-         * not a group, or if we know it does not have creation order tracked we
-         * can use H5_DAOS_OP_TYPE_WRITE, otherwise use
-         * H5_DAOS_OP_TYPE_WRITE_ORDERED. Add to target object's pool because
-         * that's where we're creating the link. */
-        if(!target_grp || target_grp->obj.item.type != H5I_GROUP) {
-            pool_item = NULL;
-            op_type = specific_type == H5VL_LINK_DELETE ? H5_DAOS_OP_TYPE_WRITE
-                    : H5_DAOS_OP_TYPE_READ;
-        } /* end if */
-        else {
-            pool_item = &target_grp->obj.item;
-            if(specific_type != H5VL_LINK_DELETE)
-                op_type = H5_DAOS_OP_TYPE_READ;
-            else if((target_grp->obj.item.open_req->status == 0
-                || target_grp->obj.item.created)
-                && !target_grp->gcpl_cache.track_corder)
-                op_type = H5_DAOS_OP_TYPE_WRITE;
-            else
-                op_type = H5_DAOS_OP_TYPE_WRITE_ORDERED;
-        } /* end else */
+         * H5_DAOS_OP_TYPE_READ.  Otherwise use H5_DAOS_OP_TYPE_NOPOOL.  Add to
+         * item's pool because that's where the link is. */
+        /* We should add code to change link delete to unordered write if we
+         * know the target object does not track link creation order -NAF */
+        if(!target_grp)
+            op_type = H5_DAOS_OP_TYPE_NOPOOL;
+        else if(specific_type != H5VL_LINK_DELETE)
+            op_type = H5_DAOS_OP_TYPE_READ;
+        else if(loc_params->type != H5VL_OBJECT_BY_SELF
+                || item->type != H5I_GROUP
+                || ((item->open_req->status == 0 || item->created)
+                && !((H5_daos_group_t *)item)->gcpl_cache.track_corder))
+            op_type = H5_DAOS_OP_TYPE_WRITE_ORDERED;
+        else
+            op_type = H5_DAOS_OP_TYPE_WRITE;
 
         /* Add the request to the object's request queue.  This will add the
          * dependency on the group open if necessary. */
         if(H5_daos_req_enqueue(int_req, &item->file->sched,
-                first_task, pool_item, op_type, H5_DAOS_OP_SCOPE_OBJ,
-                FALSE, pool_item ? pool_item->open_req : NULL, &item->file->sched) < 0)
+                first_task, item, op_type, H5_DAOS_OP_SCOPE_OBJ,
+                FALSE, item->open_req, &item->file->sched) < 0)
             D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
         /* Check for external async */

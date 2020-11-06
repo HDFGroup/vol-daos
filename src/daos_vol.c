@@ -3752,6 +3752,50 @@ done:
 
 
 /*-------------------------------------------------------------------------
+ * Function:    H5_daos_mpi_ibarrier_task
+ *
+ * Purpose:     Wraps a call to MPI_Ibarrier in a DAOS/TSE task.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ * Programmer:  Neil Fortner
+ *              November, 2020
+ *
+ *-------------------------------------------------------------------------
+ */
+int
+H5_daos_mpi_ibarrier_task(tse_task_t *task)
+{
+    H5_daos_req_t *req;
+    int ret_value = 0;
+
+    assert(!H5_daos_mpi_task_g);
+
+    /* Get private data */
+    if(NULL == (req = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for MPI barrier task");
+
+    assert(req);
+    assert(req->file);
+    assert(!req->file->closed);
+
+    /* Make call to MPI_Ibarrier */
+    if(MPI_SUCCESS != MPI_Ibarrier(req->file->comm, &H5_daos_mpi_req_g))
+        D_GOTO_ERROR(H5E_VOL, H5E_MPI, -H5_DAOS_MPI_ERROR, "MPI_Ibarrier failed");
+
+    /* Register this task as the current in-flight MPI task */
+    H5_daos_mpi_task_g = task;
+
+    /* This task will be completed by the progress function once that function
+     * detects that the MPI request is finished */
+
+done:
+    D_FUNC_LEAVE;
+} /* end H5_daos_mpi_ibarrier_task() */
+
+
+/*-------------------------------------------------------------------------
  * Function:    H5_daos_metatask_autocomp_other
  *
  * Purpose:     Body function for a metatask that needs to complete

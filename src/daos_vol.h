@@ -560,6 +560,7 @@ typedef enum H5_daos_op_pool_type_t {
     H5_DAOS_OP_TYPE_WRITE_ORDERED,
     H5_DAOS_OP_TYPE_CLOSE,
     H5_DAOS_OP_TYPE_EMPTY,
+    H5_DAOS_OP_TYPE_NOPOOL,
 } H5_daos_op_pool_type_t;
 
 /* Different scopes for operation pools - can be either specific to an

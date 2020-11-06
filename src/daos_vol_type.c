@@ -890,7 +890,7 @@ done:
 void *
 H5_daos_datatype_open(void *_item,
     const H5VL_loc_params_t H5VL_DAOS_UNUSED *loc_params, const char *name,
-    hid_t tapl_id, hid_t dxpl_id, void H5VL_DAOS_UNUSED **req)
+    hid_t tapl_id, hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_dtype_t *dtype = NULL;
@@ -1870,10 +1870,7 @@ H5_daos_datatype_close_real(H5_daos_dtype_t *dtype)
 
     if(--dtype->obj.item.rc == 0) {
         /* Free datatype data structures */
-        if(dtype->obj.item.cur_op_pool) {
-            assert(dtype->obj.item.cur_op_pool->type == H5_DAOS_OP_TYPE_EMPTY);
-            dtype->obj.item.cur_op_pool = DV_free(dtype->obj.item.cur_op_pool);
-        } /* end if */
+        assert(!dtype->obj.item.cur_op_pool);
         if(dtype->obj.item.open_req)
             if(H5_daos_req_free_int(dtype->obj.item.open_req) < 0)
                 D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, FAIL, "can't free request");
@@ -1952,7 +1949,7 @@ H5_daos_datatype_close(void *_dtype, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
          * dtype */
         assert(!first_task);
         first_task = close_task;
-        dep_task = dep_task;
+        dep_task = close_task;
         /* No need to take a reference to dtype here since the purpose is to
          * release the API's reference */
         int_req->rc++;

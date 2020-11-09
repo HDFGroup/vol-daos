@@ -3313,24 +3313,26 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
         /* H5Oincr_refcount/H5Odecr_refcount */
         case H5VL_OBJECT_CHANGE_REF_COUNT:
         {
-            int update_ref  = va_arg(arguments, int);
+            int update_ref = va_arg(arguments, int);
 
             assert(loc_params->type == H5VL_OBJECT_BY_SELF);
             assert(target_obj);
 
-            /* Allocate buffer to hold rc */
-            if(NULL == (rc_buf = DV_malloc(sizeof(uint64_t))))
-                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate user data struct for object reference count adjust task");
+            if(!collective_md_write || (item->file->my_rank == 0)) {
+                /* Allocate buffer to hold rc */
+                if(NULL == (rc_buf = DV_malloc(sizeof(uint64_t))))
+                    D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate user data struct for object reference count adjust task");
 
-            /* Read target object ref count */
-            if(0 != (ret = H5_daos_obj_read_rc(NULL, target_obj, rc_buf, NULL,
-                    &target_obj->item.file->sched, int_req, &first_task, &dep_task)))
-                D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't get object ref count: %s", H5_daos_err_to_string(ret));
+                /* Read target object ref count */
+                if(0 != (ret = H5_daos_obj_read_rc(NULL, target_obj, rc_buf, NULL,
+                        &target_obj->item.file->sched, int_req, &first_task, &dep_task)))
+                    D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't get object ref count: %s", H5_daos_err_to_string(ret));
 
-            /* Increment and write ref count */
-            if(0 != (ret = H5_daos_obj_write_rc(NULL, target_obj, rc_buf, (int64_t)update_ref,
-                    &target_obj->item.file->sched, int_req, &first_task, &dep_task)))
-                D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINC, FAIL, "can't write updated object ref count: %s", H5_daos_err_to_string(ret));
+                /* Increment and write ref count */
+                if(0 != (ret = H5_daos_obj_write_rc(NULL, target_obj, rc_buf, (int64_t)update_ref,
+                        &target_obj->item.file->sched, int_req, &first_task, &dep_task)))
+                    D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINC, FAIL, "can't write updated object ref count: %s", H5_daos_err_to_string(ret));
+            } /* end if */
 
             break;
         } /* H5VL_OBJECT_CHANGE_REF_COUNT */

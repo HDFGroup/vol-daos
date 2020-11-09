@@ -99,11 +99,6 @@ typedef struct H5_daos_obj_open_ud_t {
     daos_obj_id_t *oid;
 } H5_daos_obj_open_ud_t;
 
-typedef struct H5_daos_pool_create_info {
-    uuid_t pool_uuid;
-    d_rank_list_t svcl;
-} H5_daos_pool_create_info;
-
 /********************/
 /* Local Prototypes */
 /********************/
@@ -123,8 +118,6 @@ static herr_t H5_daos_init(hid_t vipl_id);
 static herr_t H5_daos_term(void);
 static herr_t H5_daos_set_pool_globals(uuid_t pool_uuid, const char *pool_grp, const char *pool_svcl);
 static herr_t H5_daos_fill_def_plist_cache(void);
-static herr_t H5_daos_pool_create_bcast(uuid_t pool_uuid, d_rank_list_t *pool_svcl,
-    MPI_Comm comm, int rank);
 static void *H5_daos_fapl_copy(const void *_old_fa);
 static herr_t H5_daos_fapl_free(void *_fa);
 static herr_t H5_daos_get_conn_cls(void *item, H5VL_get_conn_lvl_t lvl,
@@ -292,13 +285,9 @@ size_t daos_vol_curr_alloc_bytes;
 
 /* Global variables used to connect to DAOS pools */
 static hbool_t H5_daos_pool_globals_set_g = FALSE;  /* Pool config set */
-uuid_t  H5_daos_pool_uuid_g;                        /* Pool UUID */
 char H5_daos_pool_grp_g[H5_DAOS_MAX_GRP_NAME + 1] = {'\0'}; /* Pool Group */
 static d_rank_t H5_daos_pool_ranks_g[H5_DAOS_MAX_SVC_REPLICAS]; /* Pool ranks */
 d_rank_list_t H5_daos_pool_svcl_g = {0};                  /* Pool svc list */
-static const unsigned int   H5_daos_pool_default_mode_g          = 0731;         /* Default Mode */
-static const daos_size_t    H5_daos_pool_default_scm_size_g      = (1ULL << 31); /*   2GB */
-static const daos_size_t    H5_daos_pool_default_nvme_size_g     = (1ULL << 33); /*   8GB */
 static const unsigned int   H5_daos_pool_default_svc_nreplicas_g = 1;            /* Number of replicas */
 
 /* Global variable used to bypass the DUNS in favor of standard DAOS
@@ -1315,7 +1304,6 @@ done:
 static herr_t
 H5_daos_set_pool_globals(uuid_t pool_uuid, const char *pool_grp, const char *pool_svcl)
 {
-    char *pool_uuid_env = getenv("DAOS_POOL");
     char *pool_grp_env = getenv("DAOS_GROUP");
     char *pool_svcl_env = getenv("DAOS_SVCL");
     d_rank_list_t *svcl = NULL;
@@ -1323,15 +1311,6 @@ H5_daos_set_pool_globals(uuid_t pool_uuid, const char *pool_grp, const char *poo
 
     if(pool_grp && (strlen(pool_grp) > H5_DAOS_MAX_GRP_NAME))
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "service group name is too long");
-
-    /* Set UUID of DAOS pool to be used */
-    memset(H5_daos_pool_uuid_g, 0, sizeof(H5_daos_pool_uuid_g));
-    if(pool_uuid_env) {
-        if(uuid_parse(pool_uuid_env, H5_daos_pool_uuid_g) < 0)
-            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't parse UUID from DAOS_POOL environment variable");
-    }
-    else if(!uuid_is_null(pool_uuid))
-        uuid_copy(H5_daos_pool_uuid_g, pool_uuid);
 
     /* Set name of DAOS pool group to be used */
     memset(H5_daos_pool_grp_g, '\0', sizeof(H5_daos_pool_grp_g));
@@ -1435,135 +1414,6 @@ done:
 
     D_FUNC_LEAVE;
 } /* end H5_daos_fill_def_plist_cache() */
-
-
-/*-------------------------------------------------------------------------
- * Function:    H5_daos_pool_create
- *
- * Purpose:     Create a pool using default values. This call is collective
- *              across `comm`.
- *
- * Return:      Non-negative on success/Negative on failure
- *
- *-------------------------------------------------------------------------
- */
-herr_t
-H5_daos_pool_create(uuid_t uuid, const char **pool_grp, d_rank_list_t **svcl,
-    MPI_Comm comm)
-{
-    unsigned int mode = H5_daos_pool_default_mode_g;
-    unsigned int uid = geteuid();
-    unsigned int gid = getegid();
-    d_rank_list_t *targets = NULL;
-    const char *dev = "pmem";
-    daos_size_t  scm_size = H5_daos_pool_default_scm_size_g;
-    daos_size_t  nvme_size = H5_daos_pool_default_nvme_size_g;
-    int comm_size;
-    int rank;
-    int ret;
-    herr_t ret_value = SUCCEED; /* Return value */
-
-    if(MPI_SUCCESS != MPI_Comm_size(comm, &comm_size))
-        D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't retrieve size of MPI communicator");
-    if(MPI_SUCCESS != MPI_Comm_rank(comm, &rank))
-        D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't retrieve rank in MPI communicator");
-
-    /* Create a pool using default values */
-    if((rank == 0) && (0 != (ret = daos_pool_create(mode, uid, gid, H5_daos_pool_grp_g,
-            targets, dev, scm_size, nvme_size, NULL, &H5_daos_pool_svcl_g,
-            H5_daos_pool_uuid_g, NULL /* event */)))) {
-        /* Make sure to participate in following broadcast with NULL UUID */
-        uuid_clear(H5_daos_pool_uuid_g);
-        D_DONE_ERROR(H5E_VOL, H5E_CANTCREATE, FAIL, "can't create pool: %s", H5_daos_err_to_string(ret));
-    }
-
-    /* Broadcast UUID and replica service rank list of
-     * newly-created pool to other processes if necessary.
-     */
-    if(comm_size > 1) {
-        if(H5_daos_pool_create_bcast(H5_daos_pool_uuid_g,
-                &H5_daos_pool_svcl_g, comm, rank) < 0)
-            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't broadcast pool connection info");
-
-        if((rank != 0) && (uuid_is_null(H5_daos_pool_uuid_g)))
-            D_GOTO_ERROR(H5E_VOL, H5E_CANTCREATE, FAIL, "lead process failed to create pool");
-    }
-
-    memcpy(uuid, H5_daos_pool_uuid_g, sizeof(uuid_t));
-    if(pool_grp) *pool_grp = H5_daos_pool_grp_g;
-    if(svcl) *svcl = &H5_daos_pool_svcl_g;
-
-done:
-    D_FUNC_LEAVE;
-}
-
-
-/*-------------------------------------------------------------------------
- * Function:    H5_daos_pool_create_bcast
- *
- * Purpose:     Broadcasts pool connection info, such as the pool UUID and
- *              pool replica service rank list, to other ranks from rank 0
- *              after creation of a DAOS pool.
- *
- * Return:      Non-negative on success/Negative on failure
- *
- *-------------------------------------------------------------------------
- */
-static herr_t
-H5_daos_pool_create_bcast(uuid_t pool_uuid, d_rank_list_t *pool_svcl,
-    MPI_Comm comm, int rank)
-{
-    H5_daos_pool_create_info pool_create_info;
-    MPI_Datatype pci_struct_type = MPI_DATATYPE_NULL;
-    MPI_Datatype struct_types[2];
-    MPI_Aint displacements[2];
-    int blocklens[2];
-    herr_t ret_value = SUCCEED;
-
-    assert(pool_svcl);
-
-    memset(&pool_create_info, 0, sizeof(H5_daos_pool_create_info));
-
-    if(rank == 0) {
-        uuid_copy(pool_create_info.pool_uuid, pool_uuid);
-        pool_create_info.svcl = *pool_svcl;
-    }
-
-    /* Create MPI struct type to broadcast pool creation info */
-    blocklens[0] = 16;
-    blocklens[1] = 1;
-    displacements[0] = offsetof(H5_daos_pool_create_info, pool_uuid);
-    displacements[1] = offsetof(H5_daos_pool_create_info, svcl.rl_nr);
-    struct_types[0] = MPI_CHAR;
-    struct_types[1] = MPI_UINT32_T;
-    if(MPI_SUCCESS != MPI_Type_create_struct(2, blocklens, displacements,
-            struct_types, &pci_struct_type))
-        D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't create MPI struct type");
-
-    if(MPI_SUCCESS != MPI_Type_commit(&pci_struct_type))
-        D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't commit MPI struct type");
-
-    /* Broadcast pool creation info */
-    if(MPI_SUCCESS != MPI_Bcast(&pool_create_info, 1, pci_struct_type, 0, comm))
-        D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't broadcast pool creation info");
-
-    /* Set globals related to pool creation on non-zero ranks */
-    if(rank != 0) {
-        uuid_copy(pool_uuid, pool_create_info.pool_uuid);
-        pool_svcl->rl_nr = pool_create_info.svcl.rl_nr;
-    }
-
-    /* Broadcast pool replica service rank list */
-    if(MPI_SUCCESS != MPI_Bcast(pool_svcl->rl_ranks, (int)pool_svcl->rl_nr,
-            MPI_UINT32_T, 0, comm))
-        D_GOTO_ERROR(H5E_VOL, H5E_MPI, FAIL, "can't broadcast pool replica service rank list");
-
-done:
-    if(MPI_DATATYPE_NULL != pci_struct_type)
-        MPI_Type_free(&pci_struct_type);
-
-    D_FUNC_LEAVE;
-} /* end H5_daos_pool_create_bcast() */
 
 
 /*-------------------------------------------------------------------------

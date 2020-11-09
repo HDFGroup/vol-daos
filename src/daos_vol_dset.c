@@ -30,6 +30,7 @@
 /* Definitions for chunking code */
 #define H5_DAOS_DEFAULT_NUM_SEL_CHUNKS   64
 #define H5O_LAYOUT_NDIMS                 (H5S_MAX_RANK+1)
+#define CHUNK_DKEY_BUF_SIZE              (1 + (sizeof(uint64_t) * H5S_MAX_RANK))
 
 /* Definitions for automatic chunking */
 /* Maximum size for contiguous datasets (target size * sqrt(2)) */
@@ -65,10 +66,46 @@ typedef struct {
     uint64_t idx;
 } H5_daos_vl_file_ud_t;
 
+/* Enum type for distinguishing between dataset reads and writes. */
+typedef enum dset_io_type {
+    IO_READ,
+    IO_WRITE
+} dset_io_type;
+
 /* Typedef for function to perform I/O on a single chunk */
 typedef herr_t (*H5_daos_chunk_io_func)(H5_daos_select_chunk_info_t *chunk_info,
     H5_daos_dset_t *dset, uint64_t dset_ndims, hid_t mem_type_id, dset_io_type io_type,
     void *buf, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
+
+/* Task user data for raw data I/O on a single chunk */
+typedef struct H5_daos_chunk_io_ud_t {
+    H5_daos_req_t *req;
+    H5_daos_dset_t *dset;
+    daos_key_t dkey;
+    uint8_t dkey_buf[CHUNK_DKEY_BUF_SIZE];
+    uint8_t akey_buf;
+    daos_iod_t iod;
+    daos_sg_list_t sgl;
+    daos_recx_t recx;
+    daos_recx_t *recxs;
+    daos_iov_t sg_iov;
+    daos_iov_t *sg_iovs;
+
+    /* Fields used for datatype conversion */
+    struct {
+        hssize_t num_elem;
+        hid_t mem_type_id;
+        hid_t mem_space_id;
+        void *buf;
+        dset_io_type io_type;
+        H5_daos_tconv_reuse_t reuse;
+        hbool_t fill_bkg;
+        size_t mem_type_size;
+        size_t file_type_size;
+        void *tconv_buf;
+        void *bkg_buf;
+    } tconv;
+} H5_daos_chunk_io_ud_t;
 
 /********************/
 /* Local Prototypes */
@@ -2243,6 +2280,7 @@ done:
             DV_free(udata->recxs);
         if(udata->sg_iovs != &udata->sg_iov)
             DV_free(udata->sg_iovs);
+        DV_free(udata);
     } /* end if */
 
     D_FUNC_LEAVE;
@@ -2271,7 +2309,7 @@ H5_daos_dataset_io_types_equal(H5_daos_select_chunk_info_t *chunk_info,
     H5_daos_dset_t *dset, uint64_t dset_ndims, hid_t H5VL_DAOS_UNUSED mem_type_id,
     dset_io_type io_type, void *buf, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
-    H5_daos_chunk_io_ud_t *chunk_io_ud;
+    H5_daos_chunk_io_ud_t *chunk_io_ud = NULL;
     size_t tot_nseq;
     size_t file_type_size;
     tse_task_t *io_task;
@@ -2286,13 +2324,11 @@ H5_daos_dataset_io_types_equal(H5_daos_select_chunk_info_t *chunk_info,
     assert(first_task);
     assert(dep_task);
 
-    /* Point to allocated argument struct */
-    chunk_io_ud = &chunk_info->chunk_io_ud;
+    /* Allocate argument struct */
+    if(NULL == (chunk_io_ud = (H5_daos_chunk_io_ud_t *)DV_calloc(sizeof(H5_daos_chunk_io_ud_t))))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for I/O callback arguments");
     chunk_io_ud->recxs = &chunk_io_ud->recx;
     chunk_io_ud->sg_iovs = &chunk_io_ud->sg_iov;
-
-    /* Ensure that any type-conversion-related info is cleared */
-    memset(&chunk_io_ud->tconv, 0, sizeof(chunk_io_ud->tconv));
 
     /* Point to dset */
     chunk_io_ud->dset = dset;
@@ -2429,6 +2465,7 @@ done:
             DV_free(chunk_io_ud->recxs);
         if(chunk_io_ud->sg_iovs != &chunk_io_ud->sg_iov)
             DV_free(chunk_io_ud->sg_iovs);
+        chunk_io_ud = DV_free(chunk_io_ud);
     } /* end if */
 
     D_FUNC_LEAVE;
@@ -2597,6 +2634,7 @@ done:
             DV_free(udata->tconv.tconv_buf);
         if(udata->tconv.reuse != H5_DAOS_TCONV_REUSE_BKG)
             DV_free(udata->tconv.bkg_buf);
+        DV_free(udata);
     } /* end if */
 
     D_FUNC_LEAVE;
@@ -2735,7 +2773,7 @@ H5_daos_dataset_io_types_unequal(H5_daos_select_chunk_info_t *chunk_info,
     H5_daos_dset_t *dset, uint64_t dset_ndims, hid_t mem_type_id, dset_io_type io_type,
     void *buf, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
-    H5_daos_chunk_io_ud_t *chunk_io_ud;
+    H5_daos_chunk_io_ud_t *chunk_io_ud = NULL;
     hbool_t contig = FALSE;
     size_t tot_nseq;
     tse_task_t *io_task = NULL;
@@ -2751,11 +2789,9 @@ H5_daos_dataset_io_types_unequal(H5_daos_select_chunk_info_t *chunk_info,
     assert(first_task);
     assert(dep_task);
 
-    /* Point to allocated argument struct */
-    chunk_io_ud = &chunk_info->chunk_io_ud;
-
-    /* Ensure that any type-conversion-related info is cleared */
-    memset(&chunk_io_ud->tconv, 0, sizeof(chunk_io_ud->tconv));
+    /* Allocate argument struct */
+    if(NULL == (chunk_io_ud = (H5_daos_chunk_io_ud_t *)DV_calloc(sizeof(H5_daos_chunk_io_ud_t))))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for I/O callback arguments");
 
     /* Setup type conversion-related fields */
     chunk_io_ud->tconv.num_elem = chunk_info->num_elem_sel_file;
@@ -2970,6 +3006,7 @@ done:
             chunk_io_ud->tconv.tconv_buf = DV_free(chunk_io_ud->tconv.tconv_buf);
         if(chunk_io_ud->tconv.reuse != H5_DAOS_TCONV_REUSE_BKG)
             chunk_io_ud->tconv.bkg_buf = DV_free(chunk_io_ud->tconv.bkg_buf);
+        chunk_io_ud = DV_free(chunk_io_ud);
     } /* end if */
 
     D_FUNC_LEAVE;

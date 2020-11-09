@@ -591,7 +591,7 @@ H5_daos_link_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
                                     udata->md_rw_cb_ud.iod[0].iod_size - 1);
                         } /* end else */
 
-                        /* Take ownership of the buffer. */
+                        /* Link now owns the buffer */
                         udata->md_rw_cb_ud.sg_iov[0].iov_buf = NULL;
 
                         /* Add null terminator */

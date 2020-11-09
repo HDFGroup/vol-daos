@@ -682,11 +682,13 @@ H5_daos_group_open_end(H5_daos_group_t *grp, uint8_t *p, uint64_t gcpl_buf_len)
     /* Check if the group's GCPL is the default GCPL or FCPL.
      * Otherwise, decode the group's GCPL.
      */
-    if(!memcmp(p, grp->obj.item.file->def_plist_cache.gcpl_buf,
-            grp->obj.item.file->def_plist_cache.gcpl_size))
+    if((gcpl_buf_len == grp->obj.item.file->def_plist_cache.gcpl_size)
+            && !memcmp(p, grp->obj.item.file->def_plist_cache.gcpl_buf,
+                    grp->obj.item.file->def_plist_cache.gcpl_size))
         grp->gcpl_id = H5P_GROUP_CREATE_DEFAULT;
-    else if(!memcmp(p, grp->obj.item.file->def_plist_cache.fcpl_buf,
-            grp->obj.item.file->def_plist_cache.fcpl_size))
+    else if((gcpl_buf_len == grp->obj.item.file->def_plist_cache.fcpl_size)
+            && !memcmp(p, grp->obj.item.file->def_plist_cache.fcpl_buf,
+                    grp->obj.item.file->def_plist_cache.fcpl_size))
         grp->gcpl_id = H5P_FILE_CREATE_DEFAULT;
     else if((grp->gcpl_id = H5Pdecode(p)) < 0)
         D_GOTO_ERROR(H5E_ARGS, H5E_CANTDECODE, -H5_DAOS_H5_DECODE_ERROR, "can't deserialize GCPL");

@@ -101,7 +101,7 @@ static int H5_daos_minfo_read_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_map_open_bcast_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_map_open_recv_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_map_open_end(H5_daos_map_t *map, uint8_t *p,
-    uint64_t ktype_buf_len, uint64_t vtype_buf_len, hid_t dxpl_id);
+    uint64_t ktype_buf_len, uint64_t vtype_buf_len, uint64_t mcpl_buf_len, hid_t dxpl_id);
 
 static herr_t H5_daos_map_key_conv(hid_t src_type_id, hid_t dst_type_id,
     const void *key, const void **key_buf, size_t *key_size,
@@ -1200,7 +1200,7 @@ H5_daos_map_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
             /* Finish building map object */
             if(0 != (ret = H5_daos_map_open_end((H5_daos_map_t *)udata->obj,
-                    p, ktype_buf_len, vtype_buf_len, udata->req->dxpl_id)))
+                    p, ktype_buf_len, vtype_buf_len, mcpl_buf_len, udata->req->dxpl_id)))
                 D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't finish opening map");
         } /* end else */
     } /* end else */
@@ -1253,7 +1253,8 @@ done:
  */
 static int
 H5_daos_map_open_end(H5_daos_map_t *map, uint8_t *p,
-    uint64_t ktype_buf_len, uint64_t vtype_buf_len, hid_t H5VL_DAOS_UNUSED dxpl_id)
+    uint64_t ktype_buf_len, uint64_t vtype_buf_len, uint64_t mcpl_buf_len,
+    hid_t H5VL_DAOS_UNUSED dxpl_id)
 {
     H5T_class_t ktype_class;
     htri_t has_vl_vlstr_ref;
@@ -1276,8 +1277,9 @@ H5_daos_map_open_end(H5_daos_map_t *map, uint8_t *p,
     /* Check if the map's MCPL is the default MCPL.
      * Otherwise, decode the map's MCPL.
      */
-    if(!memcmp(p, map->obj.item.file->def_plist_cache.mcpl_buf,
-            map->obj.item.file->def_plist_cache.mcpl_size))
+    if((mcpl_buf_len == map->obj.item.file->def_plist_cache.mcpl_size)
+            && !memcmp(p, map->obj.item.file->def_plist_cache.mcpl_buf,
+                    map->obj.item.file->def_plist_cache.mcpl_size))
         map->mcpl_id = H5P_MAP_CREATE_DEFAULT;
     else if((map->mcpl_id = H5Pdecode(p)) < 0)
         D_GOTO_ERROR(H5E_MAP, H5E_CANTDECODE, -H5_DAOS_H5_DECODE_ERROR, "can't deserialize map creation property list");
@@ -1461,7 +1463,7 @@ H5_daos_minfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
             /* Finish building map object */
             if(0 != (ret = H5_daos_map_open_end((H5_daos_map_t *)udata->md_rw_cb_ud.obj,
                     udata->md_rw_cb_ud.sg_iov[0].iov_buf, ktype_buf_len,
-                    vtype_buf_len, udata->md_rw_cb_ud.req->dxpl_id)))
+                    vtype_buf_len, mcpl_buf_len, udata->md_rw_cb_ud.req->dxpl_id)))
                 D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't finish opening map");
         } /* end else */
     } /* end else */

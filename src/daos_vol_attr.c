@@ -1961,8 +1961,9 @@ H5_daos_attribute_open_end(H5_daos_attr_t *attr, uint8_t *p, uint64_t type_buf_l
      /* Check if the attribute's ACPL is the default ACPL.
       * Otherwise, decode the attribute's ACPL.
       */
-     if(!memcmp(p, attr->item.file->def_plist_cache.acpl_buf,
-             attr->item.file->def_plist_cache.acpl_size))
+     if((acpl_buf_len == attr->item.file->def_plist_cache.acpl_size)
+             && !memcmp(p, attr->item.file->def_plist_cache.acpl_buf,
+                     attr->item.file->def_plist_cache.acpl_size))
          attr->acpl_id = H5P_ATTRIBUTE_CREATE_DEFAULT;
      else if((attr->acpl_id = H5Pdecode(p)) < 0)
          D_GOTO_ERROR(H5E_ARGS, H5E_CANTDECODE, -H5_DAOS_H5_DECODE_ERROR, "can't deserialize ACPL");

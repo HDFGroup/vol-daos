@@ -34,7 +34,7 @@ static int H5_daos_tinfo_read_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_datatype_open_bcast_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_datatype_open_recv_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_datatype_open_end(H5_daos_dtype_t *dtype, uint8_t *p,
-    uint64_t tcpl_buf_len, hid_t dxpl_id);
+    uint64_t type_buf_len, uint64_t tcpl_buf_len, hid_t dxpl_id);
 
 static htri_t H5_daos_need_bkg(hid_t src_type_id, hid_t dst_type_id,
     hbool_t dst_file, size_t *dst_type_size, hbool_t *fill_bkg);
@@ -1492,7 +1492,7 @@ H5_daos_datatype_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args
 
             /* Finish building datatype object */
             if(0 != (ret = H5_daos_datatype_open_end((H5_daos_dtype_t *)udata->obj,
-                    p, type_buf_len, udata->req->dxpl_id)))
+                    p, type_buf_len, tcpl_buf_len, udata->req->dxpl_id)))
                 D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, ret, "can't finish opening datatype");
         } /* end else */
     } /* end else */
@@ -1546,7 +1546,7 @@ done:
  */
 static int
 H5_daos_datatype_open_end(H5_daos_dtype_t *dtype, uint8_t *p, uint64_t type_buf_len,
-    hid_t H5VL_DAOS_UNUSED dxpl_id)
+    uint64_t tcpl_buf_len, hid_t H5VL_DAOS_UNUSED dxpl_id)
 {
     int ret_value = 0;
 
@@ -1562,8 +1562,9 @@ H5_daos_datatype_open_end(H5_daos_dtype_t *dtype, uint8_t *p, uint64_t type_buf_
     /* Check if the datatype's TCPL is the default TCPL.
      * Otherwise, decode the datatype's TCPL.
      */
-    if(!memcmp(p, dtype->obj.item.file->def_plist_cache.tcpl_buf,
-            dtype->obj.item.file->def_plist_cache.tcpl_size))
+    if((tcpl_buf_len == dtype->obj.item.file->def_plist_cache.tcpl_size)
+            && !memcmp(p, dtype->obj.item.file->def_plist_cache.tcpl_buf,
+                    dtype->obj.item.file->def_plist_cache.tcpl_size))
         dtype->tcpl_id = H5P_DATATYPE_CREATE_DEFAULT;
     else if((dtype->tcpl_id = H5Pdecode(p)) < 0)
         D_GOTO_ERROR(H5E_ARGS, H5E_CANTDECODE, -H5_DAOS_H5_DECODE_ERROR, "can't deserialize datatype creation property list");
@@ -1700,7 +1701,7 @@ H5_daos_tinfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
             /* Finish building datatype object */
             if(0 != (ret = H5_daos_datatype_open_end((H5_daos_dtype_t *)udata->md_rw_cb_ud.obj,
-                    udata->md_rw_cb_ud.sg_iov[0].iov_buf, type_buf_len,
+                    udata->md_rw_cb_ud.sg_iov[0].iov_buf, type_buf_len, tcpl_buf_len,
                     udata->md_rw_cb_ud.req->dxpl_id)))
                 D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, ret, "can't finish opening datatype");
         } /* end else */

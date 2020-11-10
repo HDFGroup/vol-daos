@@ -18,6 +18,8 @@
 #include "util/daos_vol_err.h"  /* DAOS connector error handling           */
 #include "util/daos_vol_mem.h"  /* DAOS connector memory management        */
 
+#include <libgen.h>
+
 /************************************/
 /* Local Type and Struct Definition */
 /************************************/
@@ -29,7 +31,6 @@ typedef struct H5_daos_cont_op_info_t {
     tse_task_t *cont_op_metatask;
     daos_handle_t *poh;
     daos_handle_t tmp_poh;
-    daos_pool_info_t pool_info;
     struct duns_attr_t duns_attr;
     const char *path;
     unsigned flags;
@@ -84,6 +85,7 @@ static int H5_daos_duns_resolve_path_task(tse_task_t *task);
 static int H5_daos_duns_resolve_path_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_cont_open_prep_cb(tse_task_t *task, void *args);
 static int H5_daos_cont_open_comp_cb(tse_task_t *task, void *args);
+static herr_t H5_daos_file_set_pool_uuid(H5_daos_file_t *file, const char *filepath);
 static int H5_daos_handles_bcast_comp_cb(tse_task_t *task, void *args);
 static herr_t H5_daos_file_handles_bcast(H5_daos_file_t *file,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
@@ -103,6 +105,7 @@ static int H5_daos_cont_destroy_comp_cb(tse_task_t *task, void *args);
 static herr_t H5_daos_file_delete_sync(const char *filename, hid_t fapl_id);
 
 static herr_t H5_daos_fill_fapl_cache(H5_daos_file_t *file, hid_t fapl_id);
+static herr_t H5_daos_fill_enc_plist_cache(H5_daos_file_t *file, hid_t fapl_id);
 static herr_t H5_daos_file_close_helper(H5_daos_file_t *file,
     hid_t dxpl_id, void **req);
 static herr_t H5_daos_get_obj_count_callback(hid_t id, void *udata);
@@ -263,6 +266,7 @@ H5_daos_tx_open_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     } /* end if */
     tx_open_args->coh = udata->req->file->coh;
     tx_open_args->th = &udata->req->th;
+    tx_open_args->flags = 0;
 
 done:
     D_FUNC_LEAVE;
@@ -321,6 +325,84 @@ done:
     D_FUNC_LEAVE;
 } /* end H5_daos_tx_open_comp_cb() */
 #endif /* H5_DAOS_USE_TRANSACTIONS */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_file_set_pool_uuid
+ *
+ * Purpose:     Sets the DAOS pool UUID for the given file.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_file_set_pool_uuid(H5_daos_file_t *file, const char *filepath)
+{
+    const char *pool_uuid_env = getenv("DAOS_POOL");
+    char *fpath_copy = NULL;
+    herr_t ret_value = SUCCEED;
+
+    assert(file);
+    assert(uuid_is_null(file->puuid));
+    assert(filepath);
+
+    if(H5_daos_bypass_duns_g && !pool_uuid_env)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "DAOS_POOL environment variable must be set when bypassing DUNS");
+
+    /* Attempt to retrieve the file's pool UUID by using
+     * duns_resolve_path on the given directory path
+     */
+    if(!H5_daos_bypass_duns_g) {
+        struct duns_attr_t duns_attr;
+        char *dir_name;
+        char cwd[PATH_MAX];
+        int ret;
+
+        memset(&duns_attr, 0, sizeof(struct duns_attr_t));
+
+        if(NULL == (fpath_copy = strdup(filepath)))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't copy filepath");
+
+        dir_name = dirname(fpath_copy);
+
+        if(!strncmp(dir_name, ".", 2)) {
+            if(NULL == getcwd(cwd, PATH_MAX))
+                D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "can't get current working directory: %s", strerror(errno));
+            dir_name = cwd;
+        }
+
+        /* Try to resolve the DUNS directory path. ENODATA signifies that
+         * the directory path was probably not created with the DUNS, so
+         * we will try other methods for retrieving the file's pool UUID.
+         */
+        if(0 == (ret = duns_resolve_path(dir_name, &duns_attr)))
+            uuid_copy(file->puuid, duns_attr.da_puuid);
+        else if(ENODATA != ret) {
+            if(EOPNOTSUPP == ret)
+                D_GOTO_ERROR(H5E_FILE, H5E_PATH, FAIL, "duns_resolve_path failed - DUNS not supported on file system");
+            else
+                D_GOTO_ERROR(H5E_FILE, H5E_PATH, FAIL, "duns_resolve_path failed: %s", H5_daos_err_to_string(ret));
+        } /* end else */
+    } /* end if */
+
+    if(uuid_is_null(file->puuid)) {
+        if(pool_uuid_env) {
+            /* Attempt to parse pool UUID from DAOS_POOL environment variable */
+            if(uuid_parse(pool_uuid_env, file->puuid) < 0)
+                D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't parse UUID from DAOS_POOL environment variable");
+        }
+        else
+            /* It is an error if the file's pool UUID is still unset at this point */
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "file's pool UUID is invalid or is not set - try setting DAOS_POOL environment variable");
+    } /* end if */
+
+done:
+    if(fpath_copy)
+        free(fpath_copy);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_file_set_pool_uuid() */
 
 
 /*-------------------------------------------------------------------------
@@ -703,7 +785,6 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
 {
     H5_daos_file_t *file = NULL;
     H5_daos_fapl_t fapl_info = {0};
-    hbool_t sched_init = FALSE;
     H5_daos_req_t *int_req = NULL;
     tse_task_t *first_task = NULL;
     tse_task_t *dep_task = NULL;
@@ -741,8 +822,8 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     file->container_poh = DAOS_HDL_INVAL;
     file->glob_md_oh = DAOS_HDL_INVAL;
     file->root_grp = NULL;
-    file->fapl_id = FAIL;
-    file->vol_id = FAIL;
+    file->fapl_id = H5P_FILE_ACCESS_DEFAULT;
+    file->vol_id = H5I_INVALID_HID;
     file->item.rc = 1;
 
     /* Fill in fields of file we know */
@@ -751,13 +832,17 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     if(NULL == (file->file_name = strdup(name)))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't copy file name");
     file->flags = flags;
-    if((file->fapl_id = H5Pcopy(fapl_id)) < 0)
+    if((fapl_id != H5P_FILE_ACCESS_DEFAULT) && (file->fapl_id = H5Pcopy(fapl_id)) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTCOPY, NULL, "failed to copy fapl");
+
+    /* Set the pool UUID for the file */
+    if(H5_daos_file_set_pool_uuid(file, name) < 0)
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't set file's DAOS pool UUID");
 
     /* Create DAOS task scheduler */
     if(0 != (ret = tse_sched_init(&file->sched, NULL, NULL)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create task scheduler: %s", H5_daos_err_to_string(ret));
-    sched_init = TRUE;
+    file->sched_init = TRUE;
 
     /* Get information from the FAPL */
     if(H5_daos_cont_get_fapl_info(fapl_id, &fapl_info) < 0)
@@ -774,6 +859,10 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     if(H5_daos_fill_fapl_cache(file, fapl_id) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "failed to fill FAPL cache");
 
+    /* Fill encoded default property list buffer cache */
+    if(H5_daos_fill_enc_plist_cache(file, fapl_id) < 0)
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "failed to fill encoded property list buffer cache");
+
     /* Generate oid for global metadata object */
     if(H5_daos_oid_encode(&file->glob_md_oid, H5_DAOS_OIDX_GMD, H5I_GROUP,
             fcpl_id == H5P_FILE_CREATE_DEFAULT ? H5P_DEFAULT : fcpl_id,
@@ -784,16 +873,11 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     if(NULL == (int_req = H5_daos_req_create(file, H5I_INVALID_HID)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, NULL, "can't create DAOS request");
 
-    /* If the pool UUID hasn't been explicitly set, attempt to create a default pool. */
-    if(uuid_is_null(H5_daos_pool_uuid_g) &&
-            H5_daos_pool_create(H5_daos_pool_uuid_g, NULL, NULL, file->comm) < 0)
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTCREATE, NULL, "failed to create pool");
-
     if(file->my_rank == 0) {
         /* Connect to container's pool */
-        if(H5_daos_pool_connect(&H5_daos_pool_uuid_g, H5_daos_pool_grp_g,
-                &H5_daos_pool_svcl_g, DAOS_PC_RW, &file->container_poh, NULL, &file->sched,
-                int_req, &first_task, &dep_task) < 0)
+        if(H5_daos_pool_connect(&file->puuid, H5_daos_pool_grp_g, &H5_daos_pool_svcl_g,
+                DAOS_PC_RW, &file->container_poh, NULL, &file->sched, int_req,
+                &first_task, &dep_task) < 0)
             D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't connect to pool");
 
         /* Create container on rank 0 */
@@ -882,7 +966,7 @@ done:
             D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
 
         /* Block until operation completes */
-        if(sched_init && H5_daos_progress(&file->sched, int_req, H5_DAOS_PROGRESS_WAIT) < 0)
+        if(file->sched_init && H5_daos_progress(&file->sched, int_req, H5_DAOS_PROGRESS_WAIT) < 0)
             D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't progress scheduler");
 
         /* Check for failure */
@@ -937,21 +1021,14 @@ H5_daos_cont_create(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *req,
     create_udata->duns_attr.da_type = DAOS_PROP_CO_LAYOUT_HDF5;
     create_udata->duns_attr.da_props = NULL;
     create_udata->duns_attr.da_oclass_id = file->fapl_cache.default_object_class;
-    memset(&create_udata->pool_info, 0, sizeof(daos_pool_info_t));
+    uuid_copy(create_udata->duns_attr.da_cuuid, file->uuid);
 
     if(!H5_daos_bypass_duns_g) {
-        uuid_copy(create_udata->duns_attr.da_cuuid, file->uuid);
-
         /* Create task to attempt to resolve DUNS path. This task will handle
          * the H5F_ACC_EXCL and H5F_ACC_TRUNC flags. */
         if(H5_daos_duns_resolve_path(create_udata, &file->sched, NULL, H5_daos_duns_resolve_path_comp_cb,
                 req, first_task, dep_task) < 0)
             D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create task to attempt to resolve DUNS path");
-
-        /* Create task for filling in pool UUID for container create */
-        if(H5_daos_pool_query(create_udata->poh, &create_udata->pool_info, NULL, NULL,
-                &file->sched, req, first_task, dep_task) < 0)
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create task to query pool UUID");
 
         /* Create task for DUNS path create and container create */
         if(H5_daos_duns_create_path(create_udata, &file->sched,
@@ -1191,10 +1268,8 @@ H5_daos_duns_create_path_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
     } /* end if */
 
-    /* Set the pool UUID so that duns_create_path will store
-     * this info with the resulting file that is created.
-     */
-    uuid_copy(udata->duns_attr.da_puuid, udata->pool_info.pi_uuid);
+    /* Set the pool UUID for duns_create_path */
+    uuid_copy(udata->duns_attr.da_puuid, udata->req->file->puuid);
 
 done:
     D_FUNC_LEAVE;
@@ -1460,11 +1535,6 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
 
     if(!name)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "file name is NULL");
-    /* If bypassing DUNS, either DAOS_POOL must have been set, or H5daos_init
-     * must have been called with a valid pool UUID.
-     */
-    if(H5_daos_bypass_duns_g && uuid_is_null(H5_daos_pool_uuid_g))
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, NULL, "DAOS pool UUID is invalid - pool UUID must be valid when bypassing DUNS");
 
     /* Allocate the file object that is returned to the user */
     if(NULL == (file = H5FL_CALLOC(H5_daos_file_t)))
@@ -1473,8 +1543,8 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     file->container_poh = DAOS_HDL_INVAL;
     file->glob_md_oh = DAOS_HDL_INVAL;
     file->root_grp = NULL;
-    file->fapl_id = FAIL;
-    file->vol_id = FAIL;
+    file->fapl_id = H5P_FILE_ACCESS_DEFAULT;
+    file->vol_id = H5I_INVALID_HID;
     file->item.rc = 1;
 
     /* Fill in fields of file we know */
@@ -1483,12 +1553,17 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     if(NULL == (file->file_name = strdup(name)))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't copy file name");
     file->flags = flags;
-    if((file->fapl_id = H5Pcopy(fapl_id)) < 0)
+    if((fapl_id != H5P_FILE_ACCESS_DEFAULT) && (file->fapl_id = H5Pcopy(fapl_id)) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTCOPY, NULL, "failed to copy fapl");
+
+    /* Set the pool UUID for the file */
+    if(H5_daos_file_set_pool_uuid(file, name) < 0)
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't set file's DAOS pool UUID");
 
     /* Create DAOS task scheduler */
     if(0 != (ret = tse_sched_init(&file->sched, NULL, NULL)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create task scheduler: %s", H5_daos_err_to_string(ret));
+    file->sched_init = TRUE;
 
     /* Get information from the FAPL */
     if(H5_daos_cont_get_fapl_info(fapl_id, &fapl_info) < 0)
@@ -1515,6 +1590,10 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     if(H5_daos_fill_fapl_cache(file, fapl_id) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "failed to fill FAPL cache");
 
+    /* Fill encoded default property list buffer cache */
+    if(H5_daos_fill_enc_plist_cache(file, fapl_id) < 0)
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "failed to fill encoded property list buffer cache");
+
     /* Generate oid for global metadata object */
     if(H5_daos_oid_encode(&file->glob_md_oid, H5_DAOS_OIDX_GMD, H5I_GROUP,
             fapl_id == H5P_FILE_ACCESS_DEFAULT ? H5P_DEFAULT : fapl_id,
@@ -1531,9 +1610,17 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     if(NULL == (int_req = H5_daos_req_create(file, H5I_INVALID_HID)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, NULL, "can't create DAOS request");
 
-    /* Open container on rank 0 */
-    if((file->my_rank == 0) && H5_daos_cont_open(file, flags, int_req, &first_task, &dep_task) < 0)
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't open DAOS container");
+    if(file->my_rank == 0) {
+        /* Connect to container's pool */
+        if(H5_daos_pool_connect(&file->puuid, H5_daos_pool_grp_g, &H5_daos_pool_svcl_g,
+                flags & H5F_ACC_RDWR ? DAOS_PC_RW : DAOS_PC_RO, &file->container_poh,
+                NULL, &file->sched, int_req, &first_task, &dep_task) < 0)
+            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't connect to pool");
+
+        /* Open container on rank 0 */
+        if(H5_daos_cont_open(file, flags, int_req, &first_task, &dep_task) < 0)
+            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't open DAOS container");
+    } /* end if */
 
     /* Broadcast handles (container handle and, optionally, pool handle)
      * to other procs if any.
@@ -1621,6 +1708,7 @@ H5_daos_cont_open(H5_daos_file_t *file, unsigned flags,
     H5_daos_generic_cb_ud_t *tx_open_udata = NULL;
 #ifdef H5_DAOS_USE_TRANSACTIONS
     tse_task_t *tx_open_task;
+    int ret;
 #endif
     herr_t ret_value = SUCCEED;
 
@@ -1639,21 +1727,11 @@ H5_daos_cont_open(H5_daos_file_t *file, unsigned flags,
     open_udata->ignore_missing_path = FALSE;
     memset(&open_udata->duns_attr, 0, sizeof(struct duns_attr_t));
 
-    /* Create task for resolving DUNS path if not bypassing DUNS */
-    if(!H5_daos_bypass_duns_g && H5_daos_duns_resolve_path(open_udata, &file->sched,
-            NULL, H5_daos_duns_resolve_path_comp_cb, req, first_task, dep_task) < 0)
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create task to resolve DUNS path");
-
-    /* Only connect to pool for file opens. Avoid pool connection for file creations */
-    if(0 == (flags & H5F_ACC_CREAT)) {
-        uuid_t *puuid = H5_daos_bypass_duns_g ? &H5_daos_pool_uuid_g : &open_udata->duns_attr.da_puuid;
-
-        /* If the file doesn't already have a pool associated with it, connect to its pool */
-        if(daos_handle_is_inval(file->container_poh) && H5_daos_pool_connect(puuid, H5_daos_pool_grp_g,
-                &H5_daos_pool_svcl_g, flags & H5F_ACC_RDWR ? DAOS_PC_RW : DAOS_PC_RO,
-                        open_udata->poh, NULL, &file->sched, req, first_task, dep_task) < 0)
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create task to connect to container's pool");
-    }
+    /* Create task for resolving DUNS path if not bypassing DUNS during file opens */
+    if(!H5_daos_bypass_duns_g && 0 == (flags & H5F_ACC_CREAT))
+        if(H5_daos_duns_resolve_path(open_udata, &file->sched,
+                NULL, H5_daos_duns_resolve_path_comp_cb, req, first_task, dep_task) < 0)
+            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create task to resolve DUNS path");
 
     if(H5_daos_get_cont_open_task(open_udata, &file->sched, H5_daos_cont_open_prep_cb,
             H5_daos_cont_open_comp_cb, req, first_task, dep_task) < 0)
@@ -2036,7 +2114,7 @@ H5_daos_cont_open_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     } /* end if */
 
     /* Set file's UUID if necessary */
-    if(!H5_daos_bypass_duns_g)
+    if(!H5_daos_bypass_duns_g && 0 == (udata->flags & H5F_ACC_CREAT))
         uuid_copy(udata->req->file->uuid, udata->duns_attr.da_cuuid);
 
     /* Set daos_cont_open task args */
@@ -2900,11 +2978,18 @@ H5_daos_file_delete_sync(const char *filename, hid_t fapl_id)
                 D_GOTO_ERROR(H5E_FILE, H5E_CANTDELETEFILE, FAIL, "duns_destroy_path failed: %s", H5_daos_err_to_string(ret));
         } /* end if */
         else {
-            uuid_t cont_uuid;
+            const char *pool_uuid_env = getenv("DAOS_POOL");
+            uuid_t pool_uuid, cont_uuid;
+
+            if(!pool_uuid_env)
+                D_GOTO_ERROR(H5E_VOL, H5E_BADVALUE, FAIL, "DAOS pool UUID is invalid - DAOS_POOL env. variable must be set when bypassing DUNS");
+
+            if(uuid_parse(pool_uuid_env, pool_uuid) < 0)
+                D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't parse UUID from DAOS_POOL environment variable");
 
             /* Connect to container's pool */
-            if(0 != (ret = daos_pool_connect(H5_daos_pool_uuid_g, H5_daos_pool_grp_g,
-                    &H5_daos_pool_svcl_g, DAOS_PC_RW, &poh, NULL, NULL)))
+            if(0 != (ret = daos_pool_connect(pool_uuid, H5_daos_pool_grp_g, &H5_daos_pool_svcl_g,
+                    DAOS_PC_RW, &poh, NULL, NULL)))
                 D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't connect to pool: %s", H5_daos_err_to_string(ret));
             connected = TRUE;
 
@@ -2995,11 +3080,14 @@ H5_daos_file_close_helper(H5_daos_file_t *file, hid_t H5VL_DAOS_UNUSED dxpl_id,
     file->item.open_req = NULL;
     if(file->file_name)
         file->file_name = DV_free(file->file_name);
+    if(file->def_plist_cache.plist_buffer)
+        file->def_plist_cache.plist_buffer = DV_free(file->def_plist_cache.plist_buffer);
     if(file->comm || file->info)
         if(H5_daos_comm_info_free(&file->comm, &file->info) < 0)
             D_DONE_ERROR(H5E_INTERNAL, H5E_CANTFREE, FAIL, "failed to free copy of MPI communicator and info");
-    if(file->fapl_id != FAIL && H5Idec_ref(file->fapl_id) < 0)
-        D_DONE_ERROR(H5E_SYM, H5E_CANTDEC, FAIL, "failed to close fapl");
+    if(file->fapl_id != H5I_INVALID_HID && file->fapl_id != H5P_FILE_ACCESS_DEFAULT)
+        if(H5Idec_ref(file->fapl_id) < 0)
+            D_DONE_ERROR(H5E_SYM, H5E_CANTDEC, FAIL, "failed to close fapl");
     if(!daos_handle_is_inval(file->glob_md_oh))
         if(0 != (ret = daos_obj_close(file->glob_md_oh, NULL /*event*/)))
             D_DONE_ERROR(H5E_FILE, H5E_CANTCLOSEFILE, FAIL, "can't close global metadata object: %s", H5_daos_err_to_string(ret));
@@ -3022,7 +3110,8 @@ H5_daos_file_close_helper(H5_daos_file_t *file, hid_t H5VL_DAOS_UNUSED dxpl_id,
     } /* end if */
 
     /* Finalize the scheduler */
-    tse_sched_fini(&file->sched);
+    if(file->sched_init)
+        tse_sched_fini(&file->sched);
 
     /* File is closed */
     file->closed = TRUE;
@@ -3237,6 +3326,104 @@ H5_daos_fill_fapl_cache(H5_daos_file_t *file, hid_t fapl_id)
 done:
     D_FUNC_LEAVE;
 } /* end H5_daos_fill_fapl_cache() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_fill_enc_plist_cache
+ *
+ * Purpose:     Fills the "def_plist_cache" field of the file struct, using
+ *              the file's FAPL. This cache holds encoded buffers for
+ *              several default property lists to avoid overhead from
+ *              H5Pencode.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_fill_enc_plist_cache(H5_daos_file_t *file, hid_t fapl_id)
+{
+    size_t cur_buf_idx;
+    char *plist_buffer = NULL;
+    herr_t ret_value = SUCCEED;
+
+    assert(file);
+
+    /* Determine sizes of various property list buffers */
+    if(H5Pencode2(H5P_FILE_CREATE_DEFAULT, NULL, &file->def_plist_cache.fcpl_size, fapl_id) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "can't determine serialized length of FCPL");
+    if(H5Pencode2(H5P_DATASET_CREATE_DEFAULT, NULL, &file->def_plist_cache.dcpl_size, fapl_id) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "can't determine serialized length of DCPL");
+    if(H5Pencode2(H5P_GROUP_CREATE_DEFAULT, NULL, &file->def_plist_cache.gcpl_size, fapl_id) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "can't determine serialized length of GCPL");
+    if(H5Pencode2(H5P_DATATYPE_CREATE_DEFAULT, NULL, &file->def_plist_cache.tcpl_size, fapl_id) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "can't determine serialized length of TCPL");
+    if(H5Pencode2(H5P_MAP_CREATE_DEFAULT, NULL, &file->def_plist_cache.mcpl_size, fapl_id) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "can't determine serialized length of MCPL");
+    if(H5Pencode2(H5P_ATTRIBUTE_CREATE_DEFAULT, NULL, &file->def_plist_cache.acpl_size, fapl_id) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "can't determine serialized length of ACPL");
+
+    /* Allocate single buffer to hold all encoded plists */
+    file->def_plist_cache.buffer_size = file->def_plist_cache.fcpl_size
+                                      + file->def_plist_cache.dcpl_size
+                                      + file->def_plist_cache.gcpl_size
+                                      + file->def_plist_cache.tcpl_size
+                                      + file->def_plist_cache.mcpl_size
+                                      + file->def_plist_cache.acpl_size;
+    if(NULL == (file->def_plist_cache.plist_buffer = DV_calloc(file->def_plist_cache.buffer_size)))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate encoded property list cache buffer");
+    plist_buffer = (char *)file->def_plist_cache.plist_buffer;
+
+    /* Encode FCPL */
+    cur_buf_idx = 0;
+    file->def_plist_cache.fcpl_buf = (void *)plist_buffer;
+    if(H5Pencode2(H5P_FILE_CREATE_DEFAULT, file->def_plist_cache.fcpl_buf,
+            &file->def_plist_cache.fcpl_size, fapl_id) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "can't serialize FCPL");
+
+    /* Encode DCPL */
+    cur_buf_idx += file->def_plist_cache.fcpl_size;
+    file->def_plist_cache.dcpl_buf = (void *)&(plist_buffer[cur_buf_idx]);
+    if(H5Pencode2(H5P_DATASET_CREATE_DEFAULT, file->def_plist_cache.dcpl_buf,
+            &file->def_plist_cache.dcpl_size, fapl_id) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "can't serialize DCPL");
+
+    /* Encode GCPL */
+    cur_buf_idx += file->def_plist_cache.dcpl_size;
+    file->def_plist_cache.gcpl_buf = (void *)&(plist_buffer[cur_buf_idx]);
+    if(H5Pencode2(H5P_GROUP_CREATE_DEFAULT, file->def_plist_cache.gcpl_buf,
+            &file->def_plist_cache.gcpl_size, fapl_id) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "can't serialize GCPL");
+
+    /* Encode TCPL */
+    cur_buf_idx += file->def_plist_cache.gcpl_size;
+    file->def_plist_cache.tcpl_buf = (void *)&(plist_buffer[cur_buf_idx]);
+    if(H5Pencode2(H5P_DATATYPE_CREATE_DEFAULT, file->def_plist_cache.tcpl_buf,
+            &file->def_plist_cache.tcpl_size, fapl_id) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "can't serialize TCPL");
+
+    /* Encode MCPL */
+    cur_buf_idx += file->def_plist_cache.tcpl_size;
+    file->def_plist_cache.mcpl_buf = (void *)&(plist_buffer[cur_buf_idx]);
+    if(H5Pencode2(H5P_MAP_CREATE_DEFAULT, file->def_plist_cache.mcpl_buf,
+            &file->def_plist_cache.mcpl_size, fapl_id) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "can't serialize MCPL");
+
+    /* Encode ACPL */
+    cur_buf_idx += file->def_plist_cache.mcpl_size;
+    file->def_plist_cache.acpl_buf = (void *)&(plist_buffer[cur_buf_idx]);
+    if(H5Pencode2(H5P_ATTRIBUTE_CREATE_DEFAULT, file->def_plist_cache.acpl_buf,
+            &file->def_plist_cache.acpl_size, fapl_id) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "can't serialize ACPL");
+
+done:
+    if(ret_value < 0) {
+        if(file->def_plist_cache.plist_buffer)
+            file->def_plist_cache.plist_buffer = DV_free(file->def_plist_cache.plist_buffer);
+    } /* end if */
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_fill_enc_plist_cache() */
 
 
 /*-------------------------------------------------------------------------

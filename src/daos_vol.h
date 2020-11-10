@@ -78,7 +78,6 @@ do { \
 #define H5_DAOS_GH_BUF_SIZE 1024
 #define H5_DAOS_LINK_NAME_BUF_SIZE 2048
 #define H5_DAOS_ATTR_NAME_BUF_SIZE 2048
-#define H5_DAOS_LINK_VAL_BUF_SIZE 256
 #define H5_DAOS_GINFO_BUF_SIZE 1024
 #define H5_DAOS_TYPE_BUF_SIZE 1024
 #define H5_DAOS_SPACE_BUF_SIZE 512
@@ -374,14 +373,72 @@ typedef struct H5_daos_fapl_cache_t {
     hbool_t is_collective_md_write;
 } H5_daos_fapl_cache_t;
 
+/* Structure for caching the default values
+ * for various properties in HDF5's default
+ * property lists */
+typedef struct H5_daos_plist_cache_t {
+    struct {
+        unsigned link_corder_flags;
+        unsigned acorder_flags;
+    } gcpl_cache;
+
+    struct {
+        H5D_layout_t layout;
+        H5D_fill_value_t fill_status;
+        H5D_fill_time_t fill_time;
+        unsigned acorder_flags;
+    } dcpl_cache;
+
+    struct {
+        unsigned acorder_flags;
+    } tcpl_cache;
+
+    struct {
+        unsigned acorder_flags;
+    } mcpl_cache;
+
+    struct {
+        size_t dkey_prefetch_size;
+        size_t dkey_alloc_size;
+    } mapl_cache;
+
+    struct {
+        unsigned crt_intermed_grp;
+    } lcpl_cache;
+
+    struct {
+        unsigned obj_copy_options;
+    } ocpypl_cache;
+} H5_daos_plist_cache_t;
+
+/* Encoded default property list buffer cache */
+typedef struct H5_daos_enc_plist_cache_t {
+    size_t buffer_size;
+    void  *plist_buffer;
+    size_t fcpl_size;
+    void  *fcpl_buf;
+    size_t dcpl_size;
+    void  *dcpl_buf;
+    size_t gcpl_size;
+    void  *gcpl_buf;
+    size_t tcpl_size;
+    void  *tcpl_buf;
+    size_t mcpl_size;
+    void  *mcpl_buf;
+    size_t acpl_size;
+    void  *acpl_buf;
+} H5_daos_enc_plist_cache_t;
+
 /* The file struct */
 typedef struct H5_daos_file_t {
     H5_daos_item_t item; /* Must be first */
     daos_handle_t coh;
     daos_handle_t container_poh;
     tse_sched_t sched;
+    hbool_t sched_init;
     char *file_name;
     uuid_t uuid;
+    uuid_t puuid;
     unsigned flags;
     hbool_t closed;
     daos_handle_t glob_md_oh;
@@ -389,6 +446,7 @@ typedef struct H5_daos_file_t {
     struct H5_daos_group_t *root_grp;
     hid_t fapl_id;
     H5_daos_fapl_cache_t fapl_cache;
+    H5_daos_enc_plist_cache_t def_plist_cache;
     MPI_Comm comm;
     MPI_Info info;
     int my_rank;
@@ -609,11 +667,13 @@ typedef struct H5_daos_md_rw_cb_ud_t {
     H5_daos_obj_t *obj;
     daos_key_t dkey;
     unsigned nr;
+    uint64_t flags;
     daos_iod_t iod[7];
     daos_sg_list_t sgl[7];
     daos_iov_t sg_iov[7];
     hbool_t free_dkey;
     hbool_t free_akeys;
+    hbool_t free_sg_iov[7];
     const char *task_name;
 } H5_daos_md_rw_cb_ud_t;
 
@@ -797,7 +857,6 @@ extern size_t daos_vol_curr_alloc_bytes;
 #endif
 
 /* Global variables used to connect to DAOS pools */
-extern H5VL_DAOS_PRIVATE uuid_t H5_daos_pool_uuid_g;
 extern H5VL_DAOS_PRIVATE char H5_daos_pool_grp_g[];
 extern H5VL_DAOS_PRIVATE d_rank_list_t H5_daos_pool_svcl_g;
 
@@ -813,6 +872,9 @@ extern tse_sched_t H5_daos_glob_sched_g;
 /* Global ooperation pool - used for operations that are not tied to a single
  * file */
 extern H5_daos_op_pool_t *H5_daos_glob_cur_op_pool_g;
+
+/* Global variable for HDF5 property list cache */
+extern H5VL_DAOS_PRIVATE const H5_daos_plist_cache_t *H5_daos_plist_cache_g;
 
 /* DAOS task and MPI request for current in-flight MPI operation.  Only allow
  * one at a time for now since:
@@ -879,8 +941,6 @@ extern "C" {
 #endif
 
 /* General routines */
-H5VL_DAOS_PRIVATE herr_t H5_daos_pool_create(uuid_t uuid, const char **pool_grp, d_rank_list_t **svcl,
-    MPI_Comm comm);
 H5VL_DAOS_PRIVATE herr_t H5_daos_pool_connect(uuid_t *pool_uuid, char *pool_grp,
     d_rank_list_t *svcl, unsigned int flags, daos_handle_t *poh_out, daos_pool_info_t *pool_info_out,
     tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);

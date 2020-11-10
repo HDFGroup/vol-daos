@@ -34,7 +34,7 @@ static int H5_daos_tinfo_read_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_datatype_open_bcast_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_datatype_open_recv_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_datatype_open_end(H5_daos_dtype_t *dtype, uint8_t *p,
-    uint64_t tcpl_buf_len, hid_t dxpl_id);
+    uint64_t type_buf_len, uint64_t tcpl_buf_len, hid_t dxpl_id);
 
 static htri_t H5_daos_need_bkg(hid_t src_type_id, hid_t dst_type_id,
     hbool_t dst_file, size_t *dst_type_size, hbool_t *fill_bkg);
@@ -533,7 +533,7 @@ H5_daos_datatype_commit(void *_item,
 
 #ifdef H5_DAOS_USE_TRANSACTIONS
     /* Start transaction */
-    if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, NULL /*event*/)))
+    if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, 0, NULL /*event*/)))
         D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't start transaction");
     int_req->th_open = TRUE;
 #endif /* H5_DAOS_USE_TRANSACTIONS */
@@ -642,6 +642,7 @@ H5_daos_datatype_commit_helper(H5_daos_file_t *file, hid_t type_id,
     H5_daos_dtype_t *dtype = NULL;
     tse_task_t *datatype_metatask;
     tse_task_t *finalize_deps[2];
+    hbool_t default_tcpl = (tcpl_id == H5P_DATATYPE_CREATE_DEFAULT);
     void *type_buf = NULL;
     void *tcpl_buf = NULL;
     int finalize_ndeps = 0;
@@ -664,12 +665,12 @@ H5_daos_datatype_commit_helper(H5_daos_file_t *file, hid_t type_id,
     dtype->obj.item.rc = 1;
     dtype->obj.obj_oh = DAOS_HDL_INVAL;
     dtype->type_id = H5I_INVALID_HID;
-    dtype->tcpl_id = H5I_INVALID_HID;
-    dtype->tapl_id = H5I_INVALID_HID;
+    dtype->tcpl_id = H5P_DATATYPE_CREATE_DEFAULT;
+    dtype->tapl_id = H5P_DATATYPE_ACCESS_DEFAULT;
 
     /* Generate datatype oid */
     if(H5_daos_oid_generate(&dtype->obj.oid, H5I_DATATYPE,
-            (tcpl_id == H5P_DATATYPE_CREATE_DEFAULT ? H5P_DEFAULT : tcpl_id),
+            (default_tcpl ? H5P_DEFAULT : tcpl_id),
             file, collective, req, first_task, dep_task) < 0)
         D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't generate object id");
 
@@ -698,13 +699,19 @@ H5_daos_datatype_commit_helper(H5_daos_file_t *file, hid_t type_id,
         if(H5Tencode(type_id, type_buf, &type_size) < 0)
             D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTENCODE, NULL, "can't serialize datatype");
 
-        /* Encode TCPL */
-        if(H5Pencode2(tcpl_id, NULL, &tcpl_size, file->fapl_id) < 0)
-            D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of tcpl");
-        if(NULL == (tcpl_buf = DV_malloc(tcpl_size)))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized tcpl");
-        if(H5Pencode2(tcpl_id, tcpl_buf, &tcpl_size, file->fapl_id) < 0)
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTENCODE, NULL, "can't serialize tcpl");
+        /* Encode TCPL if not the default */
+        if(!default_tcpl) {
+            if(H5Pencode2(tcpl_id, NULL, &tcpl_size, file->fapl_id) < 0)
+                D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of tcpl");
+            if(NULL == (tcpl_buf = DV_malloc(tcpl_size)))
+                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized tcpl");
+            if(H5Pencode2(tcpl_id, tcpl_buf, &tcpl_size, file->fapl_id) < 0)
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTENCODE, NULL, "can't serialize tcpl");
+        } /* end if */
+        else {
+            tcpl_buf = file->def_plist_cache.tcpl_buf;
+            tcpl_size = file->def_plist_cache.tcpl_size;
+        } /* end else */
 
         /* Set up operation to write datatype and TCPL to datatype */
         /* Point to datatype object */
@@ -735,10 +742,12 @@ H5_daos_datatype_commit_helper(H5_daos_file_t *file, hid_t type_id,
         update_cb_ud->sgl[0].sg_nr = 1;
         update_cb_ud->sgl[0].sg_nr_out = 0;
         update_cb_ud->sgl[0].sg_iovs = &update_cb_ud->sg_iov[0];
+        update_cb_ud->free_sg_iov[0] = TRUE;
         daos_iov_set(&update_cb_ud->sg_iov[1], tcpl_buf, (daos_size_t)tcpl_size);
         update_cb_ud->sgl[1].sg_nr = 1;
         update_cb_ud->sgl[1].sg_nr_out = 0;
         update_cb_ud->sgl[1].sg_iovs = &update_cb_ud->sg_iov[1];
+        update_cb_ud->free_sg_iov[1] = !default_tcpl;
 
         /* Set nr */
         update_cb_ud->nr = 2u;
@@ -813,9 +822,9 @@ H5_daos_datatype_commit_helper(H5_daos_file_t *file, hid_t type_id,
     /* Finish setting up datatype struct */
     if((dtype->type_id = H5Tcopy(type_id)) < 0)
         D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTCOPY, NULL, "failed to copy datatype");
-    if((dtype->tcpl_id = H5Pcopy(tcpl_id)) < 0)
+    if(!default_tcpl && (dtype->tcpl_id = H5Pcopy(tcpl_id)) < 0)
         D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTCOPY, NULL, "failed to copy tcpl");
-    if((dtype->tapl_id = H5Pcopy(tapl_id)) < 0)
+    if((tapl_id != H5P_DATATYPE_ACCESS_DEFAULT) && (dtype->tapl_id = H5Pcopy(tapl_id)) < 0)
         D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTCOPY, NULL, "failed to copy tapl");
 
     /* Fill OCPL cache */
@@ -860,7 +869,7 @@ done:
         if(update_cb_ud && update_cb_ud->obj && H5_daos_object_close(&update_cb_ud->obj->item) < 0)
             D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, NULL, "can't close object");
         type_buf = DV_free(type_buf);
-        tcpl_buf = DV_free(tcpl_buf);
+        if(!default_tcpl) tcpl_buf = DV_free(tcpl_buf);
         update_cb_ud = DV_free(update_cb_ud);
     } /* end if */
 
@@ -926,7 +935,7 @@ H5_daos_datatype_open(void *_item,
 
 #ifdef H5_DAOS_USE_TRANSACTIONS
     /* Start transaction */
-    if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, NULL /*event*/)))
+    if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, DAOS_TF_RDONLY, NULL /*event*/)))
         D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't start transaction");
     int_req->th_open = TRUE;
 #endif /* H5_DAOS_USE_TRANSACTIONS */
@@ -1109,9 +1118,9 @@ H5_daos_datatype_open_helper(H5_daos_file_t *file, hid_t tapl_id, hbool_t collec
     dtype->obj.item.rc = 1;
     dtype->obj.obj_oh = DAOS_HDL_INVAL;
     dtype->type_id = H5I_INVALID_HID;
-    dtype->tcpl_id = H5I_INVALID_HID;
-    dtype->tapl_id = H5I_INVALID_HID;
-    if((dtype->tapl_id = H5Pcopy(tapl_id)) < 0)
+    dtype->tcpl_id = H5P_DATATYPE_CREATE_DEFAULT;
+    dtype->tapl_id = H5P_DATATYPE_ACCESS_DEFAULT;
+    if((tapl_id != H5P_DATATYPE_ACCESS_DEFAULT) && (dtype->tapl_id = H5Pcopy(tapl_id)) < 0)
         D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTCOPY, NULL, "failed to copy tapl");
 
     /* Set up broadcast user data (if appropriate) and calculate initial datatype
@@ -1191,11 +1200,13 @@ H5_daos_datatype_open_helper(H5_daos_file_t *file, hid_t tapl_id, hbool_t collec
         fetch_udata->md_rw_cb_ud.sgl[0].sg_nr = 1;
         fetch_udata->md_rw_cb_ud.sgl[0].sg_nr_out = 0;
         fetch_udata->md_rw_cb_ud.sgl[0].sg_iovs = &fetch_udata->md_rw_cb_ud.sg_iov[0];
+        fetch_udata->md_rw_cb_ud.free_sg_iov[0] = FALSE;
         p += H5_DAOS_TYPE_BUF_SIZE;
         daos_iov_set(&fetch_udata->md_rw_cb_ud.sg_iov[1], p, (daos_size_t)H5_DAOS_TCPL_BUF_SIZE);
         fetch_udata->md_rw_cb_ud.sgl[1].sg_nr = 1;
         fetch_udata->md_rw_cb_ud.sgl[1].sg_nr_out = 0;
         fetch_udata->md_rw_cb_ud.sgl[1].sg_iovs = &fetch_udata->md_rw_cb_ud.sg_iov[1];
+        fetch_udata->md_rw_cb_ud.free_sg_iov[1] = FALSE;
         p += H5_DAOS_TCPL_BUF_SIZE;
 
         /* Set nr */
@@ -1481,7 +1492,7 @@ H5_daos_datatype_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args
 
             /* Finish building datatype object */
             if(0 != (ret = H5_daos_datatype_open_end((H5_daos_dtype_t *)udata->obj,
-                    p, type_buf_len, udata->req->dxpl_id)))
+                    p, type_buf_len, tcpl_buf_len, udata->req->dxpl_id)))
                 D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, ret, "can't finish opening datatype");
         } /* end else */
     } /* end else */
@@ -1535,7 +1546,7 @@ done:
  */
 static int
 H5_daos_datatype_open_end(H5_daos_dtype_t *dtype, uint8_t *p, uint64_t type_buf_len,
-    hid_t H5VL_DAOS_UNUSED dxpl_id)
+    uint64_t tcpl_buf_len, hid_t H5VL_DAOS_UNUSED dxpl_id)
 {
     int ret_value = 0;
 
@@ -1543,11 +1554,19 @@ H5_daos_datatype_open_end(H5_daos_dtype_t *dtype, uint8_t *p, uint64_t type_buf_
     assert(p);
     assert(type_buf_len > 0);
 
-    /* Decode datatype and TCPL */
+    /* Decode datatype */
     if((dtype->type_id = H5Tdecode(p)) < 0)
         D_GOTO_ERROR(H5E_ARGS, H5E_CANTDECODE, -H5_DAOS_H5_DECODE_ERROR, "can't deserialize datatype");
     p += type_buf_len;
-    if((dtype->tcpl_id = H5Pdecode(p)) < 0)
+
+    /* Check if the datatype's TCPL is the default TCPL.
+     * Otherwise, decode the datatype's TCPL.
+     */
+    if((tcpl_buf_len == dtype->obj.item.file->def_plist_cache.tcpl_size)
+            && !memcmp(p, dtype->obj.item.file->def_plist_cache.tcpl_buf,
+                    dtype->obj.item.file->def_plist_cache.tcpl_size))
+        dtype->tcpl_id = H5P_DATATYPE_CREATE_DEFAULT;
+    else if((dtype->tcpl_id = H5Pdecode(p)) < 0)
         D_GOTO_ERROR(H5E_ARGS, H5E_CANTDECODE, -H5_DAOS_H5_DECODE_ERROR, "can't deserialize datatype creation property list");
 
     /* Fill OCPL cache */
@@ -1682,7 +1701,7 @@ H5_daos_tinfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
             /* Finish building datatype object */
             if(0 != (ret = H5_daos_datatype_open_end((H5_daos_dtype_t *)udata->md_rw_cb_ud.obj,
-                    udata->md_rw_cb_ud.sg_iov[0].iov_buf, type_buf_len,
+                    udata->md_rw_cb_ud.sg_iov[0].iov_buf, type_buf_len, tcpl_buf_len,
                     udata->md_rw_cb_ud.req->dxpl_id)))
                 D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, ret, "can't finish opening datatype");
         } /* end else */
@@ -1879,10 +1898,12 @@ H5_daos_datatype_close_real(H5_daos_dtype_t *dtype)
                 D_DONE_ERROR(H5E_DATATYPE, H5E_CANTCLOSEOBJ, FAIL, "can't close datatype DAOS object: %s", H5_daos_err_to_string(ret));
         if(dtype->type_id != H5I_INVALID_HID && H5Idec_ref(dtype->type_id) < 0)
             D_DONE_ERROR(H5E_DATATYPE, H5E_CANTDEC, FAIL, "failed to close datatype");
-        if(dtype->tcpl_id != H5I_INVALID_HID && H5Idec_ref(dtype->tcpl_id) < 0)
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTDEC, FAIL, "failed to close tcpl");
-        if(dtype->tapl_id != H5I_INVALID_HID && H5Idec_ref(dtype->tapl_id) < 0)
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTDEC, FAIL, "failed to close tapl");
+        if(dtype->tcpl_id != H5I_INVALID_HID && dtype->tcpl_id != H5P_DATATYPE_CREATE_DEFAULT)
+            if(H5Idec_ref(dtype->tcpl_id) < 0)
+                D_DONE_ERROR(H5E_DATATYPE, H5E_CANTDEC, FAIL, "failed to close tcpl");
+        if(dtype->tapl_id != H5I_INVALID_HID && dtype->tapl_id != H5P_DATATYPE_ACCESS_DEFAULT)
+            if(H5Idec_ref(dtype->tapl_id) < 0)
+                D_DONE_ERROR(H5E_DATATYPE, H5E_CANTDEC, FAIL, "failed to close tapl");
         dtype = H5FL_FREE(H5_daos_dtype_t, dtype);
     } /* end if */
 

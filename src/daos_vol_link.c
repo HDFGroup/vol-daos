@@ -22,6 +22,8 @@
 /* Local Macros */
 /****************/
 
+#define H5_DAOS_LINK_VAL_BUF_SIZE_INIT 4096
+#define H5_DAOS_LINK_NAME_BUF_SIZE_INIT 255
 #define H5_DAOS_HARD_LINK_VAL_SIZE (H5_DAOS_ENCODED_OID_SIZE + 1)
 #define H5_DAOS_RECURSE_LINK_PATH_BUF_INIT 1024
 
@@ -96,6 +98,7 @@ typedef struct H5_daos_link_read_ud_t {
     const char **name;
     size_t *name_len;
     H5_daos_link_val_t *link_val;
+    uint8_t link_val_buf_static[H5_DAOS_LINK_VAL_BUF_SIZE_INIT];
     hbool_t *link_read; /* Whether the link exists */
     tse_task_t *read_metatask;
 } H5_daos_link_read_ud_t;
@@ -106,8 +109,10 @@ typedef struct H5_daos_link_write_ud_t {
     H5_daos_link_val_t link_val;
     unsigned rc;
     char *link_name_buf;
+    char link_name_buf_static[H5_DAOS_LINK_NAME_BUF_SIZE_INIT];
     size_t link_name_buf_size;
     uint8_t *link_val_buf;
+    uint8_t link_val_buf_static[H5_DAOS_LINK_VAL_BUF_SIZE_INIT];
     size_t link_val_buf_size;
     uint8_t prev_max_corder_buf[H5_DAOS_ENCODED_CRT_ORDER_SIZE];
     uint64_t max_corder;
@@ -494,15 +499,17 @@ H5_daos_link_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         tse_task_t *read_task;
 
         /* Verify iod size makes sense */
-        if(udata->md_rw_cb_ud.sg_iov[0].iov_buf_len != H5_DAOS_LINK_VAL_BUF_SIZE)
+        if(udata->md_rw_cb_ud.sg_iov[0].iov_buf_len != H5_DAOS_LINK_VAL_BUF_SIZE_INIT)
             D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, -H5_DAOS_BAD_VALUE, "buffer length does not match expected value");
-        if(udata->md_rw_cb_ud.iod[0].iod_size <= H5_DAOS_LINK_VAL_BUF_SIZE)
+        if(udata->md_rw_cb_ud.iod[0].iod_size <= H5_DAOS_LINK_VAL_BUF_SIZE_INIT)
             D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, -H5_DAOS_BAD_VALUE, "invalid iod_size returned from DAOS (buffer should have been large enough)");
 
         /* Reallocate link value buffer */
-        udata->md_rw_cb_ud.sg_iov[0].iov_buf = DV_free(udata->md_rw_cb_ud.sg_iov[0].iov_buf);
+        if(udata->md_rw_cb_ud.free_sg_iov[0])
+            udata->md_rw_cb_ud.sg_iov[0].iov_buf = DV_free(udata->md_rw_cb_ud.sg_iov[0].iov_buf);
         if(NULL == (udata->md_rw_cb_ud.sg_iov[0].iov_buf = DV_malloc(udata->md_rw_cb_ud.iod[0].iod_size)))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate buffer for link value");
+        udata->md_rw_cb_ud.free_sg_iov[0] = TRUE;
 
         /* Set up sgl */
         udata->md_rw_cb_ud.sg_iov[0].iov_buf_len = udata->md_rw_cb_ud.iod[0].iod_size;
@@ -560,14 +567,32 @@ H5_daos_link_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
                         break;
 
                     case H5L_TYPE_SOFT:
-                        /* The buffer allocated is guaranteed to be big enough to
-                         * hold the soft link path, since the path needs an extra
-                         * byte for the null terminator but loses the byte
-                         * specifying the type.  Take ownership of the buffer and
-                         * shift the value down one byte. */
-                        udata->link_val->target.soft = (char *)udata->md_rw_cb_ud.sg_iov[0].iov_buf;
+                        /* If a buffer has already been allocated to hold the soft link's
+                         * value, just point to it here. Otherwise, the soft link value
+                         * resides within the link read udata's static buffer, so we must
+                         * allocate a buffer to hold the value for the caller.
+                         */
+                        if(udata->md_rw_cb_ud.sg_iov[0].iov_buf != udata->link_val_buf_static) {
+                            /* The buffer allocated is guaranteed to be big enough to
+                             * hold the soft link path, since the path needs an extra
+                             * byte for the null terminator but loses the byte
+                             * specifying the type. */
+                            udata->link_val->target.soft = (char *)udata->md_rw_cb_ud.sg_iov[0].iov_buf;
+
+                            /* Shift the value down one byte. */
+                            memmove(udata->link_val->target.soft, udata->link_val->target.soft + 1, udata->md_rw_cb_ud.iod[0].iod_size - 1);
+                        } /* end if */
+                        else {
+                            /* Allocate a buffer to hold the soft link value */
+                            if(NULL == (udata->link_val->target.soft = (char *)DV_malloc(udata->md_rw_cb_ud.iod[0].iod_size)))
+                                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_FREE_ERROR, "can't allocate soft link value buffer");
+
+                            memcpy(udata->link_val->target.soft, (char *)udata->md_rw_cb_ud.sg_iov[0].iov_buf + 1,
+                                    udata->md_rw_cb_ud.iod[0].iod_size - 1);
+                        } /* end else */
+
+                        /* Link now owns the buffer */
                         udata->md_rw_cb_ud.sg_iov[0].iov_buf = NULL;
-                        memmove(udata->link_val->target.soft, udata->link_val->target.soft + 1, udata->md_rw_cb_ud.iod[0].iod_size - 1);
 
                         /* Add null terminator */
                         udata->link_val->target.soft[udata->md_rw_cb_ud.iod[0].iod_size - 1] = '\0';
@@ -595,7 +620,8 @@ done:
             D_DONE_ERROR(H5E_LINK, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close group");
 
         /* Free buffer if we still own it */
-        DV_free(udata->md_rw_cb_ud.sg_iov[0].iov_buf);
+        if(udata->md_rw_cb_ud.free_sg_iov[0])
+            DV_free(udata->md_rw_cb_ud.sg_iov[0].iov_buf);
 
         /* Handle errors in this function */
         /* Do not place any code that can issue errors after this block, except
@@ -646,7 +672,6 @@ H5_daos_link_read(H5_daos_group_t *grp, const char *name, size_t name_len,
     tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_link_read_ud_t *read_udata = NULL;
-    uint8_t *val_buf = NULL;
     tse_task_t *read_task;
     int ret;
     herr_t ret_value = SUCCEED;
@@ -681,15 +706,13 @@ H5_daos_link_read(H5_daos_group_t *grp, const char *name, size_t name_len,
     read_udata->md_rw_cb_ud.iod[0].iod_size = DAOS_REC_ANY;
     read_udata->md_rw_cb_ud.iod[0].iod_type = DAOS_IOD_SINGLE;
 
-    /* Allocate initial link vallue buffer */
-    if(NULL == (val_buf = DV_malloc(H5_DAOS_LINK_VAL_BUF_SIZE)))
-        D_GOTO_ERROR(H5E_LINK, H5E_CANTALLOC, FAIL, "can't allocate buffer for link value");
-
     /* Set up sgl */
-    daos_iov_set(&read_udata->md_rw_cb_ud.sg_iov[0], val_buf, (daos_size_t)H5_DAOS_LINK_VAL_BUF_SIZE);
+    daos_iov_set(&read_udata->md_rw_cb_ud.sg_iov[0],
+            read_udata->link_val_buf_static, (daos_size_t)H5_DAOS_LINK_VAL_BUF_SIZE_INIT);
     read_udata->md_rw_cb_ud.sgl[0].sg_nr = 1;
     read_udata->md_rw_cb_ud.sgl[0].sg_nr_out = 0;
     read_udata->md_rw_cb_ud.sgl[0].sg_iovs = &read_udata->md_rw_cb_ud.sg_iov[0];
+    read_udata->md_rw_cb_ud.free_sg_iov[0] = FALSE;
 
     /* Set task name */
     read_udata->md_rw_cb_ud.task_name = "link read";
@@ -727,18 +750,15 @@ H5_daos_link_read(H5_daos_group_t *grp, const char *name, size_t name_len,
     req->rc++;
     grp->obj.item.rc++;
     read_udata = NULL;
-    val_buf = NULL;
 
 done:
     /* Cleanup on failure */
     if(ret_value < 0) {
         read_udata = DV_free(read_udata);
-        val_buf = DV_free(val_buf);
     } /* end if */
 
     /* Make sure we cleaned up */
     assert(!read_udata);
-    assert(!val_buf);
 
     D_FUNC_LEAVE;
 } /* end H5_daos_link_read() */
@@ -800,7 +820,7 @@ H5_daos_link_read_ln_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     } /* end if */
     fetch_args->oh = udata->md_rw_cb_ud.obj->obj_oh;
     fetch_args->th = udata->md_rw_cb_ud.req->th;
-    fetch_args->flags = 0;
+    fetch_args->flags = udata->md_rw_cb_ud.flags;
     fetch_args->dkey = &udata->md_rw_cb_ud.dkey;
     fetch_args->nr = udata->md_rw_cb_ud.nr;
     fetch_args->iods = udata->md_rw_cb_ud.iod;
@@ -833,7 +853,6 @@ H5_daos_link_read_late_name(H5_daos_group_t *grp, const char **name, size_t *nam
     tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_link_read_ud_t *read_udata = NULL;
-    uint8_t *val_buf = NULL;
     tse_task_t *read_task;
     int ret;
     herr_t ret_value = SUCCEED;
@@ -867,15 +886,13 @@ H5_daos_link_read_late_name(H5_daos_group_t *grp, const char **name, size_t *nam
     read_udata->md_rw_cb_ud.iod[0].iod_size = DAOS_REC_ANY;
     read_udata->md_rw_cb_ud.iod[0].iod_type = DAOS_IOD_SINGLE;
 
-    /* Allocate initial link vallue buffer */
-    if(NULL == (val_buf = DV_malloc(H5_DAOS_LINK_VAL_BUF_SIZE)))
-        D_GOTO_ERROR(H5E_LINK, H5E_CANTALLOC, FAIL, "can't allocate buffer for link value");
-
     /* Set up sgl */
-    daos_iov_set(&read_udata->md_rw_cb_ud.sg_iov[0], val_buf, (daos_size_t)H5_DAOS_LINK_VAL_BUF_SIZE);
+    daos_iov_set(&read_udata->md_rw_cb_ud.sg_iov[0],
+            read_udata->link_val_buf_static, (daos_size_t)H5_DAOS_LINK_VAL_BUF_SIZE_INIT);
     read_udata->md_rw_cb_ud.sgl[0].sg_nr = 1;
     read_udata->md_rw_cb_ud.sgl[0].sg_nr_out = 0;
     read_udata->md_rw_cb_ud.sgl[0].sg_iovs = &read_udata->md_rw_cb_ud.sg_iov[0];
+    read_udata->md_rw_cb_ud.free_sg_iov[0] = FALSE;
 
     /* Set task name */
     read_udata->md_rw_cb_ud.task_name = "link read (late name)";
@@ -913,18 +930,15 @@ H5_daos_link_read_late_name(H5_daos_group_t *grp, const char **name, size_t *nam
     req->rc++;
     grp->obj.item.rc++;
     read_udata = NULL;
-    val_buf = NULL;
 
 done:
     /* Cleanup on failure */
     if(ret_value < 0) {
         read_udata = DV_free(read_udata);
-        val_buf = DV_free(val_buf);
     } /* end if */
 
     /* Make sure we cleaned up */
     assert(!read_udata);
-    assert(!val_buf);
 
     D_FUNC_LEAVE;
 } /* end H5_daos_link_read_late_name() */
@@ -984,13 +998,13 @@ H5_daos_link_write_task(tse_task_t *task)
 
         /* Register task dependency */
         if(dep_task && 0 != (ret = tse_task_register_deps(end_task, 1, &dep_task)))
-            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create dependencies for link write end task: %s", H5_daos_err_to_string(ret));
+            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, ret, "can't create dependencies for link write end task: %s", H5_daos_err_to_string(ret));
 
         /* Schedule link write end task (or save it to be scheduled later) and
          * transfer ownership of udata */
         if(first_task) {
             if(0 != (ret = tse_task_schedule(end_task, false)))
-                D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't schedule end task for link write: %s", H5_daos_err_to_string(ret));
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, ret, "can't schedule end task for link write: %s", H5_daos_err_to_string(ret));
         } /* end if */
         else
             first_task = end_task;
@@ -1043,9 +1057,15 @@ done:
             assert(task == udata->link_write_task);
             tse_task_complete(udata->link_write_task, ret_value);
 
+            /* Complete link write update task */
+            (void)tse_task_set_priv(udata->update_task, NULL);
+            tse_task_complete(udata->update_task, ret_value);
+
             /* Free memory */
-            DV_free(udata->link_name_buf);
-            DV_free(udata->link_val_buf);
+            if(udata->link_name_buf != udata->link_name_buf_static)
+                DV_free(udata->link_name_buf);
+            if(udata->link_val_buf != udata->link_val_buf_static)
+                DV_free(udata->link_val_buf);
             DV_free(udata);
         } /* end if */
     } /* end if */
@@ -1116,6 +1136,7 @@ H5_daos_link_write_end_task(tse_task_t *task)
     udata->md_rw_cb_ud.sgl[1].sg_nr = 1;
     udata->md_rw_cb_ud.sgl[1].sg_nr_out = 0;
     udata->md_rw_cb_ud.sgl[1].sg_iovs = &udata->md_rw_cb_ud.sg_iov[1];
+    udata->md_rw_cb_ud.free_sg_iov[1] = FALSE;
 
     /* Create a task for writing the link creation order info to the
      * target group */
@@ -1165,8 +1186,10 @@ done:
             tse_task_complete(udata->link_write_task, ret_value);
 
             /* Free memory */
-            DV_free(udata->link_name_buf);
-            DV_free(udata->link_val_buf);
+            if(udata->link_name_buf != udata->link_name_buf_static)
+                DV_free(udata->link_name_buf);
+            if(udata->link_val_buf != udata->link_val_buf_static)
+                DV_free(udata->link_val_buf);
             DV_free(udata);
         } /* end if */
     } /* end if */
@@ -1214,15 +1237,16 @@ H5_daos_link_write(H5_daos_group_t *target_grp, const char *name,
     if(NULL == (link_write_ud = (H5_daos_link_write_ud_t *)DV_calloc(sizeof(H5_daos_link_write_ud_t))))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate buffer for link write callback arguments");
     link_write_ud->link_val = *link_val;
+    link_write_ud->link_val_buf = link_write_ud->link_val_buf_static;
+    link_write_ud->link_name_buf = link_write_ud->link_name_buf_static;
 
     /* Allocate buffer for link value and encode type-specific value information */
     switch(link_val->type) {
         case H5L_TYPE_HARD:
             assert(H5_DAOS_HARD_LINK_VAL_SIZE == sizeof(link_val->target.hard) + 1);
+            assert(H5_DAOS_HARD_LINK_VAL_SIZE <= H5_DAOS_LINK_VAL_BUF_SIZE_INIT);
 
             link_write_ud->link_val_buf_size = H5_DAOS_HARD_LINK_VAL_SIZE;
-            if(NULL == (link_write_ud->link_val_buf = (uint8_t *)DV_malloc(link_write_ud->link_val_buf_size)))
-                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate space for link target");
 
             /* For hard links, encoding of the OID into the link's value buffer
              * is delayed until the link write task's preparation callback. This
@@ -1234,8 +1258,9 @@ H5_daos_link_write(H5_daos_group_t *target_grp, const char *name,
 
         case H5L_TYPE_SOFT:
             link_write_ud->link_val_buf_size = strlen(link_val->target.soft) + 1;
-            if(NULL == (link_write_ud->link_val_buf = (uint8_t *)DV_malloc(link_write_ud->link_val_buf_size)))
-                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate space for link target");
+            if(link_write_ud->link_val_buf_size > H5_DAOS_LINK_VAL_BUF_SIZE_INIT)
+                if(NULL == (link_write_ud->link_val_buf = (uint8_t *)DV_malloc(link_write_ud->link_val_buf_size)))
+                    D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate space for link target");
 
             H5_DAOS_ENCODE_LINK_VALUE(link_write_ud->link_val_buf, link_write_ud->link_val_buf_size,
                     link_write_ud->link_val, H5L_TYPE_SOFT);
@@ -1250,8 +1275,9 @@ H5_daos_link_write(H5_daos_group_t *target_grp, const char *name,
     } /* end switch */
 
     /* Copy name */
-    if(NULL == (link_write_ud->link_name_buf = (char *)DV_malloc(name_len)))
-        D_GOTO_ERROR(H5E_SYM, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate space for name buffer");
+    if(name_len > H5_DAOS_LINK_NAME_BUF_SIZE_INIT)
+        if(NULL == (link_write_ud->link_name_buf = (char *)DV_malloc(name_len)))
+            D_GOTO_ERROR(H5E_SYM, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate space for name buffer");
     (void)memcpy(link_write_ud->link_name_buf, name, name_len);
     link_write_ud->link_name_buf_size = name_len;
 
@@ -1315,8 +1341,10 @@ done:
     /* Cleanup on failure */
     if(link_write_ud) {
         assert(ret_value < 0);
-        link_write_ud->link_name_buf = DV_free(link_write_ud->link_name_buf);
-        link_write_ud->link_val_buf = DV_free(link_write_ud->link_val_buf);
+        if(link_write_ud->link_name_buf != link_write_ud->link_name_buf_static)
+            link_write_ud->link_name_buf = DV_free(link_write_ud->link_name_buf);
+        if(link_write_ud->link_val_buf != link_write_ud->link_val_buf_static)
+            link_write_ud->link_val_buf = DV_free(link_write_ud->link_val_buf);
         link_write_ud = DV_free(link_write_ud);
     } /* end if */
 
@@ -1389,6 +1417,7 @@ H5_daos_link_write_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     udata->md_rw_cb_ud.sgl[0].sg_nr = 1;
     udata->md_rw_cb_ud.sgl[0].sg_nr_out = 0;
     udata->md_rw_cb_ud.sgl[0].sg_iovs = &udata->md_rw_cb_ud.sg_iov[0];
+    udata->md_rw_cb_ud.free_sg_iov[0] = TRUE;
 
     /* Set update task arguments */
     if(NULL == (update_args = daos_task_get_args(task))) {
@@ -1397,7 +1426,7 @@ H5_daos_link_write_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     } /* end if */
     update_args->oh = udata->md_rw_cb_ud.obj->obj_oh;
     update_args->th = udata->md_rw_cb_ud.req->th;
-    update_args->flags = 0;
+    update_args->flags = udata->md_rw_cb_ud.flags;
     update_args->dkey = &udata->md_rw_cb_ud.dkey;
     update_args->nr = udata->md_rw_cb_ud.nr;
     update_args->iods = udata->md_rw_cb_ud.iod;
@@ -1473,8 +1502,10 @@ done:
             tse_task_complete(udata->link_write_task, ret_value);
 
             /* Free memory */
-            DV_free(udata->link_name_buf);
-            DV_free(udata->link_val_buf);
+            if(udata->link_name_buf != udata->link_name_buf_static)
+                DV_free(udata->link_name_buf);
+            if(udata->link_val_buf != udata->link_val_buf_static)
+                DV_free(udata->link_val_buf);
             DV_free(udata);
         } /* end if */
     } /* end if */
@@ -1567,12 +1598,14 @@ H5_daos_link_wr_corder_info_task(tse_task_t *task)
     udata->md_rw_cb_ud.sgl[0].sg_nr = 1;
     udata->md_rw_cb_ud.sgl[0].sg_nr_out = 0;
     udata->md_rw_cb_ud.sgl[0].sg_iovs = &udata->md_rw_cb_ud.sg_iov[0];
+    udata->md_rw_cb_ud.free_sg_iov[0] = FALSE;
 
     /* Value for new number of links in group */
     daos_iov_set(&udata->md_rw_cb_ud.sg_iov[1], udata->nlinks_new_buf, (daos_size_t)H5_DAOS_ENCODED_NUM_LINKS_SIZE);
     udata->md_rw_cb_ud.sgl[1].sg_nr = 1;
     udata->md_rw_cb_ud.sgl[1].sg_nr_out = 0;
     udata->md_rw_cb_ud.sgl[1].sg_iovs = &udata->md_rw_cb_ud.sg_iov[1];
+    udata->md_rw_cb_ud.free_sg_iov[1] = FALSE;
 
     /* Link name value for mapping from link creation order value -> link name */
     daos_iov_set(&udata->md_rw_cb_ud.sg_iov[2], (void *)udata->link_write_ud->link_name_buf,
@@ -1580,6 +1613,7 @@ H5_daos_link_wr_corder_info_task(tse_task_t *task)
     udata->md_rw_cb_ud.sgl[2].sg_nr = 1;
     udata->md_rw_cb_ud.sgl[2].sg_nr_out = 0;
     udata->md_rw_cb_ud.sgl[2].sg_iovs = &udata->md_rw_cb_ud.sg_iov[2];
+    udata->md_rw_cb_ud.free_sg_iov[2] = TRUE;
 
     /* Link target value for mapping from link creation order value -> link target */
     daos_iov_set(&udata->md_rw_cb_ud.sg_iov[3], udata->link_write_ud->link_val_buf,
@@ -1587,6 +1621,7 @@ H5_daos_link_wr_corder_info_task(tse_task_t *task)
     udata->md_rw_cb_ud.sgl[3].sg_nr = 1;
     udata->md_rw_cb_ud.sgl[3].sg_nr_out = 0;
     udata->md_rw_cb_ud.sgl[3].sg_iovs = &udata->md_rw_cb_ud.sg_iov[3];
+    udata->md_rw_cb_ud.free_sg_iov[3] = TRUE;
 
     /* Create task for writing link creation order information
      * to the target group.
@@ -1641,8 +1676,10 @@ done:
             tse_task_complete(udata->link_write_ud->link_write_task, ret_value);
 
             /* Free memory */
-            DV_free(udata->link_write_ud->link_name_buf);
-            DV_free(udata->link_write_ud->link_val_buf);
+            if(udata->link_write_ud->link_name_buf != udata->link_write_ud->link_name_buf_static)
+                DV_free(udata->link_write_ud->link_name_buf);
+            if(udata->link_write_ud->link_val_buf != udata->link_write_ud->link_val_buf_static)
+                DV_free(udata->link_write_ud->link_val_buf);
             udata->link_write_ud = DV_free(udata->link_write_ud);
         } /* end if */
 
@@ -1817,8 +1854,10 @@ done:
             tse_task_complete(udata->link_write_ud->link_write_task, ret_value);
 
             /* Free memory */
-            DV_free(udata->link_write_ud->link_val_buf);
-            DV_free(udata->link_write_ud->link_name_buf);
+            if(udata->link_write_ud->link_val_buf != udata->link_write_ud->link_val_buf_static)
+                DV_free(udata->link_write_ud->link_val_buf);
+            if(udata->link_write_ud->link_name_buf != udata->link_write_ud->link_name_buf_static)
+                DV_free(udata->link_write_ud->link_name_buf);
             udata->link_write_ud = DV_free(udata->link_write_ud);
         } /* end if */
 
@@ -2048,7 +2087,7 @@ H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
 
 #ifdef H5_DAOS_USE_TRANSACTIONS
     /* Start transaction */
-    if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, NULL /*event*/)))
+    if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, 0, NULL /*event*/)))
         D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't start transaction");
     int_req->th_open = TRUE;
 #endif /* H5_DAOS_USE_TRANSACTIONS */
@@ -2768,7 +2807,7 @@ H5_daos_link_copy(void *src_item, const H5VL_loc_params_t *loc_params1,
     /* TODO: Make this and object copy work with transactions (potentially 2
      * files) - maybe use a "meta req" that has its own finalize and owns reqs
      * for the src and dst files */
-    if(0 != (ret = daos_tx_open(sched_file->coh, &int_req->th, NULL /*event*/)))
+    if(0 != (ret = daos_tx_open(sched_file->coh, &int_req->th, 0, NULL /*event*/)))
         D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't start transaction");
     int_req->th_open = TRUE;
 #endif /* H5_DAOS_USE_TRANSACTIONS */
@@ -2895,7 +2934,7 @@ H5_daos_link_move(void *src_item, const H5VL_loc_params_t *loc_params1,
     /* TODO: Make this and object copy work with transactions (potentially 2
      * files) - maybe use a "meta req" that has its own finalize and owns reqs
      * for the src and dst files */
-    if(0 != (ret = daos_tx_open(sched_file->coh, &int_req->th, NULL /*event*/)))
+    if(0 != (ret = daos_tx_open(sched_file->coh, &int_req->th, 0, NULL /*event*/)))
         D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't start transaction");
     int_req->th_open = TRUE;
 #endif /* H5_DAOS_USE_TRANSACTIONS */
@@ -2994,7 +3033,7 @@ H5_daos_link_get(void *_item, const H5VL_loc_params_t *loc_params,
 
 #ifdef H5_DAOS_USE_TRANSACTIONS
     /* Start transaction */
-    if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, NULL /*event*/)))
+    if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, DAOS_TF_RDONLY, NULL /*event*/)))
         D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't start transaction");
     int_req->th_open = TRUE;
 #endif /* H5_DAOS_USE_TRANSACTIONS */
@@ -3195,7 +3234,7 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
 
 #ifdef H5_DAOS_USE_TRANSACTIONS
     /* Start transaction */
-    if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, NULL /*event*/)))
+    if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, 0, NULL /*event*/)))
         D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't start transaction");
     int_req->th_open = TRUE;
 #endif /* H5_DAOS_USE_TRANSACTIONS */
@@ -6660,6 +6699,7 @@ H5_daos_link_delete_corder_unl_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *
     udata->unl_data.unl_ud.sgl[0].sg_nr = 1;
     udata->unl_data.unl_ud.sgl[0].sg_nr_out = 0;
     udata->unl_data.unl_ud.sgl[0].sg_iovs = &udata->unl_data.unl_ud.sg_iov[0];
+    udata->unl_data.unl_ud.free_sg_iov[0] = FALSE;
 
     udata->unl_data.unl_ud.nr = 1u;
 
@@ -6672,7 +6712,7 @@ H5_daos_link_delete_corder_unl_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *
     } /* end if */
     update_args->oh = udata->unl_data.unl_ud.obj->obj_oh;
     update_args->th = udata->req->th;
-    update_args->flags = 0;
+    update_args->flags = udata->unl_data.unl_ud.flags;
     update_args->dkey = &udata->unl_data.unl_ud.dkey;
     update_args->nr = udata->unl_data.unl_ud.nr;
     update_args->iods = udata->unl_data.unl_ud.iod;
@@ -7889,6 +7929,7 @@ H5_daos_link_gnbc_task(tse_task_t *task)
         udata->md_rw_cb_ud.sgl[0].sg_nr = 1;
         udata->md_rw_cb_ud.sgl[0].sg_nr_out = 0;
         udata->md_rw_cb_ud.sgl[0].sg_iovs = &udata->md_rw_cb_ud.sg_iov[0];
+        udata->md_rw_cb_ud.free_sg_iov[0] = FALSE;
     } /* end if */
 
     /* Do not free buffers */
@@ -8508,6 +8549,7 @@ H5_daos_link_get_crt_order_by_name(H5_daos_group_t *target_grp, const char *link
     fetch_udata->md_rw_cb_ud.sgl[0].sg_nr = 1;
     fetch_udata->md_rw_cb_ud.sgl[0].sg_nr_out = 0;
     fetch_udata->md_rw_cb_ud.sgl[0].sg_iovs = &fetch_udata->md_rw_cb_ud.sg_iov[0];
+    fetch_udata->md_rw_cb_ud.free_sg_iov[0] = FALSE;
 
     /* Do not free buffers */
     fetch_udata->md_rw_cb_ud.free_akeys = FALSE;

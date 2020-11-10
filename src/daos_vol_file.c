@@ -105,6 +105,7 @@ static int H5_daos_cont_destroy_comp_cb(tse_task_t *task, void *args);
 static herr_t H5_daos_file_delete_sync(const char *filename, hid_t fapl_id);
 
 static herr_t H5_daos_fill_fapl_cache(H5_daos_file_t *file, hid_t fapl_id);
+static herr_t H5_daos_fill_enc_plist_cache(H5_daos_file_t *file, hid_t fapl_id);
 static herr_t H5_daos_file_close_helper(H5_daos_file_t *file,
     hid_t dxpl_id, void **req);
 static herr_t H5_daos_get_obj_count_callback(hid_t id, void *udata);
@@ -265,6 +266,7 @@ H5_daos_tx_open_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     } /* end if */
     tx_open_args->coh = udata->req->file->coh;
     tx_open_args->th = &udata->req->th;
+    tx_open_args->flags = 0;
 
 done:
     D_FUNC_LEAVE;
@@ -820,8 +822,8 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     file->container_poh = DAOS_HDL_INVAL;
     file->glob_md_oh = DAOS_HDL_INVAL;
     file->root_grp = NULL;
-    file->fapl_id = FAIL;
-    file->vol_id = FAIL;
+    file->fapl_id = H5P_FILE_ACCESS_DEFAULT;
+    file->vol_id = H5I_INVALID_HID;
     file->item.rc = 1;
 
     /* Fill in fields of file we know */
@@ -830,7 +832,7 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     if(NULL == (file->file_name = strdup(name)))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't copy file name");
     file->flags = flags;
-    if((file->fapl_id = H5Pcopy(fapl_id)) < 0)
+    if((fapl_id != H5P_FILE_ACCESS_DEFAULT) && (file->fapl_id = H5Pcopy(fapl_id)) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTCOPY, NULL, "failed to copy fapl");
 
     /* Set the pool UUID for the file */
@@ -856,6 +858,10 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     /* Fill FAPL cache */
     if(H5_daos_fill_fapl_cache(file, fapl_id) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "failed to fill FAPL cache");
+
+    /* Fill encoded default property list buffer cache */
+    if(H5_daos_fill_enc_plist_cache(file, fapl_id) < 0)
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "failed to fill encoded property list buffer cache");
 
     /* Generate oid for global metadata object */
     if(H5_daos_oid_encode(&file->glob_md_oid, H5_DAOS_OIDX_GMD, H5I_GROUP,
@@ -1537,8 +1543,8 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     file->container_poh = DAOS_HDL_INVAL;
     file->glob_md_oh = DAOS_HDL_INVAL;
     file->root_grp = NULL;
-    file->fapl_id = FAIL;
-    file->vol_id = FAIL;
+    file->fapl_id = H5P_FILE_ACCESS_DEFAULT;
+    file->vol_id = H5I_INVALID_HID;
     file->item.rc = 1;
 
     /* Fill in fields of file we know */
@@ -1547,7 +1553,7 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     if(NULL == (file->file_name = strdup(name)))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't copy file name");
     file->flags = flags;
-    if((file->fapl_id = H5Pcopy(fapl_id)) < 0)
+    if((fapl_id != H5P_FILE_ACCESS_DEFAULT) && (file->fapl_id = H5Pcopy(fapl_id)) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTCOPY, NULL, "failed to copy fapl");
 
     /* Set the pool UUID for the file */
@@ -1583,6 +1589,10 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     /* Fill FAPL cache */
     if(H5_daos_fill_fapl_cache(file, fapl_id) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "failed to fill FAPL cache");
+
+    /* Fill encoded default property list buffer cache */
+    if(H5_daos_fill_enc_plist_cache(file, fapl_id) < 0)
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "failed to fill encoded property list buffer cache");
 
     /* Generate oid for global metadata object */
     if(H5_daos_oid_encode(&file->glob_md_oid, H5_DAOS_OIDX_GMD, H5I_GROUP,
@@ -1698,6 +1708,7 @@ H5_daos_cont_open(H5_daos_file_t *file, unsigned flags,
     H5_daos_generic_cb_ud_t *tx_open_udata = NULL;
 #ifdef H5_DAOS_USE_TRANSACTIONS
     tse_task_t *tx_open_task;
+    int ret;
 #endif
     herr_t ret_value = SUCCEED;
 
@@ -3063,11 +3074,14 @@ H5_daos_file_close_helper(H5_daos_file_t *file, hid_t dxpl_id, void **req)
     file->item.open_req = NULL;
     if(file->file_name)
         file->file_name = DV_free(file->file_name);
+    if(file->def_plist_cache.plist_buffer)
+        file->def_plist_cache.plist_buffer = DV_free(file->def_plist_cache.plist_buffer);
     if(file->comm || file->info)
         if(H5_daos_comm_info_free(&file->comm, &file->info) < 0)
             D_DONE_ERROR(H5E_INTERNAL, H5E_CANTFREE, FAIL, "failed to free copy of MPI communicator and info");
-    if(file->fapl_id != FAIL && H5Idec_ref(file->fapl_id) < 0)
-        D_DONE_ERROR(H5E_SYM, H5E_CANTDEC, FAIL, "failed to close fapl");
+    if(file->fapl_id != H5I_INVALID_HID && file->fapl_id != H5P_FILE_ACCESS_DEFAULT)
+        if(H5Idec_ref(file->fapl_id) < 0)
+            D_DONE_ERROR(H5E_SYM, H5E_CANTDEC, FAIL, "failed to close fapl");
     if(!daos_handle_is_inval(file->glob_md_oh))
         if(0 != (ret = daos_obj_close(file->glob_md_oh, NULL /*event*/)))
             D_DONE_ERROR(H5E_FILE, H5E_CANTCLOSEFILE, FAIL, "can't close global metadata object: %s", H5_daos_err_to_string(ret));
@@ -3271,6 +3285,104 @@ H5_daos_fill_fapl_cache(H5_daos_file_t *file, hid_t fapl_id)
 done:
     D_FUNC_LEAVE;
 } /* end H5_daos_fill_fapl_cache() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_fill_enc_plist_cache
+ *
+ * Purpose:     Fills the "def_plist_cache" field of the file struct, using
+ *              the file's FAPL. This cache holds encoded buffers for
+ *              several default property lists to avoid overhead from
+ *              H5Pencode.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_fill_enc_plist_cache(H5_daos_file_t *file, hid_t fapl_id)
+{
+    size_t cur_buf_idx;
+    char *plist_buffer = NULL;
+    herr_t ret_value = SUCCEED;
+
+    assert(file);
+
+    /* Determine sizes of various property list buffers */
+    if(H5Pencode2(H5P_FILE_CREATE_DEFAULT, NULL, &file->def_plist_cache.fcpl_size, fapl_id) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "can't determine serialized length of FCPL");
+    if(H5Pencode2(H5P_DATASET_CREATE_DEFAULT, NULL, &file->def_plist_cache.dcpl_size, fapl_id) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "can't determine serialized length of DCPL");
+    if(H5Pencode2(H5P_GROUP_CREATE_DEFAULT, NULL, &file->def_plist_cache.gcpl_size, fapl_id) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "can't determine serialized length of GCPL");
+    if(H5Pencode2(H5P_DATATYPE_CREATE_DEFAULT, NULL, &file->def_plist_cache.tcpl_size, fapl_id) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "can't determine serialized length of TCPL");
+    if(H5Pencode2(H5P_MAP_CREATE_DEFAULT, NULL, &file->def_plist_cache.mcpl_size, fapl_id) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "can't determine serialized length of MCPL");
+    if(H5Pencode2(H5P_ATTRIBUTE_CREATE_DEFAULT, NULL, &file->def_plist_cache.acpl_size, fapl_id) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "can't determine serialized length of ACPL");
+
+    /* Allocate single buffer to hold all encoded plists */
+    file->def_plist_cache.buffer_size = file->def_plist_cache.fcpl_size
+                                      + file->def_plist_cache.dcpl_size
+                                      + file->def_plist_cache.gcpl_size
+                                      + file->def_plist_cache.tcpl_size
+                                      + file->def_plist_cache.mcpl_size
+                                      + file->def_plist_cache.acpl_size;
+    if(NULL == (file->def_plist_cache.plist_buffer = DV_calloc(file->def_plist_cache.buffer_size)))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate encoded property list cache buffer");
+    plist_buffer = (char *)file->def_plist_cache.plist_buffer;
+
+    /* Encode FCPL */
+    cur_buf_idx = 0;
+    file->def_plist_cache.fcpl_buf = (void *)plist_buffer;
+    if(H5Pencode2(H5P_FILE_CREATE_DEFAULT, file->def_plist_cache.fcpl_buf,
+            &file->def_plist_cache.fcpl_size, fapl_id) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "can't serialize FCPL");
+
+    /* Encode DCPL */
+    cur_buf_idx += file->def_plist_cache.fcpl_size;
+    file->def_plist_cache.dcpl_buf = (void *)&(plist_buffer[cur_buf_idx]);
+    if(H5Pencode2(H5P_DATASET_CREATE_DEFAULT, file->def_plist_cache.dcpl_buf,
+            &file->def_plist_cache.dcpl_size, fapl_id) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "can't serialize DCPL");
+
+    /* Encode GCPL */
+    cur_buf_idx += file->def_plist_cache.dcpl_size;
+    file->def_plist_cache.gcpl_buf = (void *)&(plist_buffer[cur_buf_idx]);
+    if(H5Pencode2(H5P_GROUP_CREATE_DEFAULT, file->def_plist_cache.gcpl_buf,
+            &file->def_plist_cache.gcpl_size, fapl_id) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "can't serialize GCPL");
+
+    /* Encode TCPL */
+    cur_buf_idx += file->def_plist_cache.gcpl_size;
+    file->def_plist_cache.tcpl_buf = (void *)&(plist_buffer[cur_buf_idx]);
+    if(H5Pencode2(H5P_DATATYPE_CREATE_DEFAULT, file->def_plist_cache.tcpl_buf,
+            &file->def_plist_cache.tcpl_size, fapl_id) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "can't serialize TCPL");
+
+    /* Encode MCPL */
+    cur_buf_idx += file->def_plist_cache.tcpl_size;
+    file->def_plist_cache.mcpl_buf = (void *)&(plist_buffer[cur_buf_idx]);
+    if(H5Pencode2(H5P_MAP_CREATE_DEFAULT, file->def_plist_cache.mcpl_buf,
+            &file->def_plist_cache.mcpl_size, fapl_id) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "can't serialize MCPL");
+
+    /* Encode ACPL */
+    cur_buf_idx += file->def_plist_cache.mcpl_size;
+    file->def_plist_cache.acpl_buf = (void *)&(plist_buffer[cur_buf_idx]);
+    if(H5Pencode2(H5P_ATTRIBUTE_CREATE_DEFAULT, file->def_plist_cache.acpl_buf,
+            &file->def_plist_cache.acpl_size, fapl_id) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "can't serialize ACPL");
+
+done:
+    if(ret_value < 0) {
+        if(file->def_plist_cache.plist_buffer)
+            file->def_plist_cache.plist_buffer = DV_free(file->def_plist_cache.plist_buffer);
+    } /* end if */
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_fill_enc_plist_cache() */
 
 
 /*-------------------------------------------------------------------------

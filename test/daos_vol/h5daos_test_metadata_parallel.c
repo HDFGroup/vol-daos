@@ -61,6 +61,7 @@ typedef struct {
     hbool_t testDsetOnly;
     hbool_t testAttrOnly;
     hbool_t testDtypeOnly;
+    hbool_t testObjectOnly;
     hbool_t testMapOnly;
     hbool_t noGroupMember;
     hbool_t noWriteReadData;
@@ -101,7 +102,8 @@ typedef enum {
   MAP_REMOVE_NUM 	= 28,
   LINK_ITERATE_NUM	= 29,
   LINK_EXIST_NUM	= 30,
-  OBJ_COPY_NUM		= 31,
+  OBJ_OPEN_GRP_NUM  = 31,
+  OBJ_COPY_GRP_NUM  = 32,
   ENTRY_NUM
 } test_num_t;
 
@@ -138,7 +140,8 @@ const char* metadata_op[] = {
   "Map remove rate",
   "Link iterate rate",
   "Link exist rate",
-  "Object copy rate"
+  "Object open rate (groups)",
+  "Object copy rate (groups)"
 };
 
 /* List of file operations */
@@ -230,6 +233,7 @@ usage(void)
     printf("    [-M]: Run the test for map object only\n");
     printf("    [-n]: the number of iterations for file operations\n");
     printf("    [-o]: File name (add the prefix 'daos:' for H5MPIIO)\n");
+    printf("    [-O]: Run the test for HDF5's H5O API only\n");
     printf("    [-r]: No write or read the datasets\n");
     printf("    [-s]: No entry for maps\n");
     printf("    [-t]: No member in groups\n");
@@ -266,6 +270,7 @@ parse_command_line(int argc, char *argv[])
     hand.testDsetOnly = FALSE;
     hand.testAttrOnly = FALSE;
     hand.testDtypeOnly = FALSE;
+    hand.testObjectOnly = FALSE;
     hand.testMapOnly = FALSE;
     hand.noGroupMember = FALSE;
     hand.noWriteReadData = FALSE;
@@ -275,7 +280,7 @@ parse_command_line(int argc, char *argv[])
     hand.dset_layout = strdup("contiguous");
     hand.fileName = strdup(FILENAME);
 
-    while((opt = getopt(argc, argv, "aAb:c:d:De:f:Fg:Ghi:I:j:l:m:Mn:o:rstTuz:")) != -1) {
+    while((opt = getopt(argc, argv, "aAb:c:d:De:f:Fg:Ghi:I:j:l:m:Mn:o:OrstTuz:")) != -1) {
         switch(opt) {
             case 'a':
                 /* Flag to indicate to use collective metadata I/O (H5MPIIO as the backend) */
@@ -371,7 +376,7 @@ parse_command_line(int argc, char *argv[])
                     printf("optarg is null\n");
                 break;
             case 'G':
-                /* Flag to indicate running test for group object (including link and object copy) alone */
+                /* Flag to indicate running test for group object (including link) alone */
                 if(MAINPROCESS)
                     fprintf(stdout, "run test for group only:	 					TRUE\n");
                 hand.testGroupOnly = TRUE;
@@ -462,6 +467,13 @@ parse_command_line(int argc, char *argv[])
                     hand.fileName = strdup(optarg);
                 } else
                     printf("optarg is null\n");
+                break;
+            case 'O':
+                /* Flag to indicate running test for H5O alone */
+                if(MAINPROCESS)
+                    fprintf(stdout, "run test for H5O only:                       TRUE\n");
+                hand.testObjectOnly = TRUE;
+                hand.testAllObjects = FALSE;
                 break;
             case 'r':
                 /* No write or read the datasets */
@@ -1057,7 +1069,7 @@ static int
 test_group(hid_t loc_id)
 {
     hid_t gid = H5I_INVALID_HID, nested_gid = H5I_INVALID_HID;
-    char  gname[NAME_LENGTH], nested_gname[NAME_LENGTH], obj_cp_name[NAME_LENGTH];
+    char  gname[NAME_LENGTH], nested_gname[NAME_LENGTH];
     H5G_info_t group_info;
     hsize_t op_data;
     int i, j;
@@ -1200,27 +1212,6 @@ test_group(hid_t loc_id)
             printf("failed to close the group '%s'\n", gname);
             goto error;
         }
-    }
-
-    /* Object copy */
-    for (i = 0; i < hand.numbOfObjs; i++) {
-        sprintf(gname, "group_object_%d", i + 1);
-        sprintf(obj_cp_name, "object_copy_%d", i + 1);
-
-        start = MPI_Wtime();
-        if (H5Ocopy(loc_id, gname, loc_id, obj_cp_name, H5P_DEFAULT, H5P_DEFAULT) < 0) { 
-            H5_FAILED(); AT();
-            printf("failed to copy the group '%s' to '%s'\n", gname, obj_cp_name);
-            goto error;
-        }
-
-        end = MPI_Wtime();
-        time = end - start;
-        op_time[OBJ_COPY_NUM][tree_order] += time;
-
-#ifdef DEBUG
-        printf("Object copy time: %lf, mpi_rank=%d\n", time, mpi_rank);
-#endif
     }
 
     /* Group removal */
@@ -1750,6 +1741,98 @@ error:
 }
 
 static int
+test_H5O(hid_t loc_id)
+{
+    hid_t gid = H5I_INVALID_HID, nested_gid = H5I_INVALID_HID;
+    char gname[NAME_LENGTH], nested_gname[NAME_LENGTH], obj_cp_name[NAME_LENGTH];
+    int i, j;
+    double start, end, time;
+
+    /* Create objects to copy */
+    for (i = 0; i < hand.numbOfObjs; i++) {
+        sprintf(gname, "H5O_group_object_%d", i + 1);
+
+        if ((gid = H5Gcreate2(loc_id, gname, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT)) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to create group object '%s'\n", gname);
+            goto error;
+        }
+
+        /* Create some subgroups */
+        if(!hand.noGroupMember) {
+            for(j = 0; j < hand.numbOfNestedGroups; j++) {
+                sprintf(nested_gname, "nested_group_%d", j + 1);
+
+                if ((nested_gid = H5Gcreate2(gid, nested_gname, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT)) < 0) {
+                    H5_FAILED(); AT();
+                    printf("failed to create group object '%s'\n", nested_gname);
+                    goto error;
+                }
+
+                if (H5Gclose(nested_gid) < 0) {
+                    H5_FAILED(); AT();
+                    printf("failed to close the group '%s'\n", nested_gname);
+                    goto error;
+                }
+            }
+        }
+
+        if (H5Gclose(gid) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to close the group '%s'\n", gname);
+            goto error;
+        }
+    }
+
+    /* Object open for groups */
+    for (i = 0; i < hand.numbOfObjs; i++) {
+        sprintf(gname, "H5O_group_object_%d", i + 1);
+
+        start = MPI_Wtime();
+
+        if (H5Oopen(loc_id, gname, H5P_DEFAULT) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to open group '%s'\n", gname);
+            goto error;
+        }
+
+        end = MPI_Wtime();
+        time = end - start;
+        op_time[OBJ_OPEN_GRP_NUM][tree_order] += time;
+
+#ifdef DEBUG
+        printf("H5Oopen group time: %lf, mpi_rank=%d\n", time, mpi_rank);
+#endif
+    }
+
+    /* Object copy for groups */
+    for (i = 0; i < hand.numbOfObjs; i++) {
+        sprintf(gname, "H5O_group_object_%d", i + 1);
+        sprintf(obj_cp_name, "H5O_group_object_copy_%d", i + 1);
+
+        start = MPI_Wtime();
+        if (H5Ocopy(loc_id, gname, loc_id, obj_cp_name, H5P_DEFAULT, H5P_DEFAULT) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to copy the group '%s' to '%s'\n", gname, obj_cp_name);
+            goto error;
+        }
+
+        end = MPI_Wtime();
+        time = end - start;
+        op_time[OBJ_COPY_GRP_NUM][tree_order] += time;
+
+#ifdef DEBUG
+        printf("H5Ocopy group time: %lf, mpi_rank=%d\n", time, mpi_rank);
+#endif
+    }
+
+    return 0;
+
+error:
+    return -1;
+}
+
+static int
 test_map(hid_t loc_id)
 {
     hid_t map_id = H5I_INVALID_HID;
@@ -1927,7 +2010,7 @@ create_objects_in_tree_node(hid_t tree_node_gid)
     } else
         loc_id = tree_node_gid;
 
-    /* Test group object. Test for link and H5Ocopy is also included */
+    /* Test group object. Test for link is also included */
     if ((hand.testAllObjects || hand.testGroupOnly) && test_group(loc_id) < 0) {
         H5_FAILED(); AT();
         printf("    couldn't test group objects in the tree node\n");
@@ -1952,6 +2035,13 @@ create_objects_in_tree_node(hid_t tree_node_gid)
     if ((hand.testAllObjects || hand.testDtypeOnly) && test_datatype(loc_id) < 0) {
         H5_FAILED(); AT();
         printf("    couldn't test datatype objects in the tree node\n");
+        goto error;
+    }
+
+    /* Test H5O API. */
+    if ((hand.testAllObjects || hand.testObjectOnly) && test_H5O(loc_id) < 0) {
+        H5_FAILED(); AT();
+        printf("    couldn't test H5O API in the tree node\n");
         goto error;
     }
 

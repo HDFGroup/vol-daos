@@ -1164,6 +1164,8 @@ error:
  * all ranks. After this, each rank deletes one of its keys and
  * all of the ranks then iterate over the remaining keys to check
  * that the keys were actually deleted.
+ *
+ * NOTE: this test requires support for independent metadata writes.
  */
 #define MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_MAP_NAME   "delete_all_ranks_iterate_all_ranks_map"
 #define MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_KEY_TYPE   H5T_NATIVE_INT
@@ -1244,6 +1246,12 @@ test_delete_keys_all_ranks_iterate_all_ranks()
     if (H5Fclose(file_id) < 0) {
         H5_FAILED();
         HDputs("    failed to close file");
+        goto error;
+    }
+
+    if (H5daos_set_all_ind_metadata_ops(fapl_id, 1) < 0) {
+        H5_FAILED();
+        HDputs("    failed to set independent metadata writes");
         goto error;
     }
 

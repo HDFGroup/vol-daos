@@ -52,7 +52,7 @@ H5_daos_blob_put(void *_file, const void *buf, size_t size, void *blob_id,
     if(!file)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "file object is NULL");
 
-    H5_DAOS_MAKE_ASYNC_PROGRESS(file->sched, FAIL);
+    H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
 
     /* Generate blob ID as a UUID */
     uuid_generate(blob_uuid);
@@ -117,7 +117,7 @@ H5_daos_blob_get(void *_file, const void *blob_id, void *buf, size_t size,
     if(!file)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "file object is NULL");
 
-    H5_DAOS_MAKE_ASYNC_PROGRESS(file->sched, FAIL);
+    H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
 
     /* Only read if size > 0 */
     if(size > 0) {
@@ -170,7 +170,7 @@ H5_daos_blob_specific(void *_file, void *blob_id,
     if(!file)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "file object is NULL");
 
-    H5_DAOS_MAKE_ASYNC_PROGRESS(file->sched, FAIL);
+    H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
 
     switch(specific_type) {
         case H5VL_BLOB_GETSIZE:

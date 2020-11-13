@@ -141,7 +141,6 @@ static int H5_daos_pool_connect_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_pool_disconnect_prep_cb(tse_task_t *task, void *args);
 static int H5_daos_pool_disconnect_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_pool_query_prep_cb(tse_task_t *task, void *args);
-static int H5_daos_sched_link_old_task(tse_task_t *task);
 
 static int H5_daos_collective_error_check_prep_cb(tse_task_t *task, void *args);
 static int H5_daos_collective_error_check_comp_cb(tse_task_t *task, void *args);
@@ -315,9 +314,6 @@ MPI_Request H5_daos_mpi_req_g;
 /* Last collective request scheduled.  Only one collective operation can be in
  * flight at any one time. */
 struct H5_daos_req_t *H5_daos_collective_req_tail = NULL;
-
-/* Scheduler for H5_daos_collective_req_tail */
-tse_sched_t *H5_daos_collective_req_tail_sched = NULL;
 
 /* Constant Keys */
 const char H5_daos_int_md_key_g[]          = "/Internal Metadata";
@@ -1292,7 +1288,7 @@ H5_daos_term(void)
     } /* end if */
 
     /* Close global scheduler */
-    if(H5_daos_progress(&H5_daos_glob_sched_g, NULL, H5_DAOS_PROGRESS_WAIT) < 0)
+    if(H5_daos_progress(NULL, H5_DAOS_PROGRESS_WAIT) < 0)
         D_DONE_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't progress scheduler");
     tse_sched_fini(&H5_daos_glob_sched_g);
 
@@ -1465,7 +1461,7 @@ done:
 herr_t
 H5_daos_pool_connect(uuid_t *pool_uuid, char *pool_grp, d_rank_list_t *svcl,
     unsigned int flags, daos_handle_t *poh_out, daos_pool_info_t *pool_info_out,
-    tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_pool_connect_ud_t *connect_udata = NULL;
     tse_task_t *connect_task = NULL;
@@ -1476,7 +1472,6 @@ H5_daos_pool_connect(uuid_t *pool_uuid, char *pool_grp, d_rank_list_t *svcl,
     assert(pool_grp);
     assert(svcl);
     assert(poh_out);
-    assert(sched);
     assert(req);
     assert(first_task);
     assert(dep_task);
@@ -1493,7 +1488,7 @@ H5_daos_pool_connect(uuid_t *pool_uuid, char *pool_grp, d_rank_list_t *svcl,
     connect_udata->free_rank_list = FALSE;
 
     /* Create task for pool connect */
-    if(0 != (ret = daos_task_create(DAOS_OPC_POOL_CONNECT, sched,
+    if(0 != (ret = daos_task_create(DAOS_OPC_POOL_CONNECT, &H5_daos_glob_sched_g,
             *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &connect_task)))
         D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create task to connect to DAOS pool: %s", H5_daos_err_to_string(ret));
 
@@ -1671,7 +1666,7 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_pool_disconnect(daos_handle_t *poh, tse_sched_t *sched,
+H5_daos_pool_disconnect(daos_handle_t *poh,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_pool_disconnect_ud_t *disconnect_udata = NULL;
@@ -1680,7 +1675,6 @@ H5_daos_pool_disconnect(daos_handle_t *poh, tse_sched_t *sched,
     herr_t ret_value = SUCCEED;
 
     assert(poh);
-    assert(sched);
     assert(req);
     assert(first_task);
     assert(dep_task);
@@ -1691,7 +1685,7 @@ H5_daos_pool_disconnect(daos_handle_t *poh, tse_sched_t *sched,
     disconnect_udata->poh = poh;
 
     /* Create task for pool disconnect */
-    if(0 != (ret = daos_task_create(DAOS_OPC_POOL_DISCONNECT, sched,
+    if(0 != (ret = daos_task_create(DAOS_OPC_POOL_DISCONNECT, &H5_daos_glob_sched_g,
             *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &disconnect_task)))
         D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create task to disconnect from DAOS pool: %s", H5_daos_err_to_string(ret));
 
@@ -1852,7 +1846,7 @@ done:
  */
 herr_t
 H5_daos_pool_query(daos_handle_t *poh, daos_pool_info_t *pool_info,
-    d_rank_list_t *tgts, daos_prop_t *prop, tse_sched_t *sched,
+    d_rank_list_t *tgts, daos_prop_t *prop,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_pool_query_ud_t *query_ud = NULL;
@@ -1861,7 +1855,6 @@ H5_daos_pool_query(daos_handle_t *poh, daos_pool_info_t *pool_info,
     herr_t ret_value = SUCCEED;
 
     assert(poh);
-    assert(sched);
     assert(req);
     assert(first_task);
     assert(dep_task);
@@ -1876,7 +1869,7 @@ H5_daos_pool_query(daos_handle_t *poh, daos_pool_info_t *pool_info,
     query_ud->prop = prop;
 
     /* Create task for pool query operation */
-    if(0 != (ret = daos_task_create(DAOS_OPC_POOL_QUERY, sched,
+    if(0 != (ret = daos_task_create(DAOS_OPC_POOL_QUERY, &H5_daos_glob_sched_g,
             *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &query_task)))
         D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create task to query pool: %s", H5_daos_err_to_string(ret));
 
@@ -2074,7 +2067,7 @@ H5_daos_get_conn_cls(void *item, H5VL_get_conn_lvl_t H5VL_DAOS_UNUSED lvl,
     if(!conn_cls)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "conn_cls parameter not supplied");
 
-    H5_DAOS_MAKE_ASYNC_PROGRESS(((H5_daos_item_t *)item)->file->sched, FAIL);
+    H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
 
     /* Retrieve the DAOS VOL connector class */
     *conn_cls = &H5_daos_g;
@@ -2105,7 +2098,7 @@ H5_daos_opt_query(void *item, H5VL_subclass_t H5VL_DAOS_UNUSED cls,
     if(!supported)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "\"supported\" parameter not supplied");
 
-    H5_DAOS_MAKE_ASYNC_PROGRESS(((H5_daos_item_t *)item)->file->sched, FAIL);
+    H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
 
     /* This VOL connector currently supports no optional operations queried by
      * this function */
@@ -2315,7 +2308,7 @@ H5_daos_oidx_generate(uint64_t *oidx, H5_daos_file_t *file, hbool_t collective,
          * result from the leader process */
         if(!collective || (file->my_rank == 0)) {
             /* Create task to allocate oidxs */
-            if(0 != (ret = daos_task_create(DAOS_OPC_CONT_ALLOC_OIDS, &file->sched, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &generate_task)))
+            if(0 != (ret = daos_task_create(DAOS_OPC_CONT_ALLOC_OIDS, &H5_daos_glob_sched_g, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &generate_task)))
                 D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create task to generate OIDXs: %s", H5_daos_err_to_string(ret));
 
             /* Set callback functions for container open */
@@ -2495,7 +2488,6 @@ H5_daos_oidx_bcast(H5_daos_file_t *file, uint64_t *oidx_out,
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "failed to allocate buffer for MPI broadcast user data");
     oidx_bcast_udata->bcast_udata.req = req;
     oidx_bcast_udata->bcast_udata.obj = NULL;
-    oidx_bcast_udata->bcast_udata.sched = &file->sched;
     oidx_bcast_udata->bcast_udata.bcast_metatask = NULL;
     oidx_bcast_udata->bcast_udata.buffer = oidx_bcast_udata->next_oidx_buf;
     oidx_bcast_udata->bcast_udata.buffer_len = H5_DAOS_ENCODED_UINT64_T_SIZE;
@@ -2506,7 +2498,7 @@ H5_daos_oidx_bcast(H5_daos_file_t *file, uint64_t *oidx_out,
     oidx_bcast_udata->max_oidx = &file->max_oidx_collective;
 
     /* Create task for broadcast */
-    if(0 != (ret = tse_task_create(H5_daos_mpi_ibcast_task, &file->sched, oidx_bcast_udata, &bcast_task)))
+    if(0 != (ret = tse_task_create(H5_daos_mpi_ibcast_task, &H5_daos_glob_sched_g, oidx_bcast_udata, &bcast_task)))
         D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create task to broadcast next object index: %s", H5_daos_err_to_string(ret));
 
     /* Register dependency on dep_task if present */
@@ -2889,7 +2881,7 @@ H5_daos_oid_generate(daos_obj_id_t *oid, H5I_type_t obj_type,
         encode_udata->oclass_prop_name = H5_DAOS_OBJ_CLASS_NAME;
 
         /* Create task to encode OID */
-        if(0 != (ret = tse_task_create(H5_daos_oid_encode_task, &file->sched, encode_udata, &encode_task)))
+        if(0 != (ret = tse_task_create(H5_daos_oid_encode_task, &H5_daos_glob_sched_g, encode_udata, &encode_task)))
             D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create task to encode OID: %s", H5_daos_err_to_string(ret));
 
         /* Register task dependency */
@@ -3278,7 +3270,7 @@ H5_daos_h5op_finalize(tse_task_t *task)
             daos_tx_abort_t *abort_args;
 
             /* Create task */
-            if(0 != (ret = daos_task_create(DAOS_OPC_TX_ABORT, &req->file->sched, 0, NULL, &abort_task))) {
+            if(0 != (ret = daos_task_create(DAOS_OPC_TX_ABORT, &H5_daos_glob_sched_g, 0, NULL, &abort_task))) {
                 close_tx = TRUE;
                 req->th_open = FALSE;
                 D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, ret, "can't create task to abort transaction: %s", H5_daos_err_to_string(ret));
@@ -3320,7 +3312,7 @@ H5_daos_h5op_finalize(tse_task_t *task)
             daos_tx_commit_t *commit_args;
 
             /* Create task */
-            if(0 != (ret = daos_task_create(DAOS_OPC_TX_COMMIT, &req->file->sched, 0, NULL, &commit_task))) {
+            if(0 != (ret = daos_task_create(DAOS_OPC_TX_COMMIT, &H5_daos_glob_sched_g, 0, NULL, &commit_task))) {
                 close_tx = TRUE;
                 req->th_open = FALSE;
                 D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, ret, "can't create task to commit transaction: %s", H5_daos_err_to_string(ret));
@@ -3970,7 +3962,7 @@ H5_daos_list_key_start(H5_daos_iter_ud_t *iter_udata, daos_opc_t opc,
     assert(dep_task);
 
     /* Create task for key list */
-    if(0 != (ret = daos_task_create(opc, &iter_udata->target_obj->item.file->sched, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &list_task)))
+    if(0 != (ret = daos_task_create(opc, &H5_daos_glob_sched_g, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &list_task)))
         D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't create task to list keys: %s", H5_daos_err_to_string(ret));
 
     /* Set callback functions for key list */
@@ -4123,7 +4115,7 @@ H5_daos_list_key_init(H5_daos_iter_data_t *iter_data, H5_daos_obj_t *target_obj,
      * may not be completed by the first list.  Only free iter_data at the end
      * if this is the base of iteration. */
     if(0 != (ret = tse_task_create(H5_daos_list_key_finish,
-            &target_obj->item.file->sched, iter_udata, &iter_udata->iter_metatask)))
+            &H5_daos_glob_sched_g, iter_udata, &iter_udata->iter_metatask)))
         D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't create meta task for iteration: %s", H5_daos_err_to_string(ret));
 
     /* Start list (create tasks) give it a reference to req and target obj, and
@@ -4286,7 +4278,7 @@ H5_daos_obj_open(H5_daos_file_t *file, H5_daos_req_t *req, daos_obj_id_t *oid,
     assert(dep_task);
 
     /* Create task for object open */
-    if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_OPEN, &file->sched, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &open_task)))
+    if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_OPEN, &H5_daos_glob_sched_g, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &open_task)))
         D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create task to open object: %s", H5_daos_err_to_string(ret));
 
     /* Set callback functions for object open */
@@ -4348,7 +4340,7 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_mpi_ibcast(H5_daos_mpi_ibcast_ud_t *_bcast_udata, tse_sched_t *sched, H5_daos_obj_t *obj,
+H5_daos_mpi_ibcast(H5_daos_mpi_ibcast_ud_t *_bcast_udata, H5_daos_obj_t *obj,
     size_t buffer_size, hbool_t empty, tse_task_cb_t bcast_prep_cb, tse_task_cb_t bcast_comp_cb,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
@@ -4358,7 +4350,6 @@ H5_daos_mpi_ibcast(H5_daos_mpi_ibcast_ud_t *_bcast_udata, tse_sched_t *sched, H5
     int ret;
     herr_t ret_value = SUCCEED;
 
-    assert(sched);
     assert(req);
     assert(first_task);
     assert(dep_task);
@@ -4369,9 +4360,7 @@ H5_daos_mpi_ibcast(H5_daos_mpi_ibcast_ud_t *_bcast_udata, tse_sched_t *sched, H5
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "failed to allocate buffer for MPI broadcast user data");
         bcast_udata->req = req;
         bcast_udata->obj = obj;
-        bcast_udata->sched = sched;
     } /* end if */
-    assert(bcast_udata->sched);
 
     /* Allocate bcast_udata's buffer if necessary */
     if(!bcast_udata->buffer) {
@@ -4390,11 +4379,11 @@ H5_daos_mpi_ibcast(H5_daos_mpi_ibcast_ud_t *_bcast_udata, tse_sched_t *sched, H5
     /* Create meta task for bcast.  This empty task will be completed when
      * the bcast is finished by the completion callback. We can't use
      * bcast_task since it may not be completed after the first bcast. */
-    if(0 != (ret = tse_task_create(NULL, sched, NULL, &bcast_udata->bcast_metatask)))
+    if(0 != (ret = tse_task_create(NULL, &H5_daos_glob_sched_g, NULL, &bcast_udata->bcast_metatask)))
         D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create meta task for empty buffer broadcast: %s", H5_daos_err_to_string(ret));
 
     /* Create task for bcast */
-    if(0 != (ret = tse_task_create(H5_daos_mpi_ibcast_task, sched, bcast_udata, &bcast_task)))
+    if(0 != (ret = tse_task_create(H5_daos_mpi_ibcast_task, &H5_daos_glob_sched_g, bcast_udata, &bcast_task)))
         D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create task to broadcast empty buffer: %s", H5_daos_err_to_string(ret));
 
     /* Register task dependency if present */
@@ -4454,12 +4443,11 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_collective_error_check(H5_daos_obj_t *obj, tse_sched_t *sched, H5_daos_req_t *req,
+H5_daos_collective_error_check(H5_daos_obj_t *obj, H5_daos_req_t *req,
     tse_task_t **first_task, tse_task_t **dep_task)
 {
     herr_t ret_value = SUCCEED;
 
-    assert(sched);
     assert(req);
     assert(req->file->num_procs > 1);
     assert(first_task);
@@ -4469,13 +4457,12 @@ H5_daos_collective_error_check(H5_daos_obj_t *obj, tse_sched_t *sched, H5_daos_r
     req->collective.coll_status = 0;
     req->collective.err_check_ud.req = req;
     req->collective.err_check_ud.obj = obj;
-    req->collective.err_check_ud.sched = sched;
     req->collective.err_check_ud.buffer = &req->collective.coll_status;
     req->collective.err_check_ud.buffer_len = sizeof(req->collective.coll_status);
     req->collective.err_check_ud.count = req->collective.err_check_ud.buffer_len;
     req->collective.err_check_ud.bcast_metatask = NULL;
 
-    if(H5_daos_mpi_ibcast(&req->collective.err_check_ud, sched, obj, sizeof(req->collective.coll_status),
+    if(H5_daos_mpi_ibcast(&req->collective.err_check_ud, obj, sizeof(req->collective.coll_status),
             FALSE, (req->file->my_rank == 0) ? H5_daos_collective_error_check_prep_cb : NULL,
             H5_daos_collective_error_check_comp_cb, req, first_task, dep_task) < 0)
         D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't broadcast collective operation status");
@@ -4648,7 +4635,7 @@ H5_daos_free_async(H5_daos_file_t *file, void *buf, tse_task_t **first_task,
     assert(dep_task);
 
     /* Create task for free */
-    if(0 != (ret = tse_task_create(H5_daos_free_async_task, &file->sched, buf, &free_task)))
+    if(0 != (ret = tse_task_create(H5_daos_free_async_task, &H5_daos_glob_sched_g, buf, &free_task)))
         D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create task to free buffer: %s", H5_daos_err_to_string(ret));
 
     /* Register dependency for task */
@@ -4669,93 +4656,6 @@ H5_daos_free_async(H5_daos_file_t *file, void *buf, tse_task_t **first_task,
 done:
     D_FUNC_LEAVE;
 } /* end H5_daos_free_async() */
-
-
-/*-------------------------------------------------------------------------
- * Function:    H5_daos_sched_link_old_task
- *
- * Purpose:     Asynchronous task for H5_daos_sched_link().  Exists in
- *              old_sched, completes the new task in new_sched.
- *
- * Return:      0 on success/Negative error code on failure
- *
- *-------------------------------------------------------------------------
- */
-static int
-H5_daos_sched_link_old_task(tse_task_t *task)
-{
-    tse_task_t *new_task = NULL;
-    int ret_value = 0;
-
-    /* Get private data */
-    if(NULL == (new_task = tse_task_get_priv(task)))
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for sched link task");
-
-    /* Complete new task */
-    tse_task_complete(new_task, 0);
-
-done:
-    /* Complete this task */
-    tse_task_complete(task, ret_value);
-
-    D_FUNC_LEAVE;
-} /* end H5_daos_sched_link_old_task() */
-
-
-/*-------------------------------------------------------------------------
- * Function:    H5_daos_sched_link
- *
- * Purpose:     Switches a task dependency chain from old_sched to
- *              new_sched.  *dep_task must be in old_sched on entry, and
- *              on exit dep_task will be a task in new_sched that will
- *              complete as soon as the original *dep_task completes.
- *
- * Return:      0 on success/Negative error code on failure
- *
- *-------------------------------------------------------------------------
- */
-int
-H5_daos_sched_link(tse_sched_t *old_sched, tse_sched_t *new_sched,
-    tse_task_t **dep_task)
-{
-    tse_task_t *old_task = NULL;
-    tse_task_t *new_task = NULL;
-    int ret;
-    int ret_value = 0;
-
-    assert(dep_task);
-    assert(*dep_task);
-
-    /* If the schedulers are the same no need to do anything */
-    if(old_sched == new_sched)
-        D_GOTO_DONE(0);
-
-    /* Create empty task in new scheduler - this will be returned in *dep_task,
-     * and will be completed by old task when it runs */
-    if(0 != (ret = tse_task_create(NULL, new_sched, NULL, &new_task)))
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't create new task to link schedulers: %s", H5_daos_err_to_string(ret));;
-
-    /* Schedule new task */
-    if(0 != (ret = tse_task_schedule(new_task, false)))
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't schedule new task to link schedulers: %s", H5_daos_err_to_string(ret));
-
-    /* Create task in old scheduler */
-    if(0 != (ret = tse_task_create(H5_daos_sched_link_old_task, old_sched, new_task, &old_task)))
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't create old task to link schedulers: %s", H5_daos_err_to_string(ret));
-
-    /* Register dependency for old task */
-    if(0 != (ret = tse_task_register_deps(old_task, 1, dep_task)))
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't create dependencies for old task to link schedulers: %s", H5_daos_err_to_string(ret));
-
-    /* Schedule old task */
-    if(0 != (ret = tse_task_schedule(old_task, false)))
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't schedule old task to link schedulers: %s", H5_daos_err_to_string(ret));
-
-    /* Update *dep_task to be the new task */
-    *dep_task = new_task;
-done:
-    D_FUNC_LEAVE;
-} /* end H5_daos_sched_link() */
 
 
 /*-------------------------------------------------------------------------
@@ -4780,7 +4680,7 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_progress(tse_sched_t *sched, H5_daos_req_t *req, uint64_t timeout)
+H5_daos_progress(H5_daos_req_t *req, uint64_t timeout)
 {
     int64_t  timeout_rem;
     int      completed;
@@ -4788,8 +4688,6 @@ H5_daos_progress(tse_sched_t *sched, H5_daos_req_t *req, uint64_t timeout)
     tse_task_t *tmp_task;
     int      ret;
     herr_t   ret_value = SUCCEED;
-
-    assert(sched);
 
     /* Set timeout_rem, being careful to avoid overflow */
     timeout_rem = timeout > INT64_MAX ? INT64_MAX : (int64_t)timeout;
@@ -4816,7 +4714,7 @@ H5_daos_progress(tse_sched_t *sched, H5_daos_req_t *req, uint64_t timeout)
         } /* end if */
 
         /* Progress DAOS */
-        if((0 != (ret = daos_progress(sched,
+        if((0 != (ret = daos_progress(&H5_daos_glob_sched_g,
                 timeout_rem > H5_DAOS_ASYNC_POLL_INTERVAL ? H5_DAOS_ASYNC_POLL_INTERVAL : timeout_rem,
                 &is_empty))) && (ret != -DER_TIMEDOUT))
             D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't progress scheduler: %s", H5_daos_err_to_string(ret));
@@ -4830,84 +4728,6 @@ H5_daos_progress(tse_sched_t *sched, H5_daos_req_t *req, uint64_t timeout)
 done:
     D_FUNC_LEAVE;
 } /* end H5_daos_progress() */
-
-
-/*-------------------------------------------------------------------------
- * Function:    H5_daos_progress_2
- *
- * Purpose:     Like H5_daos_progress except operates on two schedulers at
- *              once (for cross-file operations).
- *
- * Return:      Success:    Non-negative.
- *
- *              Failure:    Negative.
- *
- *-------------------------------------------------------------------------
- */
-herr_t
-H5_daos_progress_2(tse_sched_t *sched1, tse_sched_t *sched2, H5_daos_req_t *req,
-    uint64_t timeout)
-{
-    int64_t  timeout_rem;
-    int      completed;
-    bool     is_empty1 = FALSE;
-    bool     is_empty2 = FALSE;
-    tse_task_t *tmp_task;
-    int      ret;
-    herr_t   ret_value = SUCCEED;
-
-    assert(sched1);
-    assert(sched2);
-
-    /* Set timeout_rem, being careful to avoid overflow */
-    timeout_rem = timeout > INT64_MAX ? INT64_MAX : (int64_t)timeout;
-
-    /* Loop until the scheduler is empty, the timeout is met, or  */
-    do {
-        /* Progress MPI if there is a task in flight */
-        if(H5_daos_mpi_task_g) {
-            /* Check if task is complete */
-            if(MPI_SUCCESS != (ret = MPI_Test(&H5_daos_mpi_req_g, &completed, MPI_STATUS_IGNORE)))
-                D_DONE_ERROR(H5E_VOL, H5E_MPI, FAIL, "MPI_Test failed: %d", ret);
-
-            /* Complete matching DAOS task if so */
-            if(ret_value < 0) {
-                tmp_task = H5_daos_mpi_task_g;
-                H5_daos_mpi_task_g = NULL;
-                tse_task_complete(tmp_task, -H5_DAOS_MPI_ERROR);
-            } /* end if */
-            else if(completed) {
-                tmp_task = H5_daos_mpi_task_g;
-                H5_daos_mpi_task_g = NULL;
-                tse_task_complete(tmp_task, 0);
-            } /* end if */
-        } /* end if */
-
-        /* Progress DAOS */
-        if((0 != (ret = daos_progress(sched1,
-                timeout_rem > H5_DAOS_ASYNC_POLL_INTERVAL ? H5_DAOS_ASYNC_POLL_INTERVAL : timeout_rem,
-                &is_empty1))) && (ret != -DER_TIMEDOUT))
-            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't progress scheduler 1: %s", H5_daos_err_to_string(ret));
-
-        /* Advance time */
-        /* Actually check clock here? */
-        timeout_rem -= H5_DAOS_ASYNC_POLL_INTERVAL;
-
-        /* Progress DAOS */
-        if((0 != (ret = daos_progress(sched2,
-                timeout_rem > H5_DAOS_ASYNC_POLL_INTERVAL ? H5_DAOS_ASYNC_POLL_INTERVAL : timeout_rem,
-                &is_empty1))) && (ret != -DER_TIMEDOUT))
-            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't progress scheduler 2: %s", H5_daos_err_to_string(ret));
-
-        /* Advance time */
-        /* Actually check clock here? */
-        timeout_rem -= H5_DAOS_ASYNC_POLL_INTERVAL;
-    } while((req ? (req->status == -H5_DAOS_INCOMPLETE || req->status == -H5_DAOS_SHORT_CIRCUIT)
-            : !(is_empty1 && is_empty2)) && timeout_rem > 0);
-
-done:
-    D_FUNC_LEAVE;
-} /* end H5_daos_progress_2() */
 
 
 /*-------------------------------------------------------------------------

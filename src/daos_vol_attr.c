@@ -197,11 +197,11 @@ static int H5_daos_attribute_md_rw_prep_cb(tse_task_t *task, void *args);
 static int H5_daos_attribute_create_helper_prep_cb(tse_task_t *task, void *args);
 static int H5_daos_attribute_create_helper_comp_cb(tse_task_t *task, void *args);
 static herr_t H5_daos_attribute_create_get_crt_order_info(H5_daos_attr_create_ud_t *create_ud,
-    tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 static int H5_daos_attribute_create_get_crt_order_info_prep_cb(tse_task_t *task, void *args);
 static int H5_daos_attribute_create_get_crt_order_info_comp_cb(tse_task_t *task, void *args);
-static herr_t H5_daos_attribute_open_by_idx_helper(H5_daos_obj_t *target_obj, const H5VL_loc_params_t *loc_params,
-    H5_daos_attr_t *attr_out, tse_sched_t *sched, H5_daos_req_t *req,
+static herr_t H5_daos_attribute_open_by_idx_helper(H5_daos_obj_t *target_obj,
+    const H5VL_loc_params_t *loc_params, H5_daos_attr_t *attr_out, H5_daos_req_t *req,
     tse_task_t **first_task, tse_task_t **dep_task);
 static int H5_daos_attribute_open_bcast_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_attribute_open_recv_comp_cb(tse_task_t *task, void *args);
@@ -212,23 +212,23 @@ static int H5_daos_attribute_read_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_attribute_read_bcast_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_attr_read_tconv(tse_task_t *task);
 static herr_t H5_daos_attribute_get_name(H5_daos_obj_t *target_obj, const H5VL_loc_params_t *loc_params,
-    char *attr_name_out, size_t attr_name_out_size, size_t *size_ret, tse_sched_t *sched, H5_daos_req_t *req,
+    char *attr_name_out, size_t attr_name_out_size, size_t *size_ret, H5_daos_req_t *req,
     tse_task_t **first_task, tse_task_t **dep_task);
 static herr_t H5_daos_attribute_get_info(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
     const char *attr_name, H5A_info_t *attr_info, tse_task_cb_t prep_cb, tse_task_cb_t comp_cb,
-    tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
-static herr_t H5_daos_attribute_get_info_inplace(H5_daos_attr_get_info_ud_t *get_info_udata,
-    tse_task_cb_t prep_cb, tse_task_cb_t comp_cb, tse_sched_t *sched,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
+static herr_t H5_daos_attribute_get_info_inplace(H5_daos_attr_get_info_ud_t *get_info_udata,
+    tse_task_cb_t prep_cb, tse_task_cb_t comp_cb, H5_daos_req_t *req,
+    tse_task_t **first_task, tse_task_t **dep_task);
 static int H5_daos_attribute_get_info_task(tse_task_t *task);
 static int H5_daos_attribute_get_info_comp_cb(tse_task_t *task, void *args);
 static herr_t H5_daos_attribute_delete(H5_daos_obj_t *attr_container_obj, const H5VL_loc_params_t *loc_params,
-    const char *attr_name, hbool_t collective, tse_sched_t *sched, H5_daos_req_t *req,
+    const char *attr_name, hbool_t collective, H5_daos_req_t *req,
     tse_task_t **first_task, tse_task_t **dep_task);
 static int H5_daos_attribute_delete_prep_cb(tse_task_t *task, void *args);
 static int H5_daos_attribute_delete_comp_cb(tse_task_t *task, void *args);
 static herr_t H5_daos_attribute_remove_from_crt_idx(H5_daos_obj_t *target_obj,
-    const H5VL_loc_params_t *loc_params, const char *attr_name, tse_sched_t *sched,
+    const H5VL_loc_params_t *loc_params, const char *attr_name,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 static herr_t H5_daos_attribute_remove_from_crt_idx_name_cb(hid_t loc_id, const char *attr_name,
     const H5A_info_t *attr_info, void *op_data);
@@ -241,18 +241,18 @@ static int H5_daos_attr_exists_prep_cb(tse_task_t *task, void *args);
 static int H5_daos_attr_exists_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_attr_exists_bcast_comp_cb(tse_task_t *task, void *args);
 static herr_t H5_daos_attribute_iterate_by_name_order(H5_daos_attr_iterate_ud_t *iterate_udata,
-    tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 static int H5_daos_attribute_iterate_by_name_prep_cb(tse_task_t *task, void *args);
 static int H5_daos_attribute_iterate_by_name_comp_cb(tse_task_t *task, void *args);
 static herr_t H5_daos_attribute_iterate_by_crt_order(H5_daos_attr_iterate_ud_t *iterate_udata,
-    tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 static herr_t H5_daos_attribute_get_iter_op_task(H5_daos_attr_iterate_ud_t *iterate_udata, const char *attr_name,
-    tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 static int H5_daos_attribute_iterate_op_task(tse_task_t *task);
 static int H5_daos_attribute_iterate_finish(tse_task_t *task);
 
 static herr_t H5_daos_attribute_rename(H5_daos_obj_t *attr_container_obj, const char *cur_attr_name,
-    const char *new_attr_name, hbool_t collective, tse_sched_t *sched, H5_daos_req_t *req,
+    const char *new_attr_name, hbool_t collective, H5_daos_req_t *req,
     tse_task_t **first_task, tse_task_t **dep_task);
 
 static int H5_daos_attr_gnbi_alloc_task(tse_task_t *task);
@@ -262,18 +262,18 @@ static herr_t H5_daos_attribute_get_name_by_idx_alloc(H5_daos_obj_t *target_obj,
     tse_task_t **first_task, tse_task_t **dep_task);
 static herr_t H5_daos_attribute_get_name_by_idx(H5_daos_obj_t *target_obj, H5_index_t index_type,
     H5_iter_order_t iter_order, uint64_t idx, char *attr_name_out, size_t attr_name_out_size,
-    size_t *attr_name_size, tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
+    size_t *attr_name_size, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 static herr_t H5_daos_attribute_get_name_by_name_order(H5_daos_attr_get_name_by_idx_ud_t *get_name_udata,
-    tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 static herr_t H5_daos_attribute_get_name_by_name_order_cb(hid_t loc_id, const char *attr_name,
     const H5A_info_t *attr_info, void *op_data);
 static int H5_daos_attribute_gnbno_no_attrs_check_task(tse_task_t *task);
 static herr_t H5_daos_attribute_get_name_by_crt_order(H5_daos_attr_get_name_by_idx_ud_t *get_name_udata,
-    tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 static int H5_daos_attribute_get_name_by_crt_order_prep_cb(tse_task_t *task, void *args);
 static int H5_daos_attribute_get_name_by_crt_order_comp_cb(tse_task_t *task, void *args);
 static herr_t H5_daos_attribute_get_name_by_idx_free_udata(H5_daos_attr_get_name_by_idx_ud_t *udata,
-    tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 static int H5_daos_attribute_get_name_by_idx_free_udata_task(tse_task_t *task);
 static herr_t H5_daos_attribute_get_crt_order_by_name(H5_daos_obj_t *target_obj, const char *attr_name,
     uint64_t *crt_order);
@@ -470,7 +470,7 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
     if(!name)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "attribute name is NULL");
 
-    H5_DAOS_MAKE_ASYNC_PROGRESS(item->file->sched, NULL);
+    H5_DAOS_MAKE_ASYNC_PROGRESS(NULL);
 
     /* Check for write access */
     if(!(item->file->flags & H5F_ACC_RDWR))
@@ -507,7 +507,7 @@ done:
         H5_daos_op_pool_type_t op_type;
 
         /* Create task to finalize H5 operation */
-        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &item->file->sched, int_req, &int_req->finalize_task)))
+        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))
             D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
         /* Register dependencies (if any) */
         else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
@@ -543,9 +543,8 @@ done:
 
         /* Add the request to the object's request queue.  This will add the
          * dependency on the parent object open if necessary. */
-        if(H5_daos_req_enqueue(int_req, &item->file->sched,
-                first_task, item, op_type, H5_DAOS_OP_SCOPE_OBJ,
-                collective, item->open_req, &item->file->sched) < 0)
+        if(H5_daos_req_enqueue(int_req, first_task, item, op_type,
+                H5_DAOS_OP_SCOPE_OBJ, collective, item->open_req) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't add request to request queue");
 
         /* Check for external async */
@@ -554,13 +553,13 @@ done:
             *req = int_req;
 
             /* Kick task engine */
-            if(H5_daos_progress(&item->file->sched, NULL, H5_DAOS_PROGRESS_KICK) < 0)
+            if(H5_daos_progress(NULL, H5_DAOS_PROGRESS_KICK) < 0)
                 D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't progress scheduler");
         } /* end if */
         else {
             /* Block until operation completes */
             /* Wait for scheduler to be empty */
-            if(H5_daos_progress(&item->file->sched, int_req, H5_DAOS_PROGRESS_WAIT) < 0)
+            if(H5_daos_progress(int_req, H5_DAOS_PROGRESS_WAIT) < 0)
                 D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't progress scheduler");
 
             /* Check for failure */
@@ -779,12 +778,12 @@ H5_daos_attribute_create_helper(H5_daos_item_t *item, const H5VL_loc_params_t *l
          * the function anyways, the prep callback will check for creation order
          * before actually fetching any info. */
         if(may_track_acorder)
-            if(H5_daos_attribute_create_get_crt_order_info(create_ud, &item->file->sched,
+            if(H5_daos_attribute_create_get_crt_order_info(create_ud,
                     req, first_task, dep_task) < 0)
                 D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't create task to write attribute creation order metadata");
 
         /* Create task for attribute metadata write */
-        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_UPDATE, &item->file->sched,
+        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_UPDATE, &H5_daos_glob_sched_g,
                 *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &update_task)))
             D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't create task to write attribute medadata: %s", H5_daos_err_to_string(ret));
 
@@ -832,7 +831,7 @@ H5_daos_attribute_create_helper(H5_daos_item_t *item, const H5VL_loc_params_t *l
 
 done:
     if(collective && (item->file->num_procs > 1))
-        if(H5_daos_collective_error_check(attr->parent, &item->file->sched, req, first_task, dep_task) < 0)
+        if(H5_daos_collective_error_check(attr->parent, req, first_task, dep_task) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't perform collective error check");
 
     /* Cleanup on failure */
@@ -853,7 +852,7 @@ done:
             close_task_ud->item = &attr->item;
 
             /* Create task to close attribute */
-            if(0 != (ret = tse_task_create(H5_daos_object_close_task, &attr->item.file->sched, close_task_ud, &close_task))) {
+            if(0 != (ret = tse_task_create(H5_daos_object_close_task, &H5_daos_glob_sched_g, close_task_ud, &close_task))) {
                 close_task_ud = DV_free(close_task_ud);
                 D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't create task to close attribute: %s", H5_daos_err_to_string(ret));
             } /* end if */
@@ -1047,14 +1046,13 @@ done:
  */
 static herr_t
 H5_daos_attribute_create_get_crt_order_info(H5_daos_attr_create_ud_t *create_ud,
-    tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     tse_task_t *fetch_task;
     int ret;
     herr_t ret_value = SUCCEED;
 
     assert(create_ud);
-    assert(sched);
     assert(req);
     assert(first_task);
     assert(dep_task);
@@ -1106,7 +1104,7 @@ H5_daos_attribute_create_get_crt_order_info(H5_daos_attr_create_ud_t *create_ud,
     create_ud->md_rw_cb_ud.free_sg_iov[4] = FALSE;
 
     /* Create task for attribute creation order metadata fetch */
-    if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, sched,
+    if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &H5_daos_glob_sched_g,
             *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &fetch_task)))
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to fetch attribute creation order metadata: %s", H5_daos_err_to_string(ret));
 
@@ -1416,7 +1414,7 @@ H5_daos_attribute_open(void *_item, const H5VL_loc_params_t *loc_params,
     if(!name && (H5VL_OBJECT_BY_IDX != loc_params->type))
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "attribute name is NULL");
 
-    H5_DAOS_MAKE_ASYNC_PROGRESS(item->file->sched, NULL);
+    H5_DAOS_MAKE_ASYNC_PROGRESS(NULL);
 
     /*
      * Like HDF5, metadata reads are independent by default. If the application has
@@ -1438,7 +1436,7 @@ H5_daos_attribute_open(void *_item, const H5VL_loc_params_t *loc_params,
 done:
     if(int_req) {
         /* Create task to finalize H5 operation */
-        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &item->file->sched, int_req, &int_req->finalize_task)))
+        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))
             D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
         /* Register dependencies (if any) */
         else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
@@ -1460,7 +1458,7 @@ done:
 
         /* Block until operation completes */
         /* Wait for scheduler to be empty */
-        if(H5_daos_progress(&item->file->sched, int_req, H5_DAOS_PROGRESS_WAIT) < 0)
+        if(H5_daos_progress(int_req, H5_DAOS_PROGRESS_WAIT) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't progress scheduler");
 
         /* Check for failure */
@@ -1539,7 +1537,6 @@ H5_daos_attribute_open_helper(H5_daos_item_t *item, const H5VL_loc_params_t *loc
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "failed to allocate buffer for MPI broadcast user data");
         bcast_udata->bcast_ud.req = req;
         bcast_udata->bcast_ud.obj = NULL; /* Set later after parent object is opened */
-        bcast_udata->bcast_ud.sched = &item->file->sched;
         bcast_udata->bcast_ud.buffer = NULL;
         bcast_udata->bcast_ud.buffer_len = 0;
         bcast_udata->bcast_ud.count = 0;
@@ -1586,10 +1583,10 @@ H5_daos_attribute_open_helper(H5_daos_item_t *item, const H5VL_loc_params_t *loc
         case H5VL_OBJECT_BY_IDX:
         {
             if(H5_daos_attribute_open_by_idx_helper((H5_daos_obj_t *)item, loc_params, attr,
-                    &item->file->sched, req, first_task, dep_task) < 0)
+                    req, first_task, dep_task) < 0)
                 D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, NULL, "can't get attribute's parent object and name by index");
 
-            H5_DAOS_WAIT_ON_ASYNC_CHAIN(&item->file->sched, req, *first_task, *dep_task,
+            H5_DAOS_WAIT_ON_ASYNC_CHAIN(req, *first_task, *dep_task,
                     H5E_ATTR, H5E_CANTINIT, NULL);
 
             break;
@@ -1686,11 +1683,11 @@ H5_daos_attribute_open_helper(H5_daos_item_t *item, const H5VL_loc_params_t *loc
          * completed when the read is finished by H5_daos_ainfo_read_comp_cb.
          * We can't use fetch_task since it may not be completed by the first
          * fetch. */
-        if(0 != (ret = tse_task_create(NULL, &item->file->sched, NULL, &open_udata->fetch_ud.fetch_metatask)))
+        if(0 != (ret = tse_task_create(NULL, &H5_daos_glob_sched_g, NULL, &open_udata->fetch_ud.fetch_metatask)))
             D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't create meta task for attribute metadata read: %s", H5_daos_err_to_string(ret));
 
         /* Create task for attribute metadata read */
-        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &item->file->sched, *dep_task ? 1 : 0,
+        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &H5_daos_glob_sched_g, *dep_task ? 1 : 0,
                 *dep_task ? dep_task : NULL, &fetch_task)))
             D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't create task to read attribute metadata: %s", H5_daos_err_to_string(ret));
 
@@ -1736,7 +1733,7 @@ done:
     /* Broadcast attribute info */
     if(bcast_udata) {
         assert(!ainfo_buf);
-        if(H5_daos_mpi_ibcast((H5_daos_mpi_ibcast_ud_t *)bcast_udata, &item->file->sched, attr->parent,
+        if(H5_daos_mpi_ibcast((H5_daos_mpi_ibcast_ud_t *)bcast_udata, attr->parent,
                 ainfo_buf_size, NULL == ret_value ? TRUE : FALSE, NULL,
                 item->file->my_rank == 0 ? H5_daos_attribute_open_bcast_comp_cb : H5_daos_attribute_open_recv_comp_cb,
                 req, first_task, dep_task) < 0) {
@@ -1790,7 +1787,7 @@ done:
  */
 static herr_t
 H5_daos_attribute_open_by_idx_helper(H5_daos_obj_t *target_obj, const H5VL_loc_params_t *loc_params,
-    H5_daos_attr_t *attr_out, tse_sched_t *sched, H5_daos_req_t *req,
+    H5_daos_attr_t *attr_out, H5_daos_req_t *req,
     tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5VL_loc_params_t sub_loc_params;
@@ -1803,7 +1800,6 @@ H5_daos_attribute_open_by_idx_helper(H5_daos_obj_t *target_obj, const H5VL_loc_p
     assert(target_obj);
     assert(loc_params);
     assert(attr_out);
-    assert(sched);
     assert(req);
     assert(first_task);
     assert(dep_task);
@@ -1818,7 +1814,7 @@ H5_daos_attribute_open_by_idx_helper(H5_daos_obj_t *target_obj, const H5VL_loc_p
             NULL, &attr_parent_obj, req, first_task, dep_task) < 0)
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, FAIL, "can't open attribute's parent object");
 
-    H5_DAOS_WAIT_ON_ASYNC_CHAIN(sched, req, *first_task, *dep_task, H5E_ATTR, H5E_CANTINIT, FAIL);
+    H5_DAOS_WAIT_ON_ASYNC_CHAIN(req, *first_task, *dep_task, H5E_ATTR, H5E_CANTINIT, FAIL);
 
     /* Retrieve the attribute's name by index */
     if(H5_daos_attribute_get_name_by_idx_alloc(attr_parent_obj,
@@ -1827,7 +1823,7 @@ H5_daos_attribute_open_by_idx_helper(H5_daos_obj_t *target_obj, const H5VL_loc_p
             &target_attr_name_len, &attr_name_buf, NULL, req, first_task, dep_task) < 0)
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute name");
 
-    H5_DAOS_WAIT_ON_ASYNC_CHAIN(sched, req, *first_task, *dep_task, H5E_ATTR, H5E_CANTINIT, FAIL);
+    H5_DAOS_WAIT_ON_ASYNC_CHAIN(req, *first_task, *dep_task, H5E_ATTR, H5E_CANTINIT, FAIL);
 
     /* Setup attribute's parent object and name fields */
     if(NULL == (attr_out->name = strdup(target_attr_name)))
@@ -1896,7 +1892,7 @@ H5_daos_attribute_open_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *ar
             udata->bcast_ud.count = udata->bcast_ud.buffer_len;
 
             /* Create task for second bcast */
-            if(0 !=  (ret = tse_task_create(H5_daos_mpi_ibcast_task, &udata->bcast_ud.obj->item.file->sched, udata, &bcast_task)))
+            if(0 !=  (ret = tse_task_create(H5_daos_mpi_ibcast_task, &H5_daos_glob_sched_g, udata, &bcast_task)))
                 D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, ret, "can't create task for second attribute info broadcast: %s", H5_daos_err_to_string(ret));
 
             /* Set callback functions for second bcast */
@@ -2013,7 +2009,7 @@ H5_daos_attribute_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *arg
             udata->bcast_ud.count = (int)ainfo_len;
 
             /* Create task for second bcast */
-            if(0 != (ret = tse_task_create(H5_daos_mpi_ibcast_task, &udata->attr->parent->item.file->sched, udata, &bcast_task)))
+            if(0 != (ret = tse_task_create(H5_daos_mpi_ibcast_task, &H5_daos_glob_sched_g, udata, &bcast_task)))
                 D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, ret, "can't create task for second attribute info broadcast: %s", H5_daos_err_to_string(ret));
 
             /* Set callback functions for second bcast */
@@ -2197,7 +2193,7 @@ H5_daos_ainfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         udata->fetch_ud.md_rw_cb_ud.sgl[2].sg_nr_out = 0;
 
         /* Create task for reissued attribute metadata read */
-        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &udata->fetch_ud.md_rw_cb_ud.obj->item.file->sched, 0, NULL, &fetch_task)))
+        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &H5_daos_glob_sched_g, 0, NULL, &fetch_task)))
             D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, ret, "can't create task to read attribute medadata: %s", H5_daos_err_to_string(ret));
 
         /* Set callback functions for attribute metadata read */
@@ -2342,7 +2338,7 @@ H5_daos_attribute_read(void *_attr, hid_t mem_type_id, void *buf,
     if(H5I_ATTR != attr->item.type)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not an attribute");
 
-    H5_DAOS_MAKE_ASYNC_PROGRESS(attr->item.file->sched, FAIL);
+    H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
 
     /* Check for a NULL dataspace */
     if(H5S_NULL == H5Sget_simple_extent_type(attr->space_id))
@@ -2411,7 +2407,6 @@ H5_daos_attribute_read(void *_attr, hid_t mem_type_id, void *buf,
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "failed to allocate buffer for MPI broadcast user data");
         bcast_udata->req = int_req;
         bcast_udata->obj = attr->parent;
-        bcast_udata->sched = &attr->item.file->sched;
         bcast_udata->buffer = need_tconv ? tconv_buf : buf;
         bcast_udata->buffer_len = bcast_buf_size;
         bcast_udata->count = bcast_udata->buffer_len;
@@ -2494,7 +2489,7 @@ H5_daos_attribute_read(void *_attr, hid_t mem_type_id, void *buf,
 
             /* Create task for attribute read */
             assert(!dep_task);
-            if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &attr->item.file->sched, 0, NULL, &fetch_task)))
+            if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &H5_daos_glob_sched_g, 0, NULL, &fetch_task)))
                 D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to read attribute: %s", H5_daos_err_to_string(ret));
 
             /* Set callback functions for attribute read */
@@ -2517,7 +2512,7 @@ H5_daos_attribute_read(void *_attr, hid_t mem_type_id, void *buf,
          * after conversion buffer has been broadcasted. This task
          * will be scheduled after the broadcast task. */
         if(collective && (attr->item.file->num_procs > 1) && need_tconv) {
-            if(0 != (ret = tse_task_create(H5_daos_attr_read_tconv, &attr->item.file->sched,
+            if(0 != (ret = tse_task_create(H5_daos_attr_read_tconv, &H5_daos_glob_sched_g,
                     attr_read_udata, &tconv_task)))
                 D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to perform type conversion: %s", H5_daos_err_to_string(ret));
 
@@ -2534,7 +2529,7 @@ done:
     if(int_req) {
         /* Broadcast attribute data buffer if necessary */
         if(collective && attr && (attr->item.file->num_procs > 1)) {
-            if(H5_daos_mpi_ibcast(bcast_udata, &attr->item.file->sched, attr->parent,
+            if(H5_daos_mpi_ibcast(bcast_udata, attr->parent,
                     (size_t)bcast_udata->buffer_len, FALSE, NULL, H5_daos_attribute_read_bcast_comp_cb,
                     int_req, &first_task, &dep_task) < 0)
                 D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't broadcast attribute data buffer");
@@ -2551,7 +2546,7 @@ done:
         } /* end if */
 
         /* Create task to finalize H5 operation */
-        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &attr->item.file->sched, int_req, &int_req->finalize_task)))
+        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))
             D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
         /* Register dependency (if any) */
         else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
@@ -2573,7 +2568,7 @@ done:
 
         /* Block until operation completes */
         /* Wait for scheduler to be empty */
-        if(H5_daos_progress(&attr->item.file->sched, int_req, H5_DAOS_PROGRESS_WAIT) < 0)
+        if(H5_daos_progress(int_req, H5_DAOS_PROGRESS_WAIT) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't progress scheduler");
 
         /* Check for failure */
@@ -2880,7 +2875,7 @@ H5_daos_attribute_write(void *_attr, hid_t mem_type_id, const void *buf,
     if(H5I_ATTR != attr->item.type)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not an attribute");
 
-    H5_DAOS_MAKE_ASYNC_PROGRESS(attr->item.file->sched, FAIL);
+    H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
 
     /* Check for write access */
     if(!(attr->item.file->flags & H5F_ACC_RDWR))
@@ -3025,7 +3020,7 @@ H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
     if(!item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
 
-    H5_DAOS_MAKE_ASYNC_PROGRESS(item->file->sched, FAIL);
+    H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
 
     switch (get_type) {
         /* H5Aget_space */
@@ -3036,7 +3031,7 @@ H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
 
                 /* Wait for the attribute to open if necessary */
                 if(!attr->item.created && attr->item.open_req->status != 0) {
-                    if(H5_daos_progress(&attr->item.file->sched, attr->item.open_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                    if(H5_daos_progress(attr->item.open_req, H5_DAOS_PROGRESS_WAIT) < 0)
                         D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't progress scheduler");
                     if(attr->item.open_req->status != 0)
                         D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, FAIL, "attribute open failed");
@@ -3055,7 +3050,7 @@ H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
 
                 /* Wait for the attribute to open if necessary */
                 if(!attr->item.created && attr->item.open_req->status != 0) {
-                    if(H5_daos_progress(&attr->item.file->sched, attr->item.open_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                    if(H5_daos_progress(attr->item.open_req, H5_DAOS_PROGRESS_WAIT) < 0)
                         D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't progress scheduler");
                     if(attr->item.open_req->status != 0)
                         D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, FAIL, "attribute open failed");
@@ -3074,7 +3069,7 @@ H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
 
                 /* Wait for the attribute to open if necessary */
                 if(!attr->item.created && attr->item.open_req->status != 0) {
-                    if(H5_daos_progress(&attr->item.file->sched, attr->item.open_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                    if(H5_daos_progress(attr->item.open_req, H5_DAOS_PROGRESS_WAIT) < 0)
                         D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't progress scheduler");
                     if(attr->item.open_req->status != 0)
                         D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, FAIL, "attribute open failed");
@@ -3095,7 +3090,7 @@ H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
 
                 /* Wait for the item to open if necessary */
                 if(!item->created && item->open_req->status != 0) {
-                    if(H5_daos_progress(&item->file->sched, item->open_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                    if(H5_daos_progress(item->open_req, H5_DAOS_PROGRESS_WAIT) < 0)
                         D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't progress scheduler");
                     if(item->open_req->status != 0)
                         D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, FAIL, "item open failed");
@@ -3109,7 +3104,7 @@ H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
                  * fails the HDF5 library will assign -1 to the return value anyways
                  */
                 if(H5_daos_attribute_get_name((H5_daos_obj_t *)_item, loc_params,
-                        buf, buf_size, (size_t *)ret_size, &item->file->sched,
+                        buf, buf_size, (size_t *)ret_size,
                         int_req, &first_task, &dep_task) < 0)
                     D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute name");
 
@@ -3128,7 +3123,7 @@ H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
                     D_GOTO_ERROR(H5E_ATTR, H5E_CANTALLOC, FAIL, "can't create DAOS request");
 
                 if(H5_daos_attribute_get_info(_item, loc_params, attr_name, attr_info,
-                        NULL, H5_daos_attribute_get_info_comp_cb, &item->file->sched,
+                        NULL, H5_daos_attribute_get_info_comp_cb,
                         int_req, &first_task, &dep_task) < 0)
                     D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute info");
 
@@ -3142,7 +3137,7 @@ H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
 done:
     if(int_req) {
         /* Create task to finalize H5 operation */
-        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &item->file->sched, int_req, &int_req->finalize_task)))
+        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))
             D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
         /* Register dependency (if any) */
         else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
@@ -3163,7 +3158,7 @@ done:
             D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
 
         /* Block until operation completes */
-        if(H5_daos_progress(&item->file->sched, int_req, H5_DAOS_PROGRESS_WAIT) < 0)
+        if(H5_daos_progress(int_req, H5_DAOS_PROGRESS_WAIT) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't progress scheduler");
 
         /* Check for failure */
@@ -3216,7 +3211,7 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
     if(!loc_params)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "location parameters object is NULL");
 
-    H5_DAOS_MAKE_ASYNC_PROGRESS(item->file->sched, FAIL);
+    H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
 
     /* Determine metadata I/O mode setting (collective vs. independent)
      * for metadata reads and writes according to file-wide setting on
@@ -3250,7 +3245,7 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
                     NULL, &target_obj, int_req, &first_task, &dep_task) < 0)
                 D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, FAIL, "can't open object for attribute");
 
-            H5_DAOS_WAIT_ON_ASYNC_CHAIN(&item->file->sched, int_req, first_task, dep_task,
+            H5_DAOS_WAIT_ON_ASYNC_CHAIN(int_req, first_task, dep_task,
                     H5E_ATTR, H5E_CANTINIT, FAIL);
 
             break;
@@ -3267,7 +3262,7 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
                     NULL, &target_obj, int_req, &first_task, &dep_task))
                 D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, FAIL, "can't open object for attribute");
 
-            H5_DAOS_WAIT_ON_ASYNC_CHAIN(&item->file->sched, int_req, first_task, dep_task,
+            H5_DAOS_WAIT_ON_ASYNC_CHAIN(int_req, first_task, dep_task,
                     H5E_ATTR, H5E_CANTINIT, FAIL);
 
             break;
@@ -3286,7 +3281,7 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
 
                 /* Wait for the object to open if necessary */
                 if(loc_params->type == H5VL_OBJECT_BY_SELF && !target_obj->item.created && target_obj->item.open_req->status != 0) {
-                    if(H5_daos_progress(&target_obj->item.file->sched, target_obj->item.open_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                    if(H5_daos_progress(target_obj->item.open_req, H5_DAOS_PROGRESS_WAIT) < 0)
                         D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't progress scheduler");
                     if(target_obj->item.open_req->status != 0)
                         D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, FAIL, "object open failed");
@@ -3295,7 +3290,7 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
                 collective = collective_md_write;
                 op_type = H5_DAOS_OP_TYPE_WRITE;
                 if(H5_daos_attribute_delete(target_obj, loc_params, attr_name,
-                        collective, &item->file->sched, int_req, &first_task, &dep_task) < 0)
+                        collective, int_req, &first_task, &dep_task) < 0)
                     D_GOTO_ERROR(H5E_ATTR, H5E_CANTDELETE, FAIL, "unable to delete attribute");
 
                 break;
@@ -3327,7 +3322,7 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
 
                 /* Wait for the object to open if necessary */
                 if(loc_params->type == H5VL_OBJECT_BY_SELF && !target_obj->item.created && target_obj->item.open_req->status != 0) {
-                    if(H5_daos_progress(&target_obj->item.file->sched, target_obj->item.open_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                    if(H5_daos_progress(target_obj->item.open_req, H5_DAOS_PROGRESS_WAIT) < 0)
                         D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't progress scheduler");
                     if(target_obj->item.open_req->status != 0)
                         D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, FAIL, "object open failed");
@@ -3345,7 +3340,7 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
 
                 collective = FALSE;
                 op_type = H5_DAOS_OP_TYPE_READ;
-                if(H5_daos_attribute_iterate(target_obj, &iter_data, &item->file->sched,
+                if(H5_daos_attribute_iterate(target_obj, &iter_data,
                         int_req, &first_task, &dep_task) < 0)
                     D_GOTO_ERROR(H5E_ATTR, H5E_BADITER, FAIL, "can't iterate over attributes");
 
@@ -3360,7 +3355,7 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
 
                 /* Wait for the object to open if necessary */
                 if(loc_params->type == H5VL_OBJECT_BY_SELF && !target_obj->item.created && target_obj->item.open_req->status != 0) {
-                    if(H5_daos_progress(&target_obj->item.file->sched, target_obj->item.open_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                    if(H5_daos_progress(target_obj->item.open_req, H5_DAOS_PROGRESS_WAIT) < 0)
                         D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't progress scheduler");
                     if(target_obj->item.open_req->status != 0)
                         D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, FAIL, "object open failed");
@@ -3369,7 +3364,7 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
                 collective = collective_md_write;
                 op_type = H5_DAOS_OP_TYPE_WRITE;
                 if(H5_daos_attribute_rename(target_obj, cur_attr_name, new_attr_name,
-                        collective, &item->file->sched, int_req, &first_task, &dep_task) < 0)
+                        collective, int_req, &first_task, &dep_task) < 0)
                     D_GOTO_ERROR(H5E_ATTR, H5E_CANTRENAME, FAIL, "can't rename attribute");
 
                 break;
@@ -3382,7 +3377,7 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
 done:
     if(int_req) {
         /* Create task to finalize H5 operation */
-        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &item->file->sched, int_req, &int_req->finalize_task)))
+        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))
             D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
         /* Register dependency (if any) */
         else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
@@ -3400,9 +3395,8 @@ done:
 
         /* Add the request to the object's request queue.  This will add the
          * dependency on the parent object open if necessary. */
-        if(H5_daos_req_enqueue(int_req, &item->file->sched,
-                first_task, item, op_type, H5_DAOS_OP_SCOPE_OBJ,
-                collective, item->open_req, &item->file->sched) < 0)
+        if(H5_daos_req_enqueue(int_req, first_task, item, op_type,
+                H5_DAOS_OP_SCOPE_OBJ, collective, item->open_req) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
         /* Check for external async */
@@ -3411,12 +3405,12 @@ done:
             *req = int_req;
 
             /* Kick task engine */
-            if(H5_daos_progress(&item->file->sched, NULL, H5_DAOS_PROGRESS_KICK) < 0)
+            if(H5_daos_progress(NULL, H5_DAOS_PROGRESS_KICK) < 0)
                 D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't progress scheduler");
         } /* end if */
         else {
             /* Block until operation completes */
-            if(H5_daos_progress(&item->file->sched, int_req, H5_DAOS_PROGRESS_WAIT) < 0)
+            if(H5_daos_progress(int_req, H5_DAOS_PROGRESS_WAIT) < 0)
                 D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't progress scheduler");
 
             /* Check for failure */
@@ -3519,7 +3513,7 @@ H5_daos_attribute_close(void *_attr, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "attribute object is NULL");
 
     if(!attr->item.file->closed)
-        H5_DAOS_MAKE_ASYNC_PROGRESS(attr->item.file->sched, FAIL);
+        H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
 
     /* Check if the attribute's request queue is empty, if so we can close it
      * immediately */
@@ -3542,7 +3536,7 @@ H5_daos_attribute_close(void *_attr, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
         task_ud->item = &attr->item;
 
         /* Create task to close attribute */
-        if(0 != (ret = tse_task_create(H5_daos_object_close_task, &attr->item.file->sched, task_ud, &close_task)))
+        if(0 != (ret = tse_task_create(H5_daos_object_close_task, &H5_daos_glob_sched_g, task_ud, &close_task)))
             D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to close attribute: %s", H5_daos_err_to_string(ret));
 
         /* Save task to be scheduled later and give it a reference to req and
@@ -3559,7 +3553,7 @@ H5_daos_attribute_close(void *_attr, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
 done:
     if(int_req) {
         /* Create task to finalize H5 operation */
-        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &attr->item.file->sched, int_req, &int_req->finalize_task)))
+        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))
             D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
         /* Register dependencies (if any) */
         else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
@@ -3577,9 +3571,9 @@ done:
 
         /* Add the request to the object's request queue.  This will add the
          * dependency on the attribute open if necessary. */
-        if(H5_daos_req_enqueue(int_req, &attr->item.file->sched,
-                first_task, &attr->item, H5_DAOS_OP_TYPE_CLOSE, H5_DAOS_OP_SCOPE_ATTR,
-                FALSE, attr->item.open_req, &attr->item.file->sched) < 0)
+        if(H5_daos_req_enqueue(int_req, first_task, &attr->item,
+                H5_DAOS_OP_TYPE_CLOSE, H5_DAOS_OP_SCOPE_ATTR, FALSE,
+                attr->item.open_req) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
         /* Check for external async */
@@ -3588,12 +3582,12 @@ done:
             *req = int_req;
 
             /* Kick task engine */
-            if(H5_daos_progress(&attr->item.file->sched, NULL, H5_DAOS_PROGRESS_KICK) < 0)
+            if(H5_daos_progress(NULL, H5_DAOS_PROGRESS_KICK) < 0)
                 D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't progress scheduler");
         } /* end if */
         else {
             /* Block until operation completes */
-            if(H5_daos_progress(&attr->item.file->sched, int_req, H5_DAOS_PROGRESS_WAIT) < 0)
+            if(H5_daos_progress(int_req, H5_DAOS_PROGRESS_WAIT) < 0)
                 D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't progress scheduler");
 
             /* Check for failure */
@@ -3628,7 +3622,7 @@ done:
  */
 static herr_t
 H5_daos_attribute_get_name(H5_daos_obj_t *target_obj, const H5VL_loc_params_t *loc_params,
-    char *attr_name_out, size_t attr_name_out_size, size_t *size_ret, tse_sched_t *sched,
+    char *attr_name_out, size_t attr_name_out_size, size_t *size_ret,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_obj_t *parent_obj = NULL;
@@ -3636,7 +3630,6 @@ H5_daos_attribute_get_name(H5_daos_obj_t *target_obj, const H5VL_loc_params_t *l
 
     assert(target_obj);
     assert(loc_params);
-    assert(sched);
     assert(req);
     assert(first_task);
     assert(dep_task);
@@ -3682,12 +3675,12 @@ H5_daos_attribute_get_name(H5_daos_obj_t *target_obj, const H5VL_loc_params_t *l
                     NULL, &parent_obj, req, first_task, dep_task) < 0)
                 D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, (-1), "can't open attribute's parent object");
 
-            H5_DAOS_WAIT_ON_ASYNC_CHAIN(sched, req, *first_task, *dep_task,
+            H5_DAOS_WAIT_ON_ASYNC_CHAIN(req, *first_task, *dep_task,
                     H5E_ATTR, H5E_CANTINIT, (-1));
 
             if(H5_daos_attribute_get_name_by_idx(parent_obj, loc_params->loc_data.loc_by_idx.idx_type,
                     loc_params->loc_data.loc_by_idx.order, (uint64_t)loc_params->loc_data.loc_by_idx.n,
-                    attr_name_out, attr_name_out_size, size_ret, sched, req, first_task, dep_task) < 0)
+                    attr_name_out, attr_name_out_size, size_ret, req, first_task, dep_task) < 0)
                 D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, (-1), "can't get attribute name by index");
 
             break;
@@ -3723,7 +3716,7 @@ done:
 static herr_t
 H5_daos_attribute_get_info(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
     const char *attr_name, H5A_info_t *attr_info, tse_task_cb_t prep_cb, tse_task_cb_t comp_cb,
-    tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_attr_get_info_ud_t *get_info_udata = NULL;
     herr_t ret_value = SUCCEED;
@@ -3731,7 +3724,6 @@ H5_daos_attribute_get_info(H5_daos_item_t *item, const H5VL_loc_params_t *loc_pa
     assert(item);
     assert(loc_params);
     assert(attr_info);
-    assert(sched);
     assert(req);
     assert(first_task);
     assert(dep_task);
@@ -3771,7 +3763,7 @@ H5_daos_attribute_get_info(H5_daos_item_t *item, const H5VL_loc_params_t *loc_pa
             D_GOTO_ERROR(H5E_ATTR, H5E_BADVALUE, FAIL, "invalid loc_params type");
     } /* end switch */
 
-    if(H5_daos_attribute_get_info_inplace(get_info_udata, prep_cb, comp_cb, sched,
+    if(H5_daos_attribute_get_info_inplace(get_info_udata, prep_cb, comp_cb,
             req, first_task, dep_task) < 0)
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't create task to get attribute info");
 
@@ -3799,21 +3791,20 @@ done:
  */
 static herr_t
 H5_daos_attribute_get_info_inplace(H5_daos_attr_get_info_ud_t *get_info_udata,
-    tse_task_cb_t prep_cb, tse_task_cb_t comp_cb, tse_sched_t *sched,
-    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
+    tse_task_cb_t prep_cb, tse_task_cb_t comp_cb, H5_daos_req_t *req,
+    tse_task_t **first_task, tse_task_t **dep_task)
 {
     tse_task_t *get_info_task;
     int ret;
     herr_t ret_value = SUCCEED;
 
     assert(get_info_udata);
-    assert(sched);
     assert(req);
     assert(first_task);
     assert(dep_task);
 
     /* Create task for retrieving attribute info */
-    if(0 != (ret = tse_task_create(H5_daos_attribute_get_info_task, sched, get_info_udata, &get_info_task)))
+    if(0 != (ret = tse_task_create(H5_daos_attribute_get_info_task, &H5_daos_glob_sched_g, get_info_udata, &get_info_task)))
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to get attribute info: %s", H5_daos_err_to_string(ret));
 
     /* Register dependency on dep_task if present */
@@ -3842,7 +3833,7 @@ H5_daos_attribute_get_info_inplace(H5_daos_attr_get_info_ud_t *get_info_udata,
      * task for retrieving the attribute creation order value from the attribute's
      * parent object.
      */
-    if(0 != (ret = tse_task_create(H5_daos_metatask_autocomplete, sched, NULL, &get_info_udata->get_info_metatask)))
+    if(0 != (ret = tse_task_create(H5_daos_metatask_autocomplete, &H5_daos_glob_sched_g, NULL, &get_info_udata->get_info_metatask)))
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create meta task for attribute info retrieval: %s", H5_daos_err_to_string(ret));
 
     /* Register dependency on attribute info retrieval task for metatask */
@@ -4002,7 +3993,7 @@ done:
  */
 static herr_t
 H5_daos_attribute_delete(H5_daos_obj_t *attr_container_obj, const H5VL_loc_params_t *loc_params,
-    const char *attr_name, hbool_t collective, tse_sched_t *sched, H5_daos_req_t *req,
+    const char *attr_name, hbool_t collective, H5_daos_req_t *req,
     tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_attr_delete_ud_t *delete_udata = NULL;
@@ -4012,7 +4003,6 @@ H5_daos_attribute_delete(H5_daos_obj_t *attr_container_obj, const H5VL_loc_param
 
     assert(attr_container_obj);
     assert(loc_params);
-    assert(sched);
     assert(req);
     assert(first_task);
     assert(dep_task);
@@ -4038,7 +4028,7 @@ H5_daos_attribute_delete(H5_daos_obj_t *attr_container_obj, const H5VL_loc_param
                     NULL, req, first_task, dep_task) < 0)
                 D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute name");
 
-            H5_DAOS_WAIT_ON_ASYNC_CHAIN(sched, req, *first_task, *dep_task, H5E_ATTR, H5E_CANTINIT, FAIL);
+            H5_DAOS_WAIT_ON_ASYNC_CHAIN(req, *first_task, *dep_task, H5E_ATTR, H5E_CANTINIT, FAIL);
         } /* end if */
         else
             delete_udata->target_attr_name = attr_name;
@@ -4050,22 +4040,22 @@ H5_daos_attribute_delete(H5_daos_obj_t *attr_container_obj, const H5VL_loc_param
         if(attr_container_obj->ocpl_cache.track_acorder) {
             /* Retrieve the current number of attributes attached to the object and decrement it */
             if(H5_daos_object_get_num_attrs(delete_udata->attr_parent_obj, &delete_udata->cur_num_attrs,
-                    TRUE, sched, req, first_task, dep_task) < 0)
+                    TRUE, req, first_task, dep_task) < 0)
                 D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to retrieve number of attributes attached to object");
 
             /* Update the "number of attributes" key on the object */
             if(H5_daos_object_update_num_attrs_key(delete_udata->attr_parent_obj, &delete_udata->cur_num_attrs,
-                    NULL, NULL, sched, req, first_task, dep_task) < 0)
+                    NULL, NULL, req, first_task, dep_task) < 0)
                 D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to update number of attributes attached to object");
 
             /* Remove the attribute from the object's attribute creation order index */
             if(H5_daos_attribute_remove_from_crt_idx(delete_udata->attr_parent_obj, loc_params,
-                    delete_udata->target_attr_name, sched, req, first_task, dep_task) < 0)
+                    delete_udata->target_attr_name, req, first_task, dep_task) < 0)
                 D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to remove attribute from object's creation order index");
         } /* end if */
 
         /* Create task to punch akeys - DSINC - currently no support for deleting vlen data akeys */
-        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_PUNCH_AKEYS, sched,
+        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_PUNCH_AKEYS, &H5_daos_glob_sched_g,
                 *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &delete_task)))
             D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to delete attribute: %s", H5_daos_err_to_string(ret));
 
@@ -4095,7 +4085,7 @@ H5_daos_attribute_delete(H5_daos_obj_t *attr_container_obj, const H5VL_loc_param
 
 done:
     if(collective && (attr_container_obj->item.file->num_procs > 1))
-        if(H5_daos_collective_error_check(attr_container_obj, sched, req, first_task, dep_task) < 0)
+        if(H5_daos_collective_error_check(attr_container_obj, req, first_task, dep_task) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't perform collective error check");
 
     if(ret_value < 0) {
@@ -4245,7 +4235,7 @@ done:
  */
 static herr_t
 H5_daos_attribute_remove_from_crt_idx(H5_daos_obj_t *target_obj,
-    const H5VL_loc_params_t *loc_params, const char *attr_name, tse_sched_t *sched,
+    const H5VL_loc_params_t *loc_params, const char *attr_name,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     daos_key_t dkey;
@@ -4260,7 +4250,6 @@ H5_daos_attribute_remove_from_crt_idx(H5_daos_obj_t *target_obj,
     assert(target_obj);
     assert(loc_params);
     assert(attr_name);
-    assert(sched);
     assert(req);
     assert(first_task);
     assert(dep_task);
@@ -4268,10 +4257,10 @@ H5_daos_attribute_remove_from_crt_idx(H5_daos_obj_t *target_obj,
 
     /* Retrieve the current number of attributes attached to the object */
     if(H5_daos_object_get_num_attrs(target_obj, &obj_nattrs_remaining, FALSE,
-            sched, req, first_task, dep_task) < 0)
+            req, first_task, dep_task) < 0)
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get the number of attributes attached to object");
 
-    H5_DAOS_WAIT_ON_ASYNC_CHAIN(sched, req, *first_task, *dep_task,
+    H5_DAOS_WAIT_ON_ASYNC_CHAIN(req, *first_task, *dep_task,
             H5E_ATTR, H5E_CANTINIT, FAIL);
 
     /* Determine the index value of the attribute to be removed */
@@ -4311,10 +4300,10 @@ H5_daos_attribute_remove_from_crt_idx(H5_daos_obj_t *target_obj,
          *       the iteration order MUST be switched to H5_ITER_DEC or the key will not be
          *       found by the iteration.
          */
-        if(H5_daos_attribute_iterate(target_obj, &iter_data, sched, req, first_task, dep_task) < 0)
+        if(H5_daos_attribute_iterate(target_obj, &iter_data, req, first_task, dep_task) < 0)
             D_GOTO_ERROR(H5E_ATTR, H5E_BADITER, FAIL, "attribute iteration failed");
 
-        H5_DAOS_WAIT_ON_ASYNC_CHAIN(sched, req, *first_task, *dep_task,
+        H5_DAOS_WAIT_ON_ASYNC_CHAIN(req, *first_task, *dep_task,
                 H5E_ATTR, H5E_CANTINIT, FAIL);
     } /* end else */
 
@@ -4603,7 +4592,6 @@ H5_daos_attribute_exists(H5_daos_obj_t *attr_container_obj, const char *attr_nam
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "failed to allocate buffer for MPI broadcast user data");
         bcast_udata->req = req;
         bcast_udata->obj = attr_container_obj;
-        bcast_udata->sched = &attr_container_obj->item.file->sched;
         bcast_udata->buffer = (void *)exists;
         bcast_udata->buffer_len = (int)sizeof(htri_t);
         bcast_udata->count = (int)sizeof(htri_t);
@@ -4664,7 +4652,7 @@ H5_daos_attribute_exists(H5_daos_obj_t *attr_container_obj, const char *attr_nam
         } /* end if */
 
         /* Create task for fetch */
-        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &attr_container_obj->item.file->sched,
+        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &H5_daos_glob_sched_g,
                 *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &fetch_task)))
             D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create attribute exists task: %s", H5_daos_err_to_string(ret));
 
@@ -4694,9 +4682,9 @@ H5_daos_attribute_exists(H5_daos_obj_t *attr_container_obj, const char *attr_nam
 
     /* Broadcast attribute existence status if there are other processes that need it */
     if(collective && (attr_container_obj->item.file->num_procs > 1))
-        if(H5_daos_mpi_ibcast(bcast_udata, &attr_container_obj->item.file->sched,
-                attr_container_obj, sizeof(htri_t), FALSE, NULL, H5_daos_attr_exists_bcast_comp_cb,
-                req, first_task, dep_task) < 0)
+        if(H5_daos_mpi_ibcast(bcast_udata, attr_container_obj, sizeof(htri_t),
+                FALSE, NULL, H5_daos_attr_exists_bcast_comp_cb, req, first_task,
+                dep_task) < 0)
             D_GOTO_ERROR(H5E_ATTR, H5E_CANTSET, FAIL, "can't broadcast attribute existence status");
 
 done:
@@ -4718,8 +4706,8 @@ done:
             assert(bcast_udata);
             assert(bcast_udata->buffer);
             *((htri_t *)bcast_udata->buffer) = FAIL;
-            if(H5_daos_mpi_ibcast(bcast_udata, &attr_container_obj->item.file->sched,
-                    attr_container_obj, sizeof(htri_t), FALSE, NULL, H5_daos_attr_exists_bcast_comp_cb,
+            if(H5_daos_mpi_ibcast(bcast_udata, attr_container_obj,
+                    sizeof(htri_t), FALSE, NULL, H5_daos_attr_exists_bcast_comp_cb,
                     req, first_task, dep_task) < 0)
                 D_GOTO_ERROR(H5E_ATTR, H5E_CANTSET, FAIL, "can't broadcast attribute existence check failure");
         } /* end if */
@@ -4975,7 +4963,7 @@ done:
  */
 herr_t
 H5_daos_attribute_iterate(H5_daos_obj_t *attr_container_obj, H5_daos_iter_data_t *iter_data,
-    tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_attr_iterate_ud_t *iterate_udata = NULL;
     int ret;
@@ -4983,7 +4971,6 @@ H5_daos_attribute_iterate(H5_daos_obj_t *attr_container_obj, H5_daos_iter_data_t
 
     assert(attr_container_obj);
     assert(iter_data);
-    assert(sched);
     assert(req);
     assert(first_task);
     assert(dep_task);
@@ -5003,11 +4990,11 @@ H5_daos_attribute_iterate(H5_daos_obj_t *attr_container_obj, H5_daos_iter_data_t
 
     switch (iter_data->index_type) {
         case H5_INDEX_NAME:
-            if(H5_daos_attribute_iterate_by_name_order(iterate_udata, sched, req, first_task, dep_task) < 0)
+            if(H5_daos_attribute_iterate_by_name_order(iterate_udata, req, first_task, dep_task) < 0)
                 D_GOTO_ERROR(H5E_ATTR, H5E_BADITER, FAIL, "attribute iteration by name order failed");
             break;
         case H5_INDEX_CRT_ORDER:
-            if(H5_daos_attribute_iterate_by_crt_order(iterate_udata, sched, req, first_task, dep_task) < 0)
+            if(H5_daos_attribute_iterate_by_crt_order(iterate_udata, req, first_task, dep_task) < 0)
                 D_GOTO_ERROR(H5E_ATTR, H5E_BADITER, FAIL, "attribute iteration by creation order failed");
             break;
 
@@ -5022,7 +5009,7 @@ H5_daos_attribute_iterate(H5_daos_obj_t *attr_container_obj, H5_daos_iter_data_t
      * is necessary because the initial iteration task will generate other async
      * tasks for retrieving an attribute's info and making the user-supplied operator
      * function callback. */
-    if(0 != (ret = tse_task_create(H5_daos_attribute_iterate_finish, sched, iterate_udata, &iterate_udata->iterate_metatask)))
+    if(0 != (ret = tse_task_create(H5_daos_attribute_iterate_finish, &H5_daos_glob_sched_g, iterate_udata, &iterate_udata->iterate_metatask)))
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create meta task for attribute iteration: %s", H5_daos_err_to_string(ret));
 
     /* Register dependency on attribute iteration task for metatask */
@@ -5066,7 +5053,7 @@ done:
  */
 static herr_t
 H5_daos_attribute_iterate_by_name_order(H5_daos_attr_iterate_ud_t *iterate_udata,
-    tse_sched_t *sched, H5_daos_req_t H5VL_DAOS_UNUSED *req, tse_task_t **first_task, tse_task_t **dep_task)
+    H5_daos_req_t H5VL_DAOS_UNUSED *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     tse_task_t *list_akey_task;
     char *akey_buf = NULL;
@@ -5074,7 +5061,6 @@ H5_daos_attribute_iterate_by_name_order(H5_daos_attr_iterate_ud_t *iterate_udata
     herr_t ret_value = SUCCEED;
 
     assert(iterate_udata);
-    assert(sched);
     assert(first_task);
     assert(dep_task);
     assert(H5_INDEX_NAME == iterate_udata->iter_data.index_type);
@@ -5119,7 +5105,7 @@ H5_daos_attribute_iterate_by_name_order(H5_daos_attr_iterate_ud_t *iterate_udata
     iterate_udata->u.name_order_data.md_rw_cb_ud.task_name = "attribute iterate";
 
     /* Create task for initial daos_obj_list_akey operation */
-    if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_LIST_AKEY, sched, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &list_akey_task)))
+    if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_LIST_AKEY, &H5_daos_glob_sched_g, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &list_akey_task)))
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to list object's attribute akeys: %s", H5_daos_err_to_string(ret));
 
     /* Set callback functions for object akey list operation */
@@ -5316,7 +5302,7 @@ H5_daos_attribute_iterate_by_name_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSE
                     p[udata->u.name_order_data.kds[i].kd_key_len] = '\0';
 
                     /* Create task to call user-supplied operator callback function */
-                    if(H5_daos_attribute_get_iter_op_task(udata, &p[2], &udata->req->file->sched,
+                    if(H5_daos_attribute_get_iter_op_task(udata, &p[2],
                             udata->req, &first_task, &dep_task) < 0)
                         D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't create task to call operator callback function");
 
@@ -5374,7 +5360,7 @@ done:
  */
 static herr_t
 H5_daos_attribute_iterate_by_crt_order(H5_daos_attr_iterate_ud_t *iterate_udata,
-    tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     uint64_t cur_idx;
     const char *target_attr_name = NULL;
@@ -5383,7 +5369,6 @@ H5_daos_attribute_iterate_by_crt_order(H5_daos_attr_iterate_ud_t *iterate_udata,
     herr_t ret_value = SUCCEED;
 
     assert(iterate_udata);
-    assert(sched);
     assert(req);
     assert(first_task);
     assert(dep_task);
@@ -5398,10 +5383,10 @@ H5_daos_attribute_iterate_by_crt_order(H5_daos_attr_iterate_ud_t *iterate_udata,
 
     /* Retrieve the number of attributes attached to the target object */
     if(H5_daos_object_get_num_attrs(iterate_udata->attr_container_obj, &iterate_udata->u.crt_order_data.obj_nattrs,
-            FALSE, sched, req, first_task, dep_task) < 0)
+            FALSE, req, first_task, dep_task) < 0)
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get number of attributes attached to object");
 
-    H5_DAOS_WAIT_ON_ASYNC_CHAIN(sched, req, *first_task, *dep_task, H5E_ATTR, H5E_CANTINIT, FAIL);
+    H5_DAOS_WAIT_ON_ASYNC_CHAIN(req, *first_task, *dep_task, H5E_ATTR, H5E_CANTINIT, FAIL);
 
     /* Check if there are no attributes to process */
     if(iterate_udata->u.crt_order_data.obj_nattrs == 0)
@@ -5420,7 +5405,7 @@ H5_daos_attribute_iterate_by_crt_order(H5_daos_attr_iterate_ud_t *iterate_udata,
                 NULL, req, first_task, dep_task) < 0)
             D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute name");
 
-        H5_DAOS_WAIT_ON_ASYNC_CHAIN(sched, req, *first_task, *dep_task, H5E_ATTR, H5E_CANTINIT, FAIL);
+        H5_DAOS_WAIT_ON_ASYNC_CHAIN(req, *first_task, *dep_task, H5E_ATTR, H5E_CANTINIT, FAIL);
 
         /* TODO: Temporarily needed to avoid queuing up user-supplied operator
          * callback function when short-circuiting from a previous operation.
@@ -5429,7 +5414,7 @@ H5_daos_attribute_iterate_by_crt_order(H5_daos_attr_iterate_ud_t *iterate_udata,
             break;
 
         /* Create task to call user-supplied operator callback function */
-        if(H5_daos_attribute_get_iter_op_task(iterate_udata, target_attr_name, sched, req, first_task, dep_task) < 0)
+        if(H5_daos_attribute_get_iter_op_task(iterate_udata, target_attr_name, req, first_task, dep_task) < 0)
             D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to call operator callback function");
 
         if(attr_name_buf)
@@ -5456,7 +5441,7 @@ done:
  */
 static herr_t
 H5_daos_attribute_get_iter_op_task(H5_daos_attr_iterate_ud_t *iterate_udata, const char *attr_name,
-    tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
+     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_attr_iterate_op_ud_t *op_udata = NULL;
     H5VL_loc_params_t loc_params;
@@ -5466,7 +5451,6 @@ H5_daos_attribute_get_iter_op_task(H5_daos_attr_iterate_ud_t *iterate_udata, con
 
     assert(iterate_udata);
     assert(attr_name);
-    assert(sched);
     assert(req);
     assert(first_task);
     assert(dep_task);
@@ -5491,11 +5475,11 @@ H5_daos_attribute_get_iter_op_task(H5_daos_attr_iterate_ud_t *iterate_udata, con
 
     /* Create task to retrieve attribute's info */
     if(H5_daos_attribute_get_info_inplace(&op_udata->get_info_ud, NULL, NULL,
-            sched, req, first_task, dep_task) < 0)
+            req, first_task, dep_task) < 0)
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute info");
 
     /* Create task to call user-supplied operator callback */
-    if(0 != (ret = tse_task_create(H5_daos_attribute_iterate_op_task, sched, op_udata, &iter_op_task)))
+    if(0 != (ret = tse_task_create(H5_daos_attribute_iterate_op_task, &H5_daos_glob_sched_g, op_udata, &iter_op_task)))
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to call operator callback function: %s", H5_daos_err_to_string(ret));
 
     /* Register dependency on dep_task if present */
@@ -5596,7 +5580,7 @@ done:
         if(dep_task) {
             /* Create metatask */
             if(0 != (ret = tse_task_create(H5_daos_metatask_autocomp_other,
-                    &udata->get_info_ud.req->file->sched, task, &metatask))) {
+                    &H5_daos_glob_sched_g, task, &metatask))) {
                 D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, ret, "can't create metatask for attribute iter op task: %s", H5_daos_err_to_string(ret));
                 tse_task_complete(task, ret_value);
             } /* end if */
@@ -5753,8 +5737,8 @@ H5_daos_attribute_iterate_count_attrs_cb(hid_t H5VL_DAOS_UNUSED loc_id, const ch
  */
 static herr_t
 H5_daos_attribute_rename(H5_daos_obj_t *attr_container_obj, const char *cur_attr_name,
-    const char *new_attr_name, hbool_t collective, tse_sched_t *sched,
-    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
+    const char *new_attr_name, hbool_t collective, H5_daos_req_t *req,
+    tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5VL_loc_params_t sub_loc_params;
     H5_daos_attr_t *cur_attr = NULL;
@@ -5767,7 +5751,6 @@ H5_daos_attribute_rename(H5_daos_obj_t *attr_container_obj, const char *cur_attr
     assert(attr_container_obj);
     assert(cur_attr_name);
     assert(new_attr_name);
-    assert(sched);
     assert(req);
     assert(first_task);
     assert(dep_task);
@@ -5779,7 +5762,7 @@ H5_daos_attribute_rename(H5_daos_obj_t *attr_container_obj, const char *cur_attr
             &sub_loc_params, cur_attr_name, H5P_ATTRIBUTE_ACCESS_DEFAULT, collective, req, first_task, dep_task)))
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, FAIL, "can't open attribute");
 
-    H5_DAOS_WAIT_ON_ASYNC_CHAIN(sched, req, *first_task, *dep_task, H5E_ATTR, H5E_CANTINIT, FAIL);
+    H5_DAOS_WAIT_ON_ASYNC_CHAIN(req, *first_task, *dep_task, H5E_ATTR, H5E_CANTINIT, FAIL);
 
     /* Create the new attribute if this process should */
     if(!collective || (attr_container_obj->item.file->my_rank == 0)) {
@@ -5807,14 +5790,14 @@ H5_daos_attribute_rename(H5_daos_obj_t *attr_container_obj, const char *cur_attr
 
     /* Delete the old attribute */
     if(H5_daos_attribute_delete(attr_container_obj, &sub_loc_params, cur_attr_name,
-            collective, sched, req, first_task, dep_task) < 0)
+            collective, req, first_task, dep_task) < 0)
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTDELETE, FAIL, "can't delete old attribute");
 
-    H5_DAOS_WAIT_ON_ASYNC_CHAIN(sched, req, *first_task, *dep_task, H5E_ATTR, H5E_CANTINIT, FAIL);
+    H5_DAOS_WAIT_ON_ASYNC_CHAIN(req, *first_task, *dep_task, H5E_ATTR, H5E_CANTINIT, FAIL);
 
 done:
     if(collective && (attr_container_obj->item.file->num_procs > 1))
-        if(H5_daos_collective_error_check(attr_container_obj, sched, req, first_task, dep_task) < 0)
+        if(H5_daos_collective_error_check(attr_container_obj, req, first_task, dep_task) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't perform collective error check");
 
     attr_data_buf = DV_free(attr_data_buf);
@@ -5878,7 +5861,7 @@ H5_daos_attr_gnbi_alloc_task(tse_task_t *task)
         /* Reissue call with larger buffer and transfer ownership of udata */
         if(H5_daos_attribute_get_name_by_idx(udata->target_obj, udata->index_type,
                 udata->iter_order, udata->idx, *udata->attr_name_buf, udata->cur_attr_name_size,
-                udata->attr_name_size, &udata->target_obj->item.file->sched, udata->req,
+                udata->attr_name_size, udata->req,
                 &first_task, &dep_task) < 0)
             D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, -H5_DAOS_H5_GET_ERROR, "can't get attribute name by index");
         udata = NULL;
@@ -5976,12 +5959,11 @@ H5_daos_attribute_get_name_by_idx_alloc(H5_daos_obj_t *target_obj,
     /* Call underlying function */
     if(H5_daos_attribute_get_name_by_idx(target_obj, index_type, iter_order, idx,
             *gnbi_udata->attr_name_buf, gnbi_udata->cur_attr_name_size,
-            gnbi_udata->attr_name_size, &target_obj->item.file->sched, req,
-            first_task, dep_task) < 0)
+            gnbi_udata->attr_name_size, req, first_task, dep_task) < 0)
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get link name by index");
 
     /* Create task to finish this operation */
-    if(0 !=  (ret = tse_task_create(H5_daos_attr_gnbi_alloc_task, &target_obj->item.file->sched, gnbi_udata, &gnbi_udata->gnbi_task)))
+    if(0 !=  (ret = tse_task_create(H5_daos_attr_gnbi_alloc_task, &H5_daos_glob_sched_g, gnbi_udata, &gnbi_udata->gnbi_task)))
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task for attribute get name by index: %s", H5_daos_err_to_string(ret));
 
     /* Register task dependency */
@@ -6033,14 +6015,13 @@ done:
 static herr_t
 H5_daos_attribute_get_name_by_idx(H5_daos_obj_t *target_obj, H5_index_t index_type,
     H5_iter_order_t iter_order, uint64_t idx, char *attr_name_out, size_t attr_name_out_size,
-    size_t *attr_name_size, tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task,
+    size_t *attr_name_size, H5_daos_req_t *req, tse_task_t **first_task,
     tse_task_t **dep_task)
 {
     H5_daos_attr_get_name_by_idx_ud_t *get_name_udata = NULL;
     herr_t ret_value = SUCCEED;
 
     assert(target_obj);
-    assert(sched);
     assert(req);
     assert(first_task);
     assert(dep_task);
@@ -6058,18 +6039,18 @@ H5_daos_attribute_get_name_by_idx(H5_daos_obj_t *target_obj, H5_index_t index_ty
     get_name_udata->attr_name_size_ret = attr_name_size;
 
     if(H5_INDEX_NAME == index_type) {
-        if(H5_daos_attribute_get_name_by_name_order(get_name_udata, sched, req, first_task, dep_task) < 0)
+        if(H5_daos_attribute_get_name_by_name_order(get_name_udata, req, first_task, dep_task) < 0)
             D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't retrieve attribute name from name order index");
     } /* end if */
     else if(H5_INDEX_CRT_ORDER == index_type) {
-        if(H5_daos_attribute_get_name_by_crt_order(get_name_udata, sched, req, first_task, dep_task) < 0)
+        if(H5_daos_attribute_get_name_by_crt_order(get_name_udata, req, first_task, dep_task) < 0)
             D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't retrieve attribute name from creation order index");
     } /* end else */
     else
         D_GOTO_ERROR(H5E_ATTR, H5E_BADVALUE, FAIL, "invalid or unsupported index type");
 
     /* Create task to free udata after attribute name retrieval has completed */
-    if(H5_daos_attribute_get_name_by_idx_free_udata(get_name_udata, sched, req, first_task, dep_task) < 0)
+    if(H5_daos_attribute_get_name_by_idx_free_udata(get_name_udata, req, first_task, dep_task) < 0)
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to free attribute name retrieval data");
 
     /* Relinquish control of the attribute name retrieval udata to the
@@ -6095,7 +6076,7 @@ done:
  */
 static herr_t
 H5_daos_attribute_get_name_by_name_order(H5_daos_attr_get_name_by_idx_ud_t *get_name_udata,
-    tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_iter_data_t iter_data;
     tse_task_t *no_attrs_check_task = NULL;
@@ -6103,7 +6084,6 @@ H5_daos_attribute_get_name_by_name_order(H5_daos_attr_get_name_by_idx_ud_t *get_
     herr_t ret_value = 0;
 
     assert(get_name_udata);
-    assert(sched);
     assert(req);
     assert(first_task);
     assert(dep_task);
@@ -6113,14 +6093,14 @@ H5_daos_attribute_get_name_by_name_order(H5_daos_attr_get_name_by_idx_ud_t *get_
 
     /* Retrieve the current number of attributes attached to the target object */
     if(H5_daos_object_get_num_attrs(get_name_udata->target_obj, &get_name_udata->obj_nattrs, FALSE,
-            sched, req, first_task, dep_task) < 0)
+            req, first_task, dep_task) < 0)
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get number of attributes attached to object");
 
     /* Create task to check that requested index value is within range
      * of the number of attributes attached to the object.
      */
-    if(0 != (ret = tse_task_create(H5_daos_attribute_gnbno_no_attrs_check_task, sched,
-            get_name_udata, &no_attrs_check_task)))
+    if(0 != (ret = tse_task_create(H5_daos_attribute_gnbno_no_attrs_check_task,
+            &H5_daos_glob_sched_g, get_name_udata, &no_attrs_check_task)))
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to check for no attributes on object: %s", H5_daos_err_to_string(ret));
 
     /* Register dependency on dep_task if present */
@@ -6144,7 +6124,7 @@ H5_daos_attribute_get_name_by_name_order(H5_daos_attr_get_name_by_idx_ud_t *get_
             FALSE, NULL, H5I_INVALID_HID, get_name_udata, NULL, req);
     iter_data.u.attr_iter_data.u.attr_iter_op = H5_daos_attribute_get_name_by_name_order_cb;
 
-    if(H5_daos_attribute_iterate(get_name_udata->target_obj, &iter_data, sched, req, first_task, dep_task) < 0)
+    if(H5_daos_attribute_iterate(get_name_udata->target_obj, &iter_data, req, first_task, dep_task) < 0)
         D_GOTO_ERROR(H5E_ATTR, H5E_BADITER, FAIL, "attribute iteration failed");
 
 done:
@@ -6275,14 +6255,13 @@ done:
  */
 static herr_t
 H5_daos_attribute_get_name_by_crt_order(H5_daos_attr_get_name_by_idx_ud_t *get_name_udata,
-    tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     tse_task_t *fetch_task;
     int ret;
     herr_t ret_value = SUCCEED;
 
     assert(get_name_udata);
-    assert(sched);
     assert(req);
     assert(first_task);
     assert(dep_task);
@@ -6294,7 +6273,7 @@ H5_daos_attribute_get_name_by_crt_order(H5_daos_attr_get_name_by_idx_ud_t *get_n
 
     /* Retrieve the current number of attributes attached to the target object */
     if(H5_daos_object_get_num_attrs(get_name_udata->target_obj, &get_name_udata->obj_nattrs, FALSE,
-            sched, req, first_task, dep_task) < 0)
+            req, first_task, dep_task) < 0)
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get number of attributes attached to object");
 
     get_name_udata->u.by_crt_order_data.md_rw_cb_ud.obj = get_name_udata->target_obj;
@@ -6331,7 +6310,7 @@ H5_daos_attribute_get_name_by_crt_order(H5_daos_attr_get_name_by_idx_ud_t *get_n
     get_name_udata->u.by_crt_order_data.md_rw_cb_ud.task_name = "attribute name retrieval";
 
     /* Create task to fetch attribute's name */
-    if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, sched, *dep_task ? 1 : 0,
+    if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &H5_daos_glob_sched_g, *dep_task ? 1 : 0,
             *dep_task ? dep_task : NULL, &fetch_task)))
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to retrieve attribute's name: %s", H5_daos_err_to_string(ret));
 
@@ -6498,19 +6477,18 @@ done:
  */
 static herr_t
 H5_daos_attribute_get_name_by_idx_free_udata(H5_daos_attr_get_name_by_idx_ud_t *udata,
-    tse_sched_t *sched, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     tse_task_t *free_task;
     int ret;
     herr_t ret_value = SUCCEED;
 
     assert(udata);
-    assert(sched);
     assert(first_task);
     assert(dep_task);
 
     /* Create task for freeing udata */
-    if(0 != (ret = tse_task_create(H5_daos_attribute_get_name_by_idx_free_udata_task, sched,
+    if(0 != (ret = tse_task_create(H5_daos_attribute_get_name_by_idx_free_udata_task, &H5_daos_glob_sched_g,
             udata, &free_task)))
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to free attribute name retrieval udata: %s", H5_daos_err_to_string(ret));
 

@@ -2339,45 +2339,53 @@ H5_daos_link_copy_move_task(tse_task_t *task)
     if(dep_tasks[0])
         ndeps++;
 
-    /* If we're copying and it's a hard link we must increment the ref count */
-    if(!udata->move && udata->link_val.type == H5L_TYPE_HARD) {
-        H5VL_loc_params_t link_target_loc_params;
-        H5O_token_t token;
-        int rc_task = ndeps;
+    if(udata->link_val.type == H5L_TYPE_HARD) {
+        if(udata->move) {
+            /* Verify that source and destination files are the same */
+            if(memcmp(&udata->req->file->coh, &udata->target_obj->item.file->coh, sizeof(daos_handle_t)))
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTMOVE, -H5_DAOS_BAD_VALUE, "can't move hard links across files");
+        }
+        else {
+            H5VL_loc_params_t link_target_loc_params;
+            H5O_token_t token;
+            int rc_task = ndeps;
 
-        /* Verify src and dst files are the same? */
+            /* If we're copying a hard link we must increment the ref count */
 
-        /* Encode loc_params for opening link target object */
-        if(H5I_BADID == (link_target_loc_params.obj_type = H5_daos_oid_to_type(udata->link_val.target.hard)))
-            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_BAD_VALUE, "failed to get link target object's type");
-        link_target_loc_params.type = H5VL_OBJECT_BY_TOKEN;
-        if(H5_daos_oid_to_token(udata->link_val.target.hard, &token) < 0)
-            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_H5_ENCODE_ERROR, "failed to encode token");
-        link_target_loc_params.loc_data.loc_by_token.token = &token;
+            /* Verify src and dst files are the same? */
 
-        /* Attempt to open the hard link's target object */
-        if(H5_daos_object_open_helper(&udata->target_obj->item, &link_target_loc_params,
-                NULL, FALSE, NULL, &udata->link_target_obj, req, &first_task, &dep_tasks[rc_task]) < 0)
-            D_GOTO_ERROR(H5E_LINK, H5E_CANTOPENOBJ, -H5_DAOS_H5_OPEN_ERROR, "couldn't open hard link's target object");
-        if(dep_tasks[rc_task])
-            ndeps++;
+            /* Encode loc_params for opening link target object */
+            if(H5I_BADID == (link_target_loc_params.obj_type = H5_daos_oid_to_type(udata->link_val.target.hard)))
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_BAD_VALUE, "failed to get link target object's type");
+            link_target_loc_params.type = H5VL_OBJECT_BY_TOKEN;
+            if(H5_daos_oid_to_token(udata->link_val.target.hard, &token) < 0)
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_H5_ENCODE_ERROR, "failed to encode token");
+            link_target_loc_params.loc_data.loc_by_token.token = &token;
 
-        /* Read target object ref count */
-        if(0 != (ret = H5_daos_obj_read_rc(&udata->link_target_obj, NULL,
-                &udata->link_target_obj_rc, NULL, &udata->target_obj->item.file->sched,
-                req, &first_task, &dep_tasks[1])))
-            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, ret, "can't get target object ref count: %s", H5_daos_err_to_string(ret));
-        if(rc_task == ndeps && dep_tasks[rc_task])
-            ndeps++;
+            /* Attempt to open the hard link's target object */
+            if(H5_daos_object_open_helper(&udata->target_obj->item, &link_target_loc_params,
+                    NULL, FALSE, NULL, &udata->link_target_obj, req, &first_task, &dep_tasks[rc_task]) < 0)
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTOPENOBJ, -H5_DAOS_H5_OPEN_ERROR, "couldn't open hard link's target object");
+            if(dep_tasks[rc_task])
+                ndeps++;
 
-        /* Increment and write ref count */
-        if(0 != (ret = H5_daos_obj_write_rc(&udata->link_target_obj, NULL,
-                &udata->link_target_obj_rc, 1, &udata->target_obj->item.file->sched,
-                req, &first_task, &dep_tasks[1])))
-            D_GOTO_ERROR(H5E_LINK, H5E_CANTINC, ret, "can't write updated target object ref count: %s", H5_daos_err_to_string(ret));
-        if(rc_task == ndeps && dep_tasks[rc_task])
-            ndeps++;
-    } /* end if */
+            /* Read target object ref count */
+            if(0 != (ret = H5_daos_obj_read_rc(&udata->link_target_obj, NULL,
+                    &udata->link_target_obj_rc, NULL, &udata->target_obj->item.file->sched,
+                    req, &first_task, &dep_tasks[1])))
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, ret, "can't get target object ref count: %s", H5_daos_err_to_string(ret));
+            if(rc_task == ndeps && dep_tasks[rc_task])
+                ndeps++;
+
+            /* Increment and write ref count */
+            if(0 != (ret = H5_daos_obj_write_rc(&udata->link_target_obj, NULL,
+                    &udata->link_target_obj_rc, 1, &udata->target_obj->item.file->sched,
+                    req, &first_task, &dep_tasks[1])))
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTINC, ret, "can't write updated target object ref count: %s", H5_daos_err_to_string(ret));
+            if(rc_task == ndeps && dep_tasks[rc_task])
+                ndeps++;
+        }
+    }
 
 done:
     if(udata) {

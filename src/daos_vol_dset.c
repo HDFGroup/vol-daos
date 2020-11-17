@@ -541,7 +541,7 @@ H5_daos_dataset_create_helper(H5_daos_file_t *file, hid_t type_id, hid_t space_i
     tse_task_t *dataset_metatask;
     tse_task_t *finalize_deps[3];
     hbool_t default_dcpl = (dcpl_id == H5P_DATASET_CREATE_DEFAULT);
-    htri_t is_vl_ref;
+    htri_t is_vl_ref = FALSE;
     size_t fill_val_size;
     hid_t tmp_dcpl_id = H5I_INVALID_HID;
     void *type_buf = NULL;

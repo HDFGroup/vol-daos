@@ -3992,6 +3992,8 @@ H5_daos_map_close(void *_map, hid_t H5VL_DAOS_UNUSED dxpl_id,
     if(!_map)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map object is NULL");
 
+    assert(H5I_MAP == map->obj.item.type);
+
     if(!map->obj.item.file->closed)
         H5_DAOS_MAKE_ASYNC_PROGRESS(map->obj.item.file->sched, FAIL);
 

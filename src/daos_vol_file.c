@@ -3065,7 +3065,7 @@ H5_daos_file_close_helper(H5_daos_file_t *file, hid_t dxpl_id, void **req)
     int ret;
     herr_t ret_value = SUCCEED;
 
-    assert(file);
+    assert(file && (H5I_FILE == file->item.type));
 
     /* Free file data structures */
     if(file->item.open_req)

@@ -3461,7 +3461,8 @@ H5_daos_attribute_close_real(H5_daos_attr_t *attr)
 
     if(--attr->item.rc == 0) {
         /* Free attribute data structures */
-        assert(!attr->item.cur_op_pool);
+        if(attr->item.cur_op_pool)
+            H5_daos_op_pool_free(attr->item.cur_op_pool);
         if(attr->item.open_req)
             if(H5_daos_req_free_int(attr->item.open_req) < 0)
                 D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't free request");
@@ -3519,6 +3520,12 @@ H5_daos_attribute_close(void *_attr, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
      * immediately */
     if((attr->item.open_req->status == 0) && (!attr->item.cur_op_pool
             || attr->item.cur_op_pool->type == H5_DAOS_OP_TYPE_EMPTY)) {
+        /* Must finish operation pool so all tasks complete, etc. */
+        if(attr->item.cur_op_pool
+                && 0 != (ret = H5_daos_op_pool_finish(attr->item.cur_op_pool)))
+            D_GOTO_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't finish operation pool: %s", H5_daos_err_to_string(ret));
+
+        /* Close attribute */
         if(H5_daos_attribute_close_real(attr) < 0)
             D_GOTO_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close attribute");
     } /* end if */
@@ -3575,6 +3582,7 @@ done:
                 H5_DAOS_OP_TYPE_CLOSE, H5_DAOS_OP_SCOPE_ATTR, FALSE,
                 attr->item.open_req) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't add request to request queue");
+        attr = NULL;
 
         /* Check for external async */
         if(req) {

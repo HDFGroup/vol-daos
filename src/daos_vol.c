@@ -1272,6 +1272,7 @@ done:
 static herr_t
 H5_daos_term(void)
 {
+    int ret;
     herr_t ret_value = SUCCEED;
 
     /**
@@ -1281,10 +1282,14 @@ H5_daos_term(void)
     if(!H5_daos_initialized_g)
         D_GOTO_DONE(ret_value);
 
-    /* Free op pool */
+    /* Release global op pool */
     if(H5_daos_glob_cur_op_pool_g) {
-        assert(H5_daos_glob_cur_op_pool_g->type == H5_DAOS_OP_TYPE_EMPTY);
-        H5_daos_glob_cur_op_pool_g = DV_free(H5_daos_glob_cur_op_pool_g);
+        /* Finish global operation pool so all tasks complete, etc. */
+        if(0 != (ret = H5_daos_op_pool_finish(H5_daos_glob_cur_op_pool_g)))
+            D_GOTO_ERROR(H5E_FILE, H5E_CLOSEERROR, FAIL, "can't finish operation pool: %s", H5_daos_err_to_string(ret));
+
+        /* Free op pool */
+        H5_daos_op_pool_free(H5_daos_glob_cur_op_pool_g);
     } /* end if */
 
     /* Close global scheduler */
@@ -3215,6 +3220,13 @@ done:
     tse_task_complete(req->finalize_task, ret_value);
     req->finalize_task = NULL;
 
+    /* Complete dep_task.  Always succeeds since the purpose of dep_task is to
+     * prevent errors from propagating. */
+    if(req->dep_task) {
+        tse_task_complete(req->dep_task, 0);
+        req->dep_task = NULL;
+    } /* end if */
+
     /* Handle errors in this function */
     /* Do not place any code that can issue errors after this block, except for
      * H5_daos_req_free_int, which updates req->status if it sees an error */
@@ -3379,6 +3391,13 @@ done:
             /* Complete task in engine */
             tse_task_complete(req->finalize_task, ret_value);
             req->finalize_task = NULL;
+
+            /* Complete dep_task.  Always succeeds since the purpose of dep_task
+             * is to prevent errors from propagating. */
+            if(req->dep_task) {
+                tse_task_complete(req->dep_task, 0);
+                req->dep_task = NULL;
+            } /* end if */
         } /* end if */
     } /* end if */
     else

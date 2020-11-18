@@ -1782,7 +1782,8 @@ H5_daos_group_close_real(H5_daos_group_t *grp)
                           && grp->gcpl_id != H5P_FILE_CREATE_DEFAULT;
 
         /* Free group data structures */
-        assert(!grp->obj.item.cur_op_pool);
+        if(grp->obj.item.cur_op_pool)
+            H5_daos_op_pool_free(grp->obj.item.cur_op_pool);
         if(grp->obj.item.open_req)
             if(H5_daos_req_free_int(grp->obj.item.open_req) < 0)
                 D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't free request");
@@ -1832,10 +1833,10 @@ H5_daos_group_close(void *_grp, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
     if(!grp->obj.item.file->closed)
         H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
 
-    /* Check if the group's request queue is empty, if so we can close it
-     * immediately */
-    if((grp->obj.item.open_req->status == 0) && (!grp->obj.item.cur_op_pool
-            || grp->obj.item.cur_op_pool->type == H5_DAOS_OP_TYPE_EMPTY)) {
+    /* Check if the group's request queue is NULL, if so we can close it
+     * immediately.  Cannot immediately close with an empty op pool since it may
+     * depend on attribute ops. */
+    if((grp->obj.item.open_req->status == 0) && (!grp->obj.item.cur_op_pool)) {
         if(H5_daos_group_close_real(grp) < 0)
             D_GOTO_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group");
     } /* end if */
@@ -1892,6 +1893,7 @@ done:
                 H5_DAOS_OP_TYPE_CLOSE, H5_DAOS_OP_SCOPE_OBJ, FALSE,
                 grp->obj.item.open_req) < 0)
             D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't add request to request queue");
+        grp = NULL;
 
         /* Check for external async */
         if(req) {

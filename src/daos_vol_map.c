@@ -3991,7 +3991,8 @@ H5_daos_map_close_real(H5_daos_map_t *map)
 
     if(--map->obj.item.rc == 0) {
         /* Free map data structures */
-        assert(!map->obj.item.cur_op_pool);
+        if(map->obj.item.cur_op_pool)
+            H5_daos_op_pool_free(map->obj.item.cur_op_pool);
         if(map->obj.item.open_req)
             if(H5_daos_req_free_int(map->obj.item.open_req) < 0)
                 D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't free request");
@@ -4051,9 +4052,9 @@ H5_daos_map_close(void *_map, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
         H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
 
     /* Check if the map's request queue is empty, if so we can close it
-     * immediately */
-    if((map->obj.item.open_req->status == 0) && (!map->obj.item.cur_op_pool
-            || map->obj.item.cur_op_pool->type == H5_DAOS_OP_TYPE_EMPTY)) {
+     * immediately.  Cannot immediately close with an empty op pool since it may
+     * depend on attribute ops. */
+    if((map->obj.item.open_req->status == 0) && (!map->obj.item.cur_op_pool)) {
         if(H5_daos_map_close_real(map) < 0)
             D_GOTO_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't close map");
     } /* end if */
@@ -4110,6 +4111,7 @@ done:
                 H5_DAOS_OP_TYPE_CLOSE, H5_DAOS_OP_SCOPE_OBJ, FALSE,
                 map->obj.item.open_req) < 0)
             D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't add request to request queue");
+        map = NULL;
 
         /* Check for external async */
         if(req) {

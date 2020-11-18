@@ -593,6 +593,7 @@ struct H5_daos_req_t {
     H5_daos_file_t *file;
     hid_t dxpl_id;
     tse_task_t *finalize_task;
+    tse_task_t *dep_task;
     H5VL_request_notify_t notify_cb;
     void *notify_ctx;
     int rc;
@@ -630,11 +631,12 @@ typedef enum H5_daos_op_pool_scope_t {
 /* Struct for an operation pool */
 struct H5_daos_op_pool_t {
     H5_daos_op_pool_type_t type;
+    tse_task_t *init_task;
     tse_task_t *start_task;
     tse_task_t *end_task;
-    struct H5_daos_op_pool_t **parent_cur_op_pool;
-    H5_daos_item_t *item;
-    uint64_t op_gens[3];
+    tse_task_t *dep_task;
+    hbool_t closed;
+    int rc;
 };
 
 /* Task user data for generic operations that need no special handling (only for
@@ -1252,6 +1254,8 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_req_enqueue(H5_daos_req_t *req,
     tse_task_t *first_task, H5_daos_item_t *item,
     H5_daos_op_pool_type_t op_type, H5_daos_op_pool_scope_t scope,
     hbool_t collective, H5_daos_req_t *dep_req);
+H5VL_DAOS_PRIVATE int H5_daos_op_pool_finish(H5_daos_op_pool_t *op_pool);
+H5VL_DAOS_PRIVATE void H5_daos_op_pool_free(H5_daos_op_pool_t *op_pool);
 
 /* Generic asynchronous routines */
 H5VL_DAOS_PRIVATE herr_t H5_daos_progress(H5_daos_req_t *req, uint64_t timeout);
@@ -1273,6 +1277,7 @@ H5VL_DAOS_PRIVATE int H5_daos_h5op_finalize(tse_task_t *task);
 H5VL_DAOS_PRIVATE int H5_daos_metatask_autocomplete(tse_task_t *task);
 H5VL_DAOS_PRIVATE int H5_daos_metatask_autocomp_other(tse_task_t *task);
 H5VL_DAOS_PRIVATE int H5_daos_mpi_ibcast_task(tse_task_t *task);
+H5VL_DAOS_PRIVATE int H5_daos_mpi_ibarrier_task(tse_task_t *task);
 
 /* Asynchronous prep/complete callbacks */
 H5VL_DAOS_PRIVATE int H5_daos_generic_prep_cb(tse_task_t *task, void *args);

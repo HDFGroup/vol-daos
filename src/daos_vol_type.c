@@ -1888,7 +1888,8 @@ H5_daos_datatype_close_real(H5_daos_dtype_t *dtype)
 
     if(--dtype->obj.item.rc == 0) {
         /* Free datatype data structures */
-        assert(!dtype->obj.item.cur_op_pool);
+        if(dtype->obj.item.cur_op_pool)
+            H5_daos_op_pool_free(dtype->obj.item.cur_op_pool);
         if(dtype->obj.item.open_req)
             if(H5_daos_req_free_int(dtype->obj.item.open_req) < 0)
                 D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, FAIL, "can't free request");
@@ -1942,9 +1943,9 @@ H5_daos_datatype_close(void *_dtype, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
         H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
 
     /* Check if the datatype's request queue is empty, if so we can close it
-     * immediately */
-    if((dtype->obj.item.open_req->status == 0) && (!dtype->obj.item.cur_op_pool
-            || dtype->obj.item.cur_op_pool->type == H5_DAOS_OP_TYPE_EMPTY)) {
+     * immediately.  Cannot immediately close with an empty op pool since it may
+     * depend on attribute ops. */
+    if((dtype->obj.item.open_req->status == 0) && (!dtype->obj.item.cur_op_pool)) {
         if(H5_daos_datatype_close_real(dtype) < 0)
             D_GOTO_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, FAIL, "can't close datatype");
     } /* end if */
@@ -2001,6 +2002,7 @@ done:
                 H5_DAOS_OP_TYPE_CLOSE, H5_DAOS_OP_SCOPE_OBJ, FALSE,
                 dtype->obj.item.open_req) < 0)
             D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't add request to request queue");
+        dtype = NULL;
 
         /* Check for external async */
         if(req) {

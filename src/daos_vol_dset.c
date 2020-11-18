@@ -4255,7 +4255,8 @@ H5_daos_dataset_close_real(H5_daos_dset_t *dset)
 
     if(--dset->obj.item.rc == 0) {
         /* Free dataset data structures */
-        assert(!dset->obj.item.cur_op_pool);
+        if(dset->obj.item.cur_op_pool)
+            H5_daos_op_pool_free(dset->obj.item.cur_op_pool);
         if(dset->obj.item.open_req)
             if(H5_daos_req_free_int(dset->obj.item.open_req) < 0)
                 D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, FAIL, "can't free request");
@@ -4336,10 +4337,10 @@ H5_daos_dataset_close(void *_dset, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
     if(!dset->obj.item.file->closed)
         H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
 
-    /* Check if the dataset's request queue is empty, if so we can close it
-     * immediately */
-    if((dset->obj.item.open_req->status == 0) && (!dset->obj.item.cur_op_pool
-            || dset->obj.item.cur_op_pool->type == H5_DAOS_OP_TYPE_EMPTY)) {
+    /* Check if the dataset's request queue is NULL, if so we can close it
+     * immediately.  Cannot immediately close with an empty op pool since it may
+     * depend on attribute ops. */
+    if((dset->obj.item.open_req->status == 0) && (!dset->obj.item.cur_op_pool)) {
         if(H5_daos_dataset_close_real(dset) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CLOSEERROR, FAIL, "can't close dataset");
     } /* end if */
@@ -4396,6 +4397,7 @@ done:
                 H5_DAOS_OP_TYPE_CLOSE, H5_DAOS_OP_SCOPE_OBJ, FALSE,
                 dset->obj.item.open_req) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't add request to request queue");
+        dset = NULL;
 
         /* Check for external async */
         if(req) {

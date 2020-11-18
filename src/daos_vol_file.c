@@ -106,8 +106,7 @@ static herr_t H5_daos_file_delete_sync(const char *filename, hid_t fapl_id);
 
 static herr_t H5_daos_fill_fapl_cache(H5_daos_file_t *file, hid_t fapl_id);
 static herr_t H5_daos_fill_enc_plist_cache(H5_daos_file_t *file, hid_t fapl_id);
-static herr_t H5_daos_file_close_helper(H5_daos_file_t *file,
-    hid_t dxpl_id, void **req);
+static herr_t H5_daos_file_close_helper(H5_daos_file_t *file);
 static herr_t H5_daos_get_obj_count_callback(hid_t id, void *udata);
 static herr_t H5_daos_get_obj_ids_callback(hid_t id, void *udata);
 
@@ -974,7 +973,7 @@ done:
     /* Cleanup on failure */
     if(NULL == ret_value) {
         /* Close file */
-        if(file && H5_daos_file_close_helper(file, dxpl_id, NULL) < 0)
+        if(file && H5_daos_file_close_helper(file) < 0)
             D_DONE_ERROR(H5E_FILE, H5E_CANTCLOSEFILE, NULL, "can't close file");
     } /* end if */
 
@@ -1670,7 +1669,7 @@ done:
     /* Cleanup on failure */
     if(NULL == ret_value) {
         /* Close file */
-        if(file && H5_daos_file_close_helper(file, dxpl_id, NULL) < 0)
+        if(file && H5_daos_file_close_helper(file) < 0)
             D_DONE_ERROR(H5E_FILE, H5E_CANTCLOSEFILE, NULL, "can't close file");
     } /* end if */
 
@@ -2083,9 +2082,6 @@ H5_daos_cont_open_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for container open task");
 
     assert(udata->req);
-    assert(udata->req->file);
-    assert(!udata->req->file->closed);
-    assert(udata->poh);
 
     /* Handle errors */
     if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
@@ -2098,6 +2094,10 @@ H5_daos_cont_open_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         udata = NULL;
         D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
     } /* end if */
+
+    assert(udata->req->file);
+    assert(!udata->req->file->closed);
+    assert(udata->poh);
 
     /* Set file's UUID if necessary */
     if(!H5_daos_bypass_duns_g && 0 == (udata->flags & H5F_ACC_CREAT))
@@ -3044,20 +3044,16 @@ H5_daos_file_decref(H5_daos_file_t *file)
  *-------------------------------------------------------------------------
  */
 static herr_t
-H5_daos_file_close_helper(H5_daos_file_t *file, hid_t H5VL_DAOS_UNUSED dxpl_id,
-    void H5VL_DAOS_UNUSED **req)
+H5_daos_file_close_helper(H5_daos_file_t *file)
 {
     int ret;
     herr_t ret_value = SUCCEED;
 
     assert(file);
 
-    /* Finish all tasks in the scheduler */
-    if(H5_daos_progress(NULL, H5_DAOS_PROGRESS_WAIT) < 0)
-        D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't progress scheduler");
-
     /* Free file data structures */
-    assert(!file->item.cur_op_pool);
+    if(file->item.cur_op_pool)
+        H5_daos_op_pool_free(file->item.cur_op_pool);
     if(file->item.open_req)
         if(H5_daos_req_free_int(file->item.open_req) < 0)
             D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, FAIL, "can't free request");
@@ -3104,6 +3100,65 @@ H5_daos_file_close_helper(H5_daos_file_t *file, hid_t H5VL_DAOS_UNUSED dxpl_id,
 
 
 /*-------------------------------------------------------------------------
+ * Function:    H5_daos_file_close_barrier_comp_cb
+ *
+ * Purpose:     Complete callback for asynchronous MPI_ibarrier for file
+ *              closes.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ * Programmer:  Neil Fortner
+ *              November, 2020
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_file_close_barrier_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_req_t *req;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (req = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for file close barrier task");
+
+    assert(req);
+    assert(req->file);
+    assert(!req->file->closed);
+
+    /* Handle errors in bcast task.  Only record error in udata->req_status if
+     * it does not already contain an error (it could contain an error if
+     * another task this task is not dependent on also failed). */
+    if(task->dt_result < -H5_DAOS_PRE_ERROR
+            && req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+        req->status = task->dt_result;
+        req->failed_task = "MPI_Ibarrier";
+    } /* end if */
+
+    /* Always close file even if something failed */
+    if(H5_daos_file_close_helper(req->file) < 0)
+        D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close file");
+
+    /* Handle errors in this function */
+    /* Do not place any code that can issue errors after this block, except
+     * for H5_daos_req_free_int, which updates req->status if it sees an
+     * error */
+    if(ret_value < -H5_DAOS_SHORT_CIRCUIT && req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+        req->status = ret_value;
+        req->failed_task = "MPI_Ibarrier completion callback";
+    } /* end if */
+
+    /* Release our reference to req */
+    if(H5_daos_req_free_int(req) < 0)
+        D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+done:
+    return ret_value;
+} /* end H5_daos_file_close_barrier_comp_cb() */
+
+
+/*-------------------------------------------------------------------------
  * Function:    H5_daos_file_close
  *
  * Purpose:     Closes a daos HDF5 file, committing the epoch if
@@ -3118,79 +3173,101 @@ H5_daos_file_close_helper(H5_daos_file_t *file, hid_t H5VL_DAOS_UNUSED dxpl_id,
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_file_close(void *_file, hid_t dxpl_id, void **req)
+H5_daos_file_close(void *_file, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
 {
     H5_daos_file_t *file = (H5_daos_file_t *)_file;
+    tse_task_t *barrier_task = NULL;
+    tse_task_t *first_task = NULL;
+    tse_task_t *dep_task = NULL;
+    H5_daos_req_t *int_req = NULL;
     int ret;
     herr_t ret_value = SUCCEED;
 
     if(!_file)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "file object is NULL");
 
-    /* Flush the file (barrier, commit epoch, slip epoch) *Update comment DSINC */
+    assert(!file->closed);
+
+    /* Start H5 operation. Currently, the DXPL is only copied when datatype conversion is needed. */
+    if(NULL == (int_req = H5_daos_req_create(file, H5P_DATASET_XFER_DEFAULT)))
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, FAIL, "can't create DAOS request");
+
+    /* Flush the file (no-op currently) */
     if(H5_daos_file_flush(file) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_WRITEERROR, FAIL, "can't flush file");
 
-    /* Finalize root group's operation pool */
-    if(file->root_grp->obj.item.cur_op_pool) {
-//printf("root group pool start task: %p end task: %p\n", file->root_grp->obj.item.cur_op_pool->start_task, file->root_grp->obj.item.cur_op_pool->end_task); fflush(stdout);
-        if(file->root_grp->obj.item.cur_op_pool->start_task) {
-            /* Create dependency for pool end task on pool start task */
-            if((ret = tse_task_register_deps(file->root_grp->obj.item.cur_op_pool->end_task, 1, &file->root_grp->obj.item.cur_op_pool->start_task)) < 0)
-                D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create dependencies for end task for operation pool: %s", H5_daos_err_to_string(ret)); 
+    /* Finish root group's operation pool so all tasks complete, etc. */
+    if(file->root_grp->obj.item.cur_op_pool
+            && 0 != (ret = H5_daos_op_pool_finish(file->root_grp->obj.item.cur_op_pool)))
+        D_GOTO_ERROR(H5E_FILE, H5E_CLOSEERROR, FAIL, "can't finish operation pool: %s", H5_daos_err_to_string(ret));
 
-            /* Schedule pool start task if necessary */
-            if(file->root_grp->obj.item.cur_op_pool->type == H5_DAOS_OP_TYPE_EMPTY
-                    && 0 != (ret = tse_task_schedule(file->root_grp->obj.item.cur_op_pool->start_task, false)))
-                D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't schedule task to end operation pool: %s", H5_daos_err_to_string(ret));
-        } /* end if */
+    /* Create task for barrier */
+    if(0 != (ret = tse_task_create(H5_daos_mpi_ibarrier_task, &H5_daos_glob_sched_g, int_req, &barrier_task)))
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create MPI barrier task: %s", H5_daos_err_to_string(ret));
 
-        /* Schedule pool end task */
-        if(0 != (ret = tse_task_schedule(file->root_grp->obj.item.cur_op_pool->end_task, false)))
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't schedule task to end operation pool: %s", H5_daos_err_to_string(ret));
+    /* Set callback functions for barrier (comp_cb will close the file) */
+    if(0 != (ret = tse_task_register_cbs(barrier_task, NULL, NULL, 0, H5_daos_file_close_barrier_comp_cb, NULL, 0)))
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't register callbacks for MPI barrier: %s", H5_daos_err_to_string(ret));
 
-        /* Set pool type to CLOSE, this will cause the pool end task to free the
-         * pool */
-        file->root_grp->obj.item.cur_op_pool->type = H5_DAOS_OP_TYPE_CLOSE;
-    } /* end if */
-
-    /* Finalize file's operation pool */
-    if(file->item.cur_op_pool) {
-//printf("file pool start task: %p end task: %p\n", file->item.cur_op_pool->start_task, file->item.cur_op_pool->end_task); fflush(stdout);
-        if(file->item.cur_op_pool->start_task) {
-            /* Create dependency for pool end task on pool start task */
-            if((ret = tse_task_register_deps(file->item.cur_op_pool->end_task, 1, &file->item.cur_op_pool->start_task)) < 0)
-                D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create dependencies for end task for operation pool: %s", H5_daos_err_to_string(ret));
-
-            /* Schedule pool start task */
-            if(file->item.cur_op_pool->type == H5_DAOS_OP_TYPE_EMPTY
-                    && 0 != (ret = tse_task_schedule(file->item.cur_op_pool->start_task, false)))
-                D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't schedule task to end operation pool: %s", H5_daos_err_to_string(ret));
-        } /* end if */
-
-        /* Schedule pool end task */
-        if(0 != (ret = tse_task_schedule(file->item.cur_op_pool->end_task, false)))
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't schedule task to end operation pool: %s", H5_daos_err_to_string(ret));
-
-        /* Set pool type to CLOSE, this will cause the pool end task to free the
-         * pool */
-        file->item.cur_op_pool->type = H5_DAOS_OP_TYPE_CLOSE;
-    } /* end if */
-
-    /*
-     * Ensure that all other processes are done with the file before
-     * closing the container handle. This is to prevent invalid handle
-     * issues due to rank 0 closing the container handle before other
-     * ranks are done using it.
-     */
-    if(file->num_procs > 1 && (MPI_SUCCESS != MPI_Barrier(file->comm)))
-        D_GOTO_ERROR(H5E_FILE, H5E_MPI, FAIL, "MPI_Barrier failed during file close");
-
-    /* Close the file */
-    if(H5_daos_file_close_helper(file, dxpl_id, req) < 0)
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTCLOSEFILE, FAIL, "can't close file");
+    /* Save task to be scheduled later and give it a reference to req */
+    assert(!first_task);
+    first_task = barrier_task;
+    dep_task = barrier_task;
+    /* No need to take a reference to file here since the purpose is to release
+     * the API's reference */
+    int_req->rc++;
 
 done:
+    if(int_req) {
+        /* Create task to finalize H5 operation */
+        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))
+            D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        /* Register dependencies (if any) */
+        else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
+            D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        /* Schedule finalize task */
+        else if(0 != (ret = tse_task_schedule(int_req->finalize_task, false)))
+            D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        else
+            /* finalize_task now owns a reference to req */
+            int_req->rc++;
+
+        /* If there was an error during setup, pass it to the request */
+        if(ret_value < 0)
+            int_req->status = -H5_DAOS_SETUP_ERROR;
+
+        /* Add the request to the file's request queue.  This will add the
+         * dependency on the file open if necessary. */
+        if(H5_daos_req_enqueue(int_req, first_task, &file->item,
+                H5_DAOS_OP_TYPE_CLOSE, H5_DAOS_OP_SCOPE_FILE, TRUE,
+                file->item.open_req) < 0)
+            D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't add request to request queue");
+        file = NULL;
+
+        /* Check for external async */
+        if(req) {
+            /* Return int_req as req */
+            *req = int_req;
+
+            /* Kick task engine */
+            if(H5_daos_progress(NULL, H5_DAOS_PROGRESS_KICK) < 0)
+                D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't progress scheduler");
+        } /* end if */
+        else {
+            /* Block until operation completes */
+            if(H5_daos_progress(int_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't progress scheduler");
+
+            /* Check for failure */
+            if(int_req->status < 0)
+                D_DONE_ERROR(H5E_FILE, H5E_CANTOPERATE, FAIL, "file close failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status));
+
+            /* Release our reference to the internal request */
+            if(H5_daos_req_free_int(int_req) < 0)
+                D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, FAIL, "can't free request");
+        } /* end else */
+    } /* end if */
+
     D_FUNC_LEAVE_API;
 } /* end H5_daos_file_close() */
 

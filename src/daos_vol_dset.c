@@ -272,10 +272,6 @@ H5_daos_fill_val_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for dataset fill value broadcast task");
 
     assert(udata->req);
-    assert(udata->obj);
-    assert(udata->obj->item.file);
-    assert(!udata->obj->item.file->closed);
-    assert(udata->obj->item.type == H5I_DATASET);
 
     /* Handle errors in bcast task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if
@@ -285,12 +281,18 @@ H5_daos_fill_val_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         udata->req->status = task->dt_result;
         udata->req->failed_task = "MPI_Ibcast fill value";
     } /* end if */
+    else if(task->dt_result == 0) {
+        assert(udata->obj);
+        assert(udata->obj->item.file);
+        assert(!udata->obj->item.file->closed);
+        assert(udata->obj->item.type == H5I_DATASET);
+    } /* end if */
 
 done:
     /* Free private data if we haven't released ownership */
     if(udata) {
         /* Close dataset */
-        if(H5_daos_dataset_close_real((H5_daos_dset_t *)udata->obj) < 0)
+        if(udata->obj && H5_daos_dataset_close_real((H5_daos_dset_t *)udata->obj) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close dataset");
 
         /* Handle errors in this function */
@@ -408,7 +410,7 @@ void *
 H5_daos_dataset_create(void *_item,
     const H5VL_loc_params_t H5VL_DAOS_UNUSED *loc_params, const char *name,
     hid_t lcpl_id, hid_t type_id, hid_t space_id, hid_t dcpl_id,
-    hid_t dapl_id, hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req)
+    hid_t dapl_id, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_dset_t *dset = NULL;
@@ -507,15 +509,13 @@ done:
             int_req->status = -H5_DAOS_SETUP_ERROR;
 
         /* Determine operation type - we will add the operation to item's
-         * op pool.  If target_obj is NULL (anonymous create), use
-         * H5_DAOS_OP_TYPE_NOPOOL.  If the target_obj might have link creation
-         * order tracked and target_obj is not different from item use
+         * op pool.  If the target_obj might have link creation order tracked
+         * and target_obj is not different from item use
          * H5_DAOS_OP_TYPE_WRITE_ORDERED, otherwise use H5_DAOS_OP_TYPE_WRITE.
          * Add to item's pool because that's where we're creating the link.  No
          * need to add to dataset's pool since it's the open request. */
-        if(!target_obj)
-            op_type = H5_DAOS_OP_TYPE_NOPOOL;
-        else if(&target_obj->item != item || target_obj->item.type != H5I_GROUP
+        if(!target_obj || &target_obj->item != item
+                || target_obj->item.type != H5I_GROUP
                 || ((target_obj->item.open_req->status == 0
                 || target_obj->item.created)
                 && !((H5_daos_group_t *)target_obj)->gcpl_cache.track_corder))
@@ -524,9 +524,11 @@ done:
             op_type = H5_DAOS_OP_TYPE_WRITE_ORDERED;
 
         /* Add the request to the object's request queue.  This will add the
-         * dependency on the group open if necessary. */
+         * dependency on the group open if necessary.  If this is an anonymous
+         * create add to the file pool. */
         if(H5_daos_req_enqueue(int_req, first_task, item, op_type,
-                H5_DAOS_OP_SCOPE_OBJ, collective, item->open_req) < 0)
+                target_obj ? H5_DAOS_OP_SCOPE_OBJ : H5_DAOS_OP_SCOPE_FILE,
+                collective, item->open_req) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't add request to request queue");
 
         /* Check for external async */
@@ -1225,11 +1227,6 @@ H5_daos_dset_open_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for dataset info broadcast task");
 
     assert(udata->req);
-    assert(udata->obj);
-    assert(udata->obj->item.file);
-    assert(!udata->obj->item.file->closed);
-    assert(udata->obj->item.file->my_rank == 0);
-    assert(udata->obj->item.type == H5I_DATASET);
 
     /* Handle errors in bcast task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if
@@ -1239,7 +1236,13 @@ H5_daos_dset_open_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         udata->req->status = task->dt_result;
         udata->req->failed_task = "MPI_Ibcast dataset info";
     } /* end if */
-    else if(task->dt_result == 0)
+    else if(task->dt_result == 0) {
+        assert(udata->obj);
+        assert(udata->obj->item.file);
+        assert(!udata->obj->item.file->closed);
+        assert(udata->obj->item.file->my_rank == 0);
+        assert(udata->obj->item.type == H5I_DATASET);
+
         /* Reissue bcast if necesary */
         if(udata->buffer_len != udata->count) {
             tse_task_t *bcast_task;
@@ -1263,12 +1266,13 @@ H5_daos_dset_open_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
                 D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, ret, "can't schedule task for second dataset info broadcast: %s", H5_daos_err_to_string(ret));
             udata = NULL;
         } /* end if */
+    } /* end if */
 
 done:
     /* Free private data if we haven't released ownership */
     if(udata) {
         /* Close dataset */
-        if(H5_daos_dataset_close_real((H5_daos_dset_t *)udata->obj) < 0)
+        if(udata->obj && H5_daos_dataset_close_real((H5_daos_dset_t *)udata->obj) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close dataset");
 
         /* Handle errors in this function */
@@ -1326,11 +1330,6 @@ H5_daos_dset_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for dataset info receive task");
 
     assert(udata->req);
-    assert(udata->obj);
-    assert(udata->obj->item.file);
-    assert(!udata->obj->item.file->closed);
-    assert(udata->obj->item.file->my_rank > 0);
-    assert(udata->obj->item.type == H5I_DATASET);
 
     /* Handle errors in bcast task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if
@@ -1347,6 +1346,12 @@ H5_daos_dset_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         uint64_t fill_val_len = 0;
         size_t dinfo_len;
         uint8_t *p = udata->buffer;
+
+        assert(udata->obj);
+        assert(udata->obj->item.file);
+        assert(!udata->obj->item.file->closed);
+        assert(udata->obj->item.file->my_rank > 0);
+        assert(udata->obj->item.type == H5I_DATASET);
 
         /* Decode oid */
         UINT64DECODE(p, udata->obj->oid.lo)
@@ -1409,7 +1414,7 @@ done:
     /* Free private data if we haven't released ownership */
     if(udata) {
         /* Close dataset */
-        if(H5_daos_dataset_close_real((H5_daos_dset_t *)udata->obj) < 0)
+        if(udata->obj && H5_daos_dataset_close_real((H5_daos_dset_t *)udata->obj) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close dataset");
 
         /* Handle errors in this function */
@@ -1468,11 +1473,7 @@ H5_daos_dinfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for dataset info read task");
 
     assert(udata->md_rw_cb_ud.req);
-    assert(udata->md_rw_cb_ud.req->file);
-    assert(udata->md_rw_cb_ud.obj);
     assert(udata->fetch_metatask);
-    assert(!udata->md_rw_cb_ud.req->file->closed);
-    assert(udata->md_rw_cb_ud.obj->item.type == H5I_DATASET);
 
     /* Check for buffer not large enough */
     if(task->dt_result == -DER_REC2BIG) {
@@ -1481,6 +1482,11 @@ H5_daos_dinfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
                 + udata->md_rw_cb_ud.iod[1].iod_size
                 + udata->md_rw_cb_ud.iod[2].iod_size
                 + udata->md_rw_cb_ud.iod[3].iod_size;
+
+        assert(udata->md_rw_cb_ud.req->file);
+        assert(udata->md_rw_cb_ud.obj);
+        assert(!udata->md_rw_cb_ud.req->file->closed);
+        assert(udata->md_rw_cb_ud.obj->item.type == H5I_DATASET);
 
         /* Verify iod size makes sense */
         if(udata->md_rw_cb_ud.sg_iov[0].iov_buf_len != H5_DAOS_TYPE_BUF_SIZE
@@ -1568,6 +1574,11 @@ H5_daos_dinfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
                     - (char *)udata->md_rw_cb_ud.sg_iov[2].iov_buf)
                     : udata->md_rw_cb_ud.iod[2].iod_size;
 
+            assert(udata->md_rw_cb_ud.req->file);
+            assert(udata->md_rw_cb_ud.obj);
+            assert(!udata->md_rw_cb_ud.req->file->closed);
+            assert(udata->md_rw_cb_ud.obj->item.type == H5I_DATASET);
+
             /* Check for missing metadata */
             if(udata->md_rw_cb_ud.iod[0].iod_size == 0
                     || udata->md_rw_cb_ud.iod[1].iod_size == 0
@@ -1602,7 +1613,7 @@ done:
     /* Clean up if this is the last fetch task */
     if(udata) {
         /* Close dataset */
-        if(H5_daos_dataset_close_real((H5_daos_dset_t *)udata->md_rw_cb_ud.obj) < 0)
+        if(udata->md_rw_cb_ud.obj && H5_daos_dataset_close_real((H5_daos_dset_t *)udata->md_rw_cb_ud.obj) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close dataset");
 
         if(udata->bcast_udata) {
@@ -2234,11 +2245,7 @@ H5_daos_chunk_io_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for chunk I/O task");
 
-    assert(udata);
-    assert(udata->dset);
     assert(udata->req);
-    assert(udata->req->file);
-    assert(!udata->req->file->closed);
 
     /* Handle errors */
     if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
@@ -2251,6 +2258,10 @@ H5_daos_chunk_io_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         udata = NULL;
         D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
     } /* end if */
+
+    assert(udata->dset);
+    assert(udata->req->file);
+    assert(!udata->req->file->closed);
 
     /* Set I/O task arguments */
     if(NULL == (update_args = daos_task_get_args(task))) {
@@ -2293,10 +2304,10 @@ H5_daos_chunk_io_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for chunk I/O task");
 
-    assert(udata);
     assert(udata->req);
+    assert(udata->dset);
     assert(udata->req->file);
-    assert(!udata->req->file->closed);
+    assert(!udata->req->file->closed || task->dt_result != 0);
 
     /* Handle errors in update task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if
@@ -2545,11 +2556,9 @@ H5_daos_chunk_io_tconv_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for chunk I/O task");
 
-    assert(udata);
-    assert(udata->dset);
     assert(udata->req);
+    assert(udata->dset);
     assert(udata->req->file);
-    assert(!udata->req->file->closed);
 
     /* Handle errors */
     if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
@@ -2562,6 +2571,8 @@ H5_daos_chunk_io_tconv_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         udata = NULL;
         D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
     } /* end if */
+
+    assert(!udata->req->file->closed);
 
     /* If writing, gather the write buffer data to the type conversion buffer */
     if(udata->tconv.io_type == IO_WRITE) {
@@ -2621,10 +2632,10 @@ H5_daos_chunk_io_tconv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for chunk I/O task");
 
-    assert(udata);
     assert(udata->req);
     assert(udata->req->file);
-    assert(!udata->req->file->closed);
+    assert(!udata->req->file->closed || task->dt_result != 0);
+    assert(udata->dset);
 
     /* Handle errors in update task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if
@@ -2715,11 +2726,9 @@ H5_daos_chunk_fill_bkg_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for chunk I/O task");
 
-    assert(udata);
-    assert(udata->dset);
     assert(udata->req);
+    assert(udata->dset);
     assert(udata->req->file);
-    assert(!udata->req->file->closed);
 
     /* Handle errors */
     if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
@@ -2732,6 +2741,8 @@ H5_daos_chunk_fill_bkg_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         udata = NULL;
         D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
     } /* end if */
+
+    assert(!udata->req->file->closed);
 
     /* Set sg_iov to point to background buffer */
     daos_iov_set(&udata->sg_iov, udata->tconv.bkg_buf,
@@ -2782,7 +2793,7 @@ H5_daos_chunk_fill_bkg_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     assert(udata);
     assert(udata->req);
     assert(udata->req->file);
-    assert(!udata->req->file->closed);
+    assert(!udata->req->file->closed || task->dt_result != 0);
 
     /* Handle errors in update task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if
@@ -4489,16 +4500,17 @@ H5_daos_dataset_refresh_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for dataset dataspace read task");
 
     assert(udata->md_rw_cb_ud.req);
-    assert(udata->md_rw_cb_ud.req->file);
-    assert(udata->md_rw_cb_ud.obj);
     assert(udata->fetch_metatask);
-    assert(!udata->md_rw_cb_ud.req->file->closed);
-    assert(udata->md_rw_cb_ud.obj->item.type == H5I_DATASET);
 
     /* Check for buffer not large enough */
     if(task->dt_result == -DER_REC2BIG) {
         tse_task_t *fetch_task;
         size_t daos_info_len = udata->md_rw_cb_ud.iod[0].iod_size;
+
+        assert(udata->md_rw_cb_ud.req->file);
+        assert(!udata->md_rw_cb_ud.req->file->closed);
+        assert(udata->md_rw_cb_ud.obj);
+        assert(udata->md_rw_cb_ud.obj->item.type == H5I_DATASET);
 
         /* Verify iod size makes sense */
         if(udata->md_rw_cb_ud.sg_iov[0].iov_buf_len != H5_DAOS_SPACE_BUF_SIZE)
@@ -4563,6 +4575,11 @@ H5_daos_dataset_refresh_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
             H5_daos_dset_t *dset = (H5_daos_dset_t *)udata->md_rw_cb_ud.obj;
             hid_t decoded_space;
 
+            assert(udata->md_rw_cb_ud.req->file);
+            assert(!udata->md_rw_cb_ud.req->file->closed);
+            assert(udata->md_rw_cb_ud.obj);
+            assert(udata->md_rw_cb_ud.obj->item.type == H5I_DATASET);
+
             if(udata->bcast_udata) {
                 /* Encode serialized dataspace length */
                 p = udata->bcast_udata->buffer;
@@ -4588,7 +4605,7 @@ done:
     /* Clean up if this is the last fetch task */
     if(udata) {
         /* Close dataset */
-        if(H5_daos_dataset_close_real((H5_daos_dset_t *)udata->md_rw_cb_ud.obj) < 0)
+        if(udata->md_rw_cb_ud.obj && H5_daos_dataset_close_real((H5_daos_dset_t *)udata->md_rw_cb_ud.obj) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close dataset");
 
         if(udata->bcast_udata) {

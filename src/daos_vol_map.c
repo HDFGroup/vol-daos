@@ -1027,11 +1027,6 @@ H5_daos_map_open_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for map info broadcast task");
 
     assert(udata->req);
-    assert(udata->obj);
-    assert(udata->obj->item.file);
-    assert(!udata->obj->item.file->closed);
-    assert(udata->obj->item.file->my_rank == 0);
-    assert(udata->obj->item.type == H5I_MAP);
 
     /* Handle errors in bcast task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if
@@ -1042,6 +1037,12 @@ H5_daos_map_open_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         udata->req->failed_task = "MPI_Ibcast map info";
     } /* end if */
     else if(task->dt_result == 0) {
+        assert(udata->obj);
+        assert(udata->obj->item.file);
+        assert(!udata->obj->item.file->closed);
+        assert(udata->obj->item.file->my_rank == 0);
+        assert(udata->obj->item.type == H5I_MAP);
+
         /* Reissue bcast if necesary */
         if(udata->buffer_len != udata->count) {
             tse_task_t *bcast_task;
@@ -1065,13 +1066,13 @@ H5_daos_map_open_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
                 D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't schedule task for second map info broadcast: %s", H5_daos_err_to_string(ret));
             udata = NULL;
         } /* end if */
-    } /* end else */
+    } /* end if */
 
 done:
     /* Free private data if we haven't released ownership */
     if(udata) {
         /* Close map */
-        if(H5_daos_map_close_real((H5_daos_map_t *)udata->obj) < 0)
+        if(udata->obj && H5_daos_map_close_real((H5_daos_map_t *)udata->obj) < 0)
             D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close map");
 
         /* Handle errors in this function */
@@ -1126,11 +1127,6 @@ H5_daos_map_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for map info receive task");
 
     assert(udata->req);
-    assert(udata->obj);
-    assert(udata->obj->item.file);
-    assert(!udata->req->file->closed);
-    assert(udata->obj->item.file->my_rank > 0);
-    assert(udata->obj->item.type == H5I_MAP);
 
     /* Handle errors in bcast task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if
@@ -1146,6 +1142,12 @@ H5_daos_map_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         uint64_t mcpl_buf_len = 0;
         size_t minfo_len;
         uint8_t *p = udata->buffer;
+
+        assert(udata->obj);
+        assert(udata->obj->item.file);
+        assert(!udata->req->file->closed);
+        assert(udata->obj->item.file->my_rank > 0);
+        assert(udata->obj->item.type == H5I_MAP);
 
         /* Decode oid */
         UINT64DECODE(p, udata->obj->oid.lo)
@@ -1208,7 +1210,7 @@ done:
     /* Free private data if we haven't released ownership */
     if(udata) {
         /* Close map */
-        if(H5_daos_map_close_real((H5_daos_map_t *)udata->obj) < 0)
+        if(udata->obj && H5_daos_map_close_real((H5_daos_map_t *)udata->obj) < 0)
             D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close map");
 
         /* Handle errors in this function */
@@ -1354,11 +1356,7 @@ H5_daos_minfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for map info read task");
 
     assert(udata->md_rw_cb_ud.req);
-    assert(udata->md_rw_cb_ud.req->file);
-    assert(udata->md_rw_cb_ud.obj);
     assert(udata->fetch_metatask);
-    assert(!udata->md_rw_cb_ud.req->file->closed);
-    assert(udata->md_rw_cb_ud.obj->item.type == H5I_MAP);
 
     /* Check for buffer not large enough */
     if(task->dt_result == -DER_REC2BIG) {
@@ -1366,6 +1364,11 @@ H5_daos_minfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         size_t daos_info_len = udata->md_rw_cb_ud.iod[0].iod_size
                 + udata->md_rw_cb_ud.iod[1].iod_size
                 + udata->md_rw_cb_ud.iod[2].iod_size;
+
+        assert(udata->md_rw_cb_ud.req->file);
+        assert(udata->md_rw_cb_ud.obj);
+        assert(!udata->md_rw_cb_ud.req->file->closed);
+        assert(udata->md_rw_cb_ud.obj->item.type == H5I_MAP);
 
         /* Verify iod size makes sense */
         if(udata->md_rw_cb_ud.sg_iov[0].iov_buf_len != H5_DAOS_TYPE_BUF_SIZE
@@ -1440,6 +1443,11 @@ H5_daos_minfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
                     - (char *)udata->md_rw_cb_ud.sg_iov[1].iov_buf);
             uint64_t mcpl_buf_len = (uint64_t)(udata->md_rw_cb_ud.iod[2].iod_size);
 
+            assert(udata->md_rw_cb_ud.req->file);
+            assert(udata->md_rw_cb_ud.obj);
+            assert(!udata->md_rw_cb_ud.req->file->closed);
+            assert(udata->md_rw_cb_ud.obj->item.type == H5I_MAP);
+
             /* Check for missing metadata */
             if(udata->md_rw_cb_ud.iod[0].iod_size == 0
             || udata->md_rw_cb_ud.iod[1].iod_size == 0
@@ -1471,7 +1479,7 @@ done:
     /* Clean up if this is the last fetch task */
     if(udata) {
         /* Close map */
-        if(H5_daos_map_close_real((H5_daos_map_t *)udata->md_rw_cb_ud.obj) < 0)
+        if(udata->md_rw_cb_ud.obj && H5_daos_map_close_real((H5_daos_map_t *)udata->md_rw_cb_ud.obj) < 0)
             D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close map");
 
         if(udata->bcast_udata) {
@@ -2739,10 +2747,7 @@ H5_daos_map_exists_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for metadata I/O task");
 
-    assert(udata->md_rw_cb_ud.obj);
     assert(udata->md_rw_cb_ud.req);
-    assert(udata->md_rw_cb_ud.req->file);
-    assert(!udata->md_rw_cb_ud.req->file->closed);
 
     /* Handle errors */
     if(udata->md_rw_cb_ud.req->status < -H5_DAOS_SHORT_CIRCUIT) {
@@ -2753,6 +2758,10 @@ H5_daos_map_exists_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         udata = NULL;
         D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
     } /* end if */
+
+    assert(udata->md_rw_cb_ud.obj);
+    assert(udata->md_rw_cb_ud.req->file);
+    assert(!udata->md_rw_cb_ud.req->file->closed);
 
     /* Set fetch task arguments */
     if(NULL == (rw_args = daos_task_get_args(task)))
@@ -2796,8 +2805,6 @@ H5_daos_map_exists_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for metadata I/O task");
 
     assert(udata->md_rw_cb_ud.req);
-    assert(udata->md_rw_cb_ud.req->file);
-    assert(!udata->md_rw_cb_ud.req->file->closed);
 
     /* Handle errors in fetch task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if
@@ -2807,9 +2814,13 @@ H5_daos_map_exists_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         udata->md_rw_cb_ud.req->status = task->dt_result;
         udata->md_rw_cb_ud.req->failed_task = "map key exists fetch";
     } /* end if */
-    else if(task->dt_result == 0)
+    else if(task->dt_result == 0) {
+        assert(udata->md_rw_cb_ud.req->file);
+        assert(!udata->md_rw_cb_ud.req->file->closed);
+
         /* Set output */
         *udata->exists_ret = (udata->md_rw_cb_ud.iod[0].iod_size != 0);
+    } /* end if */
 
 done:
     /* Clean up */
@@ -3873,7 +3884,6 @@ H5_daos_map_delete_key_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for map key deletion task");
 
     assert(udata->req);
-    assert(udata->map);
 
     /* Handle errors */
     if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
@@ -3884,6 +3894,8 @@ H5_daos_map_delete_key_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         udata = NULL;
         D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
     } /* end if */
+
+    assert(udata->map);
 
     /* Set deletion task arguments */
     if(NULL == (punch_args = daos_task_get_args(task)))
@@ -3926,7 +3938,7 @@ H5_daos_map_delete_key_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for map key deletion task");
 
-    assert(!udata->req->file->closed);
+    assert(!udata->req->file->closed || task->dt_result != 0);
 
     /* Handle errors in deletion task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if
@@ -3939,7 +3951,7 @@ H5_daos_map_delete_key_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
 done:
     if(udata) {
-        if(H5_daos_map_close_real(udata->map) < 0)
+        if(udata->map && H5_daos_map_close_real(udata->map) < 0)
             D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close map");
 
         /* Handle errors in this function */

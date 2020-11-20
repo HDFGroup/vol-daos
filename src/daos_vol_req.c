@@ -267,6 +267,10 @@ H5_daos_op_pool_finish(H5_daos_op_pool_t *op_pool)
      * start task so the end task does nor execute too soon, then schedule the
      * start task */
     if(op_pool->type == H5_DAOS_OP_TYPE_EMPTY) {
+        assert(op_pool->end_task);
+        assert(op_pool->start_task);
+        assert(!op_pool->closed);
+
         /* Create dependency for pool end task on pool start task */
         if((ret = tse_task_register_deps(op_pool->end_task, 1, &op_pool->start_task)) < 0)
             D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't create dependencies for end task for operation pool: %s", H5_daos_err_to_string(ret)); 
@@ -430,8 +434,13 @@ H5_daos_op_pool_end_task(tse_task_t *task)
     assert(!op_pool->start_task);
 
     /* Complete dep task if present */
-    if(op_pool->dep_task)
+    if(op_pool->dep_task) {
         tse_task_complete(op_pool->dep_task, 0);
+        op_pool->dep_task = NULL;
+    } /* end if */
+
+    /* Set end_task to NULL to mark this task complete */
+    op_pool->end_task = NULL;
 
     /* Release our reference to op_pool */
     H5_daos_op_pool_free(op_pool);
@@ -471,7 +480,6 @@ H5_daos_req_enqueue(H5_daos_req_t *req, tse_task_t *first_task,
     H5_daos_op_pool_t *tmp_new_pool_alloc_2 = NULL;
     hbool_t create_new_pool;
     hbool_t init_pool;
-    hbool_t is_file_close = FALSE;
     int nlevels;
     int i;
     int ret;
@@ -516,7 +524,6 @@ H5_daos_req_enqueue(H5_daos_req_t *req, tse_task_t *first_task,
             case H5_DAOS_OP_SCOPE_FILE:
                 assert(item);
                 assert(item->file == req->file);
-                assert(item == &item->file->item);
                 parent_cur_op_pool[0] = &item->file->item.cur_op_pool;
                 parent_cur_op_pool[1] = &H5_daos_glob_cur_op_pool_g;
                 nlevels = 2;
@@ -540,8 +547,7 @@ H5_daos_req_enqueue(H5_daos_req_t *req, tse_task_t *first_task,
             create_new_pool = TRUE;
             init_pool = TRUE;
         } /* end if */
-        else if((*parent_cur_op_pool[0])->type == H5_DAOS_OP_TYPE_EMPTY
-                && !is_file_close) {
+        else if((*parent_cur_op_pool[0])->type == H5_DAOS_OP_TYPE_EMPTY) {
             /* Empty pool present, must initialize */
             assert((*parent_cur_op_pool[0])->init_task);
             assert((*parent_cur_op_pool[0])->start_task);
@@ -603,31 +609,35 @@ H5_daos_req_enqueue(H5_daos_req_t *req, tse_task_t *first_task,
 
             /* Handle previous pool */
             if(*parent_cur_op_pool[0]) {
-                assert((*parent_cur_op_pool[0])->type != H5_DAOS_OP_TYPE_EMPTY
-                        || is_file_close);
-                assert((*parent_cur_op_pool[0])->end_task);
+                assert((*parent_cur_op_pool[0])->type != H5_DAOS_OP_TYPE_EMPTY);
 
-                /* Close previous pool to new operations */
-                (*parent_cur_op_pool[0])->closed = TRUE;
+                /* Only need to create dependencies if the previous pool hasn't
+                 * already completed */
+                if((*parent_cur_op_pool[0])->end_task) {
+                    /* Create dep task for previous pool if necessary.  This will be
+                     * completed by the end task.  We do this to prevent tse from
+                     * propagating errors between pools. */
+                    if(!(*parent_cur_op_pool[0])->dep_task) {
+                        if(0 != (ret = tse_task_create(NULL, &H5_daos_glob_sched_g, NULL, &(*parent_cur_op_pool[0])->dep_task)))
+                            D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't create dep task for operation pool: %s", H5_daos_err_to_string(ret));
 
-                /* Create dep task for previous pool if necessary.  This will be
-                 * completed by the end task.  We do this to prevent tse from
-                 * propagating errors between pools. */
-                if(!(*parent_cur_op_pool[0])->dep_task) {
-                    if(0 != (ret = tse_task_create(NULL, &H5_daos_glob_sched_g, NULL, &(*parent_cur_op_pool[0])->dep_task)))
-                        D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't create dep task for operation pool: %s", H5_daos_err_to_string(ret));
+                        if(0 != (ret = tse_task_schedule((*parent_cur_op_pool[0])->dep_task, false)))
+                            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't schedule final dependency task for operation pool: %s", H5_daos_err_to_string(ret));
+                    } /* end if */
 
-                    if(0 != (ret = tse_task_schedule((*parent_cur_op_pool[0])->dep_task, false)))
-                        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't schedule final dependency task for operation pool: %s", H5_daos_err_to_string(ret));
+                    /* Create dependency on previous pool dep task */
+                    if((ret = tse_task_register_deps(tmp_pool->start_task, 1, &(*parent_cur_op_pool[0])->dep_task)) < 0)
+                        D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't create dependencies for start task for operation pool: %s", H5_daos_err_to_string(ret));
+
+                    /* Close previous pool to new operations if it isn't already */
+                    if(!(*parent_cur_op_pool[0])->closed) {
+                        (*parent_cur_op_pool[0])->closed = TRUE;
+
+                        /* Schedule previous pool end task */
+                        if(0 != (ret = tse_task_schedule((*parent_cur_op_pool[0])->end_task, false)))
+                            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't schedule task to end operation pool: %s", H5_daos_err_to_string(ret));
+                    } /* end if */
                 } /* end if */
-
-                /* Create dependency on previous pool dep task */
-                if((ret = tse_task_register_deps(tmp_pool->start_task, 1, &(*parent_cur_op_pool[0])->dep_task)) < 0)
-                    D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't create dependencies for start task for operation pool: %s", H5_daos_err_to_string(ret));
-//printf("new pool horiz dependency %p -> %p\n", tmp_task, tmp_pool->start_task); fflush(stdout);
-                /* Schedule previous pool end task */
-                if(0 != (ret = tse_task_schedule((*parent_cur_op_pool[0])->end_task, false)))
-                    D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't schedule task to end operation pool: %s", H5_daos_err_to_string(ret));
             } /* end if */
         } /* end if */
 
@@ -673,29 +683,35 @@ H5_daos_req_enqueue(H5_daos_req_t *req, tse_task_t *first_task,
                          * task.  If the higher level pool is empty, the previous
                          * dependency will have been handled at a lower level than
                          * the current pool (by this line of code). */
-                        assert((*parent_cur_op_pool[i])->end_task);
 
-                        /* Close higher level pool to new operations */
-                        (*parent_cur_op_pool[i])->closed = TRUE;
+                        /* Only need to create dependencies if the higher level
+                         * pool hasn't already completed */
+                        if((*parent_cur_op_pool[i])->end_task) {
+                            /* Create dep task for higher level pool if necessary.  This will be
+                             * completed by the end task.  We do this to prevent tse from
+                             * propagating errors between pools. */
+                            if(!(*parent_cur_op_pool[i])->dep_task) {
+                                if(0 != (ret = tse_task_create(NULL, &H5_daos_glob_sched_g, NULL, &(*parent_cur_op_pool[i])->dep_task)))
+                                    D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't create dep task for operation pool: %s", H5_daos_err_to_string(ret));
 
-                        /* Create dep task for higher level pool if necessary.  This will be
-                         * completed by the end task.  We do this to prevent tse from
-                         * propagating errors between pools. */
-                        if(!(*parent_cur_op_pool[i])->dep_task) {
-                            if(0 != (ret = tse_task_create(NULL, &H5_daos_glob_sched_g, NULL, &(*parent_cur_op_pool[i])->dep_task)))
-                                D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't create dep task for operation pool: %s", H5_daos_err_to_string(ret));
+                                if(0 != (ret = tse_task_schedule((*parent_cur_op_pool[i])->dep_task, false)))
+                                    D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't schedule final dependency task for operation pool: %s", H5_daos_err_to_string(ret));
+                            } /* end if */
 
-                            if(0 != (ret = tse_task_schedule((*parent_cur_op_pool[i])->dep_task, false)))
-                                D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't schedule final dependency task for operation pool: %s", H5_daos_err_to_string(ret));
+                            /* Create dependency */
+                            if((ret = tse_task_register_deps(tmp_pool->start_task, 1, &(*parent_cur_op_pool[i])->dep_task)) < 0)
+                                D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't register task dependency: %s", H5_daos_err_to_string(ret));
+
+                            /* Close higher level pool to new operations if it isn't
+                             * already */
+                            if(!(*parent_cur_op_pool[i])->closed) {
+                                (*parent_cur_op_pool[i])->closed = TRUE;
+
+                                /* Schedule previous higher level pool end task */
+                                if(0 != (ret = tse_task_schedule((*parent_cur_op_pool[i])->end_task, false)))
+                                    D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't schedule task to end operation pool: %s", H5_daos_err_to_string(ret));
+                            } /* end if */
                         } /* end if */
-
-                        /* Create dependency */
-                        if((ret = tse_task_register_deps(tmp_pool->start_task, 1, &(*parent_cur_op_pool[i])->dep_task)) < 0)
-                            D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't register task dependency: %s", H5_daos_err_to_string(ret));
-//printf("new pool dependency on old hlp %p -> %p\n", tmp_task, tmp_pool->start_task); fflush(stdout);
-                        /* Schedule previous higher level pool end task */
-                        if(0 != (ret = tse_task_schedule((*parent_cur_op_pool[i])->end_task, false)))
-                            D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't schedule task to end operation pool: %s", H5_daos_err_to_string(ret));
                     } /* end if */
 
                     /* Set new pool in parent object, and transfer parent
@@ -781,6 +797,8 @@ H5_daos_req_enqueue(H5_daos_req_t *req, tse_task_t *first_task,
         /* If this is a close operation, close the pool and schedule the end
          * task */
         if(op_type == H5_DAOS_OP_TYPE_CLOSE) {
+            assert(!tmp_pool->closed);
+
             tmp_pool->closed = TRUE;
 
             if(0 != (ret = tse_task_schedule(tmp_pool->end_task, false)))
@@ -827,8 +845,19 @@ H5_daos_req_enqueue(H5_daos_req_t *req, tse_task_t *first_task,
     /* Add dependency on dep_req if necessary */
     if(dep_req && (dep_req->status == H5_DAOS_INCOMPLETE
             || dep_req->status == H5_DAOS_SHORT_CIRCUIT)) {
+        /* Create dep_task for request if necessary.  This will be completed by
+         * the request finalize task.  We do this to prevent tse from
+         * propagating errors between collective requests. */
+        if(!dep_req->dep_task) {
+            if(0 != (ret = tse_task_create(NULL, &H5_daos_glob_sched_g, NULL, &dep_req->dep_task)))
+                D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't create dep task for operation pool: %s", H5_daos_err_to_string(ret));
+
+            if(0 != (ret = tse_task_schedule(dep_req->dep_task, false)))
+                D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't schedule final dependency task for operation pool: %s", H5_daos_err_to_string(ret));
+        } /* end if */
+
         /* Register dependency */
-        if((ret = tse_task_register_deps(first_task, 1, &dep_req->finalize_task)) < 0)
+        if((ret = tse_task_register_deps(first_task, 1, &dep_req->dep_task)) < 0)
             D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't register task dependency: %s", H5_daos_err_to_string(ret));
     } /* end if */
 

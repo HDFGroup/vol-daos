@@ -489,14 +489,15 @@ H5_daos_link_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for link read task");
 
     assert(udata->md_rw_cb_ud.req);
-    assert(udata->md_rw_cb_ud.req->file);
     assert(udata->read_metatask);
-    assert(!udata->md_rw_cb_ud.req->file->closed);
-    assert(udata->md_rw_cb_ud.obj->item.type == H5I_GROUP);
 
     /* Check for buffer not large enough */
     if(task->dt_result == -DER_REC2BIG) {
         tse_task_t *read_task;
+
+        assert(udata->md_rw_cb_ud.req->file);
+        assert(!udata->md_rw_cb_ud.req->file->closed);
+        assert(udata->md_rw_cb_ud.obj->item.type == H5I_GROUP);
 
         /* Verify iod size makes sense */
         if(udata->md_rw_cb_ud.sg_iov[0].iov_buf_len != H5_DAOS_LINK_VAL_BUF_SIZE_INIT)
@@ -544,6 +545,10 @@ H5_daos_link_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
                 *udata->link_read = FALSE;
         } /* end if */
         else if(task->dt_result == 0) {
+            assert(udata->md_rw_cb_ud.req->file);
+            assert(!udata->md_rw_cb_ud.req->file->closed);
+            assert(udata->md_rw_cb_ud.obj->item.type == H5I_GROUP);
+
             if(udata->md_rw_cb_ud.iod[0].iod_size == (uint64_t)0) {
                 /* No link found */
                 if(udata->link_read)
@@ -616,7 +621,7 @@ done:
     /* Clean up if this is the last fetch task */
     if(udata) {
         /* Close group */
-        if(H5_daos_group_close_real((H5_daos_group_t *)udata->md_rw_cb_ud.obj) < 0)
+        if(udata->md_rw_cb_ud.obj && H5_daos_group_close_real((H5_daos_group_t *)udata->md_rw_cb_ud.obj) < 0)
             D_DONE_ERROR(H5E_LINK, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close group");
 
         /* Free buffer if we still own it */
@@ -789,10 +794,7 @@ H5_daos_link_read_ln_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for link read task");
 
-    assert(udata->md_rw_cb_ud.obj);
     assert(udata->md_rw_cb_ud.req);
-    assert(udata->md_rw_cb_ud.req->file);
-    assert(!udata->md_rw_cb_ud.req->file->closed);
 
     /* Handle errors in previous tasks */
     if(udata->md_rw_cb_ud.req->status < -H5_DAOS_SHORT_CIRCUIT) {
@@ -805,6 +807,10 @@ H5_daos_link_read_ln_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         udata = NULL;
         D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
     } /* end if */
+
+    assert(udata->md_rw_cb_ud.obj);
+    assert(udata->md_rw_cb_ud.req->file);
+    assert(!udata->md_rw_cb_ud.req->file->closed);
 
     /* Check type of target_obj */
     if(udata->md_rw_cb_ud.obj->item.type != H5I_GROUP)
@@ -1376,11 +1382,7 @@ H5_daos_link_write_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for link write task");
 
-    assert(udata->md_rw_cb_ud.obj);
     assert(udata->md_rw_cb_ud.req);
-    assert(udata->md_rw_cb_ud.req->file);
-    assert(!udata->md_rw_cb_ud.req->file->closed);
-    assert(udata->link_val_buf);
 
     /* Handle errors */
     if(udata->md_rw_cb_ud.req->status < -H5_DAOS_SHORT_CIRCUIT) {
@@ -1393,6 +1395,11 @@ H5_daos_link_write_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         udata = NULL;
         D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
     } /* end if */
+
+    assert(udata->md_rw_cb_ud.obj);
+    assert(udata->md_rw_cb_ud.req->file);
+    assert(!udata->md_rw_cb_ud.req->file->closed);
+    assert(udata->link_val_buf);
 
     /* If this is a hard link, encoding of the OID into
      * the link's value buffer was delayed until this point.
@@ -1459,9 +1466,6 @@ H5_daos_link_write_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for link write task");
 
     assert(udata->md_rw_cb_ud.req);
-    assert(udata->md_rw_cb_ud.req->file);
-    assert(!udata->md_rw_cb_ud.req->file->closed);
-    assert(udata->md_rw_cb_ud.obj->item.type == H5I_GROUP);
 
     /* Handle errors in update task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if
@@ -1471,11 +1475,16 @@ H5_daos_link_write_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         udata->md_rw_cb_ud.req->status = task->dt_result;
         udata->md_rw_cb_ud.req->failed_task = udata->md_rw_cb_ud.task_name;
     } /* end if */
+    else {
+        assert(udata->md_rw_cb_ud.req->file);
+        assert(!udata->md_rw_cb_ud.req->file->closed);
+        assert(udata->md_rw_cb_ud.obj->item.type == H5I_GROUP);
+    } /* end else */
 
 done:
     if(udata) {
         /* Decrememnt ref count on udata and close it if it drops to 0 */
-        if(--udata->rc == 0) {
+        if(--udata->rc == 0 && udata->md_rw_cb_ud.obj) {
             /* Close group */
             if(H5_daos_group_close_real((H5_daos_group_t *)udata->md_rw_cb_ud.obj) < 0)
                 D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close group");
@@ -1810,7 +1819,7 @@ H5_daos_link_write_corder_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for link creation order info writing task");
 
-    assert(!udata->md_rw_cb_ud.req->file->closed);
+    assert(!udata->md_rw_cb_ud.req->file->closed || task->dt_result != 0);
     assert(udata->link_write_ud);
 
     /* Handle errors in update task.  Only record error in udata->req_status if
@@ -2013,7 +2022,7 @@ done:
 herr_t
 H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
     const H5VL_loc_params_t *loc_params, hid_t lcpl_id,
-    hid_t lapl_id, hid_t dxpl_id, void H5VL_DAOS_UNUSED **req, va_list arguments)
+    hid_t lapl_id, hid_t dxpl_id, void **req, va_list arguments)
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_link_create_hard_ud_t *create_udata = NULL;
@@ -3258,21 +3267,20 @@ done:
 
         /* Determine operation type - we will add the operation to the target
          * object's op pool.  If this is not a link delete we can use
-         * H5_DAOS_OP_TYPE_READ.  Otherwise use H5_DAOS_OP_TYPE_NOPOOL.  Add to
-         * item's pool because that's where the link is. */
+         * H5_DAOS_OP_TYPE_READ.  Otherwise use if item might have link creation
+         * order tracked use H5_DAOS_OP_TYPE_WRITE_ORDERED, otherwise use
+         * H5_DAOS_OP_TYPE_WRITE.  Add to item's pool because that's where the
+         * link is. */
         /* We should add code to change link delete to unordered write if we
-         * know the target object does not track link creation order -NAF */
-        if(!target_grp)
-            op_type = H5_DAOS_OP_TYPE_NOPOOL;
-        else if(specific_type != H5VL_LINK_DELETE)
+         * know the target object is different from item -NAF */
+        if(specific_type != H5VL_LINK_DELETE)
             op_type = H5_DAOS_OP_TYPE_READ;
-        else if(loc_params->type != H5VL_OBJECT_BY_SELF
-                || item->type != H5I_GROUP
+        else if(item->type != H5I_GROUP
                 || ((item->open_req->status == 0 || item->created)
                 && !((H5_daos_group_t *)item)->gcpl_cache.track_corder))
-            op_type = H5_DAOS_OP_TYPE_WRITE_ORDERED;
-        else
             op_type = H5_DAOS_OP_TYPE_WRITE;
+        else
+            op_type = H5_DAOS_OP_TYPE_WRITE_ORDERED;
 
         /* Add the request to the object's request queue.  This will add the
          * dependency on the group open if necessary. */
@@ -4216,10 +4224,7 @@ H5_daos_link_exists_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for metadata I/O task");
 
-    assert(udata->target_obj);
     assert(udata->req);
-    assert(udata->req->file);
-    assert(!udata->req->file->closed);
 
     /* Handle errors */
     if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
@@ -4232,6 +4237,10 @@ H5_daos_link_exists_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         udata = NULL;
         D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
     } /* end if */
+
+    assert(udata->target_obj);
+    assert(udata->req->file);
+    assert(!udata->req->file->closed);
 
     /* Set update task arguments */
     if(NULL == (rw_args = daos_task_get_args(task))) {
@@ -4274,7 +4283,6 @@ H5_daos_link_exists_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for metadata I/O task");
-    assert(!udata->req->file->closed);
 
     /* Handle errors in fetch task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if
@@ -4285,6 +4293,8 @@ H5_daos_link_exists_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         udata->req->failed_task = "link exists fetch";
     } /* end if */
     else if(task->dt_result == 0) {
+        assert(!udata->req->file->closed);
+
         /* Set output */
         assert(udata->exists);
         *udata->exists = (udata->iod.iod_size != 0);
@@ -6220,7 +6230,6 @@ H5_daos_link_delete_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for link deletion task");
 
     assert(udata->req);
-    assert(udata->target_obj);
 
     /* Handle errors */
     if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
@@ -6231,6 +6240,8 @@ H5_daos_link_delete_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         udata = NULL;
         D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
     } /* end if */
+
+    assert(udata->target_obj);
 
     /* Setup dkey now that target link name should be valid */
     daos_iov_set(&udata->dkey, (void *)udata->target_link_name, udata->target_link_name_len);
@@ -6272,8 +6283,6 @@ H5_daos_link_delete_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for link deletion task");
 
-    assert(!udata->req->file->closed);
-
     /* Handle errors in deletion task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if
      * another task this task is not dependent on also failed). */
@@ -6282,10 +6291,12 @@ H5_daos_link_delete_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         udata->req->status = task->dt_result;
         udata->req->failed_task = "link deletion task";
     } /* end if */
+    else
+        assert(!udata->req->file->closed);
 
 done:
     if(udata) {
-        if(H5_daos_object_close(&udata->target_obj->item) < 0)
+        if(udata->target_obj && H5_daos_object_close(&udata->target_obj->item) < 0)
             D_DONE_ERROR(H5E_LINK, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
 
         /* Handle errors in this function */
@@ -6555,9 +6566,6 @@ H5_daos_link_delete_corder_unl_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for metadata I/O task");
 
     assert(udata->req);
-    assert(udata->req->file);
-    assert(!udata->req->file->closed);
-    assert(udata->target_grp);
 
     /* Handle errors */
     if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
@@ -6570,6 +6578,10 @@ H5_daos_link_delete_corder_unl_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *
         udata = NULL;
         D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
     } /* end if */
+
+    assert(udata->req->file);
+    assert(!udata->req->file->closed);
+    assert(udata->target_grp);
 
     /* Decrement number of links to account for removed link */
     udata->grp_nlinks--;
@@ -6649,7 +6661,6 @@ H5_daos_link_delete_corder_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args
         D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for link creation order info deletion task");
 
     assert(udata->req);
-    assert(udata->target_grp);
 
     /* Handle errors */
     if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
@@ -6660,6 +6671,8 @@ H5_daos_link_delete_corder_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args
         udata = NULL;
         D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
     } /* end if */
+
+    assert(udata->target_grp);
 
     /* If iteration was done by creation order, determine the
      * index of the link to delete creation order info for now.
@@ -6930,7 +6943,6 @@ H5_daos_link_bookkeep_phase1_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *ar
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for link creation order index bookkeeping task");
 
     assert(udata->req);
-    assert(udata->target_grp);
 
     /* Handle errors */
     if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
@@ -6941,6 +6953,8 @@ H5_daos_link_bookkeep_phase1_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *ar
         udata = NULL;
         D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
     } /* end if */
+
+    assert(udata->target_grp);
 
     /* Set up iods */
     for(i = 0; i < udata->index_data.nlinks_shift; i++) {
@@ -7023,7 +7037,6 @@ H5_daos_link_bookkeep_phase2_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *ar
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for link creation order index bookkeeping task");
 
     assert(udata->req);
-    assert(udata->target_grp);
 
     /* Handle errors */
     if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
@@ -7034,6 +7047,8 @@ H5_daos_link_bookkeep_phase2_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *ar
         udata = NULL;
         D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
     } /* end if */
+
+    assert(udata->target_grp);
 
     /* Determine size of buffers needed for link creation order akeys */
     link_corder_name_buf_size = 0;
@@ -7132,7 +7147,6 @@ H5_daos_link_bookkeep_phase3_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *ar
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for link creation order index bookkeeping task");
 
     assert(udata->req);
-    assert(udata->target_grp);
 
     /* Handle errors */
     if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
@@ -7143,6 +7157,8 @@ H5_daos_link_bookkeep_phase3_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *ar
         udata = NULL;
         D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
     } /* end if */
+
+    assert(udata->target_grp);
 
     /*
      * Adjust the akeys down by setting their integer 'name' values to
@@ -7211,7 +7227,6 @@ H5_daos_link_bookkeep_phase4_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *ar
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for link creation order index bookkeeping task");
 
     assert(udata->req);
-    assert(udata->target_grp);
 
     /* Handle errors */
     if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
@@ -7222,6 +7237,8 @@ H5_daos_link_bookkeep_phase4_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *ar
         udata = NULL;
         D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
     } /* end if */
+
+    assert(udata->target_grp);
 
     /* Encode last (now invalid) index value into akeys */
     tmp_uint = (uint64_t)udata->grp_nlinks;
@@ -8374,9 +8391,11 @@ done:
     /* Clean up */
     if(udata) {
         /* Close target_grp */
-        if(H5_daos_group_close_real((H5_daos_group_t *)udata->md_rw_cb_ud.obj) < 0)
-            D_DONE_ERROR(H5E_LINK, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close group");
-        udata->md_rw_cb_ud.obj = NULL;
+        if(udata->md_rw_cb_ud.obj) {
+            if(H5_daos_group_close_real((H5_daos_group_t *)udata->md_rw_cb_ud.obj) < 0)
+                D_DONE_ERROR(H5E_LINK, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close group");
+            udata->md_rw_cb_ud.obj = NULL;
+        } /* end if */
 
         /* Handle errors in this function */
         /* Do not place any code that can issue errors after this block, except for

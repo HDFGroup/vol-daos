@@ -1321,11 +1321,6 @@ H5_daos_datatype_open_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *arg
         D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for datatype info broadcast task");
 
     assert(udata->req);
-    assert(udata->obj);
-    assert(udata->obj->item.file);
-    assert(!udata->obj->item.file->closed);
-    assert(udata->obj->item.file->my_rank == 0);
-    assert(udata->obj->item.type == H5I_DATATYPE);
 
     /* Handle errors in bcast task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if
@@ -1336,6 +1331,12 @@ H5_daos_datatype_open_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *arg
         udata->req->failed_task = "MPI_Ibcast datatype info";
     } /* end if */
     else if(task->dt_result == 0) {
+        assert(udata->obj);
+        assert(udata->obj->item.file);
+        assert(!udata->obj->item.file->closed);
+        assert(udata->obj->item.file->my_rank == 0);
+        assert(udata->obj->item.type == H5I_DATATYPE);
+
         /* Reissue bcast if necesary */
         if(udata->buffer_len != udata->count) {
             tse_task_t *bcast_task;
@@ -1365,7 +1366,7 @@ done:
     /* Free private data if we haven't released ownership */
     if(udata) {
         /* Close datatype */
-        if(H5_daos_datatype_close_real((H5_daos_dtype_t *)udata->obj) < 0)
+        if(udata->obj && H5_daos_datatype_close_real((H5_daos_dtype_t *)udata->obj) < 0)
             D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close datatype");
 
         /* Handle errors in this function */
@@ -1420,11 +1421,6 @@ H5_daos_datatype_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args
         D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for datatype info receive task");
 
     assert(udata->req);
-    assert(udata->obj);
-    assert(udata->obj->item.file);
-    assert(!udata->req->file->closed);
-    assert(udata->obj->item.file->my_rank > 0);
-    assert(udata->obj->item.type == H5I_DATATYPE);
 
     /* Handle errors in bcast task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if
@@ -1439,6 +1435,12 @@ H5_daos_datatype_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args
         uint64_t tcpl_buf_len = 0;
         size_t tinfo_len;
         uint8_t *p = udata->buffer;
+
+        assert(udata->obj);
+        assert(udata->obj->item.file);
+        assert(!udata->req->file->closed);
+        assert(udata->obj->item.file->my_rank > 0);
+        assert(udata->obj->item.type == H5I_DATATYPE);
 
         /* Decode oid */
         UINT64DECODE(p, udata->obj->oid.lo)
@@ -1500,7 +1502,7 @@ done:
     /* Free private data if we haven't released ownership */
     if(udata) {
         /* Close datatype */
-        if(H5_daos_datatype_close_real((H5_daos_dtype_t *)udata->obj) < 0)
+        if(udata->obj && H5_daos_datatype_close_real((H5_daos_dtype_t *)udata->obj) < 0)
             D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close datatype");
 
         /* Handle errors in this function */
@@ -1601,17 +1603,18 @@ H5_daos_tinfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for datatype info read task");
 
     assert(udata->md_rw_cb_ud.req);
-    assert(udata->md_rw_cb_ud.req->file);
-    assert(udata->md_rw_cb_ud.obj);
     assert(udata->fetch_metatask);
-    assert(!udata->md_rw_cb_ud.req->file->closed);
-    assert(udata->md_rw_cb_ud.obj->item.type == H5I_DATATYPE);
 
     /* Check for buffer not large enough */
     if(task->dt_result == -DER_REC2BIG) {
         tse_task_t *fetch_task;
         size_t daos_info_len = udata->md_rw_cb_ud.iod[0].iod_size
                 + udata->md_rw_cb_ud.iod[1].iod_size;
+
+        assert(udata->md_rw_cb_ud.req->file);
+        assert(udata->md_rw_cb_ud.obj);
+        assert(!udata->md_rw_cb_ud.req->file->closed);
+        assert(udata->md_rw_cb_ud.obj->item.type == H5I_DATATYPE);
 
         /* Verify iod size makes sense */
         if(udata->md_rw_cb_ud.sg_iov[0].iov_buf_len != H5_DAOS_TYPE_BUF_SIZE
@@ -1710,7 +1713,7 @@ done:
     /* Clean up if this is the last fetch task */
     if(udata) {
         /* Close datatype */
-        if(H5_daos_datatype_close_real((H5_daos_dtype_t *)udata->md_rw_cb_ud.obj) < 0)
+        if(udata->md_rw_cb_ud.obj && H5_daos_datatype_close_real((H5_daos_dtype_t *)udata->md_rw_cb_ud.obj) < 0)
             D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close datatype");
 
         if(udata->bcast_udata) {

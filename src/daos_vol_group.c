@@ -532,7 +532,7 @@ void *
 H5_daos_group_create(void *_item,
     const H5VL_loc_params_t H5VL_DAOS_UNUSED *loc_params, const char *name,
     hid_t lcpl_id, hid_t gcpl_id, hid_t gapl_id, hid_t H5VL_DAOS_UNUSED dxpl_id,
-    void H5VL_DAOS_UNUSED **req)
+    void **req)
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_group_t *grp = NULL;
@@ -632,15 +632,13 @@ done:
             int_req->status = -H5_DAOS_SETUP_ERROR;
 
         /* Determine operation type - we will add the operation to item's
-         * op pool.  If target_obj is NULL (anonymous create), use
-         * H5_DAOS_OP_TYPE_NOPOOL.  If the target_obj might have link creation
-         * order tracked and target_obj is not different from item use
+         * op pool.  If the target_obj might have link creation order tracked
+         * and target_obj is not different from item use
          * H5_DAOS_OP_TYPE_WRITE_ORDERED, otherwise use H5_DAOS_OP_TYPE_WRITE.
          * Add to item's pool because that's where we're creating the link.  No
-         * need to add to this group's pool since it's the open request. */
-        if(!target_obj)
-            op_type = H5_DAOS_OP_TYPE_NOPOOL;
-        else if(&target_obj->item != item || target_obj->item.type != H5I_GROUP
+         * need to add to dataset's pool since it's the open request. */
+        if(!target_obj || &target_obj->item != item
+                || target_obj->item.type != H5I_GROUP
                 || ((target_obj->item.open_req->status == 0
                 || target_obj->item.created)
                 && !((H5_daos_group_t *)target_obj)->gcpl_cache.track_corder))
@@ -649,9 +647,11 @@ done:
             op_type = H5_DAOS_OP_TYPE_WRITE_ORDERED;
 
         /* Add the request to the object's request queue.  This will add the
-         * dependency on the group open if necessary. */
+         * dependency on the group open if necessary.  If this is an anonymous
+         * create add to the file pool. */
         if(H5_daos_req_enqueue(int_req, first_task, item, op_type,
-                H5_DAOS_OP_SCOPE_OBJ, collective, item->open_req) < 0)
+                target_obj ? H5_DAOS_OP_SCOPE_OBJ : H5_DAOS_OP_SCOPE_FILE,
+                collective, item->open_req) < 0)
             D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't add request to request queue");
 
         /* Check for external async */
@@ -766,11 +766,6 @@ H5_daos_group_open_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for group info broadcast task");
 
     assert(udata->req);
-    assert(udata->obj);
-    assert(udata->obj->item.file);
-    assert(!udata->obj->item.file->closed);
-    assert(udata->obj->item.file->my_rank == 0);
-    assert(udata->obj->item.type == H5I_GROUP);
 
     /* Handle errors in bcast task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if
@@ -780,7 +775,13 @@ H5_daos_group_open_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         udata->req->status = task->dt_result;
         udata->req->failed_task = "MPI_Ibcast group info";
     } /* end if */
-    else if(task->dt_result == 0)
+    else if(task->dt_result == 0) {
+        assert(udata->obj);
+        assert(udata->obj->item.file);
+        assert(!udata->obj->item.file->closed);
+        assert(udata->obj->item.file->my_rank == 0);
+        assert(udata->obj->item.type == H5I_GROUP);
+
         /* Reissue bcast if necesary */
         if(udata->buffer_len != udata->count) {
             tse_task_t *bcast_task;
@@ -804,12 +805,13 @@ H5_daos_group_open_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
                 D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, ret, "can't schedule task for second group info broadcast: %s", H5_daos_err_to_string(ret));
             udata = NULL;
         } /* end if */
+    } /* end if */
 
 done:
     /* Free private data if we haven't released ownership */
     if(udata) {
         /* Close group */
-        if(H5_daos_group_close_real((H5_daos_group_t *)udata->obj) < 0)
+        if(udata->obj && H5_daos_group_close_real((H5_daos_group_t *)udata->obj) < 0)
             D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close group");
 
         /* Handle errors in this function */
@@ -867,11 +869,6 @@ H5_daos_group_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for group info receive task");
 
     assert(udata->req);
-    assert(udata->obj);
-    assert(udata->obj->item.file);
-    assert(!udata->req->file->closed);
-    assert(udata->obj->item.file->my_rank > 0);
-    assert(udata->obj->item.type == H5I_GROUP);
 
     /* Handle errors in bcast task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if
@@ -885,6 +882,12 @@ H5_daos_group_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         uint64_t gcpl_len;
         size_t ginfo_len;
         uint8_t *p = udata->buffer;
+
+        assert(udata->obj);
+        assert(udata->obj->item.file);
+        assert(!udata->req->file->closed);
+        assert(udata->obj->item.file->my_rank > 0);
+        assert(udata->obj->item.type == H5I_GROUP);
 
         /* Decode oid */
         UINT64DECODE(p, udata->obj->oid.lo)
@@ -942,7 +945,7 @@ done:
     /* Free private data if we haven't released ownership */
     if(udata) {
         /* Close group */
-        if(H5_daos_group_close_real((H5_daos_group_t *)udata->obj) < 0)
+        if(udata->obj && H5_daos_group_close_real((H5_daos_group_t *)udata->obj) < 0)
             D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close group");
 
         /* Handle errors in this function */
@@ -1000,15 +1003,16 @@ H5_daos_ginfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for group info read task");
 
     assert(udata->md_rw_cb_ud.req);
-    assert(udata->md_rw_cb_ud.req->file);
-    assert(udata->md_rw_cb_ud.obj);
     assert(udata->fetch_metatask);
-    assert(!udata->md_rw_cb_ud.req->file->closed);
-    assert(udata->md_rw_cb_ud.obj->item.type == H5I_GROUP);
 
     /* Check for buffer not large enough */
     if(task->dt_result == -DER_REC2BIG) {
         tse_task_t *fetch_task;
+
+        assert(udata->md_rw_cb_ud.req->file);
+        assert(udata->md_rw_cb_ud.obj);
+        assert(!udata->md_rw_cb_ud.req->file->closed);
+        assert(udata->md_rw_cb_ud.obj->item.type == H5I_GROUP);
 
         if(udata->bcast_udata) {
             /* Verify iod size makes sense */
@@ -1071,6 +1075,11 @@ H5_daos_ginfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
             udata->md_rw_cb_ud.req->failed_task = udata->md_rw_cb_ud.task_name;
         } /* end if */
         else if(task->dt_result == 0) {
+            assert(udata->md_rw_cb_ud.req->file);
+            assert(udata->md_rw_cb_ud.obj);
+            assert(!udata->md_rw_cb_ud.req->file->closed);
+            assert(udata->md_rw_cb_ud.obj->item.type == H5I_GROUP);
+
             /* Check for missing metadata */
             if(udata->md_rw_cb_ud.iod[0].iod_size == 0)
                 D_GOTO_ERROR(H5E_SYM, H5E_NOTFOUND, -H5_DAOS_DAOS_GET_ERROR, "internal metadata not found");
@@ -1099,7 +1108,7 @@ done:
     /* Clean up if this is the last fetch task */
     if(udata) {
         /* Close group */
-        if(H5_daos_group_close_real((H5_daos_group_t *)udata->md_rw_cb_ud.obj) < 0)
+        if(udata->md_rw_cb_ud.obj && H5_daos_group_close_real((H5_daos_group_t *)udata->md_rw_cb_ud.obj) < 0)
             D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close group");
 
         if(udata->bcast_udata) {
@@ -2588,9 +2597,11 @@ done:
     /* Clean up */
     if(udata) {
         /* Close target_grp */
-        if(H5_daos_group_close_real((H5_daos_group_t *)udata->md_rw_cb_ud.obj) < 0)
-            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close group");
-        udata->md_rw_cb_ud.obj = NULL;
+        if(udata->md_rw_cb_ud.obj) {
+            if(H5_daos_group_close_real((H5_daos_group_t *)udata->md_rw_cb_ud.obj) < 0)
+                D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close group");
+            udata->md_rw_cb_ud.obj = NULL;
+        } /* end if */
 
         /* Handle errors in this function */
         /* Do not place any code that can issue errors after this block, except for

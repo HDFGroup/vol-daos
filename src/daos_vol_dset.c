@@ -4350,8 +4350,12 @@ H5_daos_dataset_close(void *_dset, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
 
     /* Check if the dataset's request queue is NULL, if so we can close it
      * immediately.  Cannot immediately close with an empty op pool since it may
-     * depend on attribute ops. */
-    if((dset->obj.item.open_req->status == 0) && (!dset->obj.item.cur_op_pool)) {
+     * depend on attribute ops.  Also close if it is marked to close
+     * nonblocking. */
+    if(((dset->obj.item.open_req->status == 0
+            || dset->obj.item.open_req->status < -H5_DAOS_SHORT_CIRCUIT)
+            && (!dset->obj.item.cur_op_pool))
+            || dset->obj.item.nonblocking_close) {
         if(H5_daos_dataset_close_real(dset) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CLOSEERROR, FAIL, "can't close dataset");
     } /* end if */

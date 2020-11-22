@@ -2995,8 +2995,10 @@ done:
     } /* end if */
 
     if(map_id >= 0) {
+        map->obj.item.nonblocking_close = TRUE;
         if(H5Idec_ref(map_id) < 0)
             D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't close map ID");
+        map->obj.item.nonblocking_close = FALSE;
         map_id = H5I_INVALID_HID;
     } /* end if */
 
@@ -3202,8 +3204,10 @@ done:
     } /* end if */
 
     if(map_id >= 0) {
+        map->obj.item.nonblocking_close = TRUE;
         if(H5Idec_ref(map_id) < 0)
             D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't close map ID");
+        map->obj.item.nonblocking_close = FALSE;
         map_id = -1;
         map = NULL;
     } /* end if */
@@ -4065,8 +4069,12 @@ H5_daos_map_close(void *_map, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
 
     /* Check if the map's request queue is empty, if so we can close it
      * immediately.  Cannot immediately close with an empty op pool since it may
-     * depend on attribute ops. */
-    if((map->obj.item.open_req->status == 0) && (!map->obj.item.cur_op_pool)) {
+     * depend on attribute ops.  Also close if it is marked to close
+     * nonblocking. */
+    if(((map->obj.item.open_req->status == 0
+            || map->obj.item.open_req->status < -H5_DAOS_SHORT_CIRCUIT)
+            && (!map->obj.item.cur_op_pool))
+            || map->obj.item.nonblocking_close) {
         if(H5_daos_map_close_real(map) < 0)
             D_GOTO_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't close map");
     } /* end if */

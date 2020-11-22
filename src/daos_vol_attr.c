@@ -3521,9 +3521,12 @@ H5_daos_attribute_close(void *_attr, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
         H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
 
     /* Check if the attribute's request queue is empty, if so we can close it
-     * immediately */
-    if((attr->item.open_req->status == 0) && (!attr->item.cur_op_pool
-            || attr->item.cur_op_pool->type == H5_DAOS_OP_TYPE_EMPTY)) {
+     * immediately.  Also close if it is marked to close nonblocking. */
+    if(((attr->item.open_req->status == 0
+            || attr->item.open_req->status < -H5_DAOS_SHORT_CIRCUIT)
+            && (!attr->item.cur_op_pool
+            || attr->item.cur_op_pool->type == H5_DAOS_OP_TYPE_EMPTY))
+            || attr->item.nonblocking_close) {
         /* Must finish operation pool so all tasks complete, etc. */
         if(attr->item.cur_op_pool
                 && 0 != (ret = H5_daos_op_pool_finish(attr->item.cur_op_pool)))
@@ -5682,12 +5685,13 @@ H5_daos_attribute_iterate_finish(tse_task_t *task)
     if(udata->iter_data.op_ret_p)
         *udata->iter_data.op_ret_p = udata->iter_data.op_ret;
 
-    /* Close object */
-    if(H5_daos_object_close(&udata->attr_container_obj->item) < 0)
-        D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
-
+    /* Close object.  Use nonblocking close so it doesn't deadlock */
+    udata->attr_container_obj->item.nonblocking_close = TRUE;
     if(udata->iter_data.iter_root_obj >= 0 && H5Idec_ref(udata->iter_data.iter_root_obj) < 0)
         D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object ID");
+    udata->attr_container_obj->item.nonblocking_close = FALSE;
+    if(H5_daos_object_close(&udata->attr_container_obj->item) < 0)
+        D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
 
     /* Handle errors in this function */
     /* Do not place any code that can issue errors after this block, except for

@@ -1844,10 +1844,15 @@ H5_daos_group_close(void *_grp, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
 
     /* Check if the group's request queue is NULL, if so we can close it
      * immediately.  Cannot immediately close with an empty op pool since it may
-     * depend on attribute ops. */
-    if((grp->obj.item.open_req->status == 0) && (!grp->obj.item.cur_op_pool)) {
+     * depend on attribute ops.  Also close if it is marked to close
+     * nonblocking. */
+    if(((grp->obj.item.open_req->status == 0
+            || grp->obj.item.open_req->status < -H5_DAOS_SHORT_CIRCUIT)
+            && (!grp->obj.item.cur_op_pool))
+            || grp->obj.item.nonblocking_close) {
+
         if(H5_daos_group_close_real(grp) < 0)
-            D_GOTO_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group");
+            D_GOTO_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group"); fflush(stdout);
     } /* end if */
     else {
         tse_task_t *close_task = NULL;
@@ -2359,13 +2364,14 @@ H5_daos_group_gnl_task(tse_task_t *task)
     } /* end else */
 
 done:
+    /* Close group ID.  No need to mark as nonblocking close since the ID rc
+     * shouldn't drop to 0. */
+    if((target_grp_id >= 0) && (H5Idec_ref(target_grp_id) < 0))
+        D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group ID");
+
     /* Schedule first task */
     if(first_task && 0 != (ret = tse_task_schedule(first_task, false)))
         D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, ret, "can't schedule initial task for group get num links: %s", H5_daos_err_to_string(ret));
-
-    /* Close group ID */
-    if((target_grp_id >= 0) && (H5Idec_ref(target_grp_id) < 0))
-        D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group ID");
 
     /* Cleanup udata if we still own it */
     if(udata) {

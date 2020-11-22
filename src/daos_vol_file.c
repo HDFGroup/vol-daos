@@ -3142,7 +3142,7 @@ H5_daos_file_close_barrier_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args
     assert(req->file);
     assert(!req->file->closed);
 
-    /* Handle errors in bcast task.  Only record error in udata->req_status if
+    /* Handle errors in barrier task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if
      * another task this task is not dependent on also failed). */
     if(task->dt_result < -H5_DAOS_PRE_ERROR
@@ -3216,8 +3216,9 @@ H5_daos_file_close(void *_file, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
             && 0 != (ret = H5_daos_op_pool_finish(file->root_grp->obj.item.cur_op_pool)))
         D_GOTO_ERROR(H5E_FILE, H5E_CLOSEERROR, FAIL, "can't finish operation pool: %s", H5_daos_err_to_string(ret));
 
-    /* Create task for barrier */
-    if(0 != (ret = tse_task_create(H5_daos_mpi_ibarrier_task, &H5_daos_glob_sched_g, int_req, &barrier_task)))
+    /* Create task for barrier (or just close if there is only one process) */
+    if(0 != (ret = tse_task_create(file->num_procs > 1 ? H5_daos_mpi_ibarrier_task : H5_daos_metatask_autocomplete,
+            &H5_daos_glob_sched_g, int_req, &barrier_task)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create MPI barrier task: %s", H5_daos_err_to_string(ret));
 
     /* Set callback functions for barrier (comp_cb will close the file) */

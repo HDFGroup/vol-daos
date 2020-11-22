@@ -2591,6 +2591,10 @@ H5_daos_link_copy_move_int(H5_daos_item_t *src_item, const H5VL_loc_params_t *lo
             *dep_task = *first_task;
         } /* end if */
 
+        /* Initialize dep_tasks */
+        dep_tasks[0] = *dep_task;
+        dep_tasks[1] = *dep_task;
+
         /* Determine the group containing the link to be copied + the source link's name */
         /* Make this work for copying across multiple files DSINC */
         if(NULL == (src_obj = H5_daos_group_traverse(src_item ? src_item : dst_item, /* Accounting for H5L_SAME_LOC usage */
@@ -3318,8 +3322,10 @@ done:
     } /* end if */
 
     if(target_grp_id >= 0) {
+        target_grp->obj.item.nonblocking_close = TRUE;
         if(H5Idec_ref(target_grp_id) < 0)
             D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group ID");
+        target_grp->obj.item.nonblocking_close = FALSE;
         target_grp_id = -1;
         target_grp = NULL;
     } /* end if */
@@ -5119,9 +5125,12 @@ H5_daos_link_ibco_end_task(tse_task_t *task)
             udata->iter_data->short_circuit_init = FALSE;
         } /* end if */
 
-        /* Decrement reference count on root obj id */
+        /* Decrement reference count on root obj id.  Use nonblocking close so
+         * it doesn't deadlock */
+        udata->target_grp->obj.item.nonblocking_close = TRUE;
         if(H5Idec_ref(udata->iter_data->iter_root_obj) < 0)
             D_GOTO_ERROR(H5E_LINK, H5E_CANTDEC, -H5_DAOS_H5_CLOSE_ERROR, "can't decrement reference count on iteration base object");
+        udata->target_grp->obj.item.nonblocking_close = FALSE;
         udata->iter_data->iter_root_obj = H5I_INVALID_HID;
 
         /* Set *op_ret_p if present */
@@ -5873,8 +5882,10 @@ done:
             iter_data->u.link_iter_data.visited_link_table = NULL;
         } /* end if */
 
+        target_grp->obj.item.nonblocking_close = TRUE;
         if(H5Idec_ref(iter_data->iter_root_obj) < 0)
             D_DONE_ERROR(H5E_LINK, H5E_CANTDEC, -H5_DAOS_H5_CLOSE_ERROR, "can't decrement reference count on iteration base object");
+        target_grp->obj.item.nonblocking_close = FALSE;
     } /* end if */
 
     D_FUNC_LEAVE;
@@ -6502,7 +6513,8 @@ H5_daos_link_delete_corder(H5_daos_group_t *target_grp, const H5VL_loc_params_t 
     corder_delete_ud = NULL;
 
 done:
-    /* Close group since iteration task will now own it */
+    /* Close group since iteration task will now own it.  No need to mark as
+     * nonblocking close since the ID rc shouldn't drop to 0. */
     if((target_grp_id >= 0) && (H5Idec_ref(target_grp_id) < 0))
         D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group ID");
 
@@ -8109,6 +8121,12 @@ done:
     if(udata) {
         tse_task_t *end_task = NULL;
 
+        /* Close group ID since iteration task will now own it.  No need to mark
+         * as nonblocking close since the ID rc shouldn't drop to 0. */
+        if((udata->target_grp_id >= 0) && (H5Idec_ref(udata->target_grp_id) < 0))
+            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close group ID");
+        udata->target_grp_id = H5I_INVALID_HID;
+
         /* Create task to finalize gnbn task */
         if(0 !=  (ret = tse_task_create(H5_daos_link_gnbn_end_task, &H5_daos_glob_sched_g, udata, &end_task)))
             D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, ret, "can't create task for link get name by name order end: %s", H5_daos_err_to_string(ret));
@@ -8180,10 +8198,6 @@ H5_daos_link_gnbn_end_task(tse_task_t *task)
 
     /* Complete main task */
     tse_task_complete(udata->gnbn_task, ret_value);
-
-    /* Close group */
-    if((udata->target_grp_id >= 0) && (H5Idec_ref(udata->target_grp_id) < 0))
-        D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close group ID");
 
     /* Handle errors in this function */
     /* Do not place any code that can issue errors after this block, except for
@@ -8284,8 +8298,10 @@ done:
     /* Clean up */
     if(gnbn_udata) {
         assert(ret_value < 0);
+        target_grp->obj.item.nonblocking_close = TRUE;
         if(gnbn_udata->target_grp_id >= 0 && H5Idec_ref(gnbn_udata->target_grp_id) < 0)
             D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group ID");
+        target_grp->obj.item.nonblocking_close = FALSE;
         gnbn_udata = DV_free(gnbn_udata);
     } /* end if */
 

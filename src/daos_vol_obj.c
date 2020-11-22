@@ -2173,7 +2173,9 @@ H5_daos_group_copy(H5_daos_object_copy_ud_t *obj_copy_udata,
         D_GOTO_ERROR(H5E_SYM, H5E_BADITER, FAIL, "can't iterate over group's links");
 
 done:
-    /* Release reference to group since link iteration task should own it now */
+    /* Release reference to group since link iteration task should own it now.
+     * No need to mark as nonblocking close since the ID rc shouldn't drop to 0.
+     */
     if(target_obj_id >= 0 && H5Idec_ref(target_obj_id) < 0)
         D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, FAIL, "can't close object ID");
 
@@ -3882,6 +3884,12 @@ H5_daos_object_visit_task(tse_task_t *task)
         D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't create dependencies for object visiting metatask: %s", H5_daos_err_to_string(ret));
 
 done:
+    /* Close object ID since the iterate task should own it now.  No need to
+     * mark as nonblocking close since the ID rc shouldn't drop to 0. */
+    if(udata->target_obj_id >= 0 && H5Idec_ref(udata->target_obj_id) < 0)
+        D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object ID");
+    udata->target_obj_id = H5I_INVALID_HID;
+
     /* Schedule first task */
     if(first_task && 0 != (ret = tse_task_schedule(first_task, false)))
         D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't schedule task to iterate over object's links: %s", H5_daos_err_to_string(ret));
@@ -4225,9 +4233,6 @@ H5_daos_object_visit_finish(tse_task_t *task)
     /* Set *op_ret_p if present */
     if(udata->iter_data.op_ret_p)
         *udata->iter_data.op_ret_p = udata->iter_data.op_ret;
-
-    if(udata->target_obj_id >= 0 && H5Idec_ref(udata->target_obj_id) < 0)
-        D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object ID");
 
     /* Close object */
     if(H5_daos_object_close(&udata->target_obj->item) < 0)

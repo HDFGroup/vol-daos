@@ -271,6 +271,12 @@ H5_daos_op_pool_finish(H5_daos_op_pool_t *op_pool)
         assert(op_pool->start_task);
         assert(!op_pool->closed);
 
+        /* Complete init task */
+        if(op_pool->init_task) {
+            tse_task_complete(op_pool->init_task, 0);
+            op_pool->init_task = NULL;
+        } /* end if */
+
         /* Create dependency for pool end task on pool start task */
         if((ret = tse_task_register_deps(op_pool->end_task, 1, &op_pool->start_task)) < 0)
             D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't create dependencies for end task for operation pool: %s", H5_daos_err_to_string(ret)); 
@@ -315,6 +321,10 @@ H5_daos_op_pool_free(H5_daos_op_pool_t *op_pool)
 
     if(--op_pool->rc == 0) {
         assert(op_pool->closed);
+        assert(!op_pool->init_task);
+        assert(!op_pool->start_task);
+        assert(!op_pool->end_task);
+        assert(!op_pool->dep_task);
         DV_free(op_pool);
     } /* end if */
 
@@ -346,7 +356,7 @@ H5_daos_op_pool_start_task(tse_task_t *task)
         D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for op pool start task");
 
     assert(task == op_pool->start_task);
-//printf("%s: %p\n", __func__, task); fflush(stdout);
+
     /* Clear start task so later tasks in this pool don't depend on this
      * (completed) task */
     op_pool->start_task = NULL;
@@ -429,8 +439,9 @@ H5_daos_op_pool_end_task(tse_task_t *task)
     /* Get op pool */
     if(NULL == (op_pool = (H5_daos_op_pool_t *)tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for op pool end task");
-//printf("%s: %p\n", __func__, task); fflush(stdout);
+
     assert(task == op_pool->end_task);
+    assert(op_pool->closed);
     assert(!op_pool->start_task);
 
     /* Complete dep task if present */
@@ -572,7 +583,7 @@ H5_daos_req_enqueue(H5_daos_req_t *req, tse_task_t *first_task,
                     && ((*parent_cur_op_pool[0])->type == H5_DAOS_OP_TYPE_READ
                     || (*parent_cur_op_pool[0])->type == H5_DAOS_OP_TYPE_READ_ORDERED)))) {
             /* Op type is compatible with current pool type and current pool is
-             * not closd.  Can add to current pool. */
+             * not closed.  Can add to current pool. */
             assert(!(*parent_cur_op_pool[0])->init_task);
             assert((*parent_cur_op_pool[0])->end_task);
 
@@ -844,22 +855,10 @@ H5_daos_req_enqueue(H5_daos_req_t *req, tse_task_t *first_task,
 
     /* Add dependency on dep_req if necessary */
     if(dep_req && (dep_req->status == H5_DAOS_INCOMPLETE
-            || dep_req->status == H5_DAOS_SHORT_CIRCUIT)) {
-        /* Create dep_task for request if necessary.  This will be completed by
-         * the request finalize task.  We do this to prevent tse from
-         * propagating errors between collective requests. */
-        if(!dep_req->dep_task) {
-            if(0 != (ret = tse_task_create(NULL, &H5_daos_glob_sched_g, NULL, &dep_req->dep_task)))
-                D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't create dep task for operation pool: %s", H5_daos_err_to_string(ret));
-
-            if(0 != (ret = tse_task_schedule(dep_req->dep_task, false)))
-                D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't schedule final dependency task for operation pool: %s", H5_daos_err_to_string(ret));
-        } /* end if */
-
+            || dep_req->status == H5_DAOS_SHORT_CIRCUIT))
         /* Register dependency */
-        if((ret = tse_task_register_deps(first_task, 1, &dep_req->dep_task)) < 0)
+        if((ret = tse_task_register_deps(first_task, 1, &dep_req->finalize_task)) < 0)
             D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't register task dependency: %s", H5_daos_err_to_string(ret));
-    } /* end if */
 
 done:
     /* Schedule first task */

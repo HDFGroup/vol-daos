@@ -7,10 +7,10 @@
 ##   INCLUDE(CTest)
 
 set(CTEST_PROJECT_NAME "HDF5_VOL_DAOS")
-set(CTEST_NIGHTLY_START_TIME "01:00:00 CDT")
+set(CTEST_NIGHTLY_START_TIME "00:00:00 CST")
 
-set(CTEST_DROP_METHOD "http")
-set(CTEST_DROP_SITE "cdash.hdfgroup.org")
+set(CTEST_DROP_METHOD "https")
+set(CTEST_DROP_SITE "mercury-cdash.hdfgroup.org")
 set(CTEST_DROP_LOCATION "/submit.php?project=HDF5_VOL_DAOS")
 set(CTEST_DROP_SITE_CDASH TRUE)
 

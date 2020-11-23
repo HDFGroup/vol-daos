@@ -3069,6 +3069,9 @@ H5_daos_link_get(void *_item, const H5VL_loc_params_t *loc_params,
             size_t name_out_size = va_arg(arguments, size_t);
             ssize_t *ret_size = va_arg(arguments, ssize_t *);
 
+            if(H5I_GROUP != target_obj->item.type)
+                D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a group");
+
             /* Pass ret_size as size_t * - this should be fine since if the call
              * fails the HDF5 library will assign -1 to the return value anyways
              */

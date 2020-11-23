@@ -57,8 +57,8 @@ H5_daos_req_wait(void *_req, uint64_t timeout, H5ES_status_t *status)
             *status = H5ES_STATUS_SUCCEED;
         else if(req->status >= -H5_DAOS_SHORT_CIRCUIT)
             *status = H5ES_STATUS_IN_PROGRESS;
-        else if(req->status == -H5_DAOS_CANCELED)
-            *status = H5ES_STATUS_CANCELED;
+        /*else if(req->status == -H5_DAOS_CANCELED)
+            *status = H5ES_STATUS_CANCELED;*/ /* Cancel may have been removed */
         else
             *status = H5ES_STATUS_FAIL;
     } /* end if */

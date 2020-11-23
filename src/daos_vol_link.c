@@ -2339,45 +2339,53 @@ H5_daos_link_copy_move_task(tse_task_t *task)
     if(dep_tasks[0])
         ndeps++;
 
-    /* If we're copying and it's a hard link we must increment the ref count */
-    if(!udata->move && udata->link_val.type == H5L_TYPE_HARD) {
-        H5VL_loc_params_t link_target_loc_params;
-        H5O_token_t token;
-        int rc_task = ndeps;
+    if(udata->link_val.type == H5L_TYPE_HARD) {
+        if(udata->move) {
+            /* Verify that source and destination files are the same */
+            if(memcmp(&udata->req->file->coh, &udata->target_obj->item.file->coh, sizeof(daos_handle_t)))
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTMOVE, -H5_DAOS_BAD_VALUE, "can't move hard links across files");
+        }
+        else {
+            H5VL_loc_params_t link_target_loc_params;
+            H5O_token_t token;
+            int rc_task = ndeps;
 
-        /* Verify src and dst files are the same? */
+            /* If we're copying a hard link we must increment the ref count */
 
-        /* Encode loc_params for opening link target object */
-        if(H5I_BADID == (link_target_loc_params.obj_type = H5_daos_oid_to_type(udata->link_val.target.hard)))
-            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_BAD_VALUE, "failed to get link target object's type");
-        link_target_loc_params.type = H5VL_OBJECT_BY_TOKEN;
-        if(H5_daos_oid_to_token(udata->link_val.target.hard, &token) < 0)
-            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_H5_ENCODE_ERROR, "failed to encode token");
-        link_target_loc_params.loc_data.loc_by_token.token = &token;
+            /* Verify src and dst files are the same? */
 
-        /* Attempt to open the hard link's target object */
-        if(H5_daos_object_open_helper(&udata->target_obj->item, &link_target_loc_params,
-                NULL, FALSE, NULL, &udata->link_target_obj, req, &first_task, &dep_tasks[rc_task]) < 0)
-            D_GOTO_ERROR(H5E_LINK, H5E_CANTOPENOBJ, -H5_DAOS_H5_OPEN_ERROR, "couldn't open hard link's target object");
-        if(dep_tasks[rc_task])
-            ndeps++;
+            /* Encode loc_params for opening link target object */
+            if(H5I_BADID == (link_target_loc_params.obj_type = H5_daos_oid_to_type(udata->link_val.target.hard)))
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_BAD_VALUE, "failed to get link target object's type");
+            link_target_loc_params.type = H5VL_OBJECT_BY_TOKEN;
+            if(H5_daos_oid_to_token(udata->link_val.target.hard, &token) < 0)
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_H5_ENCODE_ERROR, "failed to encode token");
+            link_target_loc_params.loc_data.loc_by_token.token = &token;
 
-        /* Read target object ref count */
-        if(0 != (ret = H5_daos_obj_read_rc(&udata->link_target_obj, NULL,
-                &udata->link_target_obj_rc, NULL, &udata->target_obj->item.file->sched,
-                req, &first_task, &dep_tasks[1])))
-            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, ret, "can't get target object ref count: %s", H5_daos_err_to_string(ret));
-        if(rc_task == ndeps && dep_tasks[rc_task])
-            ndeps++;
+            /* Attempt to open the hard link's target object */
+            if(H5_daos_object_open_helper(&udata->target_obj->item, &link_target_loc_params,
+                    NULL, FALSE, NULL, &udata->link_target_obj, req, &first_task, &dep_tasks[rc_task]) < 0)
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTOPENOBJ, -H5_DAOS_H5_OPEN_ERROR, "couldn't open hard link's target object");
+            if(dep_tasks[rc_task])
+                ndeps++;
 
-        /* Increment and write ref count */
-        if(0 != (ret = H5_daos_obj_write_rc(&udata->link_target_obj, NULL,
-                &udata->link_target_obj_rc, 1, &udata->target_obj->item.file->sched,
-                req, &first_task, &dep_tasks[1])))
-            D_GOTO_ERROR(H5E_LINK, H5E_CANTINC, ret, "can't write updated target object ref count: %s", H5_daos_err_to_string(ret));
-        if(rc_task == ndeps && dep_tasks[rc_task])
-            ndeps++;
-    } /* end if */
+            /* Read target object ref count */
+            if(0 != (ret = H5_daos_obj_read_rc(&udata->link_target_obj, NULL,
+                    &udata->link_target_obj_rc, NULL, &udata->target_obj->item.file->sched,
+                    req, &first_task, &dep_tasks[1])))
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, ret, "can't get target object ref count: %s", H5_daos_err_to_string(ret));
+            if(rc_task == ndeps && dep_tasks[rc_task])
+                ndeps++;
+
+            /* Increment and write ref count */
+            if(0 != (ret = H5_daos_obj_write_rc(&udata->link_target_obj, NULL,
+                    &udata->link_target_obj_rc, 1, &udata->target_obj->item.file->sched,
+                    req, &first_task, &dep_tasks[1])))
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTINC, ret, "can't write updated target object ref count: %s", H5_daos_err_to_string(ret));
+            if(rc_task == ndeps && dep_tasks[rc_task])
+                ndeps++;
+        }
+    }
 
 done:
     if(udata) {
@@ -2980,7 +2988,7 @@ herr_t
 H5_daos_link_get(void *_item, const H5VL_loc_params_t *loc_params,
     H5VL_link_get_t get_type, hid_t dxpl_id, void **req, va_list arguments)
 {
-    H5_daos_group_t    *target_grp = NULL;
+    H5_daos_obj_t      *target_obj = NULL;
     H5_daos_item_t     *item = (H5_daos_item_t *)_item;
     H5_daos_req_t      *int_req = NULL;
     tse_task_t         *first_task = NULL;
@@ -3009,36 +3017,33 @@ H5_daos_link_get(void *_item, const H5VL_loc_params_t *loc_params,
     /* Determine group containing link in question */
     switch (loc_params->type) {
         case H5VL_OBJECT_BY_SELF:
-            /* Use item as link's parent group, or the root group if item is a file */
+            /* Use item as target object, or the root group if item is a file */
             if(item->type == H5I_FILE)
-                target_grp = ((H5_daos_file_t *)item)->root_grp;
-            else if(item->type == H5I_GROUP)
-                target_grp = (H5_daos_group_t *)item;
+                target_obj = (H5_daos_obj_t *)((H5_daos_file_t *)item)->root_grp;
             else
-                D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "item not a file or group");
-
-            target_grp->obj.item.rc++;
+                target_obj = (H5_daos_obj_t *)item;
+            target_obj->item.rc++;
             break;
 
         case H5VL_OBJECT_BY_NAME:
-            /* Open target group */
-            if(NULL == (target_grp = (H5_daos_group_t *)H5_daos_object_open(item, loc_params, NULL, dxpl_id, req)))
-                D_GOTO_ERROR(H5E_LINK, H5E_CANTOPENOBJ, FAIL, "can't open target group for link");
+            /* Open target object */
+            if(NULL == (target_obj = H5_daos_object_open(item, loc_params, NULL, dxpl_id, req)))
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTOPENOBJ, FAIL, "can't open target object for link");
             break;
 
         case H5VL_OBJECT_BY_IDX:
         {
             H5VL_loc_params_t by_name_params;
 
-            /* Setup loc_params for opening target group */
+            /* Setup loc_params for opening target object */
             by_name_params.type = H5VL_OBJECT_BY_NAME;
             by_name_params.obj_type = H5I_GROUP;
             by_name_params.loc_data.loc_by_name.name = loc_params->loc_data.loc_by_idx.name;
             by_name_params.loc_data.loc_by_name.lapl_id = loc_params->loc_data.loc_by_idx.lapl_id;
 
-            /* Open target group */
-            if(NULL == (target_grp = (H5_daos_group_t *)H5_daos_object_open(item, &by_name_params, NULL, dxpl_id, req)))
-                D_GOTO_ERROR(H5E_LINK, H5E_CANTOPENOBJ, FAIL, "can't open target group for link");
+            /* Open target object */
+            if(NULL == (target_obj = H5_daos_object_open(item, &by_name_params, NULL, dxpl_id, req)))
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTOPENOBJ, FAIL, "can't open target object for link");
             break;
         }
 
@@ -3064,10 +3069,13 @@ H5_daos_link_get(void *_item, const H5VL_loc_params_t *loc_params,
             size_t name_out_size = va_arg(arguments, size_t);
             ssize_t *ret_size = va_arg(arguments, ssize_t *);
 
+            if(H5I_GROUP != target_obj->item.type)
+                D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a group");
+
             /* Pass ret_size as size_t * - this should be fine since if the call
              * fails the HDF5 library will assign -1 to the return value anyways
              */
-            if(H5_daos_link_get_name_by_idx(target_grp, loc_params->loc_data.loc_by_idx.idx_type,
+            if(H5_daos_link_get_name_by_idx((H5_daos_group_t *)target_obj, loc_params->loc_data.loc_by_idx.idx_type,
                     loc_params->loc_data.loc_by_idx.order, (uint64_t)loc_params->loc_data.loc_by_idx.n,
                     (size_t *)ret_size, name_out, name_out_size, int_req, &first_task, &dep_task) < 0)
                 D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't retrieve link's name");
@@ -3126,8 +3134,8 @@ done:
             D_DONE_ERROR(H5E_LINK, H5E_CLOSEERROR, FAIL, "can't free request");
     } /* end if */
 
-    if(target_grp && H5_daos_group_close(target_grp, dxpl_id, req) < 0)
-        D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group");
+    if(target_obj && H5_daos_object_close(target_obj, dxpl_id, req) < 0)
+        D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, FAIL, "can't close object");
 
     D_FUNC_LEAVE_API;
 } /* end H5_daos_link_get() */

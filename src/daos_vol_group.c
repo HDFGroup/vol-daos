@@ -1784,6 +1784,8 @@ H5_daos_group_close_real(H5_daos_group_t *grp)
 
     if(!grp)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "group object is NULL");
+    if(H5I_GROUP != grp->obj.item.type)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a group");
 
     if(--grp->obj.item.rc == 0) {
         hbool_t close_gcpl = grp->gcpl_id != H5I_INVALID_HID

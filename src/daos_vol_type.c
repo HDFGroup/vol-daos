@@ -1888,6 +1888,8 @@ H5_daos_datatype_close_real(H5_daos_dtype_t *dtype)
 
     if(!dtype)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "datatype object is NULL");
+    if(H5I_DATATYPE != dtype->obj.item.type)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a datatype");
 
     if(--dtype->obj.item.rc == 0) {
         /* Free datatype data structures */

@@ -591,7 +591,7 @@ H5_daos_dataset_create_helper(H5_daos_file_t *file, hid_t type_id, hid_t space_i
     tse_task_t *dataset_metatask;
     tse_task_t *finalize_deps[3];
     hbool_t default_dcpl = (dcpl_id == H5P_DATASET_CREATE_DEFAULT);
-    htri_t is_vl_ref;
+    htri_t is_vl_ref = FALSE;
     size_t fill_val_size;
     hid_t tmp_dcpl_id = H5I_INVALID_HID;
     void *type_buf = NULL;
@@ -4263,6 +4263,8 @@ H5_daos_dataset_close_real(H5_daos_dset_t *dset)
 
     if(!dset)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "dataset object is NULL");
+    if(H5I_DATASET != dset->obj.item.type)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a dataset");
 
     if(--dset->obj.item.rc == 0) {
         /* Free dataset data structures */

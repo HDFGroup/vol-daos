@@ -1913,6 +1913,10 @@ H5_daos_attribute_open_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *ar
 done:
     /* Free private data if we haven't released ownership */
     if(udata) {
+        /* Close attribute parent object */
+        if(H5_daos_object_close(&udata->attr->parent->item) < 0)
+            D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close attribute's parent object");
+
         /* Handle errors in this function */
         /* Do not place any code that can issue errors after this block, except
          * for H5_daos_req_free_int, which updates req->status if it sees an
@@ -2036,6 +2040,10 @@ H5_daos_attribute_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *arg
 done:
     /* Free private data if we haven't released ownership */
     if(udata) {
+        /* Close attribute parent object */
+        if(H5_daos_object_close(&udata->attr->parent->item) < 0)
+            D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close attribute's parent object");
+
         /* Handle errors in this function */
         /* Do not place any code that can issue errors after this block, except
          * for H5_daos_req_free_int, which updates req->status if it sees an
@@ -3462,6 +3470,8 @@ H5_daos_attribute_close_real(H5_daos_attr_t *attr)
 
     if(!attr)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "attribute object is NULL");
+    if(H5I_ATTR != attr->item.type)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not an attribute");
 
     if(--attr->item.rc == 0) {
         /* Free attribute data structures */

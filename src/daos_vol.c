@@ -3198,8 +3198,8 @@ done:
         if(ret_value >= 0 && (req->status == -H5_DAOS_INCOMPLETE
                 || req->status == -H5_DAOS_SHORT_CIRCUIT))
             req_status = H5ES_STATUS_SUCCEED;
-        else if(req->status == -H5_DAOS_CANCELED)
-            req_status = H5ES_STATUS_CANCELED;
+        /*else if(req->status == -H5_DAOS_CANCELED)
+            req_status = H5ES_STATUS_CANCELED;*/ /* Cancel may have been removed */
         else
             req_status = H5ES_STATUS_FAIL;
 
@@ -3377,7 +3377,7 @@ done:
             if(req->notify_cb)
                 if(req->notify_cb(req->notify_ctx, ret_value >= 0 && (req->status == -H5_DAOS_INCOMPLETE
                         || req->status == -H5_DAOS_SHORT_CIRCUIT) ? H5ES_STATUS_SUCCEED
-                        : req->status == -H5_DAOS_CANCELED ? H5ES_STATUS_CANCELED : H5ES_STATUS_FAIL) < 0)
+                        : /*req->status == -H5_DAOS_CANCELED ? H5ES_STATUS_CANCELED :*/ H5ES_STATUS_FAIL) < 0)
                     D_DONE_ERROR(H5E_VOL, H5E_CANTOPERATE, -H5_DAOS_CALLBACK_ERROR, "notify callback returned failure");
 
             /* Clear H5_daos_collective_req_tail if it refers to this request */

@@ -3249,8 +3249,8 @@ H5_daos_attribute_close(void *_attr, hid_t dxpl_id, void **req)
 
     if(!_attr)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "attribute object is NULL");
-
-    assert(H5I_ATTR == attr->item.type);
+    if(H5I_ATTR != attr->item.type)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not an attribute");
 
     if(!attr->item.file->closed)
         H5_DAOS_MAKE_ASYNC_PROGRESS(attr->item.file->sched, FAIL);

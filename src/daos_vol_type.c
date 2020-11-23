@@ -1888,8 +1888,8 @@ H5_daos_datatype_close(void *_dtype, hid_t H5VL_DAOS_UNUSED dxpl_id,
 
     if(!_dtype)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "datatype object is NULL");
-
-    assert(H5I_DATATYPE == dtype->obj.item.type);
+    if(H5I_DATATYPE != dtype->obj.item.type)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a datatype");
 
     if(!dtype->obj.item.file->closed)
         H5_DAOS_MAKE_ASYNC_PROGRESS(dtype->obj.item.file->sched, FAIL);

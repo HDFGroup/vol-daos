@@ -3145,6 +3145,8 @@ H5_daos_file_close(void *_file, hid_t dxpl_id, void **req)
 
     if(!_file)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "file object is NULL");
+    if(H5I_FILE != file->item.type)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a file");
 
     /* Flush the file (barrier, commit epoch, slip epoch) *Update comment DSINC */
     if(H5_daos_file_flush(file) < 0)

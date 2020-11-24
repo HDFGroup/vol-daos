@@ -854,8 +854,8 @@ H5_daos_req_enqueue(H5_daos_req_t *req, tse_task_t *first_task,
     } /* end if */
 
     /* Add dependency on dep_req if necessary */
-    if(dep_req && (dep_req->status == H5_DAOS_INCOMPLETE
-            || dep_req->status == H5_DAOS_SHORT_CIRCUIT))
+    if(dep_req && (dep_req->status == -H5_DAOS_INCOMPLETE
+            || dep_req->status == -H5_DAOS_SHORT_CIRCUIT))
         /* Register dependency */
         if((ret = tse_task_register_deps(first_task, 1, &dep_req->finalize_task)) < 0)
             D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't register task dependency: %s", H5_daos_err_to_string(ret));

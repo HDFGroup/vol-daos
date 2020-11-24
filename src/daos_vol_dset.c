@@ -3184,27 +3184,19 @@ H5_daos_dset_io_int_task(tse_task_t *task)
     switch(udata->io_type) {
         case IO_READ:
             if(H5_daos_dataset_read_int(udata->dset, udata->mem_type_id, udata->mem_space_id, udata->file_space_id,
-                    need_tconv, udata->buf.rbuf, udata->req, &first_task, &dep_task) < 0)
+                    need_tconv, udata->buf.rbuf, udata->end_task, udata->req, &first_task, &dep_task) < 0)
                 D_GOTO_ERROR(H5E_DATASET, H5E_READERROR, -H5_DAOS_H5_GET_ERROR, "failed to read data from dataset");
             break;
 
         case IO_WRITE:
             if(H5_daos_dataset_write_int(udata->dset, udata->mem_type_id, udata->mem_space_id, udata->file_space_id,
-                    need_tconv, udata->buf.wbuf, udata->req, &first_task, &dep_task) < 0)
+                    need_tconv, udata->buf.wbuf, udata->end_task, udata->req, &first_task, &dep_task) < 0)
                 D_GOTO_ERROR(H5E_DATASET, H5E_READERROR, -H5_DAOS_H5_COPY_ERROR, "failed to write data to dataset");
             break;
     } /* end switch */
 
 done:
     if(udata) {
-        /* Add dependency for udata->end_task on dep_task */
-        if(dep_task && (ret = tse_task_register_deps(udata->end_task, 1, &dep_task)) < 0)
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, ret, "can't register task dependency: %s", H5_daos_err_to_string(ret));
-
-        /* Schedule end task */
-        if(0 != (ret = tse_task_schedule(udata->end_task, false)))
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, ret, "can't schedule final task for dataset I/O: %s", H5_daos_err_to_string(ret));
-
         /* Schedule first task */
         if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, ret, "can't schedule final task for dataset I/O: %s", H5_daos_err_to_string(ret));
@@ -3311,7 +3303,8 @@ done:
 herr_t
 H5_daos_dataset_read_int(H5_daos_dset_t *dset, hid_t mem_type_id,
     hid_t mem_space_id, hid_t file_space_id, htri_t need_tconv, void *buf,
-    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
+    tse_task_t *_end_task, H5_daos_req_t *req, tse_task_t **first_task,
+    tse_task_t **dep_task)
 {
     H5_daos_select_chunk_info_t *chunk_info = NULL; /* Array of info for each chunk selected in the file */
     H5_daos_chunk_io_func single_chunk_read_func;
@@ -3322,7 +3315,7 @@ H5_daos_dataset_read_int(H5_daos_dset_t *dset, hid_t mem_type_id,
     int ndims;
     hssize_t num_elem_file = -1, num_elem_mem;
     tse_task_t *io_task;
-    tse_task_t *end_task = NULL;
+    tse_task_t *end_task = _end_task;
     int ret;
     herr_t ret_value = SUCCEED;
 
@@ -3415,9 +3408,10 @@ H5_daos_dataset_read_int(H5_daos_dset_t *dset, hid_t mem_type_id,
             *dep_task = *first_task;
         } /* end if */
 
-        /* Set up empty end task for coordination */
-        if(0 != (ret = tse_task_create(H5_daos_metatask_autocomplete, &H5_daos_glob_sched_g, NULL, &end_task)))
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create last metatask for dataset read");
+        /* Set up empty end task for coordination if not already provided */
+        if(!end_task)
+            if(0 != (ret = tse_task_create(H5_daos_metatask_autocomplete, &H5_daos_glob_sched_g, NULL, &end_task)))
+                D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create last metatask for dataset read");
     } /* end if */
 
     /* Perform I/O on each chunk selected */
@@ -3505,7 +3499,7 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
             || dset->obj.item.cur_op_pool->type == H5_DAOS_OP_TYPE_EMPTY)) {
         /* Call internal routine */
         if(H5_daos_dataset_read_int(dset, mem_type_id, mem_space_id, file_space_id,
-                need_tconv, buf, int_req, &first_task, &dep_task) < 0)
+                need_tconv, buf, NULL, int_req, &first_task, &dep_task) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_READERROR, FAIL, "failed to read data from dataset");
     } /* end if */
     else {
@@ -3632,7 +3626,8 @@ done:
 herr_t
 H5_daos_dataset_write_int(H5_daos_dset_t *dset, hid_t mem_type_id,
     hid_t mem_space_id, hid_t file_space_id, htri_t need_tconv, const void *buf,
-    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
+    tse_task_t *_end_task, H5_daos_req_t *req, tse_task_t **first_task,
+    tse_task_t **dep_task)
 {
     H5_daos_select_chunk_info_t *chunk_info = NULL; /* Array of info for each chunk selected in the file */
     H5_daos_chunk_io_func single_chunk_write_func;
@@ -3643,7 +3638,7 @@ H5_daos_dataset_write_int(H5_daos_dset_t *dset, hid_t mem_type_id,
     int ndims;
     hssize_t num_elem_file = -1, num_elem_mem;
     tse_task_t *io_task;
-    tse_task_t *end_task = NULL;
+    tse_task_t *end_task = _end_task;
     int ret;
     herr_t ret_value = SUCCEED;
 
@@ -3737,9 +3732,10 @@ H5_daos_dataset_write_int(H5_daos_dset_t *dset, hid_t mem_type_id,
             *dep_task = *first_task;
         } /* end if */
 
-        /* Set up empty end task for coordination */
-        if(0 != (ret = tse_task_create(H5_daos_metatask_autocomplete, &H5_daos_glob_sched_g, NULL, &end_task)))
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create last metatask for dataset read");
+        /* Set up empty end task for coordination if not already provided */
+        if(!end_task)
+            if(0 != (ret = tse_task_create(H5_daos_metatask_autocomplete, &H5_daos_glob_sched_g, NULL, &end_task)))
+                D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create last metatask for dataset read");
     } /* end if */
 
     /* Perform I/O on each chunk selected */
@@ -3831,7 +3827,7 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
             || dset->obj.item.cur_op_pool->type == H5_DAOS_OP_TYPE_EMPTY)) {
         /* Call internal routine */
         if(H5_daos_dataset_write_int(dset, mem_type_id, mem_space_id, file_space_id,
-                need_tconv, buf, int_req, &first_task, &dep_task) < 0)
+                need_tconv, buf, NULL, int_req, &first_task, &dep_task) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_WRITEERROR, FAIL, "failed to write data to dataset");
     } /* end if */
     else {

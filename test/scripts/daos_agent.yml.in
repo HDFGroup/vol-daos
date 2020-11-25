@@ -1,0 +1,5 @@
+access_points: ['localhost']
+transport_config:
+  allow_insecure: true
+runtime_dir: @DAOS_AGENT_SOCKET_DIR@
+log_file: @DAOS_LOG_DIR@/daos_agent.log

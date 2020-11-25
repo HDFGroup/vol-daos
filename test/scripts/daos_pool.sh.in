@@ -1,4 +1,4 @@
 #!/bin/bash
 # This is a generated file, make sure you edit the .in file
 env DAOS_AGENT_DRPC_DIR=@DAOS_AGENT_DIR@ \
-@DAOS_AGENT_EXECUTABLE@ -o @DAOS_AGENT_DIR@/scripts/daos_agent.yml
+@DAOS_DMG_EXECUTABLE@ -i pool create -s=@DAOS_POOL_SIZE@G

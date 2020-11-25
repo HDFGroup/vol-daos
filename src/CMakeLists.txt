@@ -16,37 +16,17 @@ set(HDF5_VOL_DAOS_BUILD_INCLUDE_DEPENDENCIES
 #------------------------------------------------------------------------------
 # DAOS
 find_package(DAOS REQUIRED)
-if(DAOS_FOUND)
-  set(HDF5_VOL_DAOS_EXT_INCLUDE_DEPENDENCIES
-    ${HDF5_VOL_DAOS_EXT_INCLUDE_DEPENDENCIES}
-    ${DAOS_INCLUDE_DIRS}
-  )
-  set(HDF5_VOL_DAOS_EXT_LIB_DEPENDENCIES
-    ${HDF5_VOL_DAOS_EXT_LIB_DEPENDENCIES}
-    ${DAOS_LIBRARIES}
-  )
-else()
-  message(FATAL_ERROR "Could not find DAOS, please check DAOS_INCLUDE_DIR.")
-endif()
-
-# CART
-# Temporary workaround because DAOS does not pull Cart dependency
-find_package(CART REQUIRED)
-if(CART_FOUND)
-  set(HDF5_VOL_DAOS_EXT_INCLUDE_DEPENDENCIES
-    ${HDF5_VOL_DAOS_EXT_INCLUDE_DEPENDENCIES}
-    ${CART_INCLUDE_DIRS}
-  )
-  set(HDF5_VOL_DAOS_EXT_LIB_DEPENDENCIES
-    ${HDF5_VOL_DAOS_EXT_LIB_DEPENDENCIES}
-    ${CART_LIBRARIES}
-  )
-else()
-  message(FATAL_ERROR "Could not find CART, please check CART_INCLUDE_DIR.")
-endif()
+set(HDF5_VOL_DAOS_EXT_INCLUDE_DEPENDENCIES
+  ${HDF5_VOL_DAOS_EXT_INCLUDE_DEPENDENCIES}
+  ${DAOS_INCLUDE_DIRS}
+)
+set(HDF5_VOL_DAOS_EXT_LIB_DEPENDENCIES
+  ${HDF5_VOL_DAOS_EXT_LIB_DEPENDENCIES}
+  ${DAOS_LIBRARIES}
+)
 
 # HDF5
-find_package(HDF5 NO_MODULE NAMES hdf5 COMPONENTS C shared)
+find_package(HDF5 1.12.1 NO_MODULE NAMES hdf5 COMPONENTS C shared)
 if(HDF5_FOUND)
   set(HDF5_C_SHARED_LIBRARY hdf5-shared)
   if(NOT TARGET ${HDF5_C_SHARED_LIBRARY})
@@ -60,60 +40,39 @@ if(HDF5_FOUND)
   set(HDF5_VOL_DAOS_USE_SYSTEM_CMAKE_HDF5 1 PARENT_SCOPE)
 else()
   # Allow for HDF5 autotools builds
-  find_package(HDF5 MODULE REQUIRED)
-  if(HDF5_FOUND)
-    set(HDF5_VOL_DAOS_EXT_INCLUDE_DEPENDENCIES
-      ${HDF5_VOL_DAOS_EXT_INCLUDE_DEPENDENCIES}
-      ${HDF5_INCLUDE_DIRS}
-    )
-    set(HDF5_VOL_DAOS_EXT_LIB_DEPENDENCIES
-      ${HDF5_VOL_DAOS_EXT_LIB_DEPENDENCIES}
-      ${HDF5_LIBRARIES}
-    )
-    set(HDF5_VOL_DAOS_USE_SYSTEM_CMAKE_HDF5 0 PARENT_SCOPE)
-  else()
-    message(FATAL_ERROR "Could not find HDF5, please check HDF5_DIR.")
-  endif()
+  find_package(HDF5 1.12.1 MODULE REQUIRED)
+  set(HDF5_VOL_DAOS_EXT_INCLUDE_DEPENDENCIES
+    ${HDF5_VOL_DAOS_EXT_INCLUDE_DEPENDENCIES}
+    ${HDF5_INCLUDE_DIRS}
+  )
+  set(HDF5_VOL_DAOS_EXT_LIB_DEPENDENCIES
+    ${HDF5_VOL_DAOS_EXT_LIB_DEPENDENCIES}
+    ${HDF5_LIBRARIES}
+  )
+  set(HDF5_VOL_DAOS_USE_SYSTEM_CMAKE_HDF5 0 PARENT_SCOPE)
 endif()
 
 # MPI
-# Temporary workaround because HDF5 does not pull MPI dependency
-find_package(MPI REQUIRED)
-if(MPI_FOUND)
-  set(HDF5_VOL_DAOS_EXT_INCLUDE_DEPENDENCIES
-    ${HDF5_VOL_DAOS_EXT_INCLUDE_DEPENDENCIES}
-    ${MPI_INCLUDE_PATH}
-  )
-  set(HDF5_VOL_DAOS_EXT_LIB_DEPENDENCIES
-    ${HDF5_VOL_DAOS_EXT_LIB_DEPENDENCIES}
-    ${MPI_LIBRARIES}
-  )
-else()
-  message(FATAL_ERROR "Could not find MPI.")
-endif()
+find_package(MPI REQUIRED COMPONENTS C)
+set(HDF5_VOL_DAOS_EXT_INCLUDE_DEPENDENCIES
+  ${HDF5_VOL_DAOS_EXT_INCLUDE_DEPENDENCIES}
+  ${MPI_C_INCLUDE_DIRS}
+)
+set(HDF5_VOL_DAOS_EXT_LIB_DEPENDENCIES
+  ${HDF5_VOL_DAOS_EXT_LIB_DEPENDENCIES}
+  ${MPI_C_LIBRARIES}
+)
 
 # UUID
 find_package(UUID REQUIRED)
-if(UUID_FOUND)
-  set(HDF5_VOL_DAOS_EXT_INCLUDE_DEPENDENCIES
-    ${HDF5_VOL_DAOS_EXT_INCLUDE_DEPENDENCIES}
-    ${UUID_INCLUDE_DIRS}
-  )
-  set(HDF5_VOL_DAOS_EXT_LIB_DEPENDENCIES
-    ${HDF5_VOL_DAOS_EXT_LIB_DEPENDENCIES}
-    ${UUID_LIBRARIES}
-  )
-else()
-  message(FATAL_ERROR "Could not find libuuid, please check UUID_INCLUDE_DIR.")
-endif()
-
-#-----------------------------------------------------------------------------
-# Option to enable debug output
-#-----------------------------------------------------------------------------
-option(HDF5_VOL_DAOS_ENABLE_DEBUG "Turn on debug output." OFF)
-if(HDF5_VOL_DAOS_ENABLE_DEBUG)
-  set(DV_PLUGIN_DEBUG 1)
-endif()
+set(HDF5_VOL_DAOS_EXT_INCLUDE_DEPENDENCIES
+  ${HDF5_VOL_DAOS_EXT_INCLUDE_DEPENDENCIES}
+  ${UUID_INCLUDE_DIRS}
+)
+set(HDF5_VOL_DAOS_EXT_LIB_DEPENDENCIES
+  ${HDF5_VOL_DAOS_EXT_LIB_DEPENDENCIES}
+  ${UUID_LIBRARIES}
+)
 
 #-----------------------------------------------------------------------------
 # Option to enable memory checker
@@ -122,6 +81,7 @@ option(HDF5_VOL_DAOS_ENABLE_MEM_TRACKING "Turn on memory checker." OFF)
 if(HDF5_VOL_DAOS_ENABLE_MEM_TRACKING)
   set(DV_TRACK_MEM_USAGE 1)
 endif()
+mark_as_advanced(HDF5_VOL_DAOS_ENABLE_MEM_TRACKING)
 
 #------------------------------------------------------------------------------
 # Configure module header files

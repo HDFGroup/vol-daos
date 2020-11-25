@@ -131,6 +131,7 @@ static herr_t H5_daos_oidx_bcast(H5_daos_file_t *file, uint64_t *oidx_out,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 static int H5_daos_oidx_bcast_prep_cb(tse_task_t *task, void *args);
 static int H5_daos_oidx_bcast_comp_cb(tse_task_t *task, void *args);
+static int H5_daos_oidx_generate_prep_cb(tse_task_t *task, void *args);
 static int H5_daos_oidx_generate_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_oid_encode_task(tse_task_t *task);
 static int H5_daos_list_key_prep_cb(tse_task_t *task, void *args);
@@ -2296,7 +2297,6 @@ H5_daos_oidx_generate(uint64_t *oidx, H5_daos_file_t *file, hbool_t collective,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_oidx_generate_ud_t *generate_udata = NULL;
-    daos_cont_alloc_oids_t *alloc_args;
     tse_task_t *generate_task = NULL;
     uint64_t *next_oidx = collective ? &file->next_oidx_collective : &file->next_oidx;
     uint64_t *max_oidx = collective ? &file->max_oidx_collective : &file->max_oidx;
@@ -2318,7 +2318,7 @@ H5_daos_oidx_generate(uint64_t *oidx, H5_daos_file_t *file, hbool_t collective,
                 D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create task to generate OIDXs: %s", H5_daos_err_to_string(ret));
 
             /* Set callback functions for container open */
-            if(0 != (ret = tse_task_register_cbs(generate_task, H5_daos_generic_prep_cb, NULL, 0, H5_daos_oidx_generate_comp_cb, NULL, 0)))
+            if(0 != (ret = tse_task_register_cbs(generate_task, H5_daos_oidx_generate_prep_cb, NULL, 0, H5_daos_oidx_generate_comp_cb, NULL, 0)))
                 D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't register callbacks for task to generate OIDXs: %s", H5_daos_err_to_string(ret));
 
             /* Set private data for OIDX generation task */
@@ -2332,13 +2332,6 @@ H5_daos_oidx_generate(uint64_t *oidx, H5_daos_file_t *file, hbool_t collective,
             generate_udata->next_oidx = next_oidx;
             generate_udata->max_oidx = max_oidx;
             (void)tse_task_set_priv(generate_task, generate_udata);
-
-            /* Set arguments for OIDX generation */
-            if(NULL == (alloc_args = daos_task_get_args(generate_task)))
-                D_GOTO_ERROR(H5E_FILE, H5E_CANTGET, FAIL, "can't get arguments for OIDX generation task");
-            alloc_args->coh = file->coh;
-            alloc_args->num_oids = H5_DAOS_OIDX_NALLOC;
-            alloc_args->oid = next_oidx;
 
             /* Schedule OIDX generation task (or save it to be scheduled later) and give it
              * a reference to req */
@@ -2378,6 +2371,66 @@ done:
 
     D_FUNC_LEAVE;
 } /* end H5_daos_oidx_generate() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_oidx_generate_prep_cb
+ *
+ * Purpose:     Prepare callback for DAOS OIDX generation task.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ * Programmer:  Neil Fortner
+ *              November, 2020
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_oidx_generate_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_oidx_generate_ud_t *udata;
+    daos_cont_alloc_oids_t *alloc_args;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for generic task");
+
+    assert(udata->generic_ud.req);
+
+    /* Handle errors */
+    if(udata->generic_ud.req->status < -H5_DAOS_SHORT_CIRCUIT) {
+        tse_task_complete(task, -H5_DAOS_PRE_ERROR);
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    } /* end if */
+    else if(udata->generic_ud.req->status == -H5_DAOS_SHORT_CIRCUIT) {
+        tse_task_complete(task, -H5_DAOS_SHORT_CIRCUIT);
+        udata = NULL;
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
+    } /* end if */
+
+    assert(udata->generic_ud.req->file);
+    assert(udata->generic_ud.req->file->item.open_req);
+
+    /* Verify file was successfully opened */
+    if(udata->generic_ud.req->file->item.open_req->status != 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_BADVALUE, -H5_DAOS_PREREQ_ERROR, "file open is incomplete");
+
+    /* Set arguments for OIDX generation */
+    if(NULL == (alloc_args = daos_task_get_args(task)))
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTGET, FAIL, "can't get arguments for OIDX generation task");
+    alloc_args->coh = udata->generic_ud.req->file->coh;
+    alloc_args->num_oids = H5_DAOS_OIDX_NALLOC;
+    alloc_args->oid = udata->next_oidx;
+
+done:
+    if(ret_value < 0)
+        tse_task_complete(task, ret_value);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_oidx_generate_prep_cb() */
 
 
 /*-------------------------------------------------------------------------
@@ -3461,6 +3514,9 @@ H5_daos_generic_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     assert(udata->req->file);
 
 done:
+    if(ret_value < 0)
+        tse_task_complete(task, ret_value);
+
     D_FUNC_LEAVE;
 } /* end H5_daos_generic_prep_cb() */
 

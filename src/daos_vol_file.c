@@ -865,6 +865,8 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     /* Start H5 operation */
     if(NULL == (int_req = H5_daos_req_create(file, H5I_INVALID_HID)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, NULL, "can't create DAOS request");
+    file->item.open_req = int_req;
+    int_req->rc++;
 
     if(file->my_rank == 0) {
         /* Connect to container's pool */
@@ -1609,6 +1611,8 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     /* Start H5 operation */
     if(NULL == (int_req = H5_daos_req_create(file, H5I_INVALID_HID)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, NULL, "can't create DAOS request");
+    file->item.open_req = int_req;
+    int_req->rc++;
 
     if(file->my_rank == 0) {
         /* Connect to container's pool */

@@ -1,4 +1,10 @@
 #------------------------------------------------------------------------------
+# Options
+#------------------------------------------------------------------------------
+option(HDF5_VOL_DAOS_TESTING_USE_SYSTEM_SERVER "Use system running server for testing." OFF)
+mark_as_advanced(HDF5_VOL_DAOS_TESTING_USE_SYSTEM_SERVER)
+
+#------------------------------------------------------------------------------
 # DAOS server config
 #------------------------------------------------------------------------------
 # Exec
@@ -72,14 +78,43 @@ set(DAOS_AGENT_SOCKET_DIR ${CMAKE_CURRENT_BINARY_DIR})
 
 # Agent config
 configure_file(
+  ${CMAKE_CURRENT_SOURCE_DIR}/scripts/daos_agent.yml.in
+  ${CMAKE_CURRENT_BINARY_DIR}/scripts/daos_agent.yml
+)
+configure_file(
   ${CMAKE_CURRENT_SOURCE_DIR}/scripts/daos_agent.sh.in
   ${CMAKE_CURRENT_BINARY_DIR}/scripts/daos_agent.sh
 )
 execute_process(COMMAND chmod u+x ${CMAKE_CURRENT_BINARY_DIR}/scripts/daos_agent.sh)
 
 #------------------------------------------------------------------------------
+# DAOS dmg config
+#------------------------------------------------------------------------------
+# Exec
+find_program(DAOS_DMG_EXECUTABLE
+  NAMES dmg
+  PATH_SUFFIXES bin sbin
+  HINTS ${DAOS_HINT_DIRS}
+  DOC "DAOS dmg executable."
+)
+mark_as_advanced(DAOS_DMG_EXECUTABLE)
+
+# Dmg config
+configure_file(
+  ${CMAKE_CURRENT_SOURCE_DIR}/scripts/daos_pool.sh.in
+  ${CMAKE_CURRENT_BINARY_DIR}/scripts/daos_pool.sh
+)
+execute_process(COMMAND chmod u+x ${CMAKE_CURRENT_BINARY_DIR}/scripts/daos_pool.sh)
+
+#------------------------------------------------------------------------------
 # DAOS client config
 #------------------------------------------------------------------------------
+
+# SCM size
+set(DAOS_POOL_SIZE "4" CACHE STRING
+  "Size of pool created for testing in GB."
+)
+mark_as_advanced(DAOS_POOL_SIZE)
 
 set(HDF5_VOL_TEST_PLUGIN_PATH ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
 set(HDF5_VOL_TEST_PLUGIN_NAME "daos")
@@ -103,18 +138,36 @@ set(DAOS_CLIENT_ENV_VARS
 set(MPIEXEC_SERVER_PREFLAGS "${DAOS_SERVER_PREFLAGS}")
 set(MPIEXEC_SERVER_POSTFLAGS "${DAOS_SERVER_POSTFLAGS}")
 
-# Client helper
-set(HDF5_VOL_TEST_CLIENT_HELPER ${CMAKE_CURRENT_BINARY_DIR}/scripts/daos_agent.sh)
-set(H5VL_TEST_CLIENT_HELPER_EXIT_COMMAND "killall daos_agent")
+if(HDF5_VOL_DAOS_TESTING_USE_SYSTEM_SERVER)
+  set(DAOS_POOL "" CACHE STRING "UUID of DAOS pool that will be used for testing.")
+else()
+  # Client helper
+  set(HDF5_VOL_TEST_CLIENT_HELPER ${CMAKE_CURRENT_BINARY_DIR}/scripts/daos_agent.sh)
+  set(H5VL_TEST_CLIENT_HELPER_EXIT_COMMAND "killall daos_agent")
 
-# Server
-set(HDF5_VOL_TEST_SERVER ${DAOS_SERVER_EXECUTABLE})
-set(H5VL_TEST_SERVER_EXIT_COMMAND "killall -9 daos_io_server")
+  # Client setup
+  set(HDF5_VOL_TEST_CLIENT_INIT ${CMAKE_CURRENT_BINARY_DIR}/scripts/daos_pool.sh)
+
+  # Server
+  set(HDF5_VOL_TEST_SERVER ${DAOS_SERVER_EXECUTABLE})
+  set(H5VL_TEST_SERVER_EXIT_COMMAND "killall -9 daos_io_server")
+
+  # Test will start running after following line is printed
+  set(H5VL_TEST_SERVER_START_MSG "DAOS I/O server")
+
+  # Test will start running after following line is printed
+  set(H5VL_TEST_CLIENT_HELPER_START_MSG "Listening on")
+
+  # Look for and match DAOS POOL UUID using regex
+  set(H5VL_TEST_CLIENT_INIT_TOKEN_REGEX "([a-f0-9]+-[a-f0-9]+-[a-f0-9]+-[a-f0-9]+-[a-f0-9]+)")
+  set(H5VL_TEST_CLIENT_INIT_TOKEN_VAR "DAOS_POOL")
+
+  # Allow server errors
+  set(HDF5_VOL_TEST_SERVER_ALLOW_ERRORS TRUE)
+endif()
+
 # Do not forget to include env command
 set(H5VL_TEST_ENV_VARS "env ${DAOS_CLIENT_ENV_VARS}")
-
-# Test will start running after following line is printed
-set(H5VL_TEST_SERVER_START_MSG "DAOS I/O server")
 
 #------------------------------------------------------------------------------
 # DAOS VOL specific tests

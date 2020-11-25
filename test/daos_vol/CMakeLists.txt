@@ -16,7 +16,7 @@ include_directories(
 set(daos_vol_tests
   map
   oclass
-  recovery
+#  recovery
 #  example
 )
 if(HDF5_VOL_TEST_ENABLE_PARALLEL)

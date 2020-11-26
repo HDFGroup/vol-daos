@@ -12,7 +12,7 @@ if(NOT dashboard_git_url)
 endif()
 
 # Update source
-set(dashboard_do_checkout 1)
+set(dashboard_do_checkout 0)
 set(dashboard_do_update 1)
 
 if(NOT DEFINED CTEST_TEST_TIMEOUT)
@@ -27,8 +27,8 @@ endif()
 set(CTEST_SITE "jelly.ad.hdfgroup.org")
 
 # Must specify existing source directory
-set(CTEST_SOURCE_DIRECTORY "$ENV{HDF5_VOL_DAOS_ROOT}/source")
-set(CTEST_BINARY_DIRECTORY "${CTEST_SOURCE_DIRECTORY}/build")
+set(CTEST_DASHBOARD_ROOT "$ENV{HDF5_VOL_DAOS_ROOT}")
+set(dashboard_source_name "source")
 
 # HDF5_VOL_DAOS_BUILD_CONFIGURATION
 set(HDF5_VOL_DAOS_BUILD_CONFIGURATION "$ENV{HDF5_VOL_DAOS_BUILD_CONFIGURATION}")
@@ -111,7 +111,7 @@ if(HDF5_VOL_DAOS_DO_MEMCHECK OR HDF5_VOL_DAOS_MEMORYCHECK_TYPE)
   endif()
 
   # Ubsan
-  if(${MERCURY_MEMORYCHECK_TYPE} MATCHES "UndefinedBehaviorSanitizer")
+  if(${HDF5_VOL_DAOS_MEMORYCHECK_TYPE} MATCHES "UndefinedBehaviorSanitizer")
     # Must add verbosity / Error in build if no memory output file is produced
     set(CTEST_MEMORYCHECK_SANITIZER_OPTIONS "verbosity=1")
   endif()
@@ -162,4 +162,4 @@ MPIEXEC_MAX_NUMPROCS:STRING=${MAX_NUMPROCS}
 H5VL_TEST_INIT_COMMAND:STRING=rm -rf /mnt/daos/*
 ")
 
-include(${CTEST_SOURCE_DIRECTORY}/test/scripts/hdf5_vol_daos_common.cmake)
+include(${CTEST_DASHBOARD_ROOT}/${dashboard_source_name}/test/scripts/hdf5_vol_daos_common.cmake)

@@ -826,6 +826,7 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
 
     /* Fill in fields of file we know */
     file->item.type = H5I_FILE;
+    file->item.created = TRUE;
     file->item.file = file;
     if(NULL == (file->file_name = strdup(name)))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't copy file name");

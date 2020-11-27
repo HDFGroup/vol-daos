@@ -221,6 +221,7 @@ H5_daos_map_create(void *_item,
     if(NULL == (map = H5FL_CALLOC(H5_daos_map_t)))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate DAOS map struct");
     map->obj.item.type = H5I_MAP;
+    map->obj.item.created = TRUE;
     map->obj.item.open_req = int_req;
     int_req->rc++;
     map->obj.item.file = item->file;

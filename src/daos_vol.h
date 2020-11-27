@@ -567,6 +567,12 @@ typedef enum {
     H5_DAOS_TCONV_REUSE_BKG      /* Use buffer as background buffer */
 } H5_daos_tconv_reuse_t;
 
+/* Enum type for distinguishing between I/O reads and writes. */
+typedef enum H5_daos_io_type_t {
+    IO_READ,
+    IO_WRITE
+} H5_daos_io_type_t;
+
 /* Forward declaration for generic request struct */
 typedef struct H5_daos_req_t H5_daos_req_t;
 

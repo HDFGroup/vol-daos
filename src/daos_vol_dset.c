@@ -66,15 +66,9 @@ typedef struct {
     uint64_t idx;
 } H5_daos_vl_file_ud_t;
 
-/* Enum type for distinguishing between dataset reads and writes. */
-typedef enum dset_io_type {
-    IO_READ,
-    IO_WRITE
-} dset_io_type;
-
 /* Typedef for function to perform I/O on a single chunk */
 typedef herr_t (*H5_daos_chunk_io_func)(H5_daos_select_chunk_info_t *chunk_info,
-    H5_daos_dset_t *dset, uint64_t dset_ndims, hid_t mem_type_id, dset_io_type io_type,
+    H5_daos_dset_t *dset, uint64_t dset_ndims, hid_t mem_type_id, H5_daos_io_type_t io_type,
     void *buf, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 
 /* Task user data for raw data I/O on a single chunk */
@@ -97,7 +91,7 @@ typedef struct H5_daos_chunk_io_ud_t {
         hid_t mem_type_id;
         hid_t mem_space_id;
         void *buf;
-        dset_io_type io_type;
+        H5_daos_io_type_t io_type;
         H5_daos_tconv_reuse_t reuse;
         hbool_t fill_bkg;
         size_t mem_type_size;
@@ -110,7 +104,7 @@ typedef struct H5_daos_chunk_io_ud_t {
 /* Task user data struct for I/O operations (API level) */
 typedef struct H5_daos_io_task_ud_t {
     H5_daos_req_t *req;
-    dset_io_type io_type;
+    H5_daos_io_type_t io_type;
     H5_daos_dset_t *dset;
     hid_t mem_type_id;
     hid_t mem_space_id;
@@ -145,14 +139,14 @@ static herr_t H5_daos_scatter_cb(const void **src_buf,
 static int H5_daos_chunk_io_prep_cb(tse_task_t *task, void *args);
 static int H5_daos_chunk_io_comp_cb(tse_task_t *task, void *args);
 static herr_t H5_daos_dataset_io_types_equal(H5_daos_select_chunk_info_t *chunk_info,
-    H5_daos_dset_t *dset, uint64_t dset_ndims, hid_t mem_type_id, dset_io_type io_type,
+    H5_daos_dset_t *dset, uint64_t dset_ndims, hid_t mem_type_id, H5_daos_io_type_t io_type,
     void *buf, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 static int H5_daos_chunk_io_tconv_prep_cb(tse_task_t *task, void *args);
 static int H5_daos_chunk_io_tconv_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_chunk_fill_bkg_prep_cb(tse_task_t *task, void *args);
 static int H5_daos_chunk_fill_bkg_comp_cb(tse_task_t *task, void *args);
 static herr_t H5_daos_dataset_io_types_unequal(H5_daos_select_chunk_info_t *chunk_info,
-    H5_daos_dset_t *dset, uint64_t dset_ndims, hid_t mem_type_id, dset_io_type io_type,
+    H5_daos_dset_t *dset, uint64_t dset_ndims, hid_t mem_type_id, H5_daos_io_type_t io_type,
     void *buf, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 static int H5_daos_dset_io_int_task(tse_task_t *task);
 static int H5_daos_dset_io_int_end_task(tse_task_t *task);
@@ -2368,7 +2362,7 @@ done:
 static herr_t
 H5_daos_dataset_io_types_equal(H5_daos_select_chunk_info_t *chunk_info,
     H5_daos_dset_t *dset, uint64_t dset_ndims, hid_t H5VL_DAOS_UNUSED mem_type_id,
-    dset_io_type io_type, void *buf, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
+    H5_daos_io_type_t io_type, void *buf, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_chunk_io_ud_t *chunk_io_ud = NULL;
     size_t tot_nseq;
@@ -2832,7 +2826,7 @@ done:
  */
 static herr_t
 H5_daos_dataset_io_types_unequal(H5_daos_select_chunk_info_t *chunk_info,
-    H5_daos_dset_t *dset, uint64_t dset_ndims, hid_t mem_type_id, dset_io_type io_type,
+    H5_daos_dset_t *dset, uint64_t dset_ndims, hid_t mem_type_id, H5_daos_io_type_t io_type,
     void *buf, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_chunk_io_ud_t *chunk_io_ud = NULL;
@@ -3178,7 +3172,7 @@ H5_daos_dset_io_int_task(tse_task_t *task)
 
     /* Check if datatype conversion is needed */
     if((need_tconv = H5_daos_need_tconv(udata->dset->file_type_id, udata->mem_type_id)) < 0)
-        D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOMPARE, FAIL, "can't check if type conversion is needed");
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOMPARE, -H5_DAOS_H5_GET_ERROR, "can't check if type conversion is needed");
 
     /* Call actual I/O routine */
     switch(udata->io_type) {
@@ -3206,7 +3200,7 @@ done:
          * H5_daos_req_free_int, which updates req->status if it sees an error */
         if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
             udata->req->status = ret_value;
-            udata->req->failed_task = "link copy task";
+            udata->req->failed_task = "dataset I/O task";
         } /* end if */
     } /* end if */
     else {
@@ -3314,7 +3308,7 @@ H5_daos_dataset_read_int(H5_daos_dset_t *dset, hid_t mem_type_id,
     hid_t real_mem_space_id;
     int ndims;
     hssize_t num_elem_file = -1, num_elem_mem;
-    tse_task_t *io_task;
+    tse_task_t *io_task = NULL;
     tse_task_t *end_task = _end_task;
     int ret;
     herr_t ret_value = SUCCEED;
@@ -3492,11 +3486,11 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't create DAOS request");
 
     /* Check if we can call the internal routine directly - the dataset open
-     * must be complete and the request queue must be empty (note we can only
-     * check for emptiness using this method at the object level, as file and
-     * global level pools could have the tail emptied by a lower level pool). */
+     * must be complete and the request queue must either be NULL or have a type
+     * compatible with this operation and not be closed. */
     if((dset->obj.item.open_req->status == 0) && (!dset->obj.item.cur_op_pool
-            || dset->obj.item.cur_op_pool->type == H5_DAOS_OP_TYPE_EMPTY)) {
+            || (dset->obj.item.cur_op_pool->type <= H5_DAOS_OP_TYPE_WRITE
+            && !dset->obj.item.cur_op_pool->closed))) {
         /* Call internal routine */
         if(H5_daos_dataset_read_int(dset, mem_type_id, mem_space_id, file_space_id,
                 need_tconv, buf, NULL, int_req, &first_task, &dep_task) < 0)
@@ -3637,7 +3631,7 @@ H5_daos_dataset_write_int(H5_daos_dset_t *dset, hid_t mem_type_id,
     hid_t real_mem_space_id;
     int ndims;
     hssize_t num_elem_file = -1, num_elem_mem;
-    tse_task_t *io_task;
+    tse_task_t *io_task = NULL;
     tse_task_t *end_task = _end_task;
     int ret;
     herr_t ret_value = SUCCEED;
@@ -3820,11 +3814,11 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
         D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, FAIL, "can't create DAOS request");
 
     /* Check if we can call the internal routine directly - the dataset open
-     * must be complete and the request queue must be empty (note we can only
-     * check for emptiness using this method at the object level, as file and
-     * global level pools could have the tail emptied by a lower level pool). */
+     * must be complete and the request queue must either be NULL or have a type
+     * compatible with this operation and not be closed. */
     if((dset->obj.item.open_req->status == 0) && (!dset->obj.item.cur_op_pool
-            || dset->obj.item.cur_op_pool->type == H5_DAOS_OP_TYPE_EMPTY)) {
+            || (dset->obj.item.cur_op_pool->type <= H5_DAOS_OP_TYPE_WRITE
+            && !dset->obj.item.cur_op_pool->closed))) {
         /* Call internal routine */
         if(H5_daos_dataset_write_int(dset, mem_type_id, mem_space_id, file_space_id,
                 need_tconv, buf, NULL, int_req, &first_task, &dep_task) < 0)

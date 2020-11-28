@@ -1552,22 +1552,35 @@ done:
         /* If there was an error during setup, pass it to the request */
         if(NULL == ret_value)
             int_req->status = -H5_DAOS_SETUP_ERROR;
+\
+        /* Add the request to the object's request queue.  This will add the
+         * dependency on the parent group open if necessary. */
+        if(H5_daos_req_enqueue(int_req, first_task, item, H5_DAOS_OP_TYPE_READ,
+                H5_DAOS_OP_SCOPE_OBJ, collective, item->open_req) < 0)
+            D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't add request to request queue");
 
-        /* Schedule first task */
-        if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
-            D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
+        /* Check for external async */
+        if(req) {
+            /* Return int_req as req */
+            *req = int_req;
 
-        /* Block until operation completes */
-        if(H5_daos_progress(int_req, H5_DAOS_PROGRESS_WAIT) < 0)
-            D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't progress scheduler");
+            /* Kick task engine */
+            if(H5_daos_progress(NULL, H5_DAOS_PROGRESS_KICK) < 0)
+                D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't progress scheduler");
+        } /* end if */
+        else {
+            /* Block until operation completes */
+            if(H5_daos_progress(int_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't progress scheduler");
 
-        /* Check for failure */
-        if(int_req->status < 0)
-            D_DONE_ERROR(H5E_SYM, H5E_CANTOPERATE, NULL, "group open failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status));
+            /* Check for failure */
+            if(int_req->status < 0)
+                D_DONE_ERROR(H5E_SYM, H5E_CANTOPERATE, NULL, "group open failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status));
 
-        /* Close internal request */
-        if(H5_daos_req_free_int(int_req) < 0)
-            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, NULL, "can't free request");
+            /* Close internal request */
+            if(H5_daos_req_free_int(int_req) < 0)
+                D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, NULL, "can't free request");
+        } /* end else */
     } /* end if */
 
     /* If we are not returning a group we must close it */

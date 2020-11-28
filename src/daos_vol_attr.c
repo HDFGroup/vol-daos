@@ -222,6 +222,12 @@ static int H5_daos_ainfo_read_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_attribute_read_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_attribute_read_bcast_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_attr_read_tconv(tse_task_t *task);
+static herr_t H5_daos_attribute_write_int(H5_daos_attr_t *attr,
+    hid_t mem_type_id, hbool_t collective, htri_t need_tconv, const void *buf,
+    H5_daos_attr_io_ud_t *_udata, H5_daos_req_t *req, tse_task_t **first_task,
+    tse_task_t **dep_task);
+static int H5_daos_attribute_read_bkg_comp_cb(tse_task_t *task, void *args);
+static int H5_daos_attribute_write_comp_cb(tse_task_t *task, void *args);
 static herr_t H5_daos_attribute_get_name(H5_daos_obj_t *target_obj, const H5VL_loc_params_t *loc_params,
     char *attr_name_out, size_t attr_name_out_size, size_t *size_ret, H5_daos_req_t *req,
     tse_task_t **first_task, tse_task_t **dep_task);
@@ -2443,7 +2449,7 @@ H5_daos_attr_io_int_end_task(tse_task_t *task)
         D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close attriubute used for I/O");
 
     /* Free private data */
-    udata->akey_buf = DV_free(udata->akey_buf);
+    DV_free(udata->akey_buf);
     if(udata->reuse != H5_DAOS_TCONV_REUSE_TCONV)
         DV_free(udata->tconv_buf);
     if(udata->reuse != H5_DAOS_TCONV_REUSE_BKG)
@@ -2628,7 +2634,6 @@ H5_daos_attribute_read_int(H5_daos_attr_t *attr, hid_t mem_type_id,
                 /* Set up sgl_iov to point to tconv_buf */
                 daos_iov_set(&udata->md_rw_cb_ud.sg_iov[0], udata->tconv_buf,
                         (daos_size_t)(attr_nelmts * (uint64_t)udata->file_type_size));
-                udata->md_rw_cb_ud.free_sg_iov[0] = TRUE;
             } /* end if */
             else {
                 /* Set up sgl_iov to point to buf */
@@ -2652,7 +2657,7 @@ H5_daos_attribute_read_int(H5_daos_attr_t *attr, hid_t mem_type_id,
                     udata->akey.iov_buf, udata->akey.iov_len);
             udata->md_rw_cb_ud.iod[0].iod_nr = 1u;
             udata->md_rw_cb_ud.iod[0].iod_recxs = &udata->recx;
-            udata->md_rw_cb_ud.iod[0].iod_size = (daos_size_t)udata->file_type_size;
+            udata->md_rw_cb_ud.iod[0].iod_size = (daos_size_t)file_type_size;
             udata->md_rw_cb_ud.iod[0].iod_type = DAOS_IOD_ARRAY;
 
             udata->md_rw_cb_ud.free_akeys = FALSE;
@@ -2737,14 +2742,14 @@ done:
         /* Close udata if end_task won't */
         if(udata && !udata->end_task) {
             /* Close request */
-            if(H5_daos_req_free_int(udata->md_rw_cb_ud.req) < 0)
+            if(H5_daos_req_free_int(req) < 0)
                 D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't free request");
 
             /* Close attribute */
             if(H5_daos_attribute_close_real(attr) < 0)
                 D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close attribute");
-    
-            udata->akey_buf = DV_free(udata->akey_buf);
+
+            DV_free(udata->akey_buf);
             if(udata->reuse != H5_DAOS_TCONV_REUSE_TCONV)
                 DV_free(udata->tconv_buf);
             if(udata->reuse != H5_DAOS_TCONV_REUSE_BKG)
@@ -2887,7 +2892,7 @@ done:
         /* Add the request to the object's request queue.  This will add the
          * dependency on the attribute open if necessary. */
         if(H5_daos_req_enqueue(int_req, first_task, &attr->item,
-                H5_DAOS_OP_TYPE_WRITE, H5_DAOS_OP_SCOPE_ATTR, FALSE,
+                H5_DAOS_OP_TYPE_READ, H5_DAOS_OP_SCOPE_ATTR, FALSE,
                 attr->item.open_req) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
@@ -3027,7 +3032,7 @@ done:
             if(H5_daos_req_free_int(udata->md_rw_cb_ud.req) < 0)
                 D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
 
-            udata->akey_buf = DV_free(udata->akey_buf);
+            DV_free(udata->akey_buf);
             if(udata->reuse != H5_DAOS_TCONV_REUSE_TCONV)
                 DV_free(udata->tconv_buf);
             if(udata->reuse != H5_DAOS_TCONV_REUSE_BKG)
@@ -3156,7 +3161,7 @@ done:
             if(H5_daos_req_free_int(udata->md_rw_cb_ud.req) < 0)
                 D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
 
-            udata->akey_buf = DV_free(udata->akey_buf);
+            DV_free(udata->akey_buf);
             if(udata->reuse != H5_DAOS_TCONV_REUSE_TCONV)
                 DV_free(udata->tconv_buf);
             if(udata->reuse != H5_DAOS_TCONV_REUSE_BKG)
@@ -3173,7 +3178,7 @@ done:
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_attribute_write
+ * Function:    H5_daos_attribute_write_int
  *
  * Purpose:     Writes raw data from a buffer into an attribute.
  *
@@ -3186,44 +3191,39 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_attribute_write(void *_attr, hid_t mem_type_id, const void *buf,
-    hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req)
+H5_daos_attribute_write_int(H5_daos_attr_t *attr, hid_t mem_type_id,
+    hbool_t collective, htri_t need_tconv, const void *buf,
+    H5_daos_attr_io_ud_t *_udata, H5_daos_req_t *req, tse_task_t **first_task,
+    tse_task_t **dep_task)
 {
-    H5_daos_attr_t *attr = (H5_daos_attr_t *)_attr;
+    H5_daos_attr_io_ud_t *udata = _udata;
+    tse_task_t *update_task = NULL;
     int ndims;
     hsize_t dim[H5S_MAX_RANK];
-    daos_key_t dkey;
-    daos_key_t akey;
-    void *akey_buf = NULL;
-    daos_iod_t iod;
-    daos_recx_t recx;
-    daos_sg_list_t sgl;
-    daos_iov_t sg_iov;
-    uint64_t attr_size;
+    uint64_t attr_nelmts;
     void *tconv_buf = NULL;
     void *bkg_buf = NULL;
-    htri_t need_tconv;
-    size_t mem_type_size;
-    size_t file_type_size;
+    size_t mem_type_size = 0;
+    size_t file_type_size = 0;
     hbool_t fill_bkg = FALSE;
     int ret;
     uint64_t i;
-    hbool_t collective;
-    hid_t aapl_id = H5P_ATTRIBUTE_ACCESS_DEFAULT;
     herr_t ret_value = SUCCEED;
 
-    if(!_attr)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "attribute object is NULL");
-    if(!buf)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "write buffer is NULL");
-    if(H5I_ATTR != attr->item.type)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not an attribute");
-
-    H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
-
-    /* Check for write access */
-    if(!(attr->item.file->flags & H5F_ACC_RDWR))
-        D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, FAIL, "no write intent on file");
+    assert(attr);
+    assert(attr->item.type == H5I_ATTR);
+    assert(buf);
+    assert(req);
+    assert(first_task);
+    assert(dep_task);
+    assert(!udata || udata->md_rw_cb_ud.req == req);
+    assert(!udata || udata->md_rw_cb_ud.obj == attr->parent);
+    assert(!udata || udata->attr == attr);
+    assert(!udata || udata->mem_type_id == mem_type_id);
+    assert(!udata || udata->io_type == IO_WRITE);
+    assert(!udata || udata->collective == collective);
+    assert(!udata || udata->need_tconv == need_tconv);
+    assert(!udata || udata->buf.wbuf == buf);
 
     /* Check for a NULL dataspace */
     if(H5S_NULL == H5Sget_simple_extent_type(attr->space_id))
@@ -3235,106 +3235,517 @@ H5_daos_attribute_write(void *_attr, hid_t mem_type_id, const void *buf,
     if(ndims != H5Sget_simple_extent_dims(attr->space_id, dim, NULL))
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get dimensions");
 
-    /* Calculate attribute size */
-    attr_size = (uint64_t)1;
+    /* Calculate number of elements in attribute dataspace */
+    attr_nelmts = (uint64_t)1;
     for(i = 0; i < (uint64_t)ndims; i++)
-        attr_size *= (uint64_t)dim[i];
+        attr_nelmts *= (uint64_t)dim[i];
 
-    if(0 == attr_size)
+    if(0 == attr_nelmts)
         D_GOTO_DONE(SUCCEED);
+
+    /* Check if the type conversion is needed if we don't already know */
+    if(need_tconv < 0)
+        if((need_tconv = H5_daos_need_tconv(mem_type_id, attr->file_type_id)) < 0)
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTCOMPARE, FAIL, "can't check if type conversion is needed");
+
+    if(need_tconv) {
+        /* Initialize type conversion */
+        if(H5_daos_tconv_init(mem_type_id, &mem_type_size, attr->file_type_id, &file_type_size, (size_t)attr_nelmts, FALSE, TRUE, &tconv_buf, &bkg_buf, NULL, &fill_bkg) < 0)
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't initialize type conversion");
+    } /* end if */
+    else
+        file_type_size = attr->file_type_size;
+
+    /* Allocate argument struct if not already allocated */
+    if(!udata) {
+        if(NULL == (udata = (H5_daos_attr_io_ud_t *)DV_calloc(sizeof(H5_daos_attr_io_ud_t))))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for I/O function arguments");
+        udata->md_rw_cb_ud.req = req;
+        req->rc++;
+        udata->md_rw_cb_ud.obj = attr->parent;
+        udata->attr = attr;
+        attr->item.rc++;
+        udata->mem_type_id = mem_type_id;
+        udata->collective = collective;
+        udata->need_tconv = need_tconv;
+        udata->io_type = IO_READ;
+        udata->buf.wbuf = buf;
+    } /* end if */
+
+    /* Fill in remaining fields in udata */
+    udata->attr_nelmts = attr_nelmts;
+    udata->mem_type_size = mem_type_size;
+    udata->file_type_size = file_type_size;
+    udata->reuse = H5_DAOS_TCONV_REUSE_NONE;
+    udata->tconv_buf = tconv_buf;
+    tconv_buf = NULL;
+    udata->bkg_buf = bkg_buf;
+    bkg_buf = NULL;
+
+    /* Set up dkey */
+    daos_iov_set(&udata->md_rw_cb_ud.dkey, (void *)H5_daos_attr_key_g, H5_daos_attr_key_size_g);
+    udata->md_rw_cb_ud.free_dkey = FALSE;
+
+    /* Set up operation to write data */
+
+    /* Create akey string (prefix "V-") */
+    if(H5_daos_attribute_get_akeys(attr->name, NULL, NULL, NULL, NULL, &udata->akey, &udata->akey_buf) < 0)
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get akey string for raw data akey");
+
+    /* Set up recx */
+    udata->recx.rx_idx = (uint64_t)0;
+    udata->recx.rx_nr = attr_nelmts;
+
+    /* Set up iod */
+    daos_iov_set(&udata->md_rw_cb_ud.iod[0].iod_name,
+            udata->akey.iov_buf, udata->akey.iov_len);
+    udata->md_rw_cb_ud.iod[0].iod_nr = 1u;
+    udata->md_rw_cb_ud.iod[0].iod_recxs = &udata->recx;
+    udata->md_rw_cb_ud.iod[0].iod_size = (daos_size_t)file_type_size;
+    udata->md_rw_cb_ud.iod[0].iod_type = DAOS_IOD_ARRAY;
+
+    udata->md_rw_cb_ud.free_akeys = FALSE;
+
+    /* Set up constant sgl info */
+    udata->md_rw_cb_ud.sgl[0].sg_nr = 1;
+    udata->md_rw_cb_ud.sgl[0].sg_nr_out = 0;
+    udata->md_rw_cb_ud.sgl[0].sg_iovs = &udata->md_rw_cb_ud.sg_iov[0];
+
+    /* Set nr */
+    udata->md_rw_cb_ud.nr = 1u;
+
+    /* Set task name */
+    udata->md_rw_cb_ud.task_name = "attribute write";
+
+    /* Check for type conversion */
+    if(need_tconv) {
+        /* Copy data to type conversion buffer */
+        (void)memcpy(tconv_buf, buf, (size_t)attr_nelmts * mem_type_size);
+
+        /* Check if we need to fill background buffer */
+        if(fill_bkg) {
+            tse_task_t *bkg_fill_task = NULL;
+
+            assert(bkg_buf);
+
+            /* Set up sgl_iov to point to bkg_buf */
+            daos_iov_set(&udata->md_rw_cb_ud.sg_iov[0], udata->bkg_buf,
+                    (daos_size_t)(attr_nelmts * (uint64_t)file_type_size));
+
+            /* Create task for reading to background buffer */
+            if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &H5_daos_glob_sched_g, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &bkg_fill_task)))
+                D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to read attribute: %s", H5_daos_err_to_string(ret));
+
+            /* Set callback functions for background buffer read */
+            if(0 != (ret = tse_task_register_cbs(bkg_fill_task, H5_daos_md_rw_prep_cb, NULL, 0,
+                    H5_daos_attribute_read_bkg_comp_cb, NULL, 0)))
+                D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't register callbacks for task to read background buffer for attribute write: %s", H5_daos_err_to_string(ret));
+
+            /* Set private data for background buffer read */
+            (void)tse_task_set_priv(bkg_fill_task, udata);
+
+            /* Schedule background buffer read task or save it to be scheduled
+             * later.  References to attr and req are already held by udata. */
+            if(*first_task) {
+                if(0 != (ret = tse_task_schedule(bkg_fill_task, false)))
+                    D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't schedule fetch task for background buffer read: %s", H5_daos_err_to_string(ret));
+            } /* end if */
+            else
+                *first_task = bkg_fill_task;
+            *dep_task = bkg_fill_task;
+        } /* end if */
+        else {
+            /* No need to read to background buffer, do type conversion now */
+
+            /* Set up sgl_iov to point to tconv_buf */
+            daos_iov_set(&udata->md_rw_cb_ud.sg_iov[0], udata->tconv_buf,
+                    (daos_size_t)(attr_nelmts * (uint64_t)file_type_size));
+
+            /* Perform type conversion */
+            if(H5Tconvert(mem_type_id, attr->file_type_id, attr_nelmts, tconv_buf, bkg_buf, req->dxpl_id) < 0)
+                D_GOTO_ERROR(H5E_ATTR, H5E_CANTCONVERT, FAIL, "can't perform type conversion");
+
+            /* Set up sgl_iov to point to tconv_buf */
+            daos_iov_set(&udata->md_rw_cb_ud.sg_iov[0], udata->tconv_buf,
+                    (daos_size_t)(attr_nelmts * (uint64_t)udata->file_type_size));
+        } /* end if */
+    } /* end if */
+    else
+        /* Set sgl to write from buf.  Note we use rbuf here to avoid a warning
+         * about casting away const. */
+        daos_iov_set(&udata->md_rw_cb_ud.sg_iov[0], udata->buf.rbuf,
+                (daos_size_t)(attr_nelmts * (uint64_t)file_type_size));
+
+    assert(udata->md_rw_cb_ud.sg_iov[0].iov_buf);
+
+    /* Create task for attribute read */
+    if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_UPDATE, &H5_daos_glob_sched_g, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &update_task)))
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to write attribute: %s", H5_daos_err_to_string(ret));
+
+    /* Set callback functions for attribute write */
+    if(0 != (ret = tse_task_register_cbs(update_task, H5_daos_md_rw_prep_cb, NULL, 0,
+            H5_daos_attribute_write_comp_cb, NULL, 0)))
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't register callbacks for task to write attribute: %s", H5_daos_err_to_string(ret));
+
+    /* Set private data for attribute write */
+    (void)tse_task_set_priv(update_task, udata);
+
+    /* Schedule attribute write task or save it to be scheduled later.
+     * References to attr and req are already held by udata. */
+    if(*first_task) {
+        if(0 != (ret = tse_task_schedule(update_task, false)))
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't schedule fetch task for attribute write: %s", H5_daos_err_to_string(ret));
+    } /* end if */
+    else
+        *first_task = update_task;
+    *dep_task = update_task;
+
+done:
+    /* Cleanup on failure */
+    if(ret_value < 0) {
+        tconv_buf = DV_free(tconv_buf);
+        bkg_buf = DV_free(bkg_buf);
+
+        /* Close udata if end_task won't */
+        if(udata && !udata->end_task) {
+            /* Close request */
+            if(H5_daos_req_free_int(req) < 0)
+                D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't free request");
+
+            /* Close attribute */
+            if(H5_daos_attribute_close_real(attr) < 0)
+                D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close attribute");
+
+            DV_free(udata->akey_buf);
+            DV_free(udata->tconv_buf);
+            DV_free(udata->bkg_buf);
+            udata = DV_free(udata);
+        } /* end if */
+    } /* end if */
+
+    D_FUNC_LEAVE_API;
+} /* end H5_daos_attribute_write_int() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_attribute_write
+ *
+ * Purpose:     Reads raw data from an attribute into a buffer.
+ *
+ * Return:      Success:        0
+ *              Failure:        -1, attribute not written.
+ *
+ * Programmer:  Neil Fortner
+ *              February, 2017
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_attribute_write(void *_attr, hid_t mem_type_id, const void *buf,
+    hid_t dxpl_id, void H5VL_DAOS_UNUSED **req)
+{
+    H5_daos_attr_io_ud_t *attr_write_udata = NULL;
+    H5_daos_attr_t *attr = (H5_daos_attr_t *)_attr;
+    H5_daos_req_t *int_req = NULL;
+    tse_task_t *io_task = NULL;
+    tse_task_t *first_task = NULL;
+    tse_task_t *dep_task = NULL;
+    hbool_t collective;
+    htri_t need_tconv;
+    hid_t req_dxpl_id;
+    int ret;
+    herr_t ret_value = SUCCEED;
+
+    if(!_attr)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "attribute object is NULL");
+    if(!buf)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "read buffer is NULL");
+    if(H5I_ATTR != attr->item.type)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not an attribute");
+
+    H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
+
+    /* Check for write access */
+    if(!(attr->item.file->flags & H5F_ACC_RDWR))
+        D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, FAIL, "no write intent on file");
+
+    /* If the attribute's datatype is complete, check if type conversion is
+     * needed */
+    if(attr->item.open_req->status == 0 || attr->item.created) {
+        /* Check if datatype conversion is needed */
+        if((need_tconv = H5_daos_need_tconv(mem_type_id, attr->file_type_id)) < 0)
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTCOMPARE, FAIL, "can't check if type conversion is needed");
+        req_dxpl_id = need_tconv ? dxpl_id : H5P_DATASET_XFER_DEFAULT;
+    } /* end if */
+    else {
+        need_tconv = -1;
+        req_dxpl_id = dxpl_id;
+    } /* end else */
+
+    /* Start H5 operation.  Currently the DXPL is only copies when we may
+     * perform type conversion. */
+    if(NULL == (int_req = H5_daos_req_create(attr->item.file, req_dxpl_id)))
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTALLOC, FAIL, "can't create DAOS request");
 
     /*
      * Determine if independent metadata writes have been requested. Otherwise,
      * like HDF5, metadata writes are collective by default.
      */
-    H5_DAOS_GET_METADATA_WRITE_MODE(attr->item.file, aapl_id, H5P_ATTRIBUTE_ACCESS_DEFAULT,
+    H5_DAOS_GET_METADATA_WRITE_MODE(attr->item.file, H5P_ATTRIBUTE_ACCESS_DEFAULT, H5P_ATTRIBUTE_ACCESS_DEFAULT,
             collective, H5E_ATTR, FAIL);
 
-    /* Write to the attribute if this process should */
-    if(!collective || (attr->item.file->my_rank == 0)) {
-        /* Set up dkey */
-        daos_iov_set(&dkey, (void *)H5_daos_attr_key_g, H5_daos_attr_key_size_g);
-
-        /* Check if the type conversion is needed */
-        if((need_tconv = H5_daos_need_tconv(mem_type_id, attr->file_type_id)) < 0)
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTCOMPARE, FAIL, "can't check if type conversion is needed");
-
-        /* Type conversion */
-        if(need_tconv) {
-            /* Initialize type conversion */
-            if(H5_daos_tconv_init(mem_type_id, &mem_type_size, attr->file_type_id, &file_type_size, (size_t)attr_size, FALSE, TRUE, &tconv_buf, &bkg_buf, NULL, &fill_bkg) < 0)
-                D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't initialize type conversion");
-        } /* end if */
-        else
-            file_type_size = attr->file_type_size;
-
-        /* Set up operation to write data */
-
-        /* Create akey string (prefix "V-") */
-        if(H5_daos_attribute_get_akeys(attr->name, NULL, NULL, NULL, NULL, &akey, &akey_buf) < 0)
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get akey string for raw data akey");
-
-        /* Set up recx */
-        recx.rx_idx = (uint64_t)0;
-        recx.rx_nr = attr_size;
-
-        /* Set up iod */
-        memset(&iod, 0, sizeof(iod));
-        daos_iov_set(&iod.iod_name, akey.iov_buf, akey.iov_len);
-        iod.iod_nr = 1u;
-        iod.iod_recxs = &recx;
-        iod.iod_size = (daos_size_t)file_type_size;
-        iod.iod_type = DAOS_IOD_ARRAY;
-
-        /* Set up constant sgl info */
-        sgl.sg_nr = 1;
-        sgl.sg_nr_out = 0;
-        sgl.sg_iovs = &sg_iov;
-
-        /* Check for type conversion */
-        if(need_tconv) {
-            /* Check if we need to fill background buffer */
-            if(fill_bkg) {
-                assert(bkg_buf);
-
-                /* Read data from attribute to background buffer */
-                daos_iov_set(&sg_iov, bkg_buf, (daos_size_t)(attr_size * (uint64_t)file_type_size));
-
-                if(0 != (ret = daos_obj_fetch(attr->parent->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
-                    D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, FAIL, "can't read data from attribute: %s", H5_daos_err_to_string(ret));
-
-                /* Reset iod_size, if the attribute was not writted to then it could
-                 * have been overwritten by daos_obj_fetch */
-                iod.iod_size = (daos_size_t)file_type_size;
-            } /* end if */
-
-            /* Copy data to type conversion buffer */
-            (void)memcpy(tconv_buf, buf, (size_t)attr_size * mem_type_size);
-
-            /* Perform type conversion */
-            if(H5Tconvert(mem_type_id, attr->file_type_id, attr_size, tconv_buf, bkg_buf, dxpl_id) < 0)
-                D_GOTO_ERROR(H5E_ATTR, H5E_CANTCONVERT, FAIL, "can't perform type conversion");
-
-            /* Set sgl to write from tconv_buf */
-            daos_iov_set(&sg_iov, tconv_buf, (daos_size_t)(attr_size * (uint64_t)file_type_size));
-        } /* end if */
-        else
-            /* Set sgl to write from buf */
-            daos_iov_set(&sg_iov, (void *)buf, (daos_size_t)(attr_size * (uint64_t)file_type_size));
-
-        /* Write data to attribute */
-        if(0 != (ret = daos_obj_update(attr->parent->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod, &sgl, NULL /*event*/)))
-            D_GOTO_ERROR(H5E_ATTR, H5E_WRITEERROR, FAIL, "can't write data to attribute: %s", H5_daos_err_to_string(ret));
+    /* Check if we can call the internal routine directly - the attribute open
+     * must be complete.  We do not need to check for a compatible operation
+     * pool type since there are no operations that can change the dataspace or
+     * datatype of the attribute. */
+    if(attr->item.open_req->status == 0) {
+        /* Call internal routine */
+        if(H5_daos_attribute_write_int(attr, mem_type_id, collective, need_tconv,
+                buf, NULL, int_req, &first_task, &dep_task) < 0)
+            D_GOTO_ERROR(H5E_ATTR, H5E_WRITEERROR, FAIL, "failed to write data to attribute");
     } /* end if */
+    else {
+        /* Allocate argument struct */
+        if(NULL == (attr_write_udata = (H5_daos_attr_io_ud_t *)DV_calloc(sizeof(H5_daos_attr_io_ud_t))))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for I/O function arguments");
+        attr_write_udata->md_rw_cb_ud.req = int_req;
+        int_req->rc++;
+        attr_write_udata->md_rw_cb_ud.obj = attr->parent;
+        attr_write_udata->attr = attr;
+        attr->item.rc++;
+        attr_write_udata->mem_type_id = H5I_INVALID_HID;
+        attr_write_udata->collective = collective;
+        attr_write_udata->need_tconv = need_tconv;
+        attr_write_udata->io_type = IO_WRITE;
+        attr_write_udata->buf.wbuf = buf;
+
+        /* Copy memory datatype */
+        if((attr_write_udata->mem_type_id = H5Tcopy(mem_type_id)) < 0)
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTCOPY, FAIL, "can't copy memory type ID");
+
+        /* Create end task for writing data (will be scheduled by internal task)
+         */
+        if(0 != (ret = tse_task_create(H5_daos_attr_io_int_task, &H5_daos_glob_sched_g, attr_write_udata, &attr_write_udata->end_task)))
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create end task for attribute I/O operation: %s", H5_daos_err_to_string(ret));
+
+        /* Create task to write attribute */
+        if(0 != (ret = tse_task_create(H5_daos_attr_io_int_end_task, &H5_daos_glob_sched_g, attr_write_udata, &io_task)))
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to perform I/O operation: %s", H5_daos_err_to_string(ret));
+
+        /* Save task to be scheduled later */
+        assert(!first_task);
+        first_task = io_task;
+        dep_task = attr_write_udata->end_task;
+        attr_write_udata = NULL;
+    } /* end else */
 
 done:
-    /* Free memory */
-    tconv_buf = DV_free(tconv_buf);
-    bkg_buf = DV_free(bkg_buf);
-    akey_buf = DV_free(akey_buf);
+    if(int_req) {
+        /* Perform collective error check if appropriate */
+        if(collective && (attr->item.file->num_procs > 1))
+            if(H5_daos_collective_error_check(attr->parent, int_req, &first_task, &dep_task) < 0)
+                D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't perform collective error check");
+
+        /* Create task to finalize H5 operation */
+        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        /* Register dependency (if any) */
+        else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        /* Schedule finalize task */
+        else if(0 != (ret = tse_task_schedule(int_req->finalize_task, false)))
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        else
+            /* finalize_task now owns a reference to req */
+            int_req->rc++;
+
+        /* If there was an error during setup, pass it to the request */
+        if(ret_value < 0)
+            int_req->status = -H5_DAOS_SETUP_ERROR;
+
+        /* Add the request to the object's request queue.  This will add the
+         * dependency on the attribute open if necessary. */
+        if(H5_daos_req_enqueue(int_req, first_task, &attr->item,
+                H5_DAOS_OP_TYPE_WRITE, H5_DAOS_OP_SCOPE_ATTR, FALSE,
+                attr->item.open_req) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't add request to request queue");
+
+        /* Check for external async */
+        if(req) {
+            /* Return int_req as req */
+            *req = int_req;
+
+            /* Kick task engine */
+            if(H5_daos_progress(NULL, H5_DAOS_PROGRESS_KICK) < 0)
+                D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't progress scheduler");
+        } /* end if */
+        else {
+            /* Block until operation completes */
+            /* Wait for scheduler to be empty */
+            if(H5_daos_progress(int_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't progress scheduler");
+
+            /* Check for failure */
+            if(int_req->status < 0)
+                D_DONE_ERROR(H5E_ATTR, H5E_CANTOPERATE, FAIL, "attribute read failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status));
+
+            /* Close internal request */
+            if(H5_daos_req_free_int(int_req) < 0)
+                D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't free request");
+        } /* end else */
+    } /* end if */
+
+    /* Cleanup on failure */
+    if(attr_write_udata) {
+        assert(ret_value < 0);
+
+        /* Close memory datatype */
+        if(attr_write_udata->mem_type_id >= 0 && H5Tclose(attr_write_udata->mem_type_id) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close datatype");
+
+        /* Close request */
+        if(H5_daos_req_free_int(attr_write_udata->md_rw_cb_ud.req) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't free request");
+
+        /* Close attribute */
+        if(H5_daos_attribute_close_real(attr) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close attribute");
+
+        /* Free memory */
+        attr_write_udata = DV_free(attr_write_udata);
+    } /* end if */
 
     D_FUNC_LEAVE_API;
 } /* end H5_daos_attribute_write() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_attribute_read_bkg_comp_cb
+ *
+ * Purpose:     Complete callback for asynchronous daos_obj_fetch for
+ *              reading the attribute to the background buffer in
+ *              preparation for type conversion before writing the
+ *              attribute.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_attribute_read_bkg_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_attr_io_ud_t *udata;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for attribute I/O task");
+
+    assert(udata->md_rw_cb_ud.req);
+    assert(udata->md_rw_cb_ud.req->file || task->dt_result != 0);
+    assert(!udata->md_rw_cb_ud.req->file->closed || task->dt_result != 0);
+    assert(udata->attr);
+    assert(udata->need_tconv);
+
+    /* Handle errors in fetch task.  Only record error in udata->req_status if
+     * it does not already contain an error (it could contain an error if
+     * another task this task is not dependent on also failed). */
+    if(task->dt_result < -H5_DAOS_PRE_ERROR
+            && udata->md_rw_cb_ud.req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+        udata->md_rw_cb_ud.req->status = task->dt_result;
+        udata->md_rw_cb_ud.req->failed_task = udata->md_rw_cb_ud.task_name;
+    } /* end if */
+    else if(task->dt_result == 0) {
+        /* Perform type conversion */
+        if(H5Tconvert(udata->mem_type_id, udata->attr->file_type_id, udata->attr_nelmts,
+                udata->tconv_buf, udata->bkg_buf, udata->md_rw_cb_ud.req->dxpl_id) < 0)
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTCONVERT, -H5_DAOS_H5_TCONV_ERROR, "can't perform type conversion");
+
+        /* Reset iod_size, if the attribute was not writted to then it could
+         * have been overwritten by daos_obj_fetch */
+        udata->md_rw_cb_ud.iod[0].iod_size = (daos_size_t)udata->file_type_size;
+
+        /* Retarget sg_iov to write from tconv_buf */
+        daos_iov_set(&udata->md_rw_cb_ud.sg_iov[0], udata->tconv_buf,
+                (daos_size_t)(udata->attr_nelmts * (uint64_t)udata->file_type_size));
+    } /* end if */
+
+done:
+    /* Handle errors in this function */
+    /* Do not place any code that can issue errors after this block, except for
+     * H5_daos_req_free_int, which updates req->status if it sees an error */
+    if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->md_rw_cb_ud.req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+        udata->md_rw_cb_ud.req->status = ret_value;
+        udata->md_rw_cb_ud.req->failed_task = "attribute background buffer read completion callback";
+    } /* end if */
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_attribute_read_bkg_comp_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_attribute_write_comp_cb
+ *
+ * Purpose:     Complete callback for asynchronous daos_obj_update for
+ *              attribute write.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_attribute_write_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_attr_io_ud_t *udata;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for attribute I/O task");
+
+    assert(udata->md_rw_cb_ud.req);
+    assert(udata->md_rw_cb_ud.req->file || task->dt_result != 0);
+    assert(!udata->md_rw_cb_ud.req->file->closed || task->dt_result != 0);
+    assert(udata->attr);
+
+    /* Handle errors in update task.  Only record error in udata->req_status if
+     * it does not already contain an error (it could contain an error if
+     * another task this task is not dependent on also failed). */
+    if(task->dt_result < -H5_DAOS_PRE_ERROR
+            && udata->md_rw_cb_ud.req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+        udata->md_rw_cb_ud.req->status = task->dt_result;
+        udata->md_rw_cb_ud.req->failed_task = udata->md_rw_cb_ud.task_name;
+    } /* end if */
+
+    /* Close attribute if there's no end task */
+    if(!udata->end_task && H5_daos_attribute_close_real(udata->attr) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close attribute");
+
+    /* Handle errors in this function */
+    /* Do not place any code that can issue errors after this block, except for
+     * H5_daos_req_free_int, which updates req->status if it sees an error */
+    if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->md_rw_cb_ud.req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+        udata->md_rw_cb_ud.req->status = ret_value;
+        udata->md_rw_cb_ud.req->failed_task = "attribute read completion callback";
+    } /* end if */
+
+    /* Free private data if there's no end task */
+    if(!udata->end_task) {
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(udata->md_rw_cb_ud.req) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+        DV_free(udata->akey_buf);
+        DV_free(udata->tconv_buf);
+        DV_free(udata->bkg_buf);
+        DV_free(udata);
+    } /* end if */
+
+done:
+    D_FUNC_LEAVE;
+} /* end H5_daos_attribute_write_comp_cb() */
 
 
 /*-------------------------------------------------------------------------
@@ -6146,7 +6557,8 @@ H5_daos_attribute_rename(H5_daos_obj_t *attr_container_obj, const char *cur_attr
                 -1, attr_data_buf, NULL, req, first_task, dep_task) < 0)
             D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, FAIL, "can't read data from attribute");
 
-        if(H5_daos_attribute_write(new_attr, new_attr->type_id, attr_data_buf, H5P_DATASET_XFER_DEFAULT, NULL) < 0)
+        if(H5_daos_attribute_write_int(new_attr, new_attr->type_id, FALSE,
+                -1, attr_data_buf, NULL, req, first_task, dep_task) < 0)
             D_GOTO_ERROR(H5E_ATTR, H5E_WRITEERROR, FAIL, "can't write data to attribute");
     } /* end if */
 

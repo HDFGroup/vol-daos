@@ -116,6 +116,17 @@ typedef struct H5_daos_io_task_ud_t {
     tse_task_t *end_task;
 } H5_daos_io_task_ud_t;
 
+/* Task user data struct for get operations */
+typedef struct H5_daos_dset_get_ud_t {
+    H5_daos_req_t *req;
+    H5_daos_dset_t *dset;
+    H5VL_dataset_get_t get_type;
+    union {
+        hid_t *hid;
+        hsize_t *hsize;
+    } out;
+} H5_daos_dset_get_ud_t;
+
 /********************/
 /* Local Prototypes */
 /********************/
@@ -150,6 +161,7 @@ static herr_t H5_daos_dataset_io_types_unequal(H5_daos_select_chunk_info_t *chun
     void *buf, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 static int H5_daos_dset_io_int_task(tse_task_t *task);
 static int H5_daos_dset_io_int_end_task(tse_task_t *task);
+static int H5_daos_dataset_get_task(tse_task_t *task);
 static int H5_daos_dataset_refresh_comp_cb(tse_task_t *task, void *args);
 static herr_t H5_daos_dataset_set_extent(H5_daos_dset_t *dset,
     const hsize_t *size, hid_t dxpl_id, hbool_t collective,
@@ -3946,6 +3958,134 @@ done:
 
 
 /*-------------------------------------------------------------------------
+ * Function:    H5_daos_dataset_get_task
+ *
+ * Purpose:     Asynchronous task for H5_daos_dataset_get
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ * Programmer:  Neil Fortner
+ *              February, 2017
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_dataset_get_task(tse_task_t *task)
+{
+    H5_daos_dset_get_ud_t *udata = NULL;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (udata = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for dataset I/O task");
+
+    /* Handle errors in previous tasks */
+    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
+    } /* end if */
+    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT) {
+        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
+    } /* end if */
+
+    /* Verify dataset was successfully opened */
+    if(udata->dset->obj.item.open_req->status != 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_BADVALUE, -H5_DAOS_PREREQ_ERROR, "dataset open is incomplete");
+
+    switch (udata->get_type) {
+        case H5VL_DATASET_GET_DCPL:
+            {
+                assert(udata->out.hid);
+
+                /* Retrieve the dataset's creation property list */
+                if((*udata->out.hid = H5Pcopy(udata->dset->dcpl_id)) < 0)
+                    D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, -H5_DAOS_H5_COPY_ERROR, "can't get dataset creation property list");
+
+                /* Set dataset's object class on dcpl */
+                if(H5_daos_set_oclass_from_oid(*udata->out.hid, udata->dset->obj.oid) < 0)
+                    D_GOTO_ERROR(H5E_PLIST, H5E_CANTSET, -H5_DAOS_H5PSET_ERROR, "can't set object class property");
+
+                break;
+            } /* end block */
+        case H5VL_DATASET_GET_SPACE:
+            {
+                assert(udata->out.hid);
+
+                /* Retrieve the dataset's dataspace */
+                if((*udata->out.hid = H5Scopy(udata->dset->space_id)) < 0)
+                    D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get dataspace ID of dataset");
+                break;
+            } /* end block */
+        case H5VL_DATASET_GET_TYPE:
+            {
+                assert(udata->out.hid);
+
+                /* Retrieve the dataset's datatype */
+                if((*udata->out.hid = H5Tcopy(udata->dset->type_id)) < 0)
+                    D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get datatype ID of dataset");
+                break;
+            } /* end block */
+        case H5VL_DATASET_GET_STORAGE_SIZE:
+            {
+                hssize_t    nelements = 0;
+                size_t      dtype_size = 0;
+
+                assert(udata->out.hsize);
+
+                *udata->out.hsize = 0;
+
+                if(H5I_INVALID_HID == udata->dset->space_id || H5I_INVALID_HID == udata->dset->type_id)
+                    D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, -H5_DAOS_BAD_VALUE, "can't get dataset's dataspace or datatype");
+
+                /* Return the in-memory size of the data */
+                if((nelements = H5Sget_simple_extent_npoints(udata->dset->space_id)) < 0)
+                    D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, -H5_DAOS_H5_GET_ERROR, "can't get number of elements in dataset's dataspace");
+                if(0 == (dtype_size = H5Tget_size(udata->dset->type_id)))
+                    D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, -H5_DAOS_H5_GET_ERROR, "can't get dataset's type size");
+                *udata->out.hsize = (hsize_t)nelements * dtype_size;
+
+                break;
+            }
+        case H5VL_DATASET_GET_DAPL:
+        case H5VL_DATASET_GET_SPACE_STATUS:
+            /* Should have been handled in top level function, can never block
+             */
+        default:
+            assert(0 && "can't get this type of information from dataset");
+    } /* end switch */
+
+done:
+    if(udata) {
+        /* Close dataset */
+        if(H5_daos_dataset_close_real(udata->dset) < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close dataset used for I/O");
+
+        /* Handle errors in this function */
+        /* Do not place any code that can issue errors after this block, except for
+         * H5_daos_req_free_int, which updates req->status if it sees an error */
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+            udata->req->status = ret_value;
+            udata->req->failed_task = "dataset get task";
+        } /* end if */
+
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(udata->req) < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+        /* Free udata */
+        udata = DV_free(udata);
+    } /* end if */
+    else
+        assert(ret_value == -H5_DAOS_DAOS_GET_ERROR);
+
+    /* Complete this task */
+    tse_task_complete(task, ret_value);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_dataset_get_task() */
+
+
+/*-------------------------------------------------------------------------
  * Function:    H5_daos_dataset_get
  *
  * Purpose:     Gets certain information about a dataset
@@ -3963,6 +4103,11 @@ H5_daos_dataset_get(void *_dset, H5VL_dataset_get_t get_type,
     hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req, va_list arguments)
 {
     H5_daos_dset_t *dset = (H5_daos_dset_t *)_dset;
+    H5_daos_dset_get_ud_t *get_udata = NULL;
+    tse_task_t *first_task = NULL;
+    tse_task_t *dep_task = NULL;
+    H5_daos_req_t *int_req = NULL;
+    int ret;
     herr_t ret_value = SUCCEED;    /* Return value */
 
     if(!_dset)
@@ -3975,21 +4120,27 @@ H5_daos_dataset_get(void *_dset, H5VL_dataset_get_t get_type,
             {
                 hid_t *plist_id = va_arg(arguments, hid_t *);
 
-                /* Wait for the dataset to open if necessary */
+                if(!plist_id)
+                    D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "output argument not supplied");
+
+                /* Set up async udata if the dataset open isn't complete */
                 if(!dset->obj.item.created && dset->obj.item.open_req->status != 0) {
-                    if(H5_daos_progress(dset->obj.item.open_req, H5_DAOS_PROGRESS_WAIT) < 0)
-                        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't progress scheduler");
-                    if(dset->obj.item.open_req->status != 0)
-                        D_GOTO_ERROR(H5E_DATASET, H5E_CANTOPENOBJ, FAIL, "dataset open failed");
+                    /* Allocate udata struct */
+                    if(NULL == (get_udata = (H5_daos_dset_get_ud_t *)DV_calloc(sizeof(H5_daos_dset_get_ud_t))))
+                        D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't allocate space for dataset get udata struct");
+
+                    /* Set output value pointer in udata */
+                    get_udata->out.hid = plist_id;
                 } /* end if */
+                else {
+                    /* Retrieve the dataset's creation property list */
+                    if((*plist_id = H5Pcopy(dset->dcpl_id)) < 0)
+                        D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get dataset creation property list");
 
-                /* Retrieve the dataset's creation property list */
-                if((*plist_id = H5Pcopy(dset->dcpl_id)) < 0)
-                    D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get dataset creation property list");
-
-                /* Set dataset's object class on dcpl */
-                if(H5_daos_set_oclass_from_oid(*plist_id, dset->obj.oid) < 0)
-                    D_GOTO_ERROR(H5E_PLIST, H5E_CANTSET, FAIL, "can't set object class property");
+                    /* Set dataset's object class on dcpl */
+                    if(H5_daos_set_oclass_from_oid(*plist_id, dset->obj.oid) < 0)
+                        D_GOTO_ERROR(H5E_PLIST, H5E_CANTSET, FAIL, "can't set object class property");
+                } /* end else */
 
                 break;
             } /* end block */
@@ -3997,13 +4148,8 @@ H5_daos_dataset_get(void *_dset, H5VL_dataset_get_t get_type,
             {
                 hid_t *plist_id = va_arg(arguments, hid_t *);
 
-                /* Wait for the dataset to open if necessary */
-                if(!dset->obj.item.created && dset->obj.item.open_req->status != 0) {
-                    if(H5_daos_progress(dset->obj.item.open_req, H5_DAOS_PROGRESS_WAIT) < 0)
-                        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't progress scheduler");
-                    if(dset->obj.item.open_req->status != 0)
-                        D_GOTO_ERROR(H5E_DATASET, H5E_CANTOPENOBJ, FAIL, "dataset open failed");
-                } /* end if */
+                if(!plist_id)
+                    D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "output argument not supplied");
 
                 /* Retrieve the dataset's access property list */
                 if((*plist_id = H5Pcopy(dset->dapl_id)) < 0)
@@ -4015,22 +4161,33 @@ H5_daos_dataset_get(void *_dset, H5VL_dataset_get_t get_type,
             {
                 hid_t *ret_id = va_arg(arguments, hid_t *);
 
-                /* Wait for the dataset to open if necessary */
-                if(!dset->obj.item.created && dset->obj.item.open_req->status != 0) {
-                    if(H5_daos_progress(dset->obj.item.open_req, H5_DAOS_PROGRESS_WAIT) < 0)
-                        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't progress scheduler");
-                    if(dset->obj.item.open_req->status != 0)
-                        D_GOTO_ERROR(H5E_DATASET, H5E_CANTOPENOBJ, FAIL, "dataset open failed");
-                } /* end if */
+                if(!ret_id)
+                    D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "output argument not supplied");
 
-                /* Retrieve the dataset's dataspace */
-                if((*ret_id = H5Scopy(dset->space_id)) < 0)
-                    D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get dataspace ID of dataset");
+                /* Wait for the dataset to open if necessary */
+                /* Need to update this when H5Dset_extent is async! -NAF */
+                if(!dset->obj.item.created && dset->obj.item.open_req->status != 0) {
+                    /* Allocate udata struct */
+                    if(NULL == (get_udata = (H5_daos_dset_get_ud_t *)DV_calloc(sizeof(H5_daos_dset_get_ud_t))))
+                        D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't allocate space for dataset get udata struct");
+
+                    /* Set output value pointer in udata */
+                    get_udata->out.hid = ret_id;
+                } /* end if */
+                else {
+                    /* Retrieve the dataset's dataspace */
+                    if((*ret_id = H5Scopy(dset->space_id)) < 0)
+                        D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get dataspace ID of dataset");
+                } /* end else */
+
                 break;
             } /* end block */
         case H5VL_DATASET_GET_SPACE_STATUS:
             {
                 H5D_space_status_t *allocation = va_arg(arguments, H5D_space_status_t *);
+
+                if(!allocation)
+                    D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "output argument not supplied");
 
                 /* Retrieve the dataset's space status */
                 *allocation = H5D_SPACE_STATUS_NOT_ALLOCATED;
@@ -4040,44 +4197,57 @@ H5_daos_dataset_get(void *_dset, H5VL_dataset_get_t get_type,
             {
                 hid_t *ret_id = va_arg(arguments, hid_t *);
 
+                if(!ret_id)
+                    D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "output argument not supplied");
+
                 /* Wait for the dataset to open if necessary */
                 if(!dset->obj.item.created && dset->obj.item.open_req->status != 0) {
-                    if(H5_daos_progress(dset->obj.item.open_req, H5_DAOS_PROGRESS_WAIT) < 0)
-                        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't progress scheduler");
-                    if(dset->obj.item.open_req->status != 0)
-                        D_GOTO_ERROR(H5E_DATASET, H5E_CANTOPENOBJ, FAIL, "dataset open failed");
-                } /* end if */
+                    /* Allocate udata struct */
+                    if(NULL == (get_udata = (H5_daos_dset_get_ud_t *)DV_calloc(sizeof(H5_daos_dset_get_ud_t))))
+                        D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't allocate space for dataset get udata struct");
 
-                /* Retrieve the dataset's datatype */
-                if((*ret_id = H5Tcopy(dset->type_id)) < 0)
-                    D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get datatype ID of dataset");
+                    /* Set output value pointer in udata */
+                    get_udata->out.hid = ret_id;
+                } /* end if */
+                else {
+                    /* Retrieve the dataset's datatype */
+                    if((*ret_id = H5Tcopy(dset->type_id)) < 0)
+                        D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get datatype ID of dataset");
+                } /* end else */
+
                 break;
             } /* end block */
         case H5VL_DATASET_GET_STORAGE_SIZE:
             {
-                hsize_t     *ret = va_arg(arguments, hsize_t *);
+                hsize_t     *storage_size = va_arg(arguments, hsize_t *);
                 hssize_t    nelements = 0;
                 size_t      dtype_size = 0;
 
+                if(!ret)
+                    D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "output argument not supplied");
+
                 /* Wait for the dataset to open if necessary */
                 if(!dset->obj.item.created && dset->obj.item.open_req->status != 0) {
-                    if(H5_daos_progress(dset->obj.item.open_req, H5_DAOS_PROGRESS_WAIT) < 0)
-                        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't progress scheduler");
-                    if(dset->obj.item.open_req->status != 0)
-                        D_GOTO_ERROR(H5E_DATASET, H5E_CANTOPENOBJ, FAIL, "dataset open failed");
+                    /* Allocate udata struct */
+                    if(NULL == (get_udata = (H5_daos_dset_get_ud_t *)DV_calloc(sizeof(H5_daos_dset_get_ud_t))))
+                        D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't allocate space for dataset get udata struct");
+
+                    /* Set output value pointer in udata */
+                    get_udata->out.hsize = storage_size;
                 } /* end if */
+                else {
+                    *storage_size = 0;
 
-                *ret = 0;
+                    if(H5I_INVALID_HID == dset->space_id || H5I_INVALID_HID == dset->type_id)
+                        D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get dataset's dataspace or datatype");
 
-                if(H5I_INVALID_HID == dset->space_id || H5I_INVALID_HID == dset->type_id)
-                    D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get dataset's dataspace or datatype");
-
-                /* Return the in-memory size of the data */
-                if((nelements = H5Sget_simple_extent_npoints(dset->space_id)) < 0)
-                    D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, FAIL, "can't get number of elements in dataset's dataspace");
-                if(0 == (dtype_size = H5Tget_size(dset->type_id)))
-                    D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't get dataset's type size");
-                *ret = (hsize_t)nelements * dtype_size;
+                    /* Return the in-memory size of the data */
+                    if((nelements = H5Sget_simple_extent_npoints(dset->space_id)) < 0)
+                        D_GOTO_ERROR(H5E_DATASPACE, H5E_CANTGET, FAIL, "can't get number of elements in dataset's dataspace");
+                    if(0 == (dtype_size = H5Tget_size(dset->type_id)))
+                        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTGET, FAIL, "can't get dataset's type size");
+                    *storage_size = (hsize_t)nelements * dtype_size;
+                } /* end else */
 
                 break;
             }
@@ -4085,7 +4255,87 @@ H5_daos_dataset_get(void *_dset, H5VL_dataset_get_t get_type,
             D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "can't get this type of information from dataset");
     } /* end switch */
 
+    /* Start async operation if we allocated task_udata */
+    if(get_udata) {
+        tse_task_t *get_task;
+
+        /* Start H5 operation. Currently, the DXPL is only copied when datatype conversion is needed. */
+        if(NULL == (int_req = H5_daos_req_create(dset->obj.item.file, H5P_DATASET_XFER_DEFAULT)))
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't create DAOS request");
+
+        /* Finish filling in task_udata */
+        get_udata->req = int_req;
+        get_udata->dset = dset;
+        get_udata->get_type = get_type;
+
+        /* Create task to get dataset info */
+        if(0 != (ret = tse_task_create(H5_daos_dataset_get_task, &H5_daos_glob_sched_g, get_udata, &get_task)))
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create task to perform get operation: %s", H5_daos_err_to_string(ret));
+
+        /* Save task to be scheduled later and give it a reference to req and
+         * dset */
+        assert(!first_task);
+        first_task = get_task;
+        dep_task = get_task;
+        dset->obj.item.rc++;
+        int_req->rc++;
+        get_udata = NULL;
+    } /* end if */
+
 done:
+    if(int_req) {
+        /* Create task to finalize H5 operation */
+        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        /* Register dependencies (if any) */
+        else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        /* Schedule finalize task */
+        else if(0 != (ret = tse_task_schedule(int_req->finalize_task, false)))
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        else
+            /* finalize_task now owns a reference to req */
+            int_req->rc++;
+
+        /* If there was an error during setup, pass it to the request */
+        if(ret_value < 0)
+            int_req->status = -H5_DAOS_SETUP_ERROR;
+
+        /* Add the request to the object's request queue.  This will add the
+         * dependency on the dataset open if necessary. */
+        if(H5_daos_req_enqueue(int_req, first_task, &dset->obj.item,
+                H5_DAOS_OP_TYPE_READ, H5_DAOS_OP_SCOPE_OBJ, FALSE,
+                dset->obj.item.open_req) < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't add request to request queue");
+
+        /* Check for external async */
+        if(req) {
+            /* Return int_req as req */
+            *req = int_req;
+
+            /* Kick task engine */
+            if(H5_daos_progress(NULL, H5_DAOS_PROGRESS_KICK) < 0)
+                D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't progress scheduler");
+        } /* end if */
+        else {
+            /* Block until operation completes */
+            if(H5_daos_progress(int_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't progress scheduler");
+
+            /* Check for failure */
+            if(int_req->status < 0)
+                D_DONE_ERROR(H5E_DATASET, H5E_CANTOPERATE, FAIL, "dataset read failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status));
+
+            /* Release our reference to the internal request */
+            if(H5_daos_req_free_int(int_req) < 0)
+                D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, FAIL, "can't free request");
+        } /* end else */
+    } /* end if */
+
+    /* Cleanup on error */
+    assert(!get_udata || ret_value < 0);
+    get_udata = DV_free(get_udata);
+
     D_FUNC_LEAVE_API;
 } /* end H5_daos_dataset_get() */
 

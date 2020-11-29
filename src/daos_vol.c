@@ -3271,7 +3271,7 @@ done:
         req->status = 0;
 
     /* Complete finalize task in engine */
-    tse_task_complete(req->finalize_task, ret_value);
+    tse_task_complete(req->finalize_task, req->status);
     req->finalize_task = NULL;
 
     /* Complete dep_task.  Always succeeds since the purpose of dep_task is to
@@ -3443,7 +3443,7 @@ done:
                 req->status = 0;
 
             /* Complete task in engine */
-            tse_task_complete(req->finalize_task, ret_value);
+            tse_task_complete(req->finalize_task, req->status);
             req->finalize_task = NULL;
 
             /* Complete dep_task.  Always succeeds since the purpose of dep_task

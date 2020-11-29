@@ -3333,13 +3333,13 @@ H5_daos_attribute_write_int(H5_daos_attr_t *attr, hid_t mem_type_id,
     /* Check for type conversion */
     if(need_tconv) {
         /* Copy data to type conversion buffer */
-        (void)memcpy(tconv_buf, buf, (size_t)attr_nelmts * mem_type_size);
+        (void)memcpy(udata->tconv_buf, buf, (size_t)attr_nelmts * mem_type_size);
 
         /* Check if we need to fill background buffer */
         if(fill_bkg) {
             tse_task_t *bkg_fill_task = NULL;
 
-            assert(bkg_buf);
+            assert(udata->bkg_buf);
 
             /* Set up sgl_iov to point to bkg_buf */
             daos_iov_set(&udata->md_rw_cb_ud.sg_iov[0], udata->bkg_buf,
@@ -3375,7 +3375,7 @@ H5_daos_attribute_write_int(H5_daos_attr_t *attr, hid_t mem_type_id,
                     (daos_size_t)(attr_nelmts * (uint64_t)file_type_size));
 
             /* Perform type conversion */
-            if(H5Tconvert(mem_type_id, attr->file_type_id, attr_nelmts, tconv_buf, bkg_buf, req->dxpl_id) < 0)
+            if(H5Tconvert(mem_type_id, attr->file_type_id, attr_nelmts, udata->tconv_buf, udata->bkg_buf, req->dxpl_id) < 0)
                 D_GOTO_ERROR(H5E_ATTR, H5E_CANTCONVERT, FAIL, "can't perform type conversion");
 
             /* Set up sgl_iov to point to tconv_buf */

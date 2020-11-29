@@ -3114,6 +3114,7 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
     size_t oexists_obj_name_len = 0;
     hbool_t collective_md_read;
     hbool_t collective_md_write;
+    hbool_t collective;
     hid_t lapl_id;
     int ret;
     herr_t ret_value = SUCCEED;
@@ -3134,6 +3135,10 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
                                                           H5P_LINK_ACCESS_DEFAULT;
     H5_DAOS_GET_METADATA_IO_MODES(item->file, lapl_id, H5P_LINK_ACCESS_DEFAULT,
             collective_md_read, collective_md_write, H5E_OBJECT, FAIL);
+    if(specific_type == H5VL_OBJECT_CHANGE_REF_COUNT)
+        collective = collective_md_write;
+    else
+        collective = collective_md_read;
 
     /* Start H5 operation */
     if(NULL == (int_req = H5_daos_req_create(item->file, dxpl_id)))
@@ -3164,13 +3169,13 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
 
             /* Open group containing the link in question */
             if(NULL == (target_obj = H5_daos_group_traverse(item, loc_params->loc_data.loc_by_name.name,
-                    H5P_LINK_CREATE_DEFAULT, int_req, collective_md_read, &path_buf,
+                    H5P_LINK_CREATE_DEFAULT, int_req, collective, &path_buf,
                     &oexists_obj_name, &oexists_obj_name_len, &first_task, &dep_task)))
                 D_GOTO_ERROR(H5E_SYM, H5E_CANTOPENOBJ, FAIL, "can't open group");
         } /* end if */
         else
             /* Open the object */
-            if(H5_daos_object_open_helper(item, loc_params, NULL, collective_md_read,
+            if(H5_daos_object_open_helper(item, loc_params, NULL, collective,
                     &target_obj_p, NULL, int_req, &first_task, &dep_task) < 0)
                 D_GOTO_ERROR(H5E_OBJECT, H5E_CANTOPENOBJ, FAIL, "can't open target object");
     } /* end if */
@@ -3186,7 +3191,7 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
             assert(loc_params->type == H5VL_OBJECT_BY_SELF);
             assert(target_obj);
 
-            if(!collective_md_write || (item->file->my_rank == 0)) {
+            if(!collective || (item->file->my_rank == 0)) {
                 /* Allocate buffer to hold rc */
                 if(NULL == (rc_buf = DV_malloc(sizeof(uint64_t))))
                     D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate user data struct for object reference count adjust task");
@@ -3376,21 +3381,35 @@ done:
         if(ret_value < 0)
             int_req->status = -H5_DAOS_SETUP_ERROR;
 
-        /* Schedule first task */
-        if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
-            D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
+        /* Add the request to the object's request queue.  This will add the
+         * dependency on the object open if necessary. */
+        if(H5_daos_req_enqueue(int_req, first_task, item,
+                specific_type == H5VL_OBJECT_CHANGE_REF_COUNT ? H5_DAOS_OP_TYPE_WRITE_ORDERED : H5_DAOS_OP_TYPE_READ,
+                H5_DAOS_OP_SCOPE_OBJ, collective, item ? item->open_req : NULL) < 0)
+            D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
-        /* Block until operation completes */
-        if(H5_daos_progress(int_req, H5_DAOS_PROGRESS_WAIT) < 0)
-            D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't progress scheduler");
+        /* Check for external async.  Disabled for H5Ovisit for now. */
+        if(0 && req && specific_type != H5VL_OBJECT_VISIT) {
+            /* Return int_req as req */
+            *req = int_req;
 
-        /* Check for failure */
-        if(int_req->status < 0)
-            D_DONE_ERROR(H5E_OBJECT, H5E_CANTOPERATE, FAIL, "object specific operation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status));
+            /* Kick task engine */
+            if(H5_daos_progress(NULL, H5_DAOS_PROGRESS_KICK) < 0)
+                D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't progress scheduler");
+        } /* end if */
+        else {
+            /* Block until operation completes */
+            if(H5_daos_progress(int_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't progress scheduler");
 
-        /* Close internal request */
-        if(H5_daos_req_free_int(int_req) < 0)
-            D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, FAIL, "can't free request");
+            /* Check for failure */
+            if(int_req->status < 0)
+                D_DONE_ERROR(H5E_OBJECT, H5E_CANTOPERATE, FAIL, "object specific operation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status));
+
+            /* Close internal request */
+            if(H5_daos_req_free_int(int_req) < 0)
+                D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, FAIL, "can't free request");
+        } /* end else */
     } /* end if */
 
     if(target_obj) {
@@ -3921,11 +3940,14 @@ H5_daos_object_visit_task(tse_task_t *task)
         D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't create dependencies for object visiting metatask: %s", H5_daos_err_to_string(ret));
 
 done:
-    /* Close object ID since the iterate task should own it now.  No need to
-     * mark as nonblocking close since the ID rc shouldn't drop to 0. */
-    if(udata->target_obj_id >= 0 && H5Idec_ref(udata->target_obj_id) < 0)
-        D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object ID");
-    udata->target_obj_id = H5I_INVALID_HID;
+    if(udata) {
+        /* Close object ID since the iterate task should own it now */
+        udata->target_obj->item.nonblocking_close = TRUE;
+        if(udata->target_obj_id >= 0 && H5Idec_ref(udata->target_obj_id) < 0)
+            D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object ID");
+        udata->target_obj->item.nonblocking_close = FALSE;
+        udata->target_obj_id = H5I_INVALID_HID;
+    } /* end if */
 
     /* Schedule first task */
     if(first_task && 0 != (ret = tse_task_schedule(first_task, false)))

@@ -4167,8 +4167,8 @@ done:
                 H5_DAOS_OP_SCOPE_OBJ, collective, item->open_req) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
-        /* Check for external async */
-        if(req) {
+        /* Check for external async (disabled for iterate currently) */
+        if(req && specific_type != H5VL_ATTR_ITER) {
             /* Return int_req as req */
             *req = int_req;
 

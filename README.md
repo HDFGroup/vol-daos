@@ -3,14 +3,14 @@
 [![Latest version][vol-daos-release-svg]][vol-daos-release-link]
 
 ## Table of Contents
-1. [Description](#1.-Description)
-2. [Installation](#2.-Installation)
+1. [Description](#1-Description)
+2. [Installation](#2-Installation)
     * [Prerequisites](#Prerequisites)
     * [Build instructions](#Build-instructions)
     * [CMake options](#CMake-options)
     * [Connector options](#Connector-options)
-3. [Testing and Usage](#3.-Testing-And-Usage)
-4. [More information](#4.-More-Information)
+3. [Testing and Usage](#3-Testing-And-Usage)
+4. [More information](#4-More-Information)
 
 ## 1. Description
 

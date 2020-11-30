@@ -1,12 +1,8 @@
-# Server configuration file
-
-name: daos_server
 access_points: ['localhost']
-# port: 10001
 provider: @DAOS_SERVER_TRANSPORT@
 socket_dir: @DAOS_SERVER_SOCKET_DIR@
 nr_hugepages: 4096
-control_log_mask: DEBUG
+control_log_mask: INFO
 control_log_file: @DAOS_LOG_DIR@/daos_control.log
 transport_config:
    allow_insecure: true

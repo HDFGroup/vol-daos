@@ -19,6 +19,13 @@ foreach(policy
   endif()
 endforeach()
 
+# Set a consistent MACOSX_RPATH default across all CMake versions.
+# When CMake 2.8.12 is required, change this default to 1.
+# When CMake 3.0.0 is required, remove this block (see CMP0042).
+if(NOT DEFINED CMAKE_MACOSX_RPATH)
+  set(CMAKE_MACOSX_RPATH 0)
+endif()
+
 project(HDF5_VOL_DAOS C)
 
 #------------------------------------------------------------------------------
@@ -77,8 +84,32 @@ message(STATUS "Configuring ${HDF5_VOL_DAOS_PACKAGE} v${HDF5_VOL_DAOS_VERSION_FU
 #------------------------------------------------------------------------------
 # Setup CMake Environment
 #------------------------------------------------------------------------------
-if(WIN32)
-  message("The HDF5 DAOS VOL connector is not supported on this platform." FATAL_ERROR)
+if(APPLE AND NOT HDF5_VOL_DAOS_EXTERNALLY_CONFIGURED)
+  # We are doing a unix-style install i.e. everything will be installed in
+  # CMAKE_INSTALL_PREFIX/bin and CMAKE_INSTALL_PREFIX/lib etc. as on other unix
+  # platforms. We still need to setup CMAKE_INSTALL_NAME_DIR correctly so that
+  # the binaries point to appropriate location for the libraries.
+
+  # 1. Make CMAKE_INSTALL_PREFIX publicly accessible, if it was hidden in
+  #    previous pass
+  get_property(is_internal CACHE CMAKE_INSTALL_PREFIX PROPERTY TYPE)
+  if(is_internal STREQUAL "INTERNAL")
+    set(CMAKE_INSTALL_PREFIX ${CACHED_CMAKE_INSTALL_PREFIX} CACHE PATH "Install prefix" FORCE)
+  else()
+    set(CMAKE_INSTALL_PREFIX ${CACHED_CMAKE_INSTALL_PREFIX} CACHE PATH "Install prefix")
+  endif()
+  unset(MACOSX_APP_INSTALL_PREFIX CACHE)
+
+  set(CMAKE_INSTALL_NAME_DIR "@rpath")
+  mark_as_advanced(
+    CMAKE_OSX_ARCHITECTURES
+    CMAKE_OSX_DEPLOYMENT_TARGET
+    CMAKE_OSX_SYSROOT
+    )
+else()
+  if(WIN32)
+    message("The HDF5 DAOS VOL connector is not supported on this platform." FATAL_ERROR)
+  endif()
 endif()
 
 #------------------------------------------------------------------------------
@@ -112,13 +143,17 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Choose the type of build." FORCE)
   # Set the possible values of build type for cmake-gui
   set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release"
-    "MinSizeRel" "RelWithDebInfo")
+    "MinSizeRel" "RelWithDebInfo" "Asan" "Ubsan")
 endif()
 
 if(NOT CMAKE_C_FLAGS AND CMAKE_COMPILER_IS_GNUCC)
   message(STATUS "GCC detected, setting additional flags")
   set(CMAKE_C_FLAGS "-Wall -Wextra -Winline -Wcast-qual -std=gnu99 -Wshadow" CACHE STRING "Flags used by the compiler during all build types." FORCE)
 endif()
+
+# Detect Asan/Ubsan compiler flags
+include(CheckAsan)
+include(CheckUbsan)
 
 #-----------------------------------------------------------------------------
 # Targets built within this project are exported at Install time for use
@@ -138,8 +173,22 @@ if(BUILD_SHARED_LIBS)
 else()
   message(FATAL_ERROR
     "HDF5 DAOS VOL requires shared libraries.")
+  set(H5VL_DAOS_BUILD_SHARED_LIBS 0)
+  set(HDF5_VOL_DAOS_LIBTYPE STATIC)
 endif()
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+#------------------------------------------------------------------------------
+# Enable debug output.
+#------------------------------------------------------------------------------
+option(HDF5_VOL_DAOS_ENABLE_DEBUG "Enable debug statements." OFF)
+if(HDF5_VOL_DAOS_ENABLE_DEBUG)
+  set(H5VL_DAOS_HAS_DEBUG 1)
+  set(DV_PLUGIN_DEBUG 1)
+else()
+  set(H5VL_DAOS_HAS_DEBUG 0)
+  set(DV_PLUGIN_DEBUG 0)
+  endif()
 
 #-------------------------------------------------------------------------------
 function(hdf5_vol_daos_set_lib_options libtarget libname libtype)
@@ -161,10 +210,12 @@ function(hdf5_vol_daos_set_lib_options libtarget libname libtype)
 
   set_target_properties(${libtarget}
       PROPERTIES
-      DEBUG_OUTPUT_NAME          ${LIB_DEBUG_NAME}
-      RELEASE_OUTPUT_NAME        ${LIB_RELEASE_NAME}
-      MINSIZEREL_OUTPUT_NAME     ${LIB_RELEASE_NAME}
-      RELWITHDEBINFO_OUTPUT_NAME ${LIB_RELEASE_NAME}
+      OUTPUT_NAME_DEBUG          ${LIB_DEBUG_NAME}
+      OUTPUT_NAME_RELEASE        ${LIB_RELEASE_NAME}
+      OUTPUT_NAME_MINSIZEREL     ${LIB_RELEASE_NAME}
+      OUTPUT_NAME_RELWITHDEBINFO ${LIB_RELEASE_NAME}
+      OUTPUT_NAME_ASAN           ${LIB_DEBUG_NAME}
+      OUTPUT_NAME_UBSAN          ${LIB_DEBUG_NAME}
       VERSION                    ${LIB_VERSION}
       SOVERSION                  ${API_VERSION}
   )
@@ -200,6 +251,14 @@ endif()
 # Source
 #-----------------------------------------------------------------------------
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+#-----------------------------------------------------------------------------
+# Build doxygen documentation.
+#-----------------------------------------------------------------------------
+option(BUILD_DOCUMENTATION "Build documentation." OFF)
+#if(BUILD_DOCUMENTATION)
+#  add_subdirectory(Documentation/Doxygen)
+#endif()
 
 #-----------------------------------------------------------------------------
 # Examples

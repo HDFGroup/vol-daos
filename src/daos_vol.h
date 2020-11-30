@@ -500,6 +500,7 @@ typedef struct H5_daos_dset_t {
     hid_t type_id;
     hid_t file_type_id;
     hid_t space_id;
+    hid_t cur_set_extent_space_id;
     hid_t dcpl_id;
     hid_t dapl_id;
     H5_daos_dcpl_cache_t dcpl_cache;

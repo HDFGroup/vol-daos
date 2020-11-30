@@ -637,6 +637,7 @@ H5_daos_dataset_create_helper(H5_daos_file_t *file, hid_t type_id, hid_t space_i
     dset->type_id = H5I_INVALID_HID;
     dset->file_type_id = H5I_INVALID_HID;
     dset->space_id = H5I_INVALID_HID;
+    dset->cur_set_extent_space_id = H5I_INVALID_HID;
     dset->dcpl_id = H5P_DATASET_CREATE_DEFAULT;
     dset->dapl_id = H5P_DATASET_ACCESS_DEFAULT;
     dset->io_cache.file_sel_iter_id = H5I_INVALID_HID;
@@ -1924,6 +1925,7 @@ H5_daos_dataset_open_helper(H5_daos_file_t *file, hid_t dapl_id, hbool_t collect
     dset->type_id = H5I_INVALID_HID;
     dset->file_type_id = H5I_INVALID_HID;
     dset->space_id = H5I_INVALID_HID;
+    dset->cur_set_extent_space_id = H5I_INVALID_HID;
     dset->dcpl_id = H5P_DATASET_CREATE_DEFAULT;
     dset->dapl_id = H5P_DATASET_ACCESS_DEFAULT;
     dset->io_cache.file_sel_iter_id = H5I_INVALID_HID;
@@ -4172,7 +4174,6 @@ H5_daos_dataset_get(void *_dset, H5VL_dataset_get_t get_type,
                     D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "output argument not supplied");
 
                 /* Wait for the dataset to open if necessary */
-                /* Need to update this when H5Dset_extent is async! -NAF */
                 if(!dset->obj.item.created && dset->obj.item.open_req->status != 0) {
                     /* Allocate udata struct */
                     if(NULL == (get_udata = (H5_daos_dset_get_ud_t *)DV_calloc(sizeof(H5_daos_dset_get_ud_t))))
@@ -4182,9 +4183,16 @@ H5_daos_dataset_get(void *_dset, H5VL_dataset_get_t get_type,
                     get_udata->out.hid = ret_id;
                 } /* end if */
                 else {
-                    /* Retrieve the dataset's dataspace */
-                    if((*ret_id = H5Scopy(dset->space_id)) < 0)
-                        D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get dataspace ID of dataset");
+                    /* Retrieve the dataset's dataspace.  Use
+                     * cur_set_extent_space_id if present, otherwise just use
+                     * space_id. */
+                    if(dset->cur_set_extent_space_id >= 0) {
+                        if((*ret_id = H5Scopy(dset->cur_set_extent_space_id)) < 0)
+                            D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get dataspace ID of dataset");
+                    } /* end if */
+                    else
+                        if((*ret_id = H5Scopy(dset->space_id)) < 0)
+                            D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get dataspace ID of dataset");
                 } /* end else */
 
                 break;
@@ -5071,6 +5079,11 @@ H5_daos_dset_set_extent_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for metadata I/O task");
     assert(!udata->md_rw_cb_ud.req->file->closed || task->dt_result != 0);
 
+    /* Clear cached new space ID on dataset */
+    if(((H5_daos_dset_t *)udata->md_rw_cb_ud.obj)->cur_set_extent_space_id
+            == udata->new_space_id)
+        ((H5_daos_dset_t *)udata->md_rw_cb_ud.obj)->cur_set_extent_space_id = H5I_INVALID_HID;
+
     /* Handle errors in update task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if
      * another task this task is not dependent on also failed). */
@@ -5192,6 +5205,10 @@ H5_daos_dataset_set_extent(H5_daos_dset_t *dset, const hsize_t *size,
     /* Set extent on new dataspace */
     if(H5Sset_extent_simple(update_cb_ud->new_space_id, ndims, size, maxdims) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTSET, FAIL, "can't set dataspace dimensions");
+
+    /* Cache new space id on dataset struct - to be used by H5Dget_space to
+     * avoid needing to wait until this set_extent completes */
+    dset->cur_set_extent_space_id = update_cb_ud->new_space_id;
 
     /* Write new dataspace to dataset in file if this process should */
     if(!collective || (dset->obj.item.file->my_rank == 0)) {

@@ -1780,7 +1780,7 @@ done:
     } /* end if */
 
     /* Free akeys_buf if necessary */
-    if(akeys_buf && H5_daos_free_async(req->file, akeys_buf, first_task, dep_task) < 0)
+    if(akeys_buf && H5_daos_free_async(akeys_buf, first_task, dep_task) < 0)
         D_DONE_ERROR(H5E_ATTR, H5E_CANTFREE, NULL, "can't free akey buffer");
 
     /* Cleanup on failure */

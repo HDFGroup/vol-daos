@@ -611,7 +611,7 @@ done:
         H5_daos_op_pool_type_t op_type;
 
         /* Free path_buf if necessary */
-        if(path_buf && H5_daos_free_async(item->file, path_buf, &first_task, &dep_task) < 0)
+        if(path_buf && H5_daos_free_async(path_buf, &first_task, &dep_task) < 0)
             D_DONE_ERROR(H5E_SYM, H5E_CANTFREE, NULL, "can't free path buffer");
 
         /* Create task to finalize H5 operation */
@@ -1448,7 +1448,7 @@ H5_daos_group_open_int(H5_daos_item_t *item,
 
 done:
     /* Free path_buf if necessary */
-    if(path_buf && H5_daos_free_async(item->file, path_buf, first_task, dep_task) < 0)
+    if(path_buf && H5_daos_free_async(path_buf, first_task, dep_task) < 0)
         D_DONE_ERROR(H5E_SYM, H5E_CANTFREE, NULL, "can't free path buffer");
 
     /* Close target object */

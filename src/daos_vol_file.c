@@ -2600,7 +2600,7 @@ H5_daos_file_delete(uuid_t *puuid, const char *file_path, hbool_t ignore_missing
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create task to disconnect from container's pool");
 
     /* Free private data after pool disconnect succeeds */
-    if(H5_daos_free_async(destroy_udata->req->file, destroy_udata, first_task, dep_task) < 0)
+    if(H5_daos_free_async(destroy_udata, first_task, dep_task) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create task to free file deletion task data");
 
     /* Relinquish control of DUNS path destroy udata */

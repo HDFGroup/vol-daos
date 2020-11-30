@@ -4707,14 +4707,13 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_free_async(H5_daos_file_t *file, void *buf, tse_task_t **first_task,
+H5_daos_free_async(void *buf, tse_task_t **first_task,
     tse_task_t **dep_task)
 {
     tse_task_t *free_task;
     int ret;
     herr_t ret_value = SUCCEED; /* Return value */
 
-    assert(file);
     assert(buf);
     assert(first_task);
     assert(dep_task);

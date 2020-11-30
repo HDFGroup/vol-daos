@@ -955,7 +955,7 @@ H5VL_DAOS_PRIVATE void H5_daos_hash128(const char *name, void *hash);
 H5VL_DAOS_PRIVATE herr_t H5_daos_obj_open(H5_daos_file_t *file,
     H5_daos_req_t *req, daos_obj_id_t *oid, unsigned mode, daos_handle_t *oh,
     const char *task_name, tse_task_t **first_task, tse_task_t **dep_task);
-H5VL_DAOS_PRIVATE herr_t H5_daos_free_async(H5_daos_file_t *file, void *buf,
+H5VL_DAOS_PRIVATE herr_t H5_daos_free_async(void *buf,
     tse_task_t **first_task, tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE herr_t H5_daos_comm_info_dup(MPI_Comm comm, MPI_Info info,
         MPI_Comm *comm_new, MPI_Info *info_new);

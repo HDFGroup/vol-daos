@@ -2256,10 +2256,10 @@ done:
         assert(item);
 
         /* Free path_buf and soft link value if necessary */
-        if(path_buf && H5_daos_free_async(item->file, path_buf, &first_task, &dep_tasks[0]) < 0)
+        if(path_buf && H5_daos_free_async(path_buf, &first_task, &dep_tasks[0]) < 0)
             D_DONE_ERROR(H5E_LINK, H5E_CANTFREE, FAIL, "can't free path buffer");
         if(link_val.type == H5L_TYPE_SOFT && link_val.target.soft
-                && H5_daos_free_async(item->file, link_val.target.soft, &first_task, &dep_tasks[0]) < 0)
+                && H5_daos_free_async(link_val.target.soft, &first_task, &dep_tasks[0]) < 0)
             D_DONE_ERROR(H5E_LINK, H5E_CANTFREE, FAIL, "can't free soft link value buffer");
 
         /* Create task to finalize H5 operation */
@@ -3818,7 +3818,7 @@ H5_daos_link_get_info_end_task(tse_task_t *task)
 done:
     if(udata) {
         /* Free path_buf if necessary */
-        if(udata->path_buf && H5_daos_free_async(udata->target_obj->item.file, udata->path_buf, &first_task, &dep_task) < 0)
+        if(udata->path_buf && H5_daos_free_async(udata->path_buf, &first_task, &dep_task) < 0)
             D_DONE_ERROR(H5E_LINK, H5E_CANTFREE, -H5_DAOS_FREE_ERROR, "can't free path buffer");
 
         /* Create metatask to complete this task after dep_task if necessary */
@@ -4052,7 +4052,7 @@ H5_daos_link_get_val_end_task(tse_task_t *task)
 done:
     if(udata) {
         /* Free path_buf if necessary */
-        if(udata->path_buf && H5_daos_free_async(udata->target_obj->item.file, udata->path_buf, &first_task, &dep_task) < 0)
+        if(udata->path_buf && H5_daos_free_async(udata->path_buf, &first_task, &dep_task) < 0)
             D_DONE_ERROR(H5E_LINK, H5E_CANTFREE, -H5_DAOS_FREE_ERROR, "can't free path buffer");
 
         /* Schedule first task */
@@ -4435,7 +4435,7 @@ done:
         assert(ret_value < 0);
 
         /* Free path_buf if necessary */
-        if(fetch_udata->path_buf && H5_daos_free_async(item->file, fetch_udata->path_buf, first_task, dep_task) < 0)
+        if(fetch_udata->path_buf && H5_daos_free_async(fetch_udata->path_buf, first_task, dep_task) < 0)
             D_DONE_ERROR(H5E_LINK, H5E_CANTFREE, FAIL, "can't free path buffer");
 
         /* Close target_obj */

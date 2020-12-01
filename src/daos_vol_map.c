@@ -4218,3 +4218,43 @@ done:
     D_FUNC_LEAVE;
 } /* end H5_daos_map_close() */
 
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_map_flush
+ *
+ * Purpose:     Flushes a DAOS map.  Creates a barrier task so all async
+ *              ops created before the flush execute before all async ops
+ *              created after the flush.
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ * Programmer:  Neil Fortner
+ *              February, 2019
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_map_flush(H5_daos_map_t *map, H5_daos_req_t H5VL_DAOS_UNUSED *req,
+    tse_task_t **first_task, tse_task_t **dep_task)
+{
+    tse_task_t *barrier_task = NULL;
+    int ret;
+    herr_t ret_value = SUCCEED;    /* Return value */
+
+    assert(map);
+
+    /* Create task that does nothing but complete itself.  Only necessary
+     * because we can't enqueue a request that has no tasks */
+    if(0 != (ret = tse_task_create(H5_daos_metatask_autocomplete, &H5_daos_glob_sched_g, NULL, &barrier_task)))
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create barrier task for group flush: %s", H5_daos_err_to_string(ret));
+
+    /* Schedule barrier task (or save it to be scheduled later)  */
+    assert(!*first_task);
+    *first_task = barrier_task;
+    *dep_task = barrier_task;
+
+done:
+    D_FUNC_LEAVE;
+} /* end H5_daos_map_flush() */
+

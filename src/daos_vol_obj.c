@@ -474,7 +474,8 @@ H5_daos_object_open_helper(H5_daos_item_t *item, const H5VL_loc_params_t *loc_pa
 
         /* Set opened type */
         assert(*ret_obj);
-        *opened_type = (*ret_obj)->item.type;
+        if(opened_type)
+            *opened_type = (*ret_obj)->item.type;
     } /* end if */
     else {
         /* Set up user data for object open */
@@ -3214,12 +3215,16 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
     lapl_id = (H5VL_OBJECT_BY_NAME == loc_params->type) ? loc_params->loc_data.loc_by_name.lapl_id :
               (H5VL_OBJECT_BY_IDX == loc_params->type)  ? loc_params->loc_data.loc_by_idx.lapl_id :
                                                           H5P_LINK_ACCESS_DEFAULT;
-    H5_DAOS_GET_METADATA_IO_MODES(item->file, lapl_id, H5P_LINK_ACCESS_DEFAULT,
-            collective_md_read, collective_md_write, H5E_OBJECT, FAIL);
-    if(specific_type == H5VL_OBJECT_CHANGE_REF_COUNT)
-        collective = collective_md_write;
-    else
-        collective = collective_md_read;
+    if(specific_type == H5VL_OBJECT_FLUSH)
+        collective = FALSE;
+    else {
+        H5_DAOS_GET_METADATA_IO_MODES(item->file, lapl_id, H5P_LINK_ACCESS_DEFAULT,
+                collective_md_read, collective_md_write, H5E_OBJECT, FAIL);
+        if(specific_type == H5VL_OBJECT_CHANGE_REF_COUNT)
+            collective = collective_md_write;
+        else
+            collective = collective_md_read;
+    } /* end else */
 
     /* Start H5 operation */
     if(NULL == (int_req = H5_daos_req_create(item->file, dxpl_id)))
@@ -3380,20 +3385,24 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
 
             switch(item->type) {
                 case H5I_FILE:
-                    if(H5_daos_file_flush((H5_daos_file_t *)item) < 0)
+                    if(H5_daos_file_flush((H5_daos_file_t *)item, int_req, &first_task, &dep_task) < 0)
                         D_GOTO_ERROR(H5E_FILE, H5E_WRITEERROR, FAIL, "can't flush file");
                     break;
                 case H5I_GROUP:
-                    if(H5_daos_group_flush((H5_daos_group_t *)item) < 0)
+                    if(H5_daos_group_flush((H5_daos_group_t *)item, int_req, &first_task, &dep_task) < 0)
                         D_GOTO_ERROR(H5E_SYM, H5E_WRITEERROR, FAIL, "can't flush group");
                     break;
                 case H5I_DATASET:
-                    if(H5_daos_dataset_flush((H5_daos_dset_t *)item) < 0)
+                    if(H5_daos_dataset_flush((H5_daos_dset_t *)item, int_req, &first_task, &dep_task) < 0)
                         D_GOTO_ERROR(H5E_DATASET, H5E_WRITEERROR, FAIL, "can't flush dataset");
                     break;
                 case H5I_DATATYPE:
-                    if(H5_daos_datatype_flush((H5_daos_dtype_t *)item) < 0)
+                    if(H5_daos_datatype_flush((H5_daos_dtype_t *)item, int_req, &first_task, &dep_task) < 0)
                         D_GOTO_ERROR(H5E_DATATYPE, H5E_WRITEERROR, FAIL, "can't flush datatype");
+                    break;
+                case H5I_MAP:
+                    if(H5_daos_map_flush((H5_daos_map_t *)item, int_req, &first_task, &dep_task) < 0)
+                        D_GOTO_ERROR(H5E_MAP, H5E_WRITEERROR, FAIL, "can't flush map");
                     break;
                 default:
                     D_GOTO_ERROR(H5E_VOL, H5E_BADTYPE, FAIL, "invalid object type");
@@ -3465,7 +3474,8 @@ done:
         /* Add the request to the object's request queue.  This will add the
          * dependency on the object open if necessary. */
         if(H5_daos_req_enqueue(int_req, first_task, item,
-                specific_type == H5VL_OBJECT_CHANGE_REF_COUNT ? H5_DAOS_OP_TYPE_WRITE_ORDERED : H5_DAOS_OP_TYPE_READ,
+                specific_type == H5VL_OBJECT_CHANGE_REF_COUNT || specific_type == H5VL_OBJECT_FLUSH
+                ? H5_DAOS_OP_TYPE_WRITE_ORDERED : H5_DAOS_OP_TYPE_READ,
                 H5_DAOS_OP_SCOPE_OBJ, collective, item ? item->open_req : NULL) < 0)
             D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't add request to request queue");
 

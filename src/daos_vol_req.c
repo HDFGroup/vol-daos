@@ -751,7 +751,7 @@ H5_daos_req_enqueue(H5_daos_req_t *req, tse_task_t *first_task,
                 /* Create dependency */
                 if((ret = tse_task_register_deps((*parent_cur_op_pool[i])->start_task, 1, &tmp_pool->dep_task)) < 0)
                     D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't register task dependency: %s", H5_daos_err_to_string(ret));
-//printf("hlp dependency on new pool %p -> %p\n", tmp_task, (*parent_cur_op_pool[i])->start_task); fflush(stdout);
+
                 /* Create init task for higher level pool if necessary.  This
                  * will be completed when the (currently empty) higher level
                  * pool is initialized. */

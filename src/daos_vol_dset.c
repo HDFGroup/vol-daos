@@ -4435,7 +4435,11 @@ H5_daos_dataset_specific(void *_item, H5VL_dataset_specific_t specific_type,
 
         case H5VL_DATASET_FLUSH:
             {
-                if(H5_daos_dataset_flush(dset) < 0)
+                /* Start H5 operation */
+                if(NULL == (int_req = H5_daos_req_create(dset->obj.item.file, H5I_INVALID_HID)))
+                    D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't create DAOS request");
+
+                if(H5_daos_dataset_flush(dset, int_req, &first_task, &dep_task) < 0)
                     D_GOTO_ERROR(H5E_DATASET, H5E_WRITEERROR, FAIL, "can't flush dataset");
 
                 break;
@@ -4487,7 +4491,7 @@ done:
         /* Add the request to the object's request queue.  This will add the
          * dependency on the dataset open if necessary. */
         if(H5_daos_req_enqueue(int_req, first_task, &dset->obj.item,
-                specific_type == H5VL_DATASET_SET_EXTENT
+                specific_type == H5VL_DATASET_SET_EXTENT || specific_type == H5VL_DATASET_FLUSH
                 ? H5_DAOS_OP_TYPE_WRITE_ORDERED : H5_DAOS_OP_TYPE_READ,
                 H5_DAOS_OP_SCOPE_OBJ, FALSE, dset->obj.item.open_req) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't add request to request queue");
@@ -4732,8 +4736,9 @@ done:
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_dataset_flush
  *
- * Purpose:     Flushes a DAOS dataset.  Currently a no-op, may create a
- *              snapshot in the future.
+ * Purpose:     Flushes a DAOS dataset.  Creates a barrier task so all async
+ *              ops created before the flush execute before all async ops
+ *              created after the flush.
  *
  * Return:      Success:        0
  *              Failure:        -1
@@ -4744,17 +4749,24 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_dataset_flush(H5_daos_dset_t *dset)
+H5_daos_dataset_flush(H5_daos_dset_t *dset, H5_daos_req_t H5VL_DAOS_UNUSED *req,
+    tse_task_t **first_task, tse_task_t **dep_task)
 {
+    tse_task_t *barrier_task = NULL;
+    int ret;
     herr_t ret_value = SUCCEED;
 
     assert(dset);
 
-    /* Nothing to do if no write intent */
-    if(!(dset->obj.item.file->flags & H5F_ACC_RDWR))
-        D_GOTO_DONE(SUCCEED);
+    /* Create task that does nothing but complete itself.  Only necessary
+     * because we can't enqueue a request that has no tasks */
+    if(0 != (ret = tse_task_create(H5_daos_metatask_autocomplete, &H5_daos_glob_sched_g, NULL, &barrier_task)))
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create barrier task for dataset flush: %s", H5_daos_err_to_string(ret));
 
-    /* Progress scheduler until empty? DSINC */
+    /* Schedule barrier task (or save it to be scheduled later)  */
+    assert(!*first_task);
+    *first_task = barrier_task;
+    *dep_task = barrier_task;
 
 done:
     D_FUNC_LEAVE;

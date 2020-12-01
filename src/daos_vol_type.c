@@ -1843,9 +1843,13 @@ done:
  */
 herr_t
 H5_daos_datatype_specific(void *_item, H5VL_datatype_specific_t specific_type,
-    hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req, va_list H5VL_DAOS_UNUSED arguments)
+    hid_t H5VL_DAOS_UNUSED dxpl_id, void **req, va_list H5VL_DAOS_UNUSED arguments)
 {
     H5_daos_dtype_t *dtype = (H5_daos_dtype_t *)_item;
+    tse_task_t *first_task = NULL;
+    tse_task_t *dep_task = NULL;
+    H5_daos_req_t *int_req = NULL;
+    int ret;
     herr_t           ret_value = SUCCEED;
 
     if(!_item)
@@ -1858,7 +1862,11 @@ H5_daos_datatype_specific(void *_item, H5VL_datatype_specific_t specific_type,
     switch (specific_type) {
         case H5VL_DATATYPE_FLUSH:
         {
-            if(H5_daos_datatype_flush(dtype) < 0)
+            /* Start H5 operation */
+            if(NULL == (int_req = H5_daos_req_create(dtype->obj.item.file, H5I_INVALID_HID)))
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTALLOC, FAIL, "can't create DAOS request");
+
+            if(H5_daos_datatype_flush(dtype, int_req, &first_task, &dep_task) < 0)
                 D_GOTO_ERROR(H5E_DATATYPE, H5E_WRITEERROR, FAIL, "can't flush datatype");
 
             break;
@@ -1876,6 +1884,59 @@ H5_daos_datatype_specific(void *_item, H5VL_datatype_specific_t specific_type,
     } /* end switch */
 
 done:
+    if(int_req) {
+        /* Create task to finalize H5 operation */
+        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))
+            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        /* Register dependency (if any) */
+        else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
+            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        /* Schedule finalize task */
+        else if(0 != (ret = tse_task_schedule(int_req->finalize_task, false)))
+            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        else
+            /* finalize_task now owns a reference to req */
+            int_req->rc++;
+
+        /* If there was an error during setup, pass it to the request */
+        if(ret_value < 0)
+            int_req->status = -H5_DAOS_SETUP_ERROR;
+
+        /* Add the request to the object's request queue.  This will add the
+         * dependency on the dataset open if necessary.  For flush operations
+         * use WRITE_ORDERED so all previous operations complete before the
+         * flush and all subsequent operations start after the flush (this is
+         * where we implement the barrier semantics for flush). */
+        assert(specific_type == H5VL_DATATYPE_FLUSH);
+        if(H5_daos_req_enqueue(int_req, first_task, &dtype->obj.item,
+                H5_DAOS_OP_TYPE_WRITE_ORDERED, H5_DAOS_OP_SCOPE_OBJ, FALSE,
+                dtype->obj.item.open_req) < 0)
+            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't add request to request queue");
+
+        /* Check for external async */
+        if(req) {
+            /* Return int_req as req */
+            *req = int_req;
+
+            /* Kick task engine */
+            if(H5_daos_progress(NULL, H5_DAOS_PROGRESS_KICK) < 0)
+                D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't progress scheduler");
+        } /* end if */
+        else {
+            /* Block until operation completes */
+            if(H5_daos_progress(int_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't progress scheduler");
+
+            /* Check for failure */
+            if(int_req->status < 0)
+                D_DONE_ERROR(H5E_DATATYPE, H5E_CANTOPERATE, FAIL, "dataset specific operation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status));
+
+            /* Close internal request */
+            if(H5_daos_req_free_int(int_req) < 0)
+                D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, FAIL, "can't free request");
+        } /* else */
+    } /* end if */
+
     D_FUNC_LEAVE_API;
 } /* end H5_daos_datatype_specific() */
 
@@ -2075,17 +2136,24 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_datatype_flush(H5_daos_dtype_t *dtype)
+H5_daos_datatype_flush(H5_daos_dtype_t *dtype, H5_daos_req_t H5VL_DAOS_UNUSED *req,
+    tse_task_t **first_task, tse_task_t **dep_task)
 {
+    tse_task_t *barrier_task = NULL;
+    int ret;
     herr_t ret_value = SUCCEED;
 
     assert(dtype);
 
-    /* Nothing to do if no write intent */
-    if(!(dtype->obj.item.file->flags & H5F_ACC_RDWR))
-        D_GOTO_DONE(SUCCEED);
+    /* Create task that does nothing but complete itself.  Only necessary
+     * because we can't enqueue a request that has no tasks */
+    if(0 != (ret = tse_task_create(H5_daos_metatask_autocomplete, &H5_daos_glob_sched_g, NULL, &barrier_task)))
+        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't create barrier task for datatype flush: %s", H5_daos_err_to_string(ret));
 
-    /* Progress scheduler until empty? DSINC */
+    /* Schedule barrier task (or save it to be scheduled later)  */
+    assert(!*first_task);
+    *first_task = barrier_task;
+    *dep_task = barrier_task;
 
 done:
     D_FUNC_LEAVE;

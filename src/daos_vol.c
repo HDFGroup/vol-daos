@@ -1629,7 +1629,7 @@ H5_daos_pool_connect_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
          * happen during file opens, where the file object's container_poh
          * field is initially invalid.
          */
-        if(daos_handle_is_inval(udata->req->file->container_poh))
+        if(udata->req->file && daos_handle_is_inval(udata->req->file->container_poh))
             udata->req->file->container_poh = *udata->poh;
     } /* end else */
 
@@ -2551,6 +2551,7 @@ H5_daos_oidx_bcast(H5_daos_file_t *file, uint64_t *oidx_out,
     oidx_bcast_udata->bcast_udata.buffer = oidx_bcast_udata->next_oidx_buf;
     oidx_bcast_udata->bcast_udata.buffer_len = H5_DAOS_ENCODED_UINT64_T_SIZE;
     oidx_bcast_udata->bcast_udata.count = H5_DAOS_ENCODED_UINT64_T_SIZE;
+    oidx_bcast_udata->bcast_udata.comm = req->file->comm;
     oidx_bcast_udata->file = file;
     oidx_bcast_udata->oidx_out = oidx_out;
     oidx_bcast_udata->next_oidx = &file->next_oidx_collective;
@@ -3732,12 +3733,10 @@ H5_daos_mpi_ibcast_task(tse_task_t *task)
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for MPI broadcast task");
 
     assert(udata->req);
-    assert(udata->req->file);
-    assert(!udata->req->file->closed);
     assert(udata->buffer);
 
     /* Make call to MPI_Ibcast */
-    if(MPI_SUCCESS != MPI_Ibcast(udata->buffer, udata->count, MPI_BYTE, 0, udata->req->file->comm, &H5_daos_mpi_req_g))
+    if(MPI_SUCCESS != MPI_Ibcast(udata->buffer, udata->count, MPI_BYTE, 0, udata->comm, &H5_daos_mpi_req_g))
         D_GOTO_ERROR(H5E_VOL, H5E_MPI, -H5_DAOS_MPI_ERROR, "MPI_Ibcast failed");
 
     /* Register this task as the current in-flight MPI task */
@@ -4447,6 +4446,7 @@ H5_daos_mpi_ibcast(H5_daos_mpi_ibcast_ud_t *_bcast_udata, H5_daos_obj_t *obj,
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "failed to allocate buffer for MPI broadcast user data");
         bcast_udata->req = req;
         bcast_udata->obj = obj;
+        bcast_udata->comm = req->file->comm;
     } /* end if */
 
     /* Allocate bcast_udata's buffer if necessary */
@@ -4548,6 +4548,7 @@ H5_daos_collective_error_check(H5_daos_obj_t *obj, H5_daos_req_t *req,
     req->collective.err_check_ud.buffer_len = sizeof(req->collective.coll_status);
     req->collective.err_check_ud.count = req->collective.err_check_ud.buffer_len;
     req->collective.err_check_ud.bcast_metatask = NULL;
+    req->collective.err_check_ud.comm = req->file->comm;
 
     if(H5_daos_mpi_ibcast(&req->collective.err_check_ud, obj, sizeof(req->collective.coll_status),
             FALSE, (req->file->my_rank == 0) ? H5_daos_collective_error_check_prep_cb : NULL,

@@ -738,6 +738,7 @@ H5_daos_map_open_helper(H5_daos_file_t *file, hid_t mapl_id, hbool_t collective,
         bcast_udata->buffer = NULL;
         bcast_udata->buffer_len = 0;
         bcast_udata->count = 0;
+        bcast_udata->comm = req->file->comm;
 
         minfo_buf_size = H5_DAOS_MINFO_BCAST_BUF_SIZE;
     } /* end if */

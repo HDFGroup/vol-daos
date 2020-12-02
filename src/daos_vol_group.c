@@ -1204,6 +1204,7 @@ H5_daos_group_open_helper(H5_daos_file_t *file, hid_t gapl_id,
         bcast_udata->buffer = NULL;
         bcast_udata->buffer_len = 0;
         bcast_udata->count = 0;
+        bcast_udata->comm = req->file->comm;
     } /* end if */
 
     /* Open group and read metadata if this process should */

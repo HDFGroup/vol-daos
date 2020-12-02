@@ -172,8 +172,6 @@ H5_daos_req_create(H5_daos_file_t *file, hid_t dxpl_id)
 {
     H5_daos_req_t *ret_value = NULL;
 
-    assert(file);
-
     if(NULL == (ret_value = (H5_daos_req_t *)DV_malloc(sizeof(H5_daos_req_t))))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for request");
     ret_value->th = DAOS_TX_NONE;
@@ -189,7 +187,8 @@ H5_daos_req_create(H5_daos_file_t *file, hid_t dxpl_id)
     ret_value->finalize_task = NULL;
     ret_value->dep_task = NULL;
     ret_value->notify_cb = NULL;
-    ret_value->file->item.rc++;
+    if(ret_value->file)
+        ret_value->file->item.rc++;
     ret_value->rc = 1;
     ret_value->status = -H5_DAOS_INCOMPLETE;
     ret_value->failed_task = "default (probably operation setup)";
@@ -233,7 +232,8 @@ H5_daos_req_free_int(H5_daos_req_t *req)
                 } /* end if */
                 D_DONE_ERROR(H5E_DAOS_ASYNC, H5E_CLOSEERROR, FAIL, "can't close data transfer property list");
             } /* end if */
-        H5_daos_file_decref(req->file);
+        if(req->file)
+            H5_daos_file_decref(req->file);
         DV_free(req);
     } /* end if */
 

@@ -1146,6 +1146,7 @@ H5_daos_datatype_open_helper(H5_daos_file_t *file, hid_t tapl_id, hbool_t collec
         bcast_udata->buffer = NULL;
         bcast_udata->buffer_len = 0;
         bcast_udata->count = 0;
+        bcast_udata->comm = req->file->comm;
 
         tinfo_buf_size = H5_DAOS_TINFO_BCAST_BUF_SIZE;
     } /* end if */

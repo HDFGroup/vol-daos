@@ -369,6 +369,7 @@ H5_daos_bcast_fill_val(H5_daos_dset_t *dset, H5_daos_req_t *req,
     bcast_udata->buffer = dset->fill_val;
     bcast_udata->buffer_len = (int)fill_val_size;
     bcast_udata->count = (int)fill_val_size;
+    bcast_udata->comm = req->file->comm;
 
     /* Create task for fill value bcast */
     if(0 != (ret = tse_task_create(H5_daos_mpi_ibcast_task, &H5_daos_glob_sched_g, bcast_udata, &bcast_task)))
@@ -1943,6 +1944,7 @@ H5_daos_dataset_open_helper(H5_daos_file_t *file, hid_t dapl_id, hbool_t collect
         bcast_udata->buffer = NULL;
         bcast_udata->buffer_len = 0;
         bcast_udata->count = 0;
+        bcast_udata->comm = req->file->comm;
 
         dinfo_buf_size = H5_DAOS_DINFO_BCAST_BUF_SIZE;
     } /* end if */

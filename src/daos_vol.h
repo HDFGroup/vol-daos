@@ -585,6 +585,7 @@ typedef struct H5_daos_mpi_ibcast_ud_t {
     void *buffer;
     int buffer_len;
     int count;
+    MPI_Comm comm;
 } H5_daos_mpi_ibcast_ud_t;
 
 /* Generic request struct */

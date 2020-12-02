@@ -3145,8 +3145,11 @@ H5_daos_file_close_helper(H5_daos_file_t *file)
     assert(file && (H5I_FILE == file->item.type));
 
     /* Free file data structures */
-    if(file->item.cur_op_pool)
+    if(file->item.cur_op_pool) {
+        if(0 != (ret = H5_daos_op_pool_finish(file->item.cur_op_pool)))
+            D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, FAIL, "can't finish operation pool: %s", H5_daos_err_to_string(ret));
         H5_daos_op_pool_free(file->item.cur_op_pool);
+    } /* end if */
     if(file->item.open_req)
         if(H5_daos_req_free_int(file->item.open_req) < 0)
             D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, FAIL, "can't free request");
@@ -3286,11 +3289,6 @@ H5_daos_file_close(void *_file, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
     /* Start H5 operation. Currently, the DXPL is only copied when datatype conversion is needed. */
     if(NULL == (int_req = H5_daos_req_create(file, H5P_DATASET_XFER_DEFAULT)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, FAIL, "can't create DAOS request");
-
-    /* Finish root group's operation pool so all tasks complete, etc. */
-    if(file->root_grp->obj.item.cur_op_pool
-            && 0 != (ret = H5_daos_op_pool_finish(file->root_grp->obj.item.cur_op_pool)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CLOSEERROR, FAIL, "can't finish operation pool: %s", H5_daos_err_to_string(ret));
 
     /* Create task for barrier (or just close if there is only one process) */
     if(0 != (ret = tse_task_create(file->num_procs > 1 ? H5_daos_mpi_ibarrier_task : H5_daos_metatask_autocomplete,

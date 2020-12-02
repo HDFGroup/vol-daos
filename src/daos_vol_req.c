@@ -263,31 +263,31 @@ H5_daos_op_pool_finish(H5_daos_op_pool_t *op_pool)
 
     assert(op_pool);
 
-    /* If the pool is empty we must create a dependency for the end task on the
-     * start task so the end task does nor execute too soon, then schedule the
-     * start task */
-    if(op_pool->type == H5_DAOS_OP_TYPE_EMPTY) {
+    /* If the pool is already closed, nothing to do */
+    if(!op_pool->closed) {
         assert(op_pool->end_task);
-        assert(op_pool->start_task);
-        assert(!op_pool->closed);
 
-        /* Complete init task */
-        if(op_pool->init_task) {
-            tse_task_complete(op_pool->init_task, 0);
-            op_pool->init_task = NULL;
+        /* If the pool is empty we must create a dependency for the end task on the
+         * start task so the end task does not execute too soon, then schedule the
+         * start task */
+        if(op_pool->type == H5_DAOS_OP_TYPE_EMPTY) {
+            assert(op_pool->start_task);
+
+            /* Complete init task */
+            if(op_pool->init_task) {
+                tse_task_complete(op_pool->init_task, 0);
+                op_pool->init_task = NULL;
+            } /* end if */
+
+            /* Create dependency for pool end task on pool start task */
+            if((ret = tse_task_register_deps(op_pool->end_task, 1, &op_pool->start_task)) < 0)
+                D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't create dependencies for end task for operation pool: %s", H5_daos_err_to_string(ret));
+
+            /* Schedule pool start task */
+            if( 0 != (ret = tse_task_schedule(op_pool->start_task, false)))
+                D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't schedule task to end operation pool: %s", H5_daos_err_to_string(ret));
         } /* end if */
 
-        /* Create dependency for pool end task on pool start task */
-        if((ret = tse_task_register_deps(op_pool->end_task, 1, &op_pool->start_task)) < 0)
-            D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't create dependencies for end task for operation pool: %s", H5_daos_err_to_string(ret)); 
-
-        /* Schedule pool start task */
-        if( 0 != (ret = tse_task_schedule(op_pool->start_task, false)))
-            D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't schedule task to end operation pool: %s", H5_daos_err_to_string(ret));
-    } /* end if */
-
-    /* Check if the pool is already closed */
-    if(!op_pool->closed) {
         /* Mark pool as closed */
         op_pool->closed = TRUE;
 
@@ -295,6 +295,10 @@ H5_daos_op_pool_finish(H5_daos_op_pool_t *op_pool)
         if(0 != (ret = tse_task_schedule(op_pool->end_task, false)))
             D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, ret, "can't schedule task to end operation pool: %s", H5_daos_err_to_string(ret));
     } /* end if */
+    else {
+        assert(op_pool->type != H5_DAOS_OP_TYPE_EMPTY);
+        assert(!op_pool->init_task);
+    } /* end else */
 
 done:
     D_FUNC_LEAVE;
@@ -515,10 +519,21 @@ H5_daos_req_enqueue(H5_daos_req_t *req, tse_task_t *first_task,
                 assert(item->file == req->file);
                 assert(item->type == H5I_ATTR);
                 parent_cur_op_pool[0] = &item->cur_op_pool;
-                parent_cur_op_pool[1] = &((H5_daos_attr_t *)item)->parent->item.cur_op_pool;
-                parent_cur_op_pool[2] = &item->file->item.cur_op_pool;
-                parent_cur_op_pool[3] = &H5_daos_glob_cur_op_pool_g;
-                nlevels = 4;
+                if(((H5_daos_attr_t *)item)->parent) {
+                    parent_cur_op_pool[1] = &((H5_daos_attr_t *)item)->parent->item.cur_op_pool;
+                    parent_cur_op_pool[2] = &item->file->item.cur_op_pool;
+                    parent_cur_op_pool[3] = &H5_daos_glob_cur_op_pool_g;
+                    nlevels = 4;
+                } /* end if */
+                else {
+                    /* Attribute parent object is incomplete, in this case the
+                     * parent object is not managed by the API so we don't need
+                     * to worry about requests being added to its pool so we can
+                     * just ignore it here */
+                    parent_cur_op_pool[1] = &item->file->item.cur_op_pool;
+                    parent_cur_op_pool[2] = &H5_daos_glob_cur_op_pool_g;
+                    nlevels = 3;
+                } /* end if */
                 break;
 
             case H5_DAOS_OP_SCOPE_OBJ:

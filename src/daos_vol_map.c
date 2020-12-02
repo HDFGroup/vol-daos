@@ -4059,8 +4059,11 @@ H5_daos_map_close_real(H5_daos_map_t *map)
 
     if(--map->obj.item.rc == 0) {
         /* Free map data structures */
-        if(map->obj.item.cur_op_pool)
+        if(map->obj.item.cur_op_pool) {
+            if(0 != (ret = H5_daos_op_pool_finish(map->obj.item.cur_op_pool)))
+                D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, FAIL, "can't finish operation pool: %s", H5_daos_err_to_string(ret));
             H5_daos_op_pool_free(map->obj.item.cur_op_pool);
+        } /* end if */
         if(map->obj.item.open_req)
             if(H5_daos_req_free_int(map->obj.item.open_req) < 0)
                 D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't free request");

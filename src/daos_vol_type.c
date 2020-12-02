@@ -1967,8 +1967,11 @@ H5_daos_datatype_close_real(H5_daos_dtype_t *dtype)
 
     if(--dtype->obj.item.rc == 0) {
         /* Free datatype data structures */
-        if(dtype->obj.item.cur_op_pool)
+        if(dtype->obj.item.cur_op_pool) {
+            if(0 != (ret = H5_daos_op_pool_finish(dtype->obj.item.cur_op_pool)))
+                D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, FAIL, "can't finish operation pool: %s", H5_daos_err_to_string(ret));
             H5_daos_op_pool_free(dtype->obj.item.cur_op_pool);
+        } /* end if */
         if(dtype->obj.item.open_req)
             if(H5_daos_req_free_int(dtype->obj.item.open_req) < 0)
                 D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, FAIL, "can't free request");

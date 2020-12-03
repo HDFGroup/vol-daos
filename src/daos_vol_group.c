@@ -1553,7 +1553,7 @@ done:
         /* If there was an error during setup, pass it to the request */
         if(NULL == ret_value)
             int_req->status = -H5_DAOS_SETUP_ERROR;
-\
+
         /* Add the request to the object's request queue.  This will add the
          * dependency on the parent group open if necessary. */
         if(H5_daos_req_enqueue(int_req, first_task, item, H5_DAOS_OP_TYPE_READ,

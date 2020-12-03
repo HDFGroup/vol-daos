@@ -4801,7 +4801,8 @@ H5_daos_progress(H5_daos_req_t *req, uint64_t timeout)
 
         /* Progress DAOS */
         if((0 != (ret = daos_progress(&H5_daos_glob_sched_g,
-                timeout_rem > H5_DAOS_ASYNC_POLL_INTERVAL ? H5_DAOS_ASYNC_POLL_INTERVAL : timeout_rem,
+                timeout_rem > (1000000 * H5_DAOS_ASYNC_POLL_INTERVAL)
+                ? H5_DAOS_ASYNC_POLL_INTERVAL : (timeout_rem / 1000000),
                 &is_empty))) && (ret != -DER_TIMEDOUT))
             D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't progress scheduler: %s", H5_daos_err_to_string(ret));
 

@@ -4754,7 +4754,7 @@ done:
  *              non-blocking progress then exits immediately, with timout
  *              set to H5_DAOS_PROGRESS_WAIT in which case it waits as
  *              long as it takes, or with timeout set to a value in
- *              microseconds in which case it wait up to that amount of
+ *              nanoseconds in which case it waits up to that amount of
  *              time then exits as soon as the exit condition or the
  *              timeout is met.
  *
@@ -4805,9 +4805,9 @@ H5_daos_progress(H5_daos_req_t *req, uint64_t timeout)
                 &is_empty))) && (ret != -DER_TIMEDOUT))
             D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't progress scheduler: %s", H5_daos_err_to_string(ret));
 
-        /* Advance time */
+        /* Advance time (H5_DAOS_ASYNC_POLL_INTERVAL is in milliseconds) */
         /* Actually check clock here? */
-        timeout_rem -= H5_DAOS_ASYNC_POLL_INTERVAL;
+        timeout_rem -= (1000000 * H5_DAOS_ASYNC_POLL_INTERVAL);
     } while((req ? (req->status == -H5_DAOS_INCOMPLETE || req->status == -H5_DAOS_SHORT_CIRCUIT)
             : !is_empty) && timeout_rem > 0);
 

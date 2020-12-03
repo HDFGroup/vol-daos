@@ -133,7 +133,7 @@ do { \
 
 /* Polling interval (in microseconds) when waiting for asynchronous tasks to
  * finish */
-#define H5_DAOS_ASYNC_POLL_INTERVAL 1000
+#define H5_DAOS_ASYNC_POLL_INTERVAL 1
 
 /* Predefined timeouts for different modes in which to make progress using
  * H5_daos_progress */

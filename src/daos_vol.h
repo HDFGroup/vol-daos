@@ -131,7 +131,7 @@ do { \
 /* Number of object indices to allocate at a time */
 #define H5_DAOS_OIDX_NALLOC 1024
 
-/* Polling interval (in microseconds) when waiting for asynchronous tasks to
+/* Polling interval (in milliseconds) when waiting for asynchronous tasks to
  * finish */
 #define H5_DAOS_ASYNC_POLL_INTERVAL 1
 

@@ -564,9 +564,6 @@ H5_daos_req_enqueue(H5_daos_req_t *req, tse_task_t *first_task,
                 assert(0 && "Unknown scope");
         } /* end switch */
 
-        assert(!*parent_cur_op_pool[0]
-                || (*parent_cur_op_pool[0])->type != H5_DAOS_OP_TYPE_CLOSE);
-
         /* Determine if we need to allocate and/or initialize a new pool */
         if(!*parent_cur_op_pool[0]) {
             /* No pool present at this level, must create a new one */

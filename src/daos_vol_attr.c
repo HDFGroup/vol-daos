@@ -3083,9 +3083,6 @@ H5_daos_attribute_read_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *ar
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for attribute data broadcast task");
 
     assert(udata->req);
-    assert(udata->obj || task->dt_result != 0);
-    assert(udata->obj->item.file || task->dt_result != 0);
-    assert(!udata->obj->item.file->closed || task->dt_result != 0);
 
     /* Handle errors in bcast task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if

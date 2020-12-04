@@ -2287,7 +2287,7 @@ done:
          * Add to item's pool because that's where we're creating the link.  */
         if(!link_obj)
             op_type = H5_DAOS_OP_TYPE_NOPOOL;
-        if(&link_obj->item != item
+        else if(&link_obj->item != item
                 || ((link_obj->item.open_req->status == 0
                 || link_obj->item.created)
                 && !((H5_daos_group_t *)link_obj)->gcpl_cache.track_corder))

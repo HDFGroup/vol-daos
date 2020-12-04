@@ -43,6 +43,8 @@ H5_daos_err_to_string(int ret)
             return "error in earlier task (should not see this) (H5_DAOS_PRE_ERROR)";
         case -H5_DAOS_CANCELED:
             return "operation canceled by application (H5_DAOS_CANCELED)";
+        case -H5_DAOS_PREREQ_ERROR:
+            return "a prerequisite operation failed (H5_DAOS_PREREQ_ERROR)";
         case -H5_DAOS_H5_OPEN_ERROR:
             return "failed to open HDF5 object (H5_DAOS_H5_OPEN_ERROR)";
         case -H5_DAOS_H5_CLOSE_ERROR:

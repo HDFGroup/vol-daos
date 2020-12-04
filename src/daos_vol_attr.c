@@ -2619,6 +2619,9 @@ H5_daos_attribute_read_int(H5_daos_attr_t *attr, hid_t mem_type_id,
             udata->io_type = IO_READ;
             udata->buf.rbuf = buf;
         } /* end if */
+        else
+            /* Update need_tconv */
+            udata->need_tconv = need_tconv;
 
         /* Fill in remaining fields in udata */
         udata->md_rw_cb_ud.obj = attr->parent;
@@ -2767,6 +2770,8 @@ done:
             udata = DV_free(udata);
         } /* end if */
     } /* end if */
+    else
+        assert(!udata || udata->end_task);
 
     D_FUNC_LEAVE_API;
 } /* end H5_daos_attribute_read_int() */
@@ -3015,8 +3020,10 @@ H5_daos_attribute_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
                     D_GOTO_ERROR(H5E_ATTR, H5E_CANTCONVERT, -H5_DAOS_H5_TCONV_ERROR, "can't perform type conversion");
 
                 /* Copy to user's buffer if necessary */
-                if(udata->reuse != H5_DAOS_TCONV_REUSE_TCONV)
+                if(udata->reuse != H5_DAOS_TCONV_REUSE_TCONV) {
+                    assert(udata->tconv_buf);
                     (void)memcpy(udata->buf.rbuf, udata->tconv_buf, (size_t)udata->attr_nelmts * udata->mem_type_size);
+                } /* end if */
             }
         } /* end if */
     } /* end else */
@@ -3278,6 +3285,9 @@ H5_daos_attribute_write_int(H5_daos_attr_t *attr, hid_t mem_type_id,
         udata->io_type = IO_READ;
         udata->buf.wbuf = buf;
     } /* end if */
+    else
+        /* Update need_tconv */
+        udata->need_tconv = need_tconv;
 
     /* Fill in remaining fields in udata */
     udata->md_rw_cb_ud.obj = attr->parent;

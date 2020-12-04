@@ -5954,46 +5954,46 @@ H5_daos_link_delete(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
     assert(dep_task);
     assert(H5VL_OBJECT_BY_NAME == loc_params->type || H5VL_OBJECT_BY_IDX == loc_params->type);
 
-    /* Allocate argument struct for deletion task */
-    if(NULL == (delete_udata = (H5_daos_link_delete_ud_t *)DV_calloc(sizeof(H5_daos_link_delete_ud_t))))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for link deletion task callback arguments");
-    delete_udata->req = req;
-    delete_udata->target_obj = NULL;
-    delete_udata->loc_params = *loc_params;
-    delete_udata->target_link_name = NULL;
-    delete_udata->target_link_name_len = 0;
-    delete_udata->path_buf = NULL;
-
-    if(H5VL_OBJECT_BY_NAME == loc_params->type) {
-        /* Traverse the path */
-        if(NULL == (delete_udata->target_obj = H5_daos_group_traverse(item, loc_params->loc_data.loc_by_name.name,
-                H5P_LINK_CREATE_DEFAULT, req, collective, &delete_udata->path_buf, &delete_udata->target_link_name,
-                &delete_udata->target_link_name_len, first_task, dep_task)))
-            D_GOTO_ERROR(H5E_SYM, H5E_TRAVERSE, FAIL, "can't traverse path");
-    }
-    else {
-        H5VL_loc_params_t sub_loc_params;
-
-        assert(H5VL_OBJECT_BY_IDX == loc_params->type);
-
-        sub_loc_params.type = H5VL_OBJECT_BY_SELF;
-        sub_loc_params.obj_type = H5I_GROUP;
-        if(NULL == (delete_udata->target_obj = (H5_daos_obj_t *)H5_daos_group_open_int(item,
-                &sub_loc_params, loc_params->loc_data.loc_by_idx.name, H5P_GROUP_ACCESS_DEFAULT,
-                req, collective, first_task, dep_task)))
-            D_GOTO_ERROR(H5E_SYM, H5E_TRAVERSE, FAIL, "can't open group");
-
-        /* Retrieve the name of the link at the given index */
-        assert(delete_udata->target_obj->item.type == H5I_GROUP);
-        if(H5_daos_link_get_name_by_idx_alloc((H5_daos_group_t *)delete_udata->target_obj,
-                loc_params->loc_data.loc_by_idx.idx_type, loc_params->loc_data.loc_by_idx.order,
-                (uint64_t)loc_params->loc_data.loc_by_idx.n, &delete_udata->target_link_name,
-                &delete_udata->target_link_name_len, &delete_udata->path_buf, NULL,
-                req, first_task, dep_task) < 0)
-            D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't get link name");
-    }
-
     if(!collective || (item->file->my_rank == 0)) {
+        /* Allocate argument struct for deletion task */
+        if(NULL == (delete_udata = (H5_daos_link_delete_ud_t *)DV_calloc(sizeof(H5_daos_link_delete_ud_t))))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for link deletion task callback arguments");
+        delete_udata->req = req;
+        delete_udata->target_obj = NULL;
+        delete_udata->loc_params = *loc_params;
+        delete_udata->target_link_name = NULL;
+        delete_udata->target_link_name_len = 0;
+        delete_udata->path_buf = NULL;
+
+        if(H5VL_OBJECT_BY_NAME == loc_params->type) {
+            /* Traverse the path */
+            if(NULL == (delete_udata->target_obj = H5_daos_group_traverse(item, loc_params->loc_data.loc_by_name.name,
+                    H5P_LINK_CREATE_DEFAULT, req, collective, &delete_udata->path_buf, &delete_udata->target_link_name,
+                    &delete_udata->target_link_name_len, first_task, dep_task)))
+                D_GOTO_ERROR(H5E_SYM, H5E_TRAVERSE, FAIL, "can't traverse path");
+        }
+        else {
+            H5VL_loc_params_t sub_loc_params;
+
+            assert(H5VL_OBJECT_BY_IDX == loc_params->type);
+
+            sub_loc_params.type = H5VL_OBJECT_BY_SELF;
+            sub_loc_params.obj_type = H5I_GROUP;
+            if(NULL == (delete_udata->target_obj = (H5_daos_obj_t *)H5_daos_group_open_int(item,
+                    &sub_loc_params, loc_params->loc_data.loc_by_idx.name, H5P_GROUP_ACCESS_DEFAULT,
+                    req, collective, first_task, dep_task)))
+                D_GOTO_ERROR(H5E_SYM, H5E_TRAVERSE, FAIL, "can't open group");
+
+            /* Retrieve the name of the link at the given index */
+            assert(delete_udata->target_obj->item.type == H5I_GROUP);
+            if(H5_daos_link_get_name_by_idx_alloc((H5_daos_group_t *)delete_udata->target_obj,
+                    loc_params->loc_data.loc_by_idx.idx_type, loc_params->loc_data.loc_by_idx.order,
+                    (uint64_t)loc_params->loc_data.loc_by_idx.n, &delete_udata->target_link_name,
+                    &delete_udata->target_link_name_len, &delete_udata->path_buf, NULL,
+                    req, first_task, dep_task) < 0)
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't get link name");
+        }
+
         /* Create task to determine if the target group has link creation
          * order tracked once it has been opened. If it does, that group's
          * link creation order index must be updated before removing the
@@ -6083,36 +6083,10 @@ H5_daos_link_delete(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
             *dep_task = rc_udata->rc_task;
             rc_udata = NULL;
         } /* end if */
+
+        /* Relinquish control of link deletion udata to deletion task */
+        delete_udata = NULL;
     } /* end if */
-    else {
-        /* Create empty task that will call the link deletion
-         * completion callback and free private data.
-         */
-        if(0 != (ret = tse_task_create(H5_daos_metatask_autocomplete, &H5_daos_glob_sched_g, delete_udata, &delete_task)))
-            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create task to free private data: %s", H5_daos_err_to_string(ret));
-
-        /* Register dependency on dep_task if present */
-        if(*dep_task && 0 != (ret = tse_task_register_deps(delete_task, 1, dep_task)))
-            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create dependencies for task to free private data: %s", H5_daos_err_to_string(ret));
-
-        /* Set callback functions for task */
-        if(0 != (ret = tse_task_register_cbs(delete_task, NULL, NULL, 0,
-                H5_daos_link_delete_comp_cb, NULL, 0)))
-            D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't register callbacks for task to free private data: %s", H5_daos_err_to_string(ret));
-
-        /* Schedule task */
-        if(*first_task) {
-            if(0 != (ret = tse_task_schedule(delete_task, false)))
-                D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't schedule task to free private data: %s", H5_daos_err_to_string(ret));
-        } /* end if */
-        else
-            *first_task = delete_task;
-        req->rc++;
-        *dep_task = delete_task;
-    } /* end else */
-
-    /* Relinquish control of link deletion udata to deletion task */
-    delete_udata = NULL;
 
 done:
     if(collective && (item->file->num_procs > 1))
@@ -6126,6 +6100,9 @@ done:
 
         delete_udata = DV_free(delete_udata);
     } /* end if */
+
+    /* Make sure we cleaned up */
+    assert(!delete_udata);
 
     D_FUNC_LEAVE;
 } /* end H5_daos_link_delete() */

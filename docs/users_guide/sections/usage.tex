@@ -172,6 +172,114 @@ int main(void)
 }
 \end{minted}
 
+\subsection{Asynchronous I/O}
+
+The DAOS VOL connector supports asynchronous HDF5 operations using the HDF5
+event set (H5ES) API, released in HDF5 1.13.0. This allows I/O to proceed in the
+background while the application is performing other tasks.
+
+\subsubsection{Implementation and making progress}
+
+Asynchronous I/O in the DAOS VOL connector is implemented using a threadless
+progress engine, that checks for completion of in-flight operations any time it
+is entered. This means there is no background thread making progress, so you can
+be certain it won't interfere with computation. However, this also means that
+the connector needs to be entered occasionally in order to make progress, by
+calling \mintcinline{H5ESwait()} with a timeout of \mintcinline{0}. Otherwise,
+asynchronous operations will never complete until waited on, and the wait may
+take a long time, no matter how much time has passed since the asynchronous
+operation was issued.
+
+\subsubsection {Consistency semantics}
+
+Similarly to other asynchronous I/O libraries, the application must be careful
+not to use, modify, or free any buffers in use by async tasks until those tasks
+are complete. This applies to all read and query operations, as well as raw data
+and attribute write operations.  For non-attribute metadata write operations,
+the connector will make a temporary copy of any buffers passed in.
+
+The application must also be careful not to assume write operations are visible
+in the file until it has verified that the operation has completed through the
+H5ES interface. For example, if you write to a dataset, you must wait for the
+write to complete before reading that data from the dataset if you wish to see
+the new data. Likewise, if you create a link, you must wait for the create to
+complete before reading that link.
+
+It is possible in some cases, however, to issue operations before prerequisites
+have been complete. Any file, group, dataset, committed datatype, attribute, or
+map ID returned from the API can be passed back in through the HDF5 API even if
+the open operation for the object that that ID refers to has not completed. This
+allows applications to, for example, create a file, create a group in the file,
+create a dataset in the group, write to the dataset, and close all IDs, all in a
+non-blocking manner without waiting (until the dataset write buffer needs to be
+modified or freed). Keep in mind that links are not included in this, so you
+cannot, for example, create a group, then open the group using its name, without
+waiting for the create to complete (or using \mintcinline{H5Oflush_async()} or
+\mintcinline{H5Fflush_async()}, see below).
+
+Keep in mind that the only difference between the traditional blocking HDF5 API
+calls and the async versions is that the connector waits for that operation to
+complete before returning. The application must still make sure the file is in
+a consistent enough state to make the call before doing so, and must be aware
+that any operations the call does not depend on may still be incomplete after
+returning.
+
+\subsubsection {Operation ordering}
+
+For the most part, all asynchronous operations execute concurrently without any
+ordering enforced betwen them. However, there are a few exceptions. The
+connector enforces ordering between object open operations and operations that
+use that object, in order to facilitate the feature described above that allows
+the use of incompletely opened object IDs. In addition,
+\mintcinline{H5Dset_extent(_async)()}, link/object creates when the parent group
+has link creation order tracked, and attribute creates when the parent object
+has attribute creation order tracked are always strictly ordered, so these
+operations always execute after any previously issued operation related to their
+object, and before any subsequently issued operations.
+
+The application can manually enforce ordering using
+\mintcinline{H5Oflush_async()} and \mintcinline{H5Fflush_async()}. These
+operations only complete when all previously issued operations for the object or
+file complete and, like \mintcinline{H5Dset_extent_async()}, all subsequently
+issued operations only begin after the flush is complete. Since the DAOS HDF5
+connector does no caching, the flush operations have no other effect. This
+allows you to, for example, write to an attribute, issue an
+\mintcinline{H5Oflush_async()} on the attribute's parent object, and read the
+attribute back, all in a non-blocking fashion (as long as you keep both read and
+write buffers around and don't examine the read buffer until it is complete).
+See the Operation Scope section for information on which operations are in scope
+for \mintcinline{H5Oflush_async}.
+
+\subsubsection {Parallel Considerations}
+
+Parallel collective operations add another constraint on asynchronous
+operations. Because asynchronous MPI operations must be strictly ordered, all
+collective HDF5 operations are strictly ordered with respect to each other when
+executed with more than one rank, and no two can execute at the same time.
+Non-collective operations are not affected by this, and may execute
+simultaneouly with collective operations.
+
+\subsubsection {Operation Scope}
+
+All operations exist in an operation pool at attribute, object, file, or global
+scope. Operations are generally placed in the operation pool of the parent
+object of the operation. For example, dataset creates are placed in the object
+scoped pool of the parent group, attribute creates are placed in the object
+scoped pool of the parent object, and attribute writes are placed in the
+attribute scoped pool of the attribute. Operations that have multiple parent
+objects are placed in the file pool if the objects are in the same file, and in
+the global pool if they are in different files.
+
+All operations placed in a pool will be executed after all previously issued
+operations at a different scope in a location that contains, or is contained in,
+the pool for the original operation. For example, an operation in an attribute's
+pool will execute after all previously issued operations in the pools for the
+attribute's parent object, its file, or the global pool. It is not affected by
+operations in a different object or file. Operations in the global pool will
+execute after all previously issued operations not in the global pool. Keep in
+mind can will serialize operations if, for example, the app switches between
+attribute and object operations (though they will remain asynchronous).
+
 \subsection{Building HDF5 DAOS VOL connector applications}
 
 Assuming an \acrshort{hdf5} application has been written following the instructions in the previous section, the application should be built as normal for any other

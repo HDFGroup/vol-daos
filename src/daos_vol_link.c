@@ -3227,7 +3227,7 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
 
                 /* Register id for target_grp */
                 if((target_grp_id = H5VLwrap_register(target_grp, H5I_GROUP)) < 0)
-                    D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, FAIL, "unable to atomize object handle");
+                    D_GOTO_ERROR(H5E_ID, H5E_CANTREGISTER, FAIL, "unable to atomize object handle");
 
                 /* Initialize iteration data */
                 H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_LINK, idx_type, iter_order,
@@ -6398,7 +6398,7 @@ H5_daos_link_delete_corder(H5_daos_group_t *target_grp, const H5VL_loc_params_t 
 
         /* Register ID for group for link iteration */
         if((target_grp_id = H5VLwrap_register(target_grp, H5I_GROUP)) < 0)
-            D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, FAIL, "unable to atomize object handle");
+            D_GOTO_ERROR(H5E_ID, H5E_CANTREGISTER, FAIL, "unable to atomize object handle");
         target_grp->obj.item.rc++;
 
         /* Initialize iteration data */
@@ -8252,7 +8252,7 @@ H5_daos_link_get_name_by_name_order(H5_daos_group_t *target_grp, H5_iter_order_t
 
     /* Register ID for target group */
     if((gnbn_udata->target_grp_id = H5VLwrap_register(target_grp, H5I_GROUP)) < 0)
-        D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, FAIL, "unable to atomize object handle");
+        D_GOTO_ERROR(H5E_ID, H5E_CANTREGISTER, FAIL, "unable to atomize object handle");
     target_grp->obj.item.rc++;
 
     /* Retrieve the current number of links in the group */

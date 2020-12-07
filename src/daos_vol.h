@@ -46,6 +46,11 @@ typedef d_sg_list_t daos_sg_list_t;
 # define H5_daos_obj_generate_id(oid, ofeats, cid) \
     daos_obj_generate_id(oid, ofeats, cid, 0)
 
+/* For HDF5 compatibility */
+#ifndef H5E_ID
+#define H5E_ID H5E_ATOM
+#endif
+
 /******************/
 /* Private Macros */
 /******************/
@@ -65,7 +70,7 @@ typedef d_sg_list_t daos_sg_list_t;
 do { \
     if(H5_DAOS_g < 0) \
         if((H5_DAOS_g = H5VLpeek_connector_id_by_value(H5_VOL_DAOS_CLS_VAL)) < 0) \
-            D_GOTO_ERROR(H5E_ATOM, H5E_CANTGET, ERR, "unable to get registered ID for DAOS VOL connector"); \
+            D_GOTO_ERROR(H5E_ID, H5E_CANTGET, ERR, "unable to get registered ID for DAOS VOL connector"); \
 } while(0)
 
 /* Constant keys */

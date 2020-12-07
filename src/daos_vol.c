@@ -395,7 +395,7 @@ H5daos_init(uuid_t pool_uuid, const char *pool_grp, const char *pool_svcl)
         htri_t is_registered;
 
         if((is_registered = H5VLis_connector_registered_by_value(H5_daos_g.value)) < 0)
-            D_GOTO_ERROR(H5E_ATOM, H5E_CANTINIT, FAIL, "can't determine if DAOS VOL connector is registered");
+            D_GOTO_ERROR(H5E_ID, H5E_CANTINIT, FAIL, "can't determine if DAOS VOL connector is registered");
 
         if(!is_registered) {
             /* Save arguments to globals */
@@ -404,11 +404,11 @@ H5daos_init(uuid_t pool_uuid, const char *pool_grp, const char *pool_svcl)
 
             /* Register connector */
             if((H5_DAOS_g = H5VLregister_connector((const H5VL_class_t *)&H5_daos_g, H5P_DEFAULT)) < 0)
-                D_GOTO_ERROR(H5E_ATOM, H5E_CANTINSERT, FAIL, "can't create ID for DAOS VOL connector");
+                D_GOTO_ERROR(H5E_ID, H5E_CANTINSERT, FAIL, "can't create ID for DAOS VOL connector");
         } /* end if */
         else {
             if((H5_DAOS_g = H5VLget_connector_id_by_name(H5_daos_g.name)) < 0)
-                D_GOTO_ERROR(H5E_ATOM, H5E_CANTGET, FAIL, "unable to get registered ID for DAOS VOL connector");
+                D_GOTO_ERROR(H5E_ID, H5E_CANTGET, FAIL, "unable to get registered ID for DAOS VOL connector");
         } /* end else */
     } /* end if */
 

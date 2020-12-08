@@ -7,7 +7,7 @@ echo "(current dir is: $PWD)"
 export SPACK_ROOT=/mnt/wrk/jsoumagne/spack
 source $SPACK_ROOT/share/spack/setup-env.sh
 spack load -r daos@1.1.2
-spack load -r hdf5@1.12.1rc1
+spack load -r hdf5@1.12-async
 spack load -r cmake
 spack load -r gcc
 
@@ -26,17 +26,17 @@ pushd $HDF5_VOL_DAOS_ROOT
 
 export HDF5_VOL_DAOS_BUILD_CONFIGURATION="Debug"
 export HDF5_VOL_DAOS_DO_COVERAGE="true"
-ctest -S $HDF5_VOL_DAOS_ROOT/source/test/scripts/jelly_script.cmake -VV --output-on-failure 2>&1 > $HDF5_VOL_DAOS_ROOT/last_build_debug_coverage.log
+ctest -S $HDF5_VOL_DAOS_ROOT/source/test/scripts/jelly_script_async.cmake -VV --output-on-failure 2>&1 > $HDF5_VOL_DAOS_ROOT/last_build_async_debug_coverage.log
 unset HDF5_VOL_DAOS_DO_COVERAGE
 
 export HDF5_VOL_DAOS_BUILD_CONFIGURATION="Asan"
-ctest -S $HDF5_VOL_DAOS_ROOT/source/test/scripts/jelly_script.cmake -VV --output-on-failure 2>&1 > $HDF5_VOL_DAOS_ROOT/last_build_asan.log
+ctest -S $HDF5_VOL_DAOS_ROOT/source/test/scripts/jelly_script_async.cmake -VV --output-on-failure 2>&1 > $HDF5_VOL_DAOS_ROOT/last_build_async_asan.log
 
 export HDF5_VOL_DAOS_BUILD_CONFIGURATION="Ubsan"
-ctest -S $HDF5_VOL_DAOS_ROOT/source/test/scripts/jelly_script.cmake -VV --output-on-failure 2>&1 > $HDF5_VOL_DAOS_ROOT/last_build_ubsan.log
+ctest -S $HDF5_VOL_DAOS_ROOT/source/test/scripts/jelly_script_async.cmake -VV --output-on-failure 2>&1 > $HDF5_VOL_DAOS_ROOT/last_build_async_ubsan.log
 
 export HDF5_VOL_DAOS_BUILD_CONFIGURATION="RelWithDebInfo"
-ctest -S $HDF5_VOL_DAOS_ROOT/source/test/scripts/jelly_script.cmake -VV --output-on-failure 2>&1 > $HDF5_VOL_DAOS_ROOT/last_build_release.log
+ctest -S $HDF5_VOL_DAOS_ROOT/source/test/scripts/jelly_script_async.cmake -VV --output-on-failure 2>&1 > $HDF5_VOL_DAOS_ROOT/last_build_async_release.log
 
 # clean up
 rm -rf /mnt/daos/*

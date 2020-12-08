@@ -121,7 +121,7 @@ if(HDF5_VOL_DAOS_DO_MEMCHECK OR HDF5_VOL_DAOS_MEMORYCHECK_TYPE)
 endif()
 
 # Build name referenced in cdash
-set(CTEST_BUILD_NAME "daos-master-gcc-${lower_hdf5_vol_daos_build_configuration}${coverage_suffix}")
+set(CTEST_BUILD_NAME "daos-master-async-gcc-${lower_hdf5_vol_daos_build_configuration}${coverage_suffix}")
 
 set(dashboard_binary_name hdf5_vol_daos-${lower_hdf5_vol_daos_build_configuration})
 if(NOT hdf5_vol_daos_build_shared)
@@ -156,6 +156,7 @@ DAOS_SERVER_TRANSPORT:STRING=ofi+sockets
 HDF5_VOL_DAOS_ENABLE_COVERAGE:BOOL=${dashboard_do_coverage}
 HDF5_VOL_TEST_ENABLE_PARALLEL:BOOL=ON
 HDF5_VOL_TEST_ENABLE_PART:BOOL=ON
+HDF5_VOL_TEST_ENABLE_ASYNC:BOOL=ON
 
 MPIEXEC_MAX_NUMPROCS:STRING=${MAX_NUMPROCS}
 ")

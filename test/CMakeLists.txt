@@ -54,6 +54,12 @@ set(DAOS_SERVER_SCM_SIZE "8" CACHE STRING
 )
 mark_as_advanced(DAOS_SERVER_SCM_SIZE)
 
+# SCM mnt
+set(DAOS_SERVER_SCM_MNT "/mnt/daos" CACHE STRING
+  "Path to SCM mount point."
+)
+mark_as_advanced(DAOS_SERVER_SCM_MNT)
+
 # Init config
 configure_file(
    ${CMAKE_CURRENT_SOURCE_DIR}/scripts/daos_server.yml.in
@@ -141,6 +147,9 @@ set(MPIEXEC_SERVER_POSTFLAGS "${DAOS_SERVER_POSTFLAGS}")
 if(HDF5_VOL_DAOS_TESTING_USE_SYSTEM_SERVER)
   set(DAOS_POOL "" CACHE STRING "UUID of DAOS pool that will be used for testing.")
 else()
+  # Clear pool and files
+  set(H5VL_TEST_INIT_COMMAND "rm -rf ${DAOS_SERVER_SCM_MNT}/* ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/*.h5")
+
   # Client helper
   set(HDF5_VOL_TEST_CLIENT_HELPER ${CMAKE_CURRENT_BINARY_DIR}/scripts/daos_agent.sh)
   set(H5VL_TEST_CLIENT_HELPER_EXIT_COMMAND "killall daos_agent")

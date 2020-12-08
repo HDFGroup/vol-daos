@@ -70,7 +70,7 @@ typedef struct H5_daos_object_copy_ud_t {
     const char *new_obj_name;
     size_t new_obj_name_len;
     char *new_obj_name_path_buf;
-    htri_t dst_link_exists;
+    hbool_t dst_link_exists;
     unsigned obj_copy_options;
     hid_t lcpl_id;
 } H5_daos_object_copy_ud_t;
@@ -222,7 +222,7 @@ static int H5_daos_object_update_num_attrs_key_comp_cb(tse_task_t *task, void *a
 
 static herr_t H5_daos_object_copy_helper(void *src_loc_obj, const H5VL_loc_params_t *src_loc_params,
     const char *src_name, void *dst_loc_obj, const H5VL_loc_params_t *dst_loc_params,
-    const char *dst_name, unsigned obj_copy_options, hid_t lcpl_id, htri_t **link_exists_p,
+    const char *dst_name, unsigned obj_copy_options, hid_t lcpl_id, hbool_t **link_exists_p,
     H5_daos_req_t *req, tse_task_t **first_task,
     tse_task_t **dep_task);
 static int H5_daos_object_copy_task(tse_task_t *task);
@@ -1366,7 +1366,7 @@ H5_daos_object_copy(void *src_loc_obj, const H5VL_loc_params_t *src_loc_params,
     tse_task_t *dep_task = NULL;
     unsigned obj_copy_options = 0;
     hbool_t collective;
-    htri_t **link_exists_p;
+    hbool_t **link_exists_p;
     hid_t lapl_id = H5P_LINK_ACCESS_DEFAULT;
     int ret;
     herr_t ret_value = SUCCEED;
@@ -1530,7 +1530,7 @@ done:
 static herr_t
 H5_daos_object_copy_helper(void *src_loc_obj, const H5VL_loc_params_t *src_loc_params,
     const char *src_name, void *dst_loc_obj, const H5VL_loc_params_t *dst_loc_params,
-    const char *dst_name, unsigned obj_copy_options, hid_t lcpl_id, htri_t **link_exists_p,
+    const char *dst_name, unsigned obj_copy_options, hid_t lcpl_id, hbool_t **link_exists_p,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_object_copy_ud_t *obj_copy_udata = NULL;
@@ -2274,7 +2274,7 @@ H5_daos_group_copy(H5_daos_object_copy_ud_t *obj_copy_udata,
 
     /* Register an ID for the group to iterate over */
     if((target_obj_id = H5VLwrap_register(obj_copy_udata->src_obj, H5I_GROUP)) < 0)
-        D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, FAIL, "unable to atomize object handle");
+        D_GOTO_ERROR(H5E_ID, H5E_CANTREGISTER, FAIL, "unable to atomize object handle");
     obj_copy_udata->src_obj->item.rc++;
 
     /*
@@ -3805,7 +3805,7 @@ H5_daos_object_exists_finish(tse_task_t *task)
         D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
     } /* end if */
 
-    *udata->oexists_ret = (htri_t)udata->link_exists;
+    *udata->oexists_ret = udata->link_exists ? TRUE : FALSE;
 
 done:
     if(udata) {
@@ -3977,7 +3977,7 @@ H5_daos_object_visit_task(tse_task_t *task)
 
     /* Register ID for object to be visited */
     if((udata->target_obj_id = H5VLwrap_register(udata->target_obj, udata->target_obj->item.type)) < 0)
-        D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, -H5_DAOS_SETUP_ERROR, "unable to atomize object handle");
+        D_GOTO_ERROR(H5E_ID, H5E_CANTREGISTER, -H5_DAOS_SETUP_ERROR, "unable to atomize object handle");
     udata->target_obj->item.rc++;
 
     /* Make callback */

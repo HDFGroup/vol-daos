@@ -2989,7 +2989,7 @@ H5_daos_map_get(void *_map, H5VL_map_get_t get_type,
 
                 /* Register ID for map */
                 if((map_id = H5VLwrap_register(map, H5I_MAP)) < 0)
-                    D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, FAIL, "unable to atomize object handle");
+                    D_GOTO_ERROR(H5E_ID, H5E_CANTREGISTER, FAIL, "unable to atomize object handle");
                 map->obj.item.rc++;
 
                 /* Initialize iteration data */
@@ -3170,7 +3170,7 @@ H5_daos_map_specific(void *_item, const H5VL_loc_params_t *loc_params,
 
             /* Register ID for map */
             if((map_id = H5VLwrap_register(map, H5I_MAP)) < 0)
-                D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, FAIL, "unable to atomize object handle");
+                D_GOTO_ERROR(H5E_ID, H5E_CANTREGISTER, FAIL, "unable to atomize object handle");
 
             /* Initialize iteration data */
             H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_MAP, H5_INDEX_NAME, H5_ITER_INC,

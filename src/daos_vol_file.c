@@ -1543,7 +1543,7 @@ done:
  */
 void *
 H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
-    hid_t dxpl_id, void H5VL_DAOS_UNUSED **req)
+    hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_file_t *file = NULL;
     H5_daos_fapl_t fapl_info = {0};

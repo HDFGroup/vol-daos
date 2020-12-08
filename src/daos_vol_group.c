@@ -2421,7 +2421,7 @@ H5_daos_group_gnl_task(tse_task_t *task)
 
         /* Register id for grp */
         if((target_grp_id = H5VLwrap_register((H5_daos_group_t *)udata->md_rw_cb_ud.obj, H5I_GROUP)) < 0)
-            D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, FAIL, "unable to atomize object handle");
+            D_GOTO_ERROR(H5E_ID, H5E_CANTREGISTER, FAIL, "unable to atomize object handle");
         udata->md_rw_cb_ud.obj->item.rc++;
 
         /* Initialize iteration data */

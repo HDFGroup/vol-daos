@@ -39,7 +39,7 @@ static int H5_daos_op_pool_end_task(tse_task_t *task);
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_req_wait(void *_req, uint64_t timeout, H5ES_status_t *status)
+H5_daos_req_wait(void *_req, uint64_t timeout, H5VL_request_status_t *status)
 {
     H5_daos_req_t *req = (H5_daos_req_t *)_req;
     herr_t     ret_value = SUCCEED;            /* Return value */
@@ -54,13 +54,13 @@ H5_daos_req_wait(void *_req, uint64_t timeout, H5ES_status_t *status)
     /* Set status if requested */
     if(status) {
         if(req->status > -H5_DAOS_INCOMPLETE)
-            *status = H5ES_STATUS_SUCCEED;
+            *status = H5VL_REQUEST_STATUS_SUCCEED;
         else if(req->status >= -H5_DAOS_SHORT_CIRCUIT)
-            *status = H5ES_STATUS_IN_PROGRESS;
-        /*else if(req->status == -H5_DAOS_CANCELED)
-            *status = H5ES_STATUS_CANCELED;*/ /* Cancel may have been removed */
+            *status = H5VL_REQUEST_STATUS_IN_PROGRESS;
+        else if(req->status == -H5_DAOS_CANCELED)
+            *status = H5VL_REQUEST_STATUS_CANCELED;
         else
-            *status = H5ES_STATUS_FAIL;
+            *status = H5VL_REQUEST_STATUS_FAIL;
     } /* end if */
 
 done:
@@ -111,7 +111,7 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_req_cancel(void *_req)
+H5_daos_req_cancel(void *_req, H5VL_request_status_t *status)
 {
     H5_daos_req_t *req = (H5_daos_req_t *)_req;
     herr_t     ret_value = SUCCEED;            /* Return value */

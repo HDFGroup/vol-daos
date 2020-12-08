@@ -65,7 +65,7 @@ typedef d_sg_list_t daos_sg_list_t;
 do { \
     if(H5_DAOS_g < 0) \
         if((H5_DAOS_g = H5VLpeek_connector_id_by_value(H5_VOL_DAOS_CLS_VAL)) < 0) \
-            D_GOTO_ERROR(H5E_ATOM, H5E_CANTGET, ERR, "unable to get registered ID for DAOS VOL connector"); \
+            D_GOTO_ERROR(H5E_ID, H5E_CANTGET, ERR, "unable to get registered ID for DAOS VOL connector"); \
 } while(0)
 
 /* Constant keys */
@@ -1005,7 +1005,7 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_link_copy_move_int(H5_daos_item_t *src_item,
     hbool_t collective, H5_daos_req_t *req,
     tse_task_t **first_task, tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE herr_t H5_daos_link_exists(H5_daos_item_t *item,
-    const char *link_path, htri_t ***exists_p, htri_t *exists,
+    const char *link_path, hbool_t ***exists_p, hbool_t *exists,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE htri_t H5_daos_link_follow(H5_daos_group_t *grp,
     const char *name, size_t name_len, hbool_t crt_missing_grp,
@@ -1249,10 +1249,11 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_blob_specific(void *_file, void *blob_id,
 
 /* Request callbacks */
 H5VL_DAOS_PRIVATE herr_t H5_daos_req_wait(void *req, uint64_t timeout,
-    H5ES_status_t *status);
+    H5VL_request_status_t *status);
 H5VL_DAOS_PRIVATE herr_t H5_daos_req_notify(void *req, H5VL_request_notify_t cb,
     void *ctx);
-H5VL_DAOS_PRIVATE herr_t H5_daos_req_cancel(void *_req);
+H5VL_DAOS_PRIVATE herr_t H5_daos_req_cancel(void *_req,
+    H5VL_request_status_t *status);
 H5VL_DAOS_PRIVATE herr_t H5_daos_req_free(void *req);
 
 /* Other request routines */

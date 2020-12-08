@@ -1403,7 +1403,8 @@ H5_daos_cont_create_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     } /* end if */
     create_args->poh = *udata->poh;
     create_args->prop = NULL;
-    uuid_copy(create_args->uuid, udata->req->file->uuid);
+    /* TODO that cast can be removed once DAOS task struct is fixed */
+    uuid_copy((unsigned char *)create_args->uuid, udata->req->file->uuid);
 
 done:
     D_FUNC_LEAVE;
@@ -1543,7 +1544,7 @@ done:
  */
 void *
 H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
-    hid_t dxpl_id, void H5VL_DAOS_UNUSED **req)
+    hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_file_t *file = NULL;
     H5_daos_fapl_t fapl_info = {0};
@@ -2167,7 +2168,8 @@ H5_daos_cont_open_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for container open task");
     } /* end if */
     open_args->poh = *udata->poh;
-    uuid_copy(open_args->uuid, udata->req->file->uuid);
+    /* TODO that cast can be removed once DAOS task struct is fixed */
+    uuid_copy((unsigned char *)open_args->uuid, udata->req->file->uuid);
     open_args->flags = udata->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO;
     open_args->coh = &udata->req->file->coh;
     open_args->info = NULL;

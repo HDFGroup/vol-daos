@@ -69,7 +69,7 @@ do {                                                                  \
 /* Task user data for pool connect */
 typedef struct H5_daos_pool_connect_ud_t {
     H5_daos_req_t *req;
-    const uuid_t *puuid;
+    uuid_t *puuid;
     daos_handle_t *poh;
     daos_pool_info_t *info;
     const char *grp;
@@ -116,7 +116,7 @@ static int H5_daos_bool_prop_compare(const void *_value1, const void *_value2,
     size_t size);
 static herr_t H5_daos_init(hid_t vipl_id);
 static herr_t H5_daos_term(void);
-static herr_t H5_daos_set_pool_globals(uuid_t pool_uuid, const char *pool_grp, const char *pool_svcl);
+static herr_t H5_daos_set_pool_globals(const char *pool_grp, const char *pool_svcl);
 static herr_t H5_daos_fill_def_plist_cache(void);
 static void *H5_daos_fapl_copy(const void *_old_fa);
 static herr_t H5_daos_fapl_free(void *_fa);
@@ -307,7 +307,7 @@ tse_sched_t H5_daos_glob_sched_g;
 H5_daos_op_pool_t *H5_daos_glob_cur_op_pool_g = NULL;
 
 /* Global variable for HDF5 property list cache */
-const H5_daos_plist_cache_t *H5_daos_plist_cache_g;
+H5_daos_plist_cache_t *H5_daos_plist_cache_g;
 
 /* DAOS task and MPI request for current in-flight MPI operation */
 tse_task_t *H5_daos_mpi_task_g = NULL;
@@ -399,7 +399,7 @@ H5daos_init(uuid_t pool_uuid, const char *pool_grp, const char *pool_svcl)
 
         if(!is_registered) {
             /* Save arguments to globals */
-            if(H5_daos_set_pool_globals(pool_uuid, pool_grp, pool_svcl) < 0)
+            if(H5_daos_set_pool_globals(pool_grp, pool_svcl) < 0)
                 D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't set pool globals");
 
             /* Register connector */
@@ -1223,7 +1223,7 @@ H5_daos_init(hid_t H5VL_DAOS_UNUSED vipl_id)
         uuid_t puuid;
 
         uuid_clear(puuid);
-        if(H5_daos_set_pool_globals(puuid, NULL, NULL) < 0)
+        if(H5_daos_set_pool_globals(NULL, NULL) < 0)
             D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't set pool globals");
     } /* end if */
     assert(H5_daos_pool_globals_set_g);
@@ -1335,7 +1335,7 @@ done:
  *-------------------------------------------------------------------------
  */
 static herr_t
-H5_daos_set_pool_globals(uuid_t pool_uuid, const char *pool_grp, const char *pool_svcl)
+H5_daos_set_pool_globals(const char *pool_grp, const char *pool_svcl)
 {
     char *pool_grp_env = getenv("DAOS_GROUP");
     char *pool_svcl_env = getenv("DAOS_SVCL");
@@ -1581,7 +1581,8 @@ H5_daos_pool_connect_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     connect_args->svc = udata->svc;
     connect_args->flags = udata->flags;
     connect_args->info = udata->info;
-    uuid_copy(connect_args->uuid, *udata->puuid);
+    /* TODO that cast can be removed once DAOS task struct is fixed */
+    uuid_copy((unsigned char *)connect_args->uuid, *udata->puuid);
 
 done:
     if(ret_value < 0)

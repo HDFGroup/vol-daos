@@ -4763,11 +4763,11 @@ H5_daos_object_get_num_attrs(H5_daos_obj_t *target_obj, hsize_t *num_attrs,
         get_num_attr_udata->md_rw_cb_ud.obj = target_obj;
 
         /* Set up dkey */
-        daos_iov_set(&get_num_attr_udata->md_rw_cb_ud.dkey, (void *)H5_daos_attr_key_g, H5_daos_attr_key_size_g);
+        daos_const_iov_set((d_const_iov_t *)&get_num_attr_udata->md_rw_cb_ud.dkey, H5_daos_attr_key_g, H5_daos_attr_key_size_g);
         get_num_attr_udata->md_rw_cb_ud.free_dkey = FALSE;
 
         /* Set up iod */
-        daos_iov_set(&get_num_attr_udata->md_rw_cb_ud.iod[0].iod_name, (void *)H5_daos_nattr_key_g, H5_daos_nattr_key_size_g);
+        daos_const_iov_set((d_const_iov_t *)&get_num_attr_udata->md_rw_cb_ud.iod[0].iod_name, H5_daos_nattr_key_g, H5_daos_nattr_key_size_g);
         get_num_attr_udata->md_rw_cb_ud.iod[0].iod_nr = 1u;
         get_num_attr_udata->md_rw_cb_ud.iod[0].iod_size = (daos_size_t)H5_DAOS_ENCODED_NUM_ATTRS_SIZE;
         get_num_attr_udata->md_rw_cb_ud.iod[0].iod_type = DAOS_IOD_SINGLE;
@@ -5015,12 +5015,12 @@ H5_daos_object_update_num_attrs_key(H5_daos_obj_t *target_obj, hsize_t *new_natt
     update_udata->update_ud.obj = target_obj;
 
     /* Set up dkey */
-    daos_iov_set(&update_udata->update_ud.dkey, (void *)H5_daos_attr_key_g, H5_daos_attr_key_size_g);
+    daos_const_iov_set((d_const_iov_t *)&update_udata->update_ud.dkey, H5_daos_attr_key_g, H5_daos_attr_key_size_g);
     update_udata->update_ud.free_dkey = FALSE;
 
     /* Set up iod */
     memset(&update_udata->update_ud.iod[0], 0, sizeof(update_udata->update_ud.iod[0]));
-    daos_iov_set(&update_udata->update_ud.iod[0].iod_name, (void *)H5_daos_nattr_key_g, H5_daos_nattr_key_size_g);
+    daos_const_iov_set((d_const_iov_t *)&update_udata->update_ud.iod[0].iod_name, H5_daos_nattr_key_g, H5_daos_nattr_key_size_g);
     update_udata->update_ud.iod[0].iod_nr = 1u;
     update_udata->update_ud.iod[0].iod_size = (daos_size_t)H5_DAOS_ENCODED_NUM_ATTRS_SIZE;
     update_udata->update_ud.iod[0].iod_type = DAOS_IOD_SINGLE;
@@ -5247,14 +5247,14 @@ H5_daos_obj_read_rc_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     rw_args->flags = 0;
 
     /* Set up dkey */
-    daos_iov_set(&udata->dkey, (void *)H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
+    daos_const_iov_set((d_const_iov_t *)&udata->dkey, H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
     rw_args->dkey = &udata->dkey;
 
     /* Set nr */
     rw_args->nr = 1;
 
     /* Set up iod */
-    daos_iov_set(&udata->iod.iod_name, (void *)H5_daos_rc_key_g, H5_daos_rc_key_size_g);
+    daos_const_iov_set((d_const_iov_t *)&udata->iod.iod_name, H5_daos_rc_key_g, H5_daos_rc_key_size_g);
     udata->iod.iod_nr = 1u;
     udata->iod.iod_size = (daos_size_t)H5_DAOS_ENCODED_RC_SIZE;
     udata->iod.iod_type = DAOS_IOD_SINGLE;
@@ -5547,14 +5547,14 @@ H5_daos_obj_write_rc_task(tse_task_t *task)
         rw_args->flags = 0;
 
         /* Set up dkey */
-        daos_iov_set(&udata->dkey, (void *)H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
+        daos_const_iov_set((d_const_iov_t *)&udata->dkey, H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
         rw_args->dkey = &udata->dkey;
 
         /* Set nr */
         rw_args->nr = 1;
 
         /* Set up iod */
-        daos_iov_set(&udata->iod.iod_name, (void *)H5_daos_rc_key_g, H5_daos_rc_key_size_g);
+        daos_const_iov_set((d_const_iov_t *)&udata->iod.iod_name, H5_daos_rc_key_g, H5_daos_rc_key_size_g);
         udata->iod.iod_nr = 1u;
         udata->iod.iod_size = (daos_size_t)H5_DAOS_ENCODED_RC_SIZE;
         udata->iod.iod_type = DAOS_IOD_SINGLE;

@@ -2274,7 +2274,7 @@ H5_daos_group_copy(H5_daos_object_copy_ud_t *obj_copy_udata,
 
     /* Register an ID for the group to iterate over */
     if((target_obj_id = H5VLwrap_register(obj_copy_udata->src_obj, H5I_GROUP)) < 0)
-        D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, FAIL, "unable to atomize object handle");
+        D_GOTO_ERROR(H5E_ID, H5E_CANTREGISTER, FAIL, "unable to atomize object handle");
     obj_copy_udata->src_obj->item.rc++;
 
     /*
@@ -3977,7 +3977,7 @@ H5_daos_object_visit_task(tse_task_t *task)
 
     /* Register ID for object to be visited */
     if((udata->target_obj_id = H5VLwrap_register(udata->target_obj, udata->target_obj->item.type)) < 0)
-        D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, -H5_DAOS_SETUP_ERROR, "unable to atomize object handle");
+        D_GOTO_ERROR(H5E_ID, H5E_CANTREGISTER, -H5_DAOS_SETUP_ERROR, "unable to atomize object handle");
     udata->target_obj->item.rc++;
 
     /* Make callback */

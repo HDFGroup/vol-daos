@@ -5965,7 +5965,7 @@ H5_daos_attribute_iterate_by_name_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSE
     /* Register id for target_obj */
     if(udata->iter_data.iter_root_obj < 0) {
         if((udata->iter_data.iter_root_obj = H5VLwrap_register(udata->attr_container_obj, udata->attr_container_obj->item.type)) < 0)
-            D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, -H5_DAOS_SETUP_ERROR, "unable to atomize object handle");
+            D_GOTO_ERROR(H5E_ID, H5E_CANTREGISTER, -H5_DAOS_SETUP_ERROR, "unable to atomize object handle");
         udata->attr_container_obj->item.rc++;
     } /* end if */
 
@@ -6180,7 +6180,7 @@ H5_daos_attribute_iterate_by_crt_order(H5_daos_attr_iterate_ud_t *iterate_udata,
     /* Register ID for target obj */
     if((iterate_udata->iter_data.iter_root_obj = H5VLwrap_register(iterate_udata->attr_container_obj,
             iterate_udata->attr_container_obj->item.type)) < 0)
-        D_GOTO_ERROR(H5E_ATOM, H5E_CANTREGISTER, FAIL, "unable to atomize object handle");
+        D_GOTO_ERROR(H5E_ID, H5E_CANTREGISTER, FAIL, "unable to atomize object handle");
     iterate_udata->attr_container_obj->item.rc++;
 
     for(cur_idx = 0; cur_idx < (uint64_t)iterate_udata->u.crt_order_data.obj_nattrs; cur_idx++) {

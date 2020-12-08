@@ -67,13 +67,13 @@ H5_daos_blob_put(void *_file, const void *buf, size_t size, void *blob_id,
 
         /* Set up iod */
         memset(&iod, 0, sizeof(iod));
-        daos_iov_set(&iod.iod_name, (void *)H5_daos_blob_key_g, H5_daos_blob_key_size_g);
+        daos_const_iov_set((d_const_iov_t *)&iod.iod_name, H5_daos_blob_key_g, H5_daos_blob_key_size_g);
         iod.iod_nr = 1u;
         iod.iod_size = (uint64_t)size;
         iod.iod_type = DAOS_IOD_SINGLE;
 
         /* Set up sgl */
-        daos_iov_set(&sg_iov, (void *)buf, (daos_size_t)size);
+        daos_const_iov_set((d_const_iov_t *)&sg_iov, buf, (daos_size_t)size);
         sgl.sg_nr = 1;
         sgl.sg_nr_out = 0;
         sgl.sg_iovs = &sg_iov;
@@ -122,11 +122,11 @@ H5_daos_blob_get(void *_file, const void *blob_id, void *buf, size_t size,
     /* Only read if size > 0 */
     if(size > 0) {
         /* Set up dkey */
-        daos_iov_set(&dkey, (void *)blob_id, H5_DAOS_BLOB_ID_SIZE);
+        daos_const_iov_set((d_const_iov_t *)&dkey, blob_id, H5_DAOS_BLOB_ID_SIZE);
 
         /* Set up iod */
         memset(&iod, 0, sizeof(iod));
-        daos_iov_set(&iod.iod_name, (void *)H5_daos_blob_key_g, H5_daos_blob_key_size_g);
+        daos_const_iov_set((d_const_iov_t *)&iod.iod_name, H5_daos_blob_key_g, H5_daos_blob_key_size_g);
         iod.iod_nr = 1u;
         iod.iod_size = (uint64_t)size;
         iod.iod_type = DAOS_IOD_SINGLE;

@@ -1045,6 +1045,7 @@ H5_daos_cont_create(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *req,
     create_udata->duns_attr.da_type = DAOS_PROP_CO_LAYOUT_HDF5;
     create_udata->duns_attr.da_props = NULL;
     create_udata->duns_attr.da_oclass_id = file->fapl_cache.default_object_class;
+    create_udata->duns_attr.da_no_prefix = FALSE;
     uuid_copy(create_udata->duns_attr.da_cuuid, file->uuid);
 
     if(!H5_daos_bypass_duns_g) {
@@ -2506,7 +2507,7 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
             hid_t file_fapl = va_arg(arguments, hid_t);
             const char *filename = va_arg(arguments, const char *);
             htri_t *ret_is_accessible = va_arg(arguments, htri_t *);
-            struct duns_attr_t duns_attr;
+            struct duns_attr_t duns_attr = {0};
 
             /* Initialize returned value in case we fail */
             *ret_is_accessible = FAIL;
@@ -2725,6 +2726,7 @@ H5_daos_file_delete(uuid_t *puuid, const char *file_path, hbool_t ignore_missing
     destroy_udata->flags = 0;
     destroy_udata->ignore_missing_path = ignore_missing;
     destroy_udata->duns_attr.da_type = DAOS_PROP_CO_LAYOUT_HDF5;
+    destroy_udata->duns_attr.da_no_prefix = FALSE;
     destroy_udata->u.cont_delete_info.delete_status = delete_status;
 
     if(!puuid) {

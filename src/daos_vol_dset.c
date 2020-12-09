@@ -3494,7 +3494,7 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
     tse_task_t *first_task = NULL;
     tse_task_t *dep_task = NULL;
     H5_daos_req_t *int_req = NULL;
-    htri_t need_tconv;
+    htri_t need_tconv = FALSE;
     hid_t req_dxpl_id;
     int ret;
     herr_t ret_value = SUCCEED;
@@ -3818,7 +3818,7 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
     tse_task_t *first_task = NULL;
     tse_task_t *dep_task = NULL;
     H5_daos_req_t *int_req = NULL;
-    htri_t need_tconv;
+    htri_t need_tconv = FALSE;
     hid_t req_dxpl_id;
     int ret;
     herr_t ret_value = SUCCEED;
@@ -4240,7 +4240,7 @@ H5_daos_dataset_get(void *_dset, H5VL_dataset_get_t get_type,
                 hssize_t    nelements = 0;
                 size_t      dtype_size = 0;
 
-                if(!ret)
+                if(!storage_size)
                     D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "output argument not supplied");
 
                 /* Wait for the dataset to open if necessary */

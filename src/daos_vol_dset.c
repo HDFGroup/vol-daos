@@ -4207,7 +4207,7 @@ H5_daos_dataset_get(void *_dset, H5VL_dataset_get_t get_type,
                     D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "output argument not supplied");
 
                 /* Retrieve the dataset's space status */
-                *allocation = H5D_SPACE_STATUS_NOT_ALLOCATED;
+                *allocation = H5D_SPACE_STATUS_ALLOCATED;
                 break;
             } /* end block */
         case H5VL_DATASET_GET_TYPE:

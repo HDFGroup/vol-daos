@@ -321,7 +321,7 @@ H5_daos_map_create(void *_item,
         update_cb_ud->req = int_req;
 
         /* Set up dkey.  Point to global name buffer, do not free. */
-        daos_iov_set(&update_cb_ud->dkey, (void *)H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
+        daos_const_iov_set((d_const_iov_t *)&update_cb_ud->dkey, H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
         update_cb_ud->free_dkey = FALSE;
 
         /* The elements in iod and sgl */
@@ -329,19 +329,19 @@ H5_daos_map_create(void *_item,
 
         /* Set up iod */
         /* Key datatype.  Point akey to global name buffer, do not free. */
-        daos_iov_set(&update_cb_ud->iod[0].iod_name, (void *)H5_daos_ktype_g, H5_daos_ktype_size_g);
+        daos_const_iov_set((d_const_iov_t *)&update_cb_ud->iod[0].iod_name, H5_daos_ktype_g, H5_daos_ktype_size_g);
         update_cb_ud->iod[0].iod_nr = 1u;
         update_cb_ud->iod[0].iod_size = (uint64_t)ktype_size;
         update_cb_ud->iod[0].iod_type = DAOS_IOD_SINGLE;
 
         /* Value datatype */
-        daos_iov_set(&update_cb_ud->iod[1].iod_name, (void *)H5_daos_vtype_g, H5_daos_vtype_size_g);
+        daos_const_iov_set((d_const_iov_t *)&update_cb_ud->iod[1].iod_name, H5_daos_vtype_g, H5_daos_vtype_size_g);
         update_cb_ud->iod[1].iod_nr = 1u;
         update_cb_ud->iod[1].iod_size = (uint64_t)vtype_size;
         update_cb_ud->iod[1].iod_type = DAOS_IOD_SINGLE;
 
         /* MCPL */
-        daos_iov_set(&update_cb_ud->iod[2].iod_name, (void *)H5_daos_cpl_key_g, H5_daos_cpl_key_size_g);
+        daos_const_iov_set((d_const_iov_t *)&update_cb_ud->iod[2].iod_name, H5_daos_cpl_key_g, H5_daos_cpl_key_size_g);
         update_cb_ud->iod[2].iod_nr = 1u;
         update_cb_ud->iod[2].iod_size = (uint64_t)mcpl_size;
         update_cb_ud->iod[2].iod_type = DAOS_IOD_SINGLE;
@@ -769,21 +769,21 @@ H5_daos_map_open_helper(H5_daos_file_t *file, hid_t mapl_id, hbool_t collective,
         fetch_udata->bcast_udata = bcast_udata;
 
         /* Set up dkey.  Point to global name buffer, do not free. */
-        daos_iov_set(&fetch_udata->md_rw_cb_ud.dkey, (void *)H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
+        daos_const_iov_set((d_const_iov_t *)&fetch_udata->md_rw_cb_ud.dkey, H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
         fetch_udata->md_rw_cb_ud.free_dkey = FALSE;
 
         /* Set up iod.  Point akey to global name buffer, do not free. */
-        daos_iov_set(&fetch_udata->md_rw_cb_ud.iod[0].iod_name, (void *)H5_daos_ktype_g, H5_daos_ktype_size_g);
+        daos_const_iov_set((d_const_iov_t *)&fetch_udata->md_rw_cb_ud.iod[0].iod_name, H5_daos_ktype_g, H5_daos_ktype_size_g);
         fetch_udata->md_rw_cb_ud.iod[0].iod_nr = 1u;
         fetch_udata->md_rw_cb_ud.iod[0].iod_size = DAOS_REC_ANY;
         fetch_udata->md_rw_cb_ud.iod[0].iod_type = DAOS_IOD_SINGLE;
 
-        daos_iov_set(&fetch_udata->md_rw_cb_ud.iod[1].iod_name, (void *)H5_daos_vtype_g, H5_daos_vtype_size_g);
+        daos_const_iov_set((d_const_iov_t *)&fetch_udata->md_rw_cb_ud.iod[1].iod_name, H5_daos_vtype_g, H5_daos_vtype_size_g);
         fetch_udata->md_rw_cb_ud.iod[1].iod_nr = 1u;
         fetch_udata->md_rw_cb_ud.iod[1].iod_size = DAOS_REC_ANY;
         fetch_udata->md_rw_cb_ud.iod[1].iod_type = DAOS_IOD_SINGLE;
 
-        daos_iov_set(&fetch_udata->md_rw_cb_ud.iod[2].iod_name, (void *)H5_daos_cpl_key_g, H5_daos_cpl_key_size_g);
+        daos_const_iov_set((d_const_iov_t *)&fetch_udata->md_rw_cb_ud.iod[2].iod_name, H5_daos_cpl_key_g, H5_daos_cpl_key_size_g);
         fetch_udata->md_rw_cb_ud.iod[2].iod_nr = 1u;
         fetch_udata->md_rw_cb_ud.iod[2].iod_size = DAOS_REC_ANY;
         fetch_udata->md_rw_cb_ud.iod[2].iod_type = DAOS_IOD_SINGLE;
@@ -824,6 +824,9 @@ H5_daos_map_open_helper(H5_daos_file_t *file, hid_t mapl_id, hbool_t collective,
         fetch_udata->md_rw_cb_ud.sgl[2].sg_iovs = &fetch_udata->md_rw_cb_ud.sg_iov[2];
         fetch_udata->md_rw_cb_ud.free_sg_iov[2] = FALSE;
         p += H5_DAOS_MCPL_BUF_SIZE;
+
+        /* Set conditional akey fetch for map metadata read operation */
+        fetch_udata->md_rw_cb_ud.flags = DAOS_COND_AKEY_FETCH;
 
         /* Set nr */
         fetch_udata->md_rw_cb_ud.nr = 3u;
@@ -2032,7 +2035,7 @@ H5_daos_map_get_val(void *_map, hid_t key_mem_type_id, const void *key,
         D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't convert key");
 
     /* Set up dkey */
-    daos_iov_set(&get_val_udata->md_rw_cb_ud.dkey, (void *)get_val_udata->key_buf, (daos_size_t)get_val_udata->key_size);
+    daos_const_iov_set((d_const_iov_t *)&get_val_udata->md_rw_cb_ud.dkey, get_val_udata->key_buf, (daos_size_t)get_val_udata->key_size);
     get_val_udata->md_rw_cb_ud.free_dkey = FALSE;
 
     /* Check if the type conversion is needed */
@@ -2070,7 +2073,7 @@ H5_daos_map_get_val(void *_map, hid_t key_mem_type_id, const void *key,
 
     /* Set up iod */
     memset(&get_val_udata->md_rw_cb_ud.iod[0], 0, sizeof(daos_iod_t));
-    daos_iov_set(&get_val_udata->md_rw_cb_ud.iod[0].iod_name, (void *)H5_daos_map_key_g, H5_daos_map_key_size_g);
+    daos_const_iov_set((d_const_iov_t *)&get_val_udata->md_rw_cb_ud.iod[0].iod_name, H5_daos_map_key_g, H5_daos_map_key_size_g);
     get_val_udata->md_rw_cb_ud.iod[0].iod_nr = 1u;
     get_val_udata->md_rw_cb_ud.iod[0].iod_size = (daos_size_t)get_val_udata->val_file_type_size;
     get_val_udata->md_rw_cb_ud.iod[0].iod_type = DAOS_IOD_SINGLE;
@@ -2325,7 +2328,7 @@ H5_daos_map_put(void *_map, hid_t key_mem_type_id, const void *key,
         D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't convert key");
 
     /* Set up dkey */
-    daos_iov_set(&write_udata->md_rw_cb_ud.dkey, (void *)write_udata->key_buf, (daos_size_t)write_udata->key_size);
+    daos_const_iov_set((d_const_iov_t *)&write_udata->md_rw_cb_ud.dkey, write_udata->key_buf, (daos_size_t)write_udata->key_size);
     write_udata->md_rw_cb_ud.free_dkey = FALSE;
 
     /* Check if the type conversion is needed */
@@ -2345,7 +2348,7 @@ H5_daos_map_put(void *_map, hid_t key_mem_type_id, const void *key,
 
     /* Set up iod */
     memset(&write_udata->md_rw_cb_ud.iod[0], 0, sizeof(daos_iod_t));
-    daos_iov_set(&write_udata->md_rw_cb_ud.iod[0].iod_name, (void *)H5_daos_map_key_g, H5_daos_map_key_size_g);
+    daos_const_iov_set((d_const_iov_t *)&write_udata->md_rw_cb_ud.iod[0].iod_name, H5_daos_map_key_g, H5_daos_map_key_size_g);
     write_udata->md_rw_cb_ud.iod[0].iod_nr = 1u;
     write_udata->md_rw_cb_ud.iod[0].iod_size = (daos_size_t)write_udata->val_file_type_size;
     write_udata->md_rw_cb_ud.iod[0].iod_type = DAOS_IOD_SINGLE;
@@ -2406,7 +2409,7 @@ H5_daos_map_put(void *_map, hid_t key_mem_type_id, const void *key,
     } /* end if */
     else
         /* Set sgl to write from value */
-        daos_iov_set(&write_udata->md_rw_cb_ud.sg_iov[0], (void *)value, (daos_size_t)write_udata->val_file_type_size);
+        daos_const_iov_set((d_const_iov_t *)&write_udata->md_rw_cb_ud.sg_iov[0], value, (daos_size_t)write_udata->val_file_type_size);
 
     /* Set task name */
     write_udata->md_rw_cb_ud.task_name = "map key-value write";
@@ -2687,12 +2690,12 @@ H5_daos_map_exists(void *_map, hid_t key_mem_type_id, const void *key,
         D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't convert key");
 
     /* Set up dkey */
-    daos_iov_set(&exists_udata->md_rw_cb_ud.dkey, (void *)exists_udata->key_buf, (daos_size_t)exists_udata->key_size);
+    daos_const_iov_set((d_const_iov_t *)&exists_udata->md_rw_cb_ud.dkey, exists_udata->key_buf, (daos_size_t)exists_udata->key_size);
     exists_udata->md_rw_cb_ud.free_dkey = FALSE;
 
     /* Set up iod */
     memset(&exists_udata->md_rw_cb_ud.iod[0], 0, sizeof(daos_iod_t));
-    daos_iov_set(&exists_udata->md_rw_cb_ud.iod[0].iod_name, (void *)H5_daos_map_key_g, H5_daos_map_key_size_g);
+    daos_const_iov_set((d_const_iov_t *)&exists_udata->md_rw_cb_ud.iod[0].iod_name, H5_daos_map_key_g, H5_daos_map_key_size_g);
     exists_udata->md_rw_cb_ud.iod[0].iod_nr = 1u;
     exists_udata->md_rw_cb_ud.iod[0].iod_size = DAOS_REC_ANY;
     exists_udata->md_rw_cb_ud.iod[0].iod_type = DAOS_IOD_SINGLE;
@@ -3430,8 +3433,8 @@ H5_daos_map_iterate_list_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
                     /* Set up iod */
                     memset(&iter_op_udata->iod, 0, sizeof(daos_iod_t));
-                    daos_iov_set(&iter_op_udata->iod.iod_name,
-                            (void *)H5_daos_map_key_g, H5_daos_map_key_size_g);
+                    daos_const_iov_set((d_const_iov_t *)&iter_op_udata->iod.iod_name,
+                            H5_daos_map_key_g, H5_daos_map_key_size_g);
                     iter_op_udata->iod.iod_nr = 1u;
                     iter_op_udata->iod.iod_type = DAOS_IOD_SINGLE;
                     iter_op_udata->iod.iod_size = DAOS_REC_ANY;
@@ -3854,7 +3857,7 @@ H5_daos_map_delete_key(H5_daos_map_t *map, hid_t key_mem_type_id, const void *ke
             D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't convert key");
 
         /* Set up dkey */
-        daos_iov_set(&delete_udata->dkey, (void *)delete_udata->key_buf, (daos_size_t)delete_udata->key_size);
+        daos_const_iov_set((d_const_iov_t *)&delete_udata->dkey, delete_udata->key_buf, (daos_size_t)delete_udata->key_size);
 
         /* Check for key sharing dkey with other metadata.  If dkey is shared, only
          * delete akey, otherwise delete dkey. */
@@ -3863,7 +3866,7 @@ H5_daos_map_delete_key(H5_daos_map_t *map, hid_t key_mem_type_id, const void *ke
                 || ((delete_udata->key_size == H5_daos_attr_key_size_g)
                 && !memcmp(key, H5_daos_attr_key_g, H5_daos_attr_key_size_g))) {
             /* Set up akey */
-            daos_iov_set(&delete_udata->akey, (void *)H5_daos_map_key_g, H5_daos_map_key_size_g);
+            daos_const_iov_set((d_const_iov_t *)&delete_udata->akey, H5_daos_map_key_g, H5_daos_map_key_size_g);
 
             delete_udata->shared_dkey = TRUE;
 
@@ -3959,7 +3962,7 @@ H5_daos_map_delete_key_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     punch_args->th = DAOS_TX_NONE;
     punch_args->dkey = &udata->dkey;
     punch_args->akeys = udata->shared_dkey ? &udata->akey : NULL;
-    punch_args->flags = 0;
+    punch_args->flags = DAOS_COND_PUNCH;
     punch_args->akey_nr = udata->shared_dkey ? 1 : 0;
 
 done:

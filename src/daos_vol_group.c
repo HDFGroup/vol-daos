@@ -365,14 +365,14 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hbool_t is_root,
         update_cb_ud->req = req;
 
         /* Set up dkey.  Point to global name buffer, do not free. */
-        daos_iov_set(&update_cb_ud->dkey, (void *)H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
+        daos_const_iov_set((d_const_iov_t *)&update_cb_ud->dkey, H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
         update_cb_ud->free_dkey = FALSE;
 
         /* Single iod and sgl */
         update_cb_ud->nr = 1u;
 
         /* Set up iod.  Point akey to global name buffer, do not free. */
-        daos_iov_set(&update_cb_ud->iod[0].iod_name, (void *)H5_daos_cpl_key_g, H5_daos_cpl_key_size_g);
+        daos_const_iov_set((d_const_iov_t *)&update_cb_ud->iod[0].iod_name, H5_daos_cpl_key_g, H5_daos_cpl_key_size_g);
         update_cb_ud->iod[0].iod_nr = 1u;
         update_cb_ud->iod[0].iod_size = (uint64_t)gcpl_size;
         update_cb_ud->iod[0].iod_type = DAOS_IOD_SINGLE;
@@ -1226,14 +1226,14 @@ H5_daos_group_open_helper(H5_daos_file_t *file, hid_t gapl_id,
         fetch_udata->bcast_udata = bcast_udata;
 
         /* Set up dkey.  Point to global name buffer, do not free. */
-        daos_iov_set(&fetch_udata->md_rw_cb_ud.dkey, (void *)H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
+        daos_const_iov_set((d_const_iov_t *)&fetch_udata->md_rw_cb_ud.dkey, H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
         fetch_udata->md_rw_cb_ud.free_dkey = FALSE;
 
         /* Single iod and sgl */
         fetch_udata->md_rw_cb_ud.nr = 1u;
 
         /* Set up iod.  Point akey to global name buffer, do not free. */
-        daos_iov_set(&fetch_udata->md_rw_cb_ud.iod[0].iod_name, (void *)H5_daos_cpl_key_g, H5_daos_cpl_key_size_g);
+        daos_const_iov_set((d_const_iov_t *)&fetch_udata->md_rw_cb_ud.iod[0].iod_name, H5_daos_cpl_key_g, H5_daos_cpl_key_size_g);
         fetch_udata->md_rw_cb_ud.iod[0].iod_nr = 1u;
         fetch_udata->md_rw_cb_ud.iod[0].iod_size = DAOS_REC_ANY;
         fetch_udata->md_rw_cb_ud.iod[0].iod_type = DAOS_IOD_SINGLE;
@@ -1257,6 +1257,9 @@ H5_daos_group_open_helper(H5_daos_file_t *file, hid_t gapl_id,
         fetch_udata->md_rw_cb_ud.sgl[0].sg_nr_out = 0;
         fetch_udata->md_rw_cb_ud.sgl[0].sg_iovs = &fetch_udata->md_rw_cb_ud.sg_iov[0];
         fetch_udata->md_rw_cb_ud.free_sg_iov[0] = FALSE;
+
+        /* Set conditional akey fetch for group metadata read operation */
+        fetch_udata->md_rw_cb_ud.flags = DAOS_COND_AKEY_FETCH;
 
         /* Set task name */
         fetch_udata->md_rw_cb_ud.task_name = "group metadata read";
@@ -2372,13 +2375,13 @@ H5_daos_group_gnl_task(tse_task_t *task)
         /* Read the "number of links" key from the target group */
 
         /* Set up dkey */
-        daos_iov_set(&udata->md_rw_cb_ud.dkey, (void *)H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
+        daos_const_iov_set((d_const_iov_t *)&udata->md_rw_cb_ud.dkey, H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
 
         /* Set nr */
         udata->md_rw_cb_ud.nr = 1;
 
         /* Set up iod */
-        daos_iov_set(&udata->md_rw_cb_ud.iod[0].iod_name, (void *)H5_daos_nlinks_key_g, H5_daos_nlinks_key_size_g);
+        daos_const_iov_set((d_const_iov_t *)&udata->md_rw_cb_ud.iod[0].iod_name, H5_daos_nlinks_key_g, H5_daos_nlinks_key_size_g);
         udata->md_rw_cb_ud.iod[0].iod_nr = 1u;
         udata->md_rw_cb_ud.iod[0].iod_size = (daos_size_t)H5_DAOS_ENCODED_NUM_LINKS_SIZE;
         udata->md_rw_cb_ud.iod[0].iod_type = DAOS_IOD_SINGLE;
@@ -2755,13 +2758,13 @@ H5_daos_group_get_max_crt_order(H5_daos_group_t *target_grp,
     fetch_udata->max_corder = max_corder;
 
     /* Set up dkey */
-    daos_iov_set(&fetch_udata->md_rw_cb_ud.dkey, (void *)H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
+    daos_const_iov_set((d_const_iov_t *)&fetch_udata->md_rw_cb_ud.dkey, H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
 
     /* Set nr */
     fetch_udata->md_rw_cb_ud.nr = 1;
 
     /* Set up iod */
-    daos_iov_set(&fetch_udata->md_rw_cb_ud.iod[0].iod_name, (void *)H5_daos_max_link_corder_key_g, H5_daos_max_link_corder_key_size_g);
+    daos_const_iov_set((d_const_iov_t *)&fetch_udata->md_rw_cb_ud.iod[0].iod_name, H5_daos_max_link_corder_key_g, H5_daos_max_link_corder_key_size_g);
     fetch_udata->md_rw_cb_ud.iod[0].iod_nr = 1u;
     fetch_udata->md_rw_cb_ud.iod[0].iod_size = (daos_size_t)H5_DAOS_ENCODED_CRT_ORDER_SIZE;
     fetch_udata->md_rw_cb_ud.iod[0].iod_type = DAOS_IOD_SINGLE;

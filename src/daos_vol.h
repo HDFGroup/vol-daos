@@ -46,6 +46,11 @@ typedef d_sg_list_t daos_sg_list_t;
 # define H5_daos_obj_generate_id(oid, ofeats, cid) \
     daos_obj_generate_id(oid, ofeats, cid, 0)
 
+/* For HDF5 compatibility */
+#ifndef H5E_ID
+#define H5E_ID H5E_ATOM
+#endif
+
 /******************/
 /* Private Macros */
 /******************/
@@ -819,6 +824,15 @@ typedef union {
     char *  vls;
 } H5_daos_vl_union_t;
 
+/** iovec for const memory buffer */
+typedef struct {
+	/** buffer address */
+	const void	*iov_buf;
+	/** buffer length */
+	size_t		iov_buf_len;
+	/** data length */
+	size_t		iov_len;
+} d_const_iov_t;
 
 /*********************/
 /* Private Variables */
@@ -867,7 +881,7 @@ extern tse_sched_t H5_daos_glob_sched_g;
 extern H5_daos_op_pool_t *H5_daos_glob_cur_op_pool_g;
 
 /* Global variable for HDF5 property list cache */
-extern H5VL_DAOS_PRIVATE const H5_daos_plist_cache_t *H5_daos_plist_cache_g;
+extern H5VL_DAOS_PRIVATE H5_daos_plist_cache_t *H5_daos_plist_cache_g;
 
 /* DAOS task and MPI request for current in-flight MPI operation.  Only allow
  * one at a time for now since:
@@ -1303,6 +1317,14 @@ H5VL_DAOS_PRIVATE int H5_daos_md_update_comp_cb(tse_task_t *task, void *args);
 #ifdef DV_PLUGIN_DEBUG
 herr_t H5_daos_dump_obj_keys(daos_handle_t obj);
 #endif
+
+/* Routine for setting const IOVEC */
+static inline void
+daos_const_iov_set(d_const_iov_t *iov, const void *buf, size_t size)
+{
+	iov->iov_buf = buf;
+	iov->iov_len = iov->iov_buf_len = size;
+}
 
 #ifdef __cplusplus
 }

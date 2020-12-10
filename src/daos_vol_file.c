@@ -1045,6 +1045,7 @@ H5_daos_cont_create(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *req,
     create_udata->duns_attr.da_type = DAOS_PROP_CO_LAYOUT_HDF5;
     create_udata->duns_attr.da_props = NULL;
     create_udata->duns_attr.da_oclass_id = file->fapl_cache.default_object_class;
+    create_udata->duns_attr.da_no_prefix = FALSE;
     uuid_copy(create_udata->duns_attr.da_cuuid, file->uuid);
 
     if(!H5_daos_bypass_duns_g) {
@@ -1403,7 +1404,8 @@ H5_daos_cont_create_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     } /* end if */
     create_args->poh = *udata->poh;
     create_args->prop = NULL;
-    uuid_copy(create_args->uuid, udata->req->file->uuid);
+    /* TODO that cast can be removed once DAOS task struct is fixed */
+    uuid_copy((unsigned char *)create_args->uuid, udata->req->file->uuid);
 
 done:
     D_FUNC_LEAVE;
@@ -1580,8 +1582,8 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     if((fapl_id != H5P_FILE_ACCESS_DEFAULT) && (file->fapl_id = H5Pcopy(fapl_id)) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTCOPY, NULL, "failed to copy fapl");
 
-    /* Set the pool UUID for the file */
-    if(H5_daos_file_set_pool_uuid(file, name) < 0)
+    /* Set the pool UUID for the file if bypassing DUNS */
+    if(H5_daos_bypass_duns_g && H5_daos_file_set_pool_uuid(file, name) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't set file's DAOS pool UUID");
 
     /* Get information from the FAPL */
@@ -1631,17 +1633,9 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     file->item.open_req = int_req;
     int_req->rc++;
 
-    if(file->my_rank == 0) {
-        /* Connect to container's pool */
-        if(H5_daos_pool_connect(&file->puuid, H5_daos_pool_grp_g, &H5_daos_pool_svcl_g,
-                flags & H5F_ACC_RDWR ? DAOS_PC_RW : DAOS_PC_RO, &file->container_poh,
-                NULL, int_req, &first_task, &dep_task) < 0)
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't connect to pool");
-
-        /* Open container on rank 0 */
-        if(H5_daos_cont_open(file, flags, int_req, &first_task, &dep_task) < 0)
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't open DAOS container");
-    } /* end if */
+    /* Open container on rank 0 */
+    if((file->my_rank == 0) && H5_daos_cont_open(file, flags, int_req, &first_task, &dep_task) < 0)
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't open DAOS container");
 
     /* Broadcast handles (container handle and, optionally, pool handle)
      * to other procs if any.
@@ -1761,11 +1755,20 @@ H5_daos_cont_open(H5_daos_file_t *file, unsigned flags,
     open_udata->ignore_missing_path = FALSE;
     memset(&open_udata->duns_attr, 0, sizeof(struct duns_attr_t));
 
-    /* Create task for resolving DUNS path if not bypassing DUNS during file opens */
-    if(!H5_daos_bypass_duns_g && 0 == (flags & H5F_ACC_CREAT))
-        if(H5_daos_duns_resolve_path(open_udata,
+    /* For file opens only, create task for resolving DUNS path if not bypassing
+     * DUNS and create task to connect to container's pool.
+     */
+    if(0 == (flags & H5F_ACC_CREAT)) {
+        if(!H5_daos_bypass_duns_g && H5_daos_duns_resolve_path(open_udata,
                 NULL, H5_daos_duns_resolve_path_comp_cb, req, first_task, dep_task) < 0)
             D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create task to resolve DUNS path");
+
+        /* Connect to container's pool */
+        if(H5_daos_pool_connect(&file->puuid, H5_daos_pool_grp_g, &H5_daos_pool_svcl_g,
+                flags & H5F_ACC_RDWR ? DAOS_PC_RW : DAOS_PC_RO, &file->container_poh,
+                NULL, req, first_task, dep_task) < 0)
+            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't connect to pool");
+    }
 
     if(H5_daos_get_cont_open_task(open_udata, H5_daos_cont_open_prep_cb,
             H5_daos_cont_open_comp_cb, req, first_task, dep_task) < 0)
@@ -2081,8 +2084,13 @@ H5_daos_duns_resolve_path_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
                 D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, ret, "can't create dependencies for file deletion metatask: %s", H5_daos_err_to_string(ret));
         } /* end else */
 
+        /* If opening a DAOS container after resolving a DUNS path,
+         * copy the resolved pool UUID into the file object.
+         */
+        if(udata->op_type == H5_DAOS_CONT_OPEN)
+            uuid_copy(udata->req->file->puuid, udata->duns_attr.da_puuid);
         /* If deleting a DUNS path/DAOS container, copy the resolved pool UUID for the delete operation */
-        if(udata->op_type == H5_DAOS_CONT_DESTROY)
+        else if(udata->op_type == H5_DAOS_CONT_DESTROY)
             uuid_copy(udata->u.cont_delete_info.cont_puuid, udata->duns_attr.da_puuid);
     } /* end else */
 
@@ -2161,7 +2169,8 @@ H5_daos_cont_open_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for container open task");
     } /* end if */
     open_args->poh = *udata->poh;
-    uuid_copy(open_args->uuid, udata->req->file->uuid);
+    /* TODO that cast can be removed once DAOS task struct is fixed */
+    uuid_copy((unsigned char *)open_args->uuid, udata->req->file->uuid);
     open_args->flags = udata->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO;
     open_args->coh = &udata->req->file->coh;
     open_args->info = NULL;
@@ -2498,7 +2507,7 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
             hid_t file_fapl = va_arg(arguments, hid_t);
             const char *filename = va_arg(arguments, const char *);
             htri_t *ret_is_accessible = va_arg(arguments, htri_t *);
-            struct duns_attr_t duns_attr;
+            struct duns_attr_t duns_attr = {0};
 
             /* Initialize returned value in case we fail */
             *ret_is_accessible = FAIL;
@@ -2717,6 +2726,7 @@ H5_daos_file_delete(uuid_t *puuid, const char *file_path, hbool_t ignore_missing
     destroy_udata->flags = 0;
     destroy_udata->ignore_missing_path = ignore_missing;
     destroy_udata->duns_attr.da_type = DAOS_PROP_CO_LAYOUT_HDF5;
+    destroy_udata->duns_attr.da_no_prefix = FALSE;
     destroy_udata->u.cont_delete_info.delete_status = delete_status;
 
     if(!puuid) {

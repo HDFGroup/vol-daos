@@ -700,13 +700,13 @@ H5_daos_link_read(H5_daos_group_t *grp, const char *name, size_t name_len,
     read_udata->link_read = link_read;
 
     /* Set up dkey */
-    daos_iov_set(&read_udata->md_rw_cb_ud.dkey, (void *)name, (daos_size_t)name_len);
+    daos_const_iov_set((d_const_iov_t *)&read_udata->md_rw_cb_ud.dkey, name, (daos_size_t)name_len);
 
     /* Single iod and sgl */
     read_udata->md_rw_cb_ud.nr = 1u;
 
     /* Set up iod */
-    daos_iov_set(&read_udata->md_rw_cb_ud.iod[0].iod_name, (void *)H5_daos_link_key_g, H5_daos_link_key_size_g);
+    daos_const_iov_set((d_const_iov_t *)&read_udata->md_rw_cb_ud.iod[0].iod_name, H5_daos_link_key_g, H5_daos_link_key_size_g);
     read_udata->md_rw_cb_ud.iod[0].iod_nr = 1u;
     read_udata->md_rw_cb_ud.iod[0].iod_size = DAOS_REC_ANY;
     read_udata->md_rw_cb_ud.iod[0].iod_type = DAOS_IOD_SINGLE;
@@ -817,7 +817,7 @@ H5_daos_link_read_ln_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, -H5_DAOS_BAD_VALUE, "target object is not a group");
 
     /* Set up dkey */
-    daos_iov_set(&udata->md_rw_cb_ud.dkey, (void *)*udata->name, (daos_size_t)*udata->name_len);
+    daos_const_iov_set((d_const_iov_t *)&udata->md_rw_cb_ud.dkey, *udata->name, (daos_size_t)*udata->name_len);
 
     /* Set update task arguments */
     if(NULL == (fetch_args = daos_task_get_args(task))) {
@@ -887,7 +887,7 @@ H5_daos_link_read_late_name(H5_daos_group_t *grp, const char **name, size_t *nam
     read_udata->md_rw_cb_ud.nr = 1u;
 
     /* Set up iod */
-    daos_iov_set(&read_udata->md_rw_cb_ud.iod[0].iod_name, (void *)H5_daos_link_key_g, H5_daos_link_key_size_g);
+    daos_const_iov_set((d_const_iov_t *)&read_udata->md_rw_cb_ud.iod[0].iod_name, H5_daos_link_key_g, H5_daos_link_key_size_g);
     read_udata->md_rw_cb_ud.iod[0].iod_nr = 1u;
     read_udata->md_rw_cb_ud.iod[0].iod_size = DAOS_REC_ANY;
     read_udata->md_rw_cb_ud.iod[0].iod_type = DAOS_IOD_SINGLE;
@@ -1132,7 +1132,7 @@ H5_daos_link_write_end_task(tse_task_t *task)
     udata->md_rw_cb_ud.nr++;
 
     /* Adjust IOD for creation order info */
-    daos_iov_set(&udata->md_rw_cb_ud.iod[1].iod_name, (void *)H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
+    daos_const_iov_set((d_const_iov_t *)&udata->md_rw_cb_ud.iod[1].iod_name, H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
     udata->md_rw_cb_ud.iod[1].iod_nr = 1u;
     udata->md_rw_cb_ud.iod[1].iod_size = (uint64_t)8;
     udata->md_rw_cb_ud.iod[1].iod_type = DAOS_IOD_SINGLE;
@@ -1301,11 +1301,14 @@ H5_daos_link_write(H5_daos_group_t *target_grp, const char *name,
     link_write_ud->md_rw_cb_ud.free_dkey = FALSE;
 
     /* Set up iod */
-    daos_iov_set(&link_write_ud->md_rw_cb_ud.iod[0].iod_name, (void *)H5_daos_link_key_g, H5_daos_link_key_size_g);
+    daos_const_iov_set((d_const_iov_t *)&link_write_ud->md_rw_cb_ud.iod[0].iod_name, H5_daos_link_key_g, H5_daos_link_key_size_g);
     link_write_ud->md_rw_cb_ud.iod[0].iod_nr = 1u;
     link_write_ud->md_rw_cb_ud.iod[0].iod_size = link_write_ud->link_val_buf_size;
     link_write_ud->md_rw_cb_ud.iod[0].iod_type = DAOS_IOD_SINGLE;
     link_write_ud->md_rw_cb_ud.free_akeys = FALSE;
+
+    /* Set conditional dkey insert for the link write operation */
+    link_write_ud->md_rw_cb_ud.flags = DAOS_COND_DKEY_INSERT;
 
     /* SGL is setup by link write task prep callback */
 
@@ -1575,13 +1578,13 @@ H5_daos_link_wr_corder_info_task(tse_task_t *task)
     /* Set up IOD */
 
     /* Max Link Creation Order Key */
-    daos_iov_set(&udata->md_rw_cb_ud.iod[0].iod_name, (void *)H5_daos_max_link_corder_key_g, H5_daos_max_link_corder_key_size_g);
+    daos_const_iov_set((d_const_iov_t *)&udata->md_rw_cb_ud.iod[0].iod_name, H5_daos_max_link_corder_key_g, H5_daos_max_link_corder_key_size_g);
     udata->md_rw_cb_ud.iod[0].iod_nr = 1u;
     udata->md_rw_cb_ud.iod[0].iod_size = (daos_size_t)H5_DAOS_ENCODED_CRT_ORDER_SIZE;
     udata->md_rw_cb_ud.iod[0].iod_type = DAOS_IOD_SINGLE;
 
     /* Key for new number of links in group */
-    daos_iov_set(&udata->md_rw_cb_ud.iod[1].iod_name, (void *)H5_daos_nlinks_key_g, H5_daos_nlinks_key_size_g);
+    daos_const_iov_set((d_const_iov_t *)&udata->md_rw_cb_ud.iod[1].iod_name, H5_daos_nlinks_key_g, H5_daos_nlinks_key_size_g);
     udata->md_rw_cb_ud.iod[1].iod_nr = 1u;
     udata->md_rw_cb_ud.iod[1].iod_size = (daos_size_t)H5_DAOS_ENCODED_NUM_LINKS_SIZE;
     udata->md_rw_cb_ud.iod[1].iod_type = DAOS_IOD_SINGLE;
@@ -1754,7 +1757,7 @@ H5_daos_link_write_corder_info(H5_daos_group_t *target_grp, uint64_t new_max_cor
     write_corder_ud->md_rw_cb_ud.task_name = "link creation order info write";
 
     /* Set up dkey */
-    daos_iov_set(&write_corder_ud->md_rw_cb_ud.dkey, (void *)H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
+    daos_const_iov_set((d_const_iov_t *)&write_corder_ud->md_rw_cb_ud.dkey, H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
     write_corder_ud->md_rw_cb_ud.free_dkey = FALSE;
 
     /* Read number of links in target group */
@@ -4396,11 +4399,11 @@ H5_daos_link_exists(H5_daos_item_t *item, const char *link_path,
         D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "target object is not a group");
 
     /* Set up dkey */
-    daos_iov_set(&fetch_udata->dkey, (void *)target_name, target_name_len);
+    daos_const_iov_set((d_const_iov_t *)&fetch_udata->dkey, target_name, target_name_len);
 
     /* Set up iod */
     memset(&fetch_udata->iod, 0, sizeof(fetch_udata->iod));
-    daos_iov_set(&fetch_udata->iod.iod_name, (void *)H5_daos_link_key_g, H5_daos_link_key_size_g);
+    daos_const_iov_set((d_const_iov_t *)&fetch_udata->iod.iod_name, H5_daos_link_key_g, H5_daos_link_key_size_g);
     fetch_udata->iod.iod_nr = 1u;
     fetch_udata->iod.iod_size = DAOS_REC_ANY;
     fetch_udata->iod.iod_type = DAOS_IOD_SINGLE;
@@ -6239,7 +6242,7 @@ H5_daos_link_delete_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     assert(udata->target_obj);
 
     /* Setup dkey now that target link name should be valid */
-    daos_iov_set(&udata->dkey, (void *)udata->target_link_name, udata->target_link_name_len);
+    daos_const_iov_set((d_const_iov_t *)&udata->dkey, udata->target_link_name, udata->target_link_name_len);
 
     /* Set deletion task arguments */
     if(NULL == (punch_args = daos_task_get_args(task)))
@@ -6248,7 +6251,7 @@ H5_daos_link_delete_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     punch_args->th = DAOS_TX_NONE;
     punch_args->dkey = &udata->dkey;
     punch_args->akeys = NULL;
-    punch_args->flags = 0;
+    punch_args->flags = DAOS_COND_PUNCH;
     punch_args->akey_nr = 0;
 
 done:
@@ -6426,7 +6429,7 @@ H5_daos_link_delete_corder(H5_daos_group_t *target_grp, const H5VL_loc_params_t 
 
 
     /* Set up dkey */
-    daos_iov_set(&corder_delete_ud->dkey, (void *)H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
+    daos_const_iov_set((d_const_iov_t *)&corder_delete_ud->dkey, H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
 
     /* Create task to remove link creation order akeys from group */
     if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_PUNCH_AKEYS, &H5_daos_glob_sched_g,
@@ -6590,11 +6593,11 @@ H5_daos_link_delete_corder_unl_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *
     udata->unl_data.unl_ud.obj = (H5_daos_obj_t *)udata->target_grp;
 
     /* Set up dkey */
-    daos_iov_set(&udata->unl_data.unl_ud.dkey, (void *)H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
+    daos_const_iov_set((d_const_iov_t *)&udata->unl_data.unl_ud.dkey, H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
     udata->unl_data.unl_ud.free_dkey = FALSE;
 
     /* Set up iod */
-    daos_iov_set(&udata->unl_data.unl_ud.iod[0].iod_name, (void *)H5_daos_nlinks_key_g, H5_daos_nlinks_key_size_g);
+    daos_const_iov_set((d_const_iov_t *)&udata->unl_data.unl_ud.iod[0].iod_name, H5_daos_nlinks_key_g, H5_daos_nlinks_key_size_g);
     udata->unl_data.unl_ud.iod[0].iod_nr = 1u;
     udata->unl_data.unl_ud.iod[0].iod_size = (daos_size_t)H5_DAOS_ENCODED_NUM_LINKS_SIZE;
     udata->unl_data.unl_ud.iod[0].iod_type = DAOS_IOD_SINGLE;
@@ -6611,6 +6614,8 @@ H5_daos_link_delete_corder_unl_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *
     udata->unl_data.unl_ud.nr = 1u;
 
     udata->unl_data.unl_ud.task_name = "group number of links update task";
+
+    udata->unl_data.unl_ud.flags = DAOS_COND_AKEY_UPDATE;
 
     /* Set update task arguments */
     if(NULL == (update_args = daos_task_get_args(task))) {
@@ -6703,7 +6708,7 @@ H5_daos_link_delete_corder_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args
     punch_args->th = DAOS_TX_NONE;
     punch_args->dkey = &udata->dkey;
     punch_args->akeys = udata->akeys;
-    punch_args->flags = 0;
+    punch_args->flags = DAOS_COND_PUNCH;
     punch_args->akey_nr = 2;
 
 done:
@@ -6777,7 +6782,7 @@ H5_daos_link_delete_corder_bookkeep_task(tse_task_t *task)
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate akey data buffer");
 
     /* Set up dkey */
-    daos_iov_set(&udata->index_data.dkey, (void *)H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
+    daos_const_iov_set((d_const_iov_t *)&udata->index_data.dkey, H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
 
     /* Create task to fetch data size for each akey */
     if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &H5_daos_glob_sched_g,
@@ -6987,7 +6992,7 @@ H5_daos_link_bookkeep_phase1_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *ar
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for link creation order index akey size fetch task");
     fetch_args->oh = udata->target_grp->obj.obj_oh;
     fetch_args->th = DAOS_TX_NONE;
-    fetch_args->flags = 0;
+    fetch_args->flags = DAOS_COND_AKEY_FETCH;
     fetch_args->dkey = &udata->index_data.dkey;
     fetch_args->nr = (uint32_t)(2 * udata->index_data.nlinks_shift);
     fetch_args->iods = udata->index_data.iods;
@@ -7094,7 +7099,7 @@ H5_daos_link_bookkeep_phase2_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *ar
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for link creation order index akey fetch task");
     fetch_args->oh = udata->target_grp->obj.obj_oh;
     fetch_args->th = DAOS_TX_NONE;
-    fetch_args->flags = 0;
+    fetch_args->flags = DAOS_COND_AKEY_FETCH;
     fetch_args->dkey = &udata->index_data.dkey;
     fetch_args->nr = (uint32_t)(2 * udata->index_data.nlinks_shift);
     fetch_args->iods = udata->index_data.iods;
@@ -7256,7 +7261,7 @@ H5_daos_link_bookkeep_phase4_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *ar
     punch_args->th = DAOS_TX_NONE;
     punch_args->dkey = &udata->index_data.dkey;
     punch_args->akeys = udata->index_data.tail_akeys;
-    punch_args->flags = 0;
+    punch_args->flags = DAOS_COND_PUNCH;
     punch_args->akey_nr = 2;
 
 done:
@@ -7822,7 +7827,7 @@ H5_daos_link_gnbc_task(tse_task_t *task)
     UINT64ENCODE(p, fetch_idx);
 
     /* Set up dkey */
-    daos_iov_set(&udata->md_rw_cb_ud.dkey, (void *)H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
+    daos_const_iov_set((d_const_iov_t *)&udata->md_rw_cb_ud.dkey, H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
 
     /* Set nr */
     udata->md_rw_cb_ud.nr = 1;
@@ -7845,6 +7850,9 @@ H5_daos_link_gnbc_task(tse_task_t *task)
     /* Do not free buffers */
     udata->md_rw_cb_ud.free_akeys = FALSE;
     udata->md_rw_cb_ud.free_dkey = FALSE;
+
+    /* Set conditional akey fetch for link name fetch operation */
+    udata->md_rw_cb_ud.flags = DAOS_COND_AKEY_FETCH;
 
     /* Set task name */
     udata->md_rw_cb_ud.task_name = "link get name by crt order fetch";
@@ -8449,13 +8457,13 @@ H5_daos_link_get_crt_order_by_name(H5_daos_group_t *target_grp, const char *link
     fetch_udata->crt_order = crt_order;
 
     /* Set up dkey */
-    daos_iov_set(&fetch_udata->md_rw_cb_ud.dkey, (void *)link_name, strlen(link_name));
+    daos_const_iov_set((d_const_iov_t *)&fetch_udata->md_rw_cb_ud.dkey, link_name, strlen(link_name));
 
     /* Set nr */
     fetch_udata->md_rw_cb_ud.nr = 1;
 
     /* Set up iod */
-    daos_iov_set(&fetch_udata->md_rw_cb_ud.iod[0].iod_name, (void *)H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
+    daos_const_iov_set((d_const_iov_t *)&fetch_udata->md_rw_cb_ud.iod[0].iod_name, H5_daos_link_corder_key_g, H5_daos_link_corder_key_size_g);
     fetch_udata->md_rw_cb_ud.iod[0].iod_nr = 1u;
     fetch_udata->md_rw_cb_ud.iod[0].iod_size = (daos_size_t)H5_DAOS_ENCODED_CRT_ORDER_SIZE;
     fetch_udata->md_rw_cb_ud.iod[0].iod_type = DAOS_IOD_SINGLE;
@@ -8470,6 +8478,9 @@ H5_daos_link_get_crt_order_by_name(H5_daos_group_t *target_grp, const char *link
     /* Do not free buffers */
     fetch_udata->md_rw_cb_ud.free_akeys = FALSE;
     fetch_udata->md_rw_cb_ud.free_dkey = FALSE;
+
+    /* Set conditional akey fetch for link creation order fetch operation */
+    fetch_udata->md_rw_cb_ud.flags = DAOS_COND_AKEY_FETCH;
 
     /* Set task name */
     fetch_udata->md_rw_cb_ud.task_name = "link get crt order by name fetch";

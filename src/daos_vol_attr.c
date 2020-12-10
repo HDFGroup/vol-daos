@@ -745,6 +745,7 @@ H5_daos_attribute_create_helper(H5_daos_item_t *item, const H5VL_loc_params_t *l
         create_ud->md_rw_cb_ud.iod[0].iod_nr = 1u;
         create_ud->md_rw_cb_ud.iod[0].iod_size = (uint64_t)type_size;
         create_ud->md_rw_cb_ud.iod[0].iod_type = DAOS_IOD_SINGLE;
+        create_ud->md_rw_cb_ud.iod[0].iod_flags = DAOS_COND_AKEY_INSERT;
 
         /* iod[1] contains the key for the dataspace description */
         daos_iov_set(&create_ud->md_rw_cb_ud.iod[1].iod_name,
@@ -752,6 +753,7 @@ H5_daos_attribute_create_helper(H5_daos_item_t *item, const H5VL_loc_params_t *l
         create_ud->md_rw_cb_ud.iod[1].iod_nr = 1u;
         create_ud->md_rw_cb_ud.iod[1].iod_size = (uint64_t)space_size;
         create_ud->md_rw_cb_ud.iod[1].iod_type = DAOS_IOD_SINGLE;
+        create_ud->md_rw_cb_ud.iod[1].iod_flags = DAOS_COND_AKEY_INSERT;
 
         /* iod[2] contains the key for the ACPL */
         daos_iov_set(&create_ud->md_rw_cb_ud.iod[2].iod_name,
@@ -759,6 +761,7 @@ H5_daos_attribute_create_helper(H5_daos_item_t *item, const H5VL_loc_params_t *l
         create_ud->md_rw_cb_ud.iod[2].iod_nr = 1u;
         create_ud->md_rw_cb_ud.iod[2].iod_size = (uint64_t)acpl_size;
         create_ud->md_rw_cb_ud.iod[2].iod_type = DAOS_IOD_SINGLE;
+        create_ud->md_rw_cb_ud.iod[2].iod_flags = DAOS_COND_AKEY_INSERT;
 
         create_ud->md_rw_cb_ud.free_akeys = FALSE;
 
@@ -795,10 +798,14 @@ H5_daos_attribute_create_helper(H5_daos_item_t *item, const H5VL_loc_params_t *l
          * order is tracked because the parent object open isn't complete, call
          * the function anyways, the prep callback will check for creation order
          * before actually fetching any info. */
-        if(may_track_acorder)
+        if(may_track_acorder) {
             if(H5_daos_attribute_create_get_crt_order_info(create_ud,
                     req, first_task, dep_task) < 0)
                 D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't create task to write attribute creation order metadata");
+        }
+        else
+            /* Set conditional per-akey insert for the attribute metadata write operation */
+            create_ud->md_rw_cb_ud.flags = DAOS_COND_PER_AKEY;
 
         /* Create task for attribute metadata write */
         if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_UPDATE, &H5_daos_glob_sched_g,
@@ -969,7 +976,7 @@ H5_daos_attribute_create_helper_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED 
     } /* end if */
     update_args->oh = udata->attr->parent->obj_oh;
     update_args->th = udata->md_rw_cb_ud.req->th;
-    update_args->flags = 0;
+    update_args->flags = udata->md_rw_cb_ud.flags;
     update_args->dkey = &udata->md_rw_cb_ud.dkey;
     update_args->nr = udata->md_rw_cb_ud.nr;
     update_args->iods = udata->md_rw_cb_ud.iod;
@@ -1090,12 +1097,14 @@ H5_daos_attribute_create_get_crt_order_info(H5_daos_attr_create_ud_t *create_ud,
     create_ud->md_rw_cb_ud.iod[3].iod_nr = 1u;
     create_ud->md_rw_cb_ud.iod[3].iod_size = (uint64_t)8;
     create_ud->md_rw_cb_ud.iod[3].iod_type = DAOS_IOD_SINGLE;
+    create_ud->md_rw_cb_ud.iod[3].iod_flags = 0;
 
     daos_const_iov_set((d_const_iov_t *)&create_ud->md_rw_cb_ud.iod[4].iod_name,
             H5_daos_max_attr_corder_key_g, H5_daos_max_attr_corder_key_size_g);
     create_ud->md_rw_cb_ud.iod[4].iod_nr = 1u;
     create_ud->md_rw_cb_ud.iod[4].iod_size = (uint64_t)8;
     create_ud->md_rw_cb_ud.iod[4].iod_type = DAOS_IOD_SINGLE;
+    create_ud->md_rw_cb_ud.iod[4].iod_flags = 0;
 
     /* Modify existing sgl.
      *
@@ -1327,6 +1336,7 @@ H5_daos_attribute_create_get_crt_order_info_comp_cb(tse_task_t *task,
         udata->md_rw_cb_ud.iod[5].iod_nr = 1u;
         udata->md_rw_cb_ud.iod[5].iod_size = (uint64_t)name_len;
         udata->md_rw_cb_ud.iod[5].iod_type = DAOS_IOD_SINGLE;
+        udata->md_rw_cb_ud.iod[5].iod_flags = 0;
 
         /* iod[6] contains the key for the creation order, to enable attribute
          * creation order lookup by name */
@@ -1335,6 +1345,7 @@ H5_daos_attribute_create_get_crt_order_info_comp_cb(tse_task_t *task,
         udata->md_rw_cb_ud.iod[6].iod_nr = 1u;
         udata->md_rw_cb_ud.iod[6].iod_size = (uint64_t)8;
         udata->md_rw_cb_ud.iod[6].iod_type = DAOS_IOD_SINGLE;
+        udata->md_rw_cb_ud.iod[6].iod_flags = 0;
 
         /* Set up sgl for subsequent daos_obj_update call. */
 
@@ -1373,6 +1384,9 @@ H5_daos_attribute_create_get_crt_order_info_comp_cb(tse_task_t *task,
 
         /* Update nr for subsequent daos_obj_update call */
         udata->md_rw_cb_ud.nr = 7u;
+
+        /* Set conditional per-akey insert for the attribute metadata write operation */
+        udata->md_rw_cb_ud.flags = DAOS_COND_PER_AKEY;
     } /* end else */
 
 done:
@@ -1706,6 +1720,9 @@ H5_daos_attribute_open_helper(H5_daos_item_t *item, const H5VL_loc_params_t *loc
         open_udata->fetch_ud.md_rw_cb_ud.sgl[2].sg_nr_out = 0;
         open_udata->fetch_ud.md_rw_cb_ud.sgl[2].sg_iovs = &open_udata->fetch_ud.md_rw_cb_ud.sg_iov[2];
         open_udata->fetch_ud.md_rw_cb_ud.free_sg_iov[2] = FALSE;
+
+        /* Set conditional akey fetch for attribute metadata read operation */
+        open_udata->fetch_ud.md_rw_cb_ud.flags = DAOS_COND_AKEY_FETCH;
 
         /* Set nr */
         open_udata->fetch_ud.md_rw_cb_ud.nr = 3u;
@@ -5023,7 +5040,7 @@ H5_daos_attribute_remove_from_crt_idx(H5_daos_obj_t *target_obj,
     daos_key_t dkey;
     daos_key_t crt_akey;
     uint64_t delete_idx = 0;
-    uint8_t idx_buf[H5_DAOS_ENCODED_CRT_ORDER_SIZE];
+    uint8_t idx_buf[H5_DAOS_ENCODED_CRT_ORDER_SIZE + 1];
     uint8_t *p;
     hsize_t obj_nattrs_remaining;
     int ret;
@@ -5093,12 +5110,13 @@ H5_daos_attribute_remove_from_crt_idx(H5_daos_obj_t *target_obj,
     daos_const_iov_set((d_const_iov_t *)&dkey, H5_daos_attr_key_g, H5_daos_attr_key_size_g);
 
     /* Remove the akey which maps creation order -> attribute name */
-    p = idx_buf;
+    idx_buf[0] = 0;
+    p = &idx_buf[1];
     UINT64ENCODE(p, delete_idx);
-    daos_iov_set(&crt_akey, (void *)idx_buf, H5_DAOS_ENCODED_CRT_ORDER_SIZE);
+    daos_iov_set(&crt_akey, (void *)idx_buf, H5_DAOS_ENCODED_CRT_ORDER_SIZE + 1);
 
     /* Remove the akey */
-    if(0 != (ret = daos_obj_punch_akeys(target_obj->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &crt_akey, NULL /*event*/)))
+    if(0 != (ret = daos_obj_punch_akeys(target_obj->obj_oh, DAOS_TX_NONE, DAOS_COND_PUNCH, &dkey, 1, &crt_akey, NULL /*event*/)))
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTREMOVE, FAIL, "failed to punch attribute akey: %s", H5_daos_err_to_string(ret));
 
     /*
@@ -5135,7 +5153,7 @@ H5_daos_attribute_remove_from_crt_idx(H5_daos_obj_t *target_obj,
         sgl.sg_iovs = &sg_iov;
 
         /* Reset the max. attribute creation order key */
-        if(0 != (ret = daos_obj_update(target_obj->obj_oh, DAOS_TX_NONE, 0 /*flags*/,
+        if(0 != (ret = daos_obj_update(target_obj->obj_oh, DAOS_TX_NONE, DAOS_COND_AKEY_UPDATE,
                 &dkey, 1, &iod, &sgl, NULL /*event*/)))
             D_GOTO_ERROR(H5E_ATTR, H5E_WRITEERROR, FAIL, "failed to reset max. attribute creation order akey: %s", H5_daos_err_to_string(ret));
     } /* end if */
@@ -5269,7 +5287,7 @@ H5_daos_attribute_shift_crt_idx_keys_down(H5_daos_obj_t *target_obj,
     } /* end for */
 
     /* Fetch the data size for each akey */
-    if(0 != (ret = daos_obj_fetch(target_obj->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, (unsigned) nattrs_shift,
+    if(0 != (ret = daos_obj_fetch(target_obj->obj_oh, DAOS_TX_NONE, DAOS_COND_AKEY_FETCH, &dkey, (unsigned) nattrs_shift,
             iods, NULL, NULL /*maps*/, NULL /*event*/)))
         D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, FAIL, "can't read akey data sizes: %s", H5_daos_err_to_string(ret));
 
@@ -5289,7 +5307,7 @@ H5_daos_attribute_shift_crt_idx_keys_down(H5_daos_obj_t *target_obj,
     } /* end for */
 
     /* Read the akey's data */
-    if(0 != (ret = daos_obj_fetch(target_obj->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, (unsigned) nattrs_shift,
+    if(0 != (ret = daos_obj_fetch(target_obj->obj_oh, DAOS_TX_NONE, DAOS_COND_AKEY_FETCH, &dkey, (unsigned) nattrs_shift,
             iods, sgls, NULL /*maps*/, NULL /*event*/)))
         D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, FAIL, "can't read akey data: %s", H5_daos_err_to_string(ret));
 
@@ -5318,7 +5336,7 @@ H5_daos_attribute_shift_crt_idx_keys_down(H5_daos_obj_t *target_obj,
     UINT64ENCODE(p, tmp_uint);
     daos_iov_set(&tail_akey, (void *)&crt_order_attr_name_buf[0], H5_DAOS_ENCODED_CRT_ORDER_SIZE + 1);
 
-    if(0 != (ret = daos_obj_punch_akeys(target_obj->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey,
+    if(0 != (ret = daos_obj_punch_akeys(target_obj->obj_oh, DAOS_TX_NONE, DAOS_COND_PUNCH, &dkey,
             1, &tail_akey, NULL /*event*/)))
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTDELETE, FAIL, "can't trim tail akey from attribute creation order index");
 
@@ -7093,6 +7111,9 @@ H5_daos_attribute_get_name_by_crt_order(H5_daos_attr_get_name_by_idx_ud_t *get_n
         get_name_udata->u.by_crt_order_data.md_rw_cb_ud.free_sg_iov[0] = FALSE;
     } /* end if */
 
+    /* Set conditional akey fetch for attribute name read operation */
+    get_name_udata->u.by_crt_order_data.md_rw_cb_ud.flags = DAOS_COND_AKEY_FETCH;
+
     get_name_udata->u.by_crt_order_data.md_rw_cb_ud.nr = 1u;
 
     get_name_udata->u.by_crt_order_data.md_rw_cb_ud.task_name = "attribute name retrieval";
@@ -7413,7 +7434,7 @@ H5_daos_attribute_get_crt_order_by_name(H5_daos_obj_t *target_obj, const char *a
     sgl.sg_iovs = &sg_iov;
 
     /* Read attribute creation order value */
-    if(0 != (ret = daos_obj_fetch(target_obj->obj_oh, DAOS_TX_NONE, 0 /*flags*/, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
+    if(0 != (ret = daos_obj_fetch(target_obj->obj_oh, DAOS_TX_NONE, DAOS_COND_AKEY_FETCH, &dkey, 1, &iod, &sgl, NULL /*maps*/, NULL /*event*/)))
         D_GOTO_ERROR(H5E_ATTR, H5E_READERROR, FAIL, "can't read attribute's creation order value: %s", H5_daos_err_to_string(ret));
 
     if(iod.iod_size == 0)

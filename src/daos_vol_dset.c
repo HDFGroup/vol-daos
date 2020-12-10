@@ -1984,21 +1984,25 @@ H5_daos_dataset_open_helper(H5_daos_file_t *file, hid_t dapl_id, hbool_t collect
         fetch_udata->md_rw_cb_ud.iod[0].iod_nr = 1u;
         fetch_udata->md_rw_cb_ud.iod[0].iod_size = DAOS_REC_ANY;
         fetch_udata->md_rw_cb_ud.iod[0].iod_type = DAOS_IOD_SINGLE;
+        fetch_udata->md_rw_cb_ud.iod[0].iod_flags = DAOS_COND_AKEY_FETCH;
 
         daos_const_iov_set((d_const_iov_t *)&fetch_udata->md_rw_cb_ud.iod[1].iod_name, H5_daos_space_key_g, H5_daos_space_key_size_g);
         fetch_udata->md_rw_cb_ud.iod[1].iod_nr = 1u;
         fetch_udata->md_rw_cb_ud.iod[1].iod_size = DAOS_REC_ANY;
         fetch_udata->md_rw_cb_ud.iod[1].iod_type = DAOS_IOD_SINGLE;
+        fetch_udata->md_rw_cb_ud.iod[1].iod_flags = DAOS_COND_AKEY_FETCH;
 
         daos_const_iov_set((d_const_iov_t *)&fetch_udata->md_rw_cb_ud.iod[2].iod_name, H5_daos_cpl_key_g, H5_daos_cpl_key_size_g);
         fetch_udata->md_rw_cb_ud.iod[2].iod_nr = 1u;
         fetch_udata->md_rw_cb_ud.iod[2].iod_size = DAOS_REC_ANY;
         fetch_udata->md_rw_cb_ud.iod[2].iod_type = DAOS_IOD_SINGLE;
+        fetch_udata->md_rw_cb_ud.iod[2].iod_flags = DAOS_COND_AKEY_FETCH;
 
         daos_const_iov_set((d_const_iov_t *)&fetch_udata->md_rw_cb_ud.iod[3].iod_name, H5_daos_fillval_key_g, H5_daos_fillval_key_size_g);
         fetch_udata->md_rw_cb_ud.iod[3].iod_nr = 1u;
         fetch_udata->md_rw_cb_ud.iod[3].iod_size = DAOS_REC_ANY;
         fetch_udata->md_rw_cb_ud.iod[3].iod_type = DAOS_IOD_SINGLE;
+        fetch_udata->md_rw_cb_ud.iod[3].iod_flags = 0;
 
         fetch_udata->md_rw_cb_ud.free_akeys = FALSE;
 
@@ -2041,6 +2045,9 @@ H5_daos_dataset_open_helper(H5_daos_file_t *file, hid_t dapl_id, hbool_t collect
         fetch_udata->md_rw_cb_ud.sgl[3].sg_nr_out = 0;
         fetch_udata->md_rw_cb_ud.sgl[3].sg_iovs = &fetch_udata->md_rw_cb_ud.sg_iov[3];
         fetch_udata->md_rw_cb_ud.free_sg_iov[3] = FALSE;
+
+        /* Set conditional per-akey fetch for dataset metadata read operation */
+        fetch_udata->md_rw_cb_ud.flags = DAOS_COND_PER_AKEY;
 
         /* Set nr */
         fetch_udata->md_rw_cb_ud.nr = 4u;

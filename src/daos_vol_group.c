@@ -1258,6 +1258,9 @@ H5_daos_group_open_helper(H5_daos_file_t *file, hid_t gapl_id,
         fetch_udata->md_rw_cb_ud.sgl[0].sg_iovs = &fetch_udata->md_rw_cb_ud.sg_iov[0];
         fetch_udata->md_rw_cb_ud.free_sg_iov[0] = FALSE;
 
+        /* Set conditional akey fetch for group metadata read operation */
+        fetch_udata->md_rw_cb_ud.flags = DAOS_COND_AKEY_FETCH;
+
         /* Set task name */
         fetch_udata->md_rw_cb_ud.task_name = "group metadata read";
 

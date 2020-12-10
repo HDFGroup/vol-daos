@@ -1222,6 +1222,9 @@ H5_daos_datatype_open_helper(H5_daos_file_t *file, hid_t tapl_id, hbool_t collec
         fetch_udata->md_rw_cb_ud.free_sg_iov[1] = FALSE;
         p += H5_DAOS_TCPL_BUF_SIZE;
 
+        /* Set conditional akey fetch for datatype metadata read operation */
+        fetch_udata->md_rw_cb_ud.flags = DAOS_COND_AKEY_FETCH;
+
         /* Set nr */
         fetch_udata->md_rw_cb_ud.nr = 2;
 

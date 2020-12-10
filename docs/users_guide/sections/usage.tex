@@ -206,16 +206,16 @@ the new data. Likewise, if you create a link, you must wait for the create to
 complete before reading that link.
 
 It is possible in some cases, however, to issue operations before prerequisites
-have been complete. Any file, group, dataset, committed datatype, attribute, or
-map ID returned from the API can be passed back in through the HDF5 API even if
-the open operation for the object that that ID refers to has not completed. This
-allows applications to, for example, create a file, create a group in the file,
-create a dataset in the group, write to the dataset, and close all IDs, all in a
-non-blocking manner without waiting (until the dataset write buffer needs to be
-modified or freed). Keep in mind that links are not included in this, so you
-cannot, for example, create a group, then open the group using its name, without
-waiting for the create to complete (or using \mintcinline{H5Oflush_async()} or
-\mintcinline{H5Fflush_async()}, see below).
+have been complete. Any ID returned from the API can be passed back in through
+the HDF5 API even if the open operation for the object that that ID refers to
+has not completed. This allows applications to, for example, create a file,
+create a group in the file, create a dataset in the group, write to the dataset,
+and close all IDs, all in a non-blocking manner without waiting (until the
+dataset write buffer needs to be modified or freed). Keep in mind that links are
+not included in this, so you cannot, for example, create a group then create an
+object inside the group using the a path that includes the group name, without
+waiting for the first create to complete (or using
+\mintcinline{H5Oflush_async()} or \mintcinline{H5Fflush_async()}, see below).
 
 Keep in mind that the only difference between the traditional blocking HDF5 API
 calls and the async versions is that the connector waits for that operation to

@@ -70,7 +70,7 @@ typedef struct H5_daos_object_copy_ud_t {
     const char *new_obj_name;
     size_t new_obj_name_len;
     char *new_obj_name_path_buf;
-    hbool_t dst_link_exists;
+    H5_DAOS_ATTR_EXISTS_OUT_TYPE dst_link_exists;
     unsigned obj_copy_options;
     hid_t lcpl_id;
 } H5_daos_object_copy_ud_t;
@@ -222,9 +222,9 @@ static int H5_daos_object_update_num_attrs_key_comp_cb(tse_task_t *task, void *a
 
 static herr_t H5_daos_object_copy_helper(void *src_loc_obj, const H5VL_loc_params_t *src_loc_params,
     const char *src_name, void *dst_loc_obj, const H5VL_loc_params_t *dst_loc_params,
-    const char *dst_name, unsigned obj_copy_options, hid_t lcpl_id, hbool_t **link_exists_p,
-    H5_daos_req_t *req, tse_task_t **first_task,
-    tse_task_t **dep_task);
+    const char *dst_name, unsigned obj_copy_options, hid_t lcpl_id,
+    H5_DAOS_ATTR_EXISTS_OUT_TYPE **link_exists_p, H5_daos_req_t *req,
+    tse_task_t **first_task, tse_task_t **dep_task);
 static int H5_daos_object_copy_task(tse_task_t *task);
 static herr_t H5_daos_object_copy_free_copy_udata(H5_daos_object_copy_ud_t *copy_udata,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
@@ -1366,7 +1366,7 @@ H5_daos_object_copy(void *src_loc_obj, const H5VL_loc_params_t *src_loc_params,
     tse_task_t *dep_task = NULL;
     unsigned obj_copy_options = 0;
     hbool_t collective;
-    hbool_t **link_exists_p;
+    H5_DAOS_ATTR_EXISTS_OUT_TYPE **link_exists_p;
     hid_t lapl_id = H5P_LINK_ACCESS_DEFAULT;
     int ret;
     herr_t ret_value = SUCCEED;
@@ -1530,8 +1530,9 @@ done:
 static herr_t
 H5_daos_object_copy_helper(void *src_loc_obj, const H5VL_loc_params_t *src_loc_params,
     const char *src_name, void *dst_loc_obj, const H5VL_loc_params_t *dst_loc_params,
-    const char *dst_name, unsigned obj_copy_options, hid_t lcpl_id, hbool_t **link_exists_p,
-    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
+    const char *dst_name, unsigned obj_copy_options, hid_t lcpl_id,
+    H5_DAOS_ATTR_EXISTS_OUT_TYPE **link_exists_p, H5_daos_req_t *req,
+    tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_object_copy_ud_t *obj_copy_udata = NULL;
     H5VL_loc_params_t sub_loc_params;

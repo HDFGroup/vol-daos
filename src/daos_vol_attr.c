@@ -101,7 +101,7 @@ typedef struct H5_daos_attr_delete_ud_t {
 /* User data struct for checking if an attribute exists */
 typedef struct H5_daos_attr_exists_ud_t {
     H5_daos_mpi_ibcast_ud_t bcast_ud; /* Must be first */
-    hbool_t *exists;
+    H5_DAOS_ATTR_EXISTS_OUT_TYPE *exists;
     htri_t bcast_exists;
     daos_key_t dkey;
     daos_key_t akeys[H5_DAOS_ATTR_NUM_AKEYS - 1];
@@ -252,8 +252,8 @@ static herr_t H5_daos_attribute_remove_from_crt_idx_name_cb(hid_t loc_id, const 
 static herr_t H5_daos_attribute_shift_crt_idx_keys_down(H5_daos_obj_t *target_obj,
     uint64_t idx_begin, uint64_t idx_end);
 static herr_t H5_daos_attribute_exists(H5_daos_obj_t *attr_container_obj, const char *attr_name,
-    hbool_t *exists, hbool_t collective, H5_daos_req_t *req, tse_task_t **first_task,
-    tse_task_t **dep_task);
+    H5_DAOS_ATTR_EXISTS_OUT_TYPE *exists, hbool_t collective, H5_daos_req_t *req,
+    tse_task_t **first_task, tse_task_t **dep_task);
 static int H5_daos_attr_exists_prep_cb(tse_task_t *task, void *args);
 static int H5_daos_attr_exists_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_attr_exists_bcast_comp_cb(tse_task_t *task, void *args);
@@ -4086,7 +4086,7 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
         case H5VL_ATTR_EXISTS:
             {
                 const char *attr_name = va_arg(arguments, const char *);
-                hbool_t *attr_exists = va_arg(arguments, hbool_t *);
+                H5_DAOS_ATTR_EXISTS_OUT_TYPE *attr_exists = va_arg(arguments, H5_DAOS_ATTR_EXISTS_OUT_TYPE *);
 
                 collective = collective_md_read;
                 op_type = H5_DAOS_OP_TYPE_READ;
@@ -5373,8 +5373,8 @@ done:
  */
 static herr_t
 H5_daos_attribute_exists(H5_daos_obj_t *attr_container_obj, const char *attr_name,
-    hbool_t *exists, hbool_t collective, H5_daos_req_t *req, tse_task_t **first_task,
-    tse_task_t **dep_task)
+    H5_DAOS_ATTR_EXISTS_OUT_TYPE *exists, hbool_t collective, H5_daos_req_t *req,
+    tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_attr_exists_ud_t *attr_exists_ud = NULL;
     tse_task_t *fetch_task = NULL;

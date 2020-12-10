@@ -213,7 +213,7 @@ create a group in the file, create a dataset in the group, write to the dataset,
 and close all IDs, all in a non-blocking manner without waiting (until the
 dataset write buffer needs to be modified or freed). Keep in mind that links are
 not included in this, so you cannot, for example, create a group then create an
-object inside the group using the a path that includes the group name, without
+object inside that group using a path that includes the group name, without
 waiting for the first create to complete (or using
 \mintcinline{H5Oflush_async()} or \mintcinline{H5Fflush_async()}, see below).
 

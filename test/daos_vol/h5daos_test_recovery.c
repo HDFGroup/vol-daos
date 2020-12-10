@@ -112,12 +112,16 @@ static void inject_fault(d_rank_t which_server)
 {
     struct d_tgt_list        targets;
     int			     tgt = -1;
+    char                     dmg_cmd[100];
+    int                      rc;
 
     if(MAINPROCESS) {
         /* Kill the server */
-        if(daos_mgmt_svc_rip("daos_server", which_server, TRUE, NULL) < 0) {
-            printf("daos_mgmt_svc_rip failed");
-            return;
+	snprintf(dmg_cmd, sizeof(dmg_cmd), "dmg system stop -i --ranks=%d --force", which_server);
+        rc = system(dmg_cmd);
+        if (rc != 0) {
+             printf(" %s failed with rc %#x\n", dmg_cmd, rc);
+             return;
         }
 
         targets.tl_nr = 1;
@@ -1172,22 +1176,15 @@ main( int argc, char** argv )
         pool_string = file_pool_uuid;
     }
 
-    if (NULL != (pool_svcl_string = getenv("DAOS_SVCL"))) {
-        /* Generate a rank list from a string with a seprator argument */
-        if((svcl = daos_rank_list_parse(pool_svcl_string, ":")) == NULL) {
-            printf("Could not parse pool service list\n\n");
-            goto error;
-        }
+    /* Try to retrieve the global SVCL from the connector */
+    if(H5daos_get_global_svcl(&glob_svcl) < 0) {
+        printf("Can't retrieve global SVCL\n\n");
+        goto error;
     }
-    else {
-        /* Try to retrieve the global SVCL from the connector */
-        if(H5daos_get_global_svcl(&glob_svcl) < 0) {
-            printf("Can't retrieve global SVCL\n\n");
-            goto error;
-        }
 
-        svcl = &glob_svcl;
-    }
+    svcl = &glob_svcl;
+
+    pool_svcl_string = getenv("DAOS_SVCL");
 
     if (MAINPROCESS) {
         fprintf(stdout, "Test parameters:\n\n");

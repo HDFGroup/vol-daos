@@ -5507,7 +5507,7 @@ H5_daos_obj_write_rc_task(tse_task_t *task)
             D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for object ref count write task");
         punch_args->oh = (*udata->obj_p)->obj_oh;
         punch_args->th = udata->req->th;
-        punch_args->flags = DAOS_COND_PUNCH;
+        punch_args->flags = 0;
         punch_args->dkey = NULL;
         punch_args->akeys = NULL;
         punch_args->akey_nr = 0;

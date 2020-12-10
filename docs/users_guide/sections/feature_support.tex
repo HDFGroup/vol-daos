@@ -93,12 +93,10 @@ The following sections serve to illustrate the \dvc{}'s support for features in 
 
 \multirow[c]{4}{\linewidth}[-55pt]{Properties (cont.)} & \multirow[c]{3}{\linewidth}[-50pt]{Access Properties} & Chunk cache & No & HDF5 does not expose any public APIs for implementing a chunk cache for arbitrary VOL connectors; however, this feature may be supported in the future. \\ \cline{3-5}
 & & VDS views and printf & No & The VDS feature is not currently planned to be supported.\\ \cline{3-5}
-& & MPI-I/O Collective Metadata Ops & Yes & By default, all metadata operations are collective for writes and independent for reads.\footnotemark[1] \\ \cline{2-5}
+& & MPI-I/O Collective Metadata Ops & Yes & By default, all metadata operations are collective for writes and independent for reads. Also see H5P(set/get)\_all\_ind \_metadata\_ops().\\ \cline{2-5}
 & \multirow[c]{1}{\linewidth}[-10pt]{Transfer Properties} & MPI-I/O Independent or Collective I/O mode & N/A & \\ \hline
 
 \end{tabularx}
-
-\footnotetext[1]{Independent metadata writes will be supported in the future.}
 
 \subsubsection{File Features}
 
@@ -135,7 +133,7 @@ The following sections serve to illustrate the \dvc{}'s support for features in 
 % Center just the header row
 \multicolumn{3}{| c |}{\textbf{Feature}} & \multicolumn{1}{c |}{\textbf{Supported?}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
-\multirow[c]{10}{\linewidth}[-100pt]{Properties (cont.)} & \multirow[c]{8}{\linewidth}[-60pt]{Access Properties (Other)} & MPI-I/O Collective Metadata Ops & Yes & By default, all metadata operations are collective for writes and independent for reads.\footnotemark[1] \\ \cline{3-5}
+\multirow[c]{10}{\linewidth}[-100pt]{Properties (cont.)} & \multirow[c]{8}{\linewidth}[-60pt]{Access Properties (Other)} & MPI-I/O Collective Metadata Ops & Yes & By default, all metadata operations are collective for writes and independent for reads. Also see H5P(set/get)\_all\_ind \_metadata\_ops().\\ \cline{3-5}
 
 & & User block & N/A & \\ \cline{3-5}
 & & Chunk Cache & No & HDF5 does not expose any public APIs for implementing a chunk cache for arbitrary VOL connectors; however, this feature may be supported in the future. \\ \cline{3-5}
@@ -147,8 +145,6 @@ The following sections serve to illustrate the \dvc{}'s support for features in 
 
 \end{tabularx}
 
-\footnotetext[1]{Independent metadata writes will be supported in the future.}
-
 \subsubsection{Group Features}
 
 \begin{tabularx}{\linewidth}{| X | X | >{\RaggedRight}X | X | >{\RaggedRight}X |}
@@ -158,14 +154,13 @@ The following sections serve to illustrate the \dvc{}'s support for features in 
 \multicolumn{3}{| c |}{\textbf{Feature}} & \multicolumn{1}{c |}{\textbf{Supported?}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
 \multirow[c]{4}{\linewidth}[-120pt]{Properties} & \multirow[c]{3}{\linewidth}[-100pt]{Creation Properties} & Link Creation Order & Yes & In order to work correctly, the link creation order feature requires that the parent group is touched collectively or that the application otherwise ensures no concurrent access to the group.\footnotemark[2] \\ \cline{3-5}
-& & Attribute Creation Order & Yes & In order to work correctly, the attribute creation order feature requires that the dataset is touched collectively or that the application otherwise ensures no concurrent access to the dataset.\footnotemark[2] \\ \cline{3-5}
+& & Attribute Creation Order & Yes & In order to work correctly, the attribute creation order feature requires that the dataset is touched collectively or that the application otherwise ensures no concurrent access to the dataset.\footnotemark[1] \\ \cline{3-5}
 & & Other Properties & N/A & These properties are related to the native HDF5-specific file format. \\ \cline{2-5}
-& \multirow[c]{1}{\linewidth}[-35pt]{Access Properties} & MPI-I/O Collective Metadata Ops & Yes & By default, all metadata operations are collective for writes and independent for reads.\footnotemark[1] \\ \hline
+& \multirow[c]{1}{\linewidth}[-35pt]{Access Properties} & MPI-I/O Collective Metadata Ops & Yes & By default, all metadata operations are collective for writes and independent for reads. Also see H5P(set/get)\_all\_ind \_metadata\_ops().\\ \hline
 
 \end{tabularx}
 
-\footnotetext[1]{Independent metadata writes will be supported in the future.}
-\footnotetext[2]{This restriction may be removed in the future.}
+\footnotetext[1]{This restriction may be removed in the future.}
 
 \newpage
 
@@ -189,28 +184,28 @@ The following sections serve to illustrate the \dvc{}'s support for the \acrshor
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
 H5Acreate(1/2) & \\ \hline
+H5Acreate\_async & \\ \hline
 H5Acreate\_by\_name & \\ \hline
+H5Acreate\_by\_name\_async & \\ \hline
 H5Aopen(\_by\_name/\_by\_idx) & For H5Aopen\_by\_idx, \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type\\ \hline
+H5Aopen(\_by\_name)\_async & \\ \hline
+H5Aopen\_by\_idx\_async & Currently executes in a blocking fashion\\ \hline
 H5Aopen\_idx & Deprecated in favor of H5A\_open\_by\_idx\\ \hline
 H5Aopen\_name & Deprecated in favor of H5A\_open\_by\_name\\ \hline
 H5Awrite & \\ \hline
+H5Awrite\_async & \\ \hline
 H5Aread & \\ \hline
-H5Aclose & \\ \hline
+H5Aread\_async & \\ \hline
+H5Aclose & Blocks until all in-flight async tasks on the attribute are complete\\ \hline
+H5Aclose\_async & Completes when all in-flight async tasks on the attribute are complete\\ \hline
 H5Aiterate(2) & \begin{itemize}
                     \item Restarting iteration from an index value is currently unsupported\footnotemark[1]
                     \item \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type
                 \end{itemize}\\ \hline
-H5Aiterate\_by\_name & \begin{itemize}
-                           \item Restarting iteration from an index value is currently unsupported\footnotemark[1]
-                           \item \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type
-                       \end{itemize}\\ \hline
-H5Aexists(\_by\_name) & \\ \hline
-H5Arename(\_by\_name) & \\ \hline
-H5Adelete(\_by\_name/\_by\_idx) & For H5Adelete\_by\_idx, \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type\\ \hline
-H5Aget\_name(\_by\_idx) & For H5Aget\_name\_by\_idx, \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type\\ \hline
+
 \end{tabularx}
 
-\footnotetext[1]{Will be supported by end of Q4 2019.}
+\footnotetext[1]{Will be supported in the future.}
 
 \begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
 \hline
@@ -218,6 +213,17 @@ H5Aget\_name(\_by\_idx) & For H5Aget\_name\_by\_idx, \texttt{H5\_ITER\_DEC} is c
 % Center just the header row
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
+H5Aiterate\_by\_name & \begin{itemize}
+                           \item Restarting iteration from an index value is currently unsupported\footnotemark[1]
+                           \item \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type
+                       \end{itemize}\\ \hline
+H5Aexists(\_by\_name) & \\ \hline
+H5Aexists\_async & \\ \hline
+H5Aexists\_by\_name\_async & Currently untested\\ \hline
+H5Arename(\_by\_name) & \\ \hline
+H5Arename(\_by\_name)\_async & Currently executes in a blocking fashion\\ \hline
+H5Adelete(\_by\_name/\_by\_idx) & For H5Adelete\_by\_idx, \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type\\ \hline
+H5Aget\_name(\_by\_idx) & For H5Aget\_name\_by\_idx, \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type\\ \hline
 H5Aget\_space & \\ \hline
 H5Aget\_type & \\ \hline
 H5Aget\_info(\_by\_name/\_by\_idx) & Of the four fields in the \texttt{H5A\_info\_t} struct:
@@ -242,7 +248,7 @@ H5Aget\_create\_plist & \\ \hline
 % Center just the header row
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
-H5Aget\_storage\_size & \texttt{H5Aget\_storage\_size} is not currently planned to be supported.\\ \hline
+H5Aget\_storage\_size & \texttt{H5Aget\_storage\_size} is not currently planned to be supported\\ \hline
 
 \end{tabularx}
 
@@ -264,22 +270,31 @@ H5Aget\_storage\_size & \texttt{H5Aget\_storage\_size} is not currently planned 
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
 H5Dcreate(1/2) & \\ \hline
+H5Dcreate\_async & \\ \hline
 H5Dcreate\_anon & \\ \hline
 H5Dopen(1/2) & \\ \hline
+H5Dopen\_async & \\ \hline
 H5Dwrite & \\ \hline
+H5Dwrite\_async & \\ \hline
 H5Dread & \\ \hline
-H5Dclose & \\ \hline
+H5Dread\_async & \\ \hline
+H5Dclose & Blocks until all in-flight async tasks on the dataset are complete\\ \hline
+H5Dclose\_async & Completes when all in-flight async tasks on the dataset are complete\\ \hline
 H5Dextend & Upon dataset shrinking, data is currently not cleared.\footnotemark[1]\\ \hline
 H5Dset\_extent & Upon dataset shrinking, data is currently not cleared.\footnotemark[1]\\ \hline
+H5Dset\_extent\_async & \\ \hline
 H5Dget\_space & \\ \hline
+H5Dget\_space\_async & \\ \hline
 H5Dget\_type & \\ \hline
 H5Dget\_create\_plist & \\ \hline
 H5Dget\_access\_plist & \\ \hline
 H5Dget\_space\_status & Space status is currently always set to \texttt{H5D\_SPACE\_STATUS\_NOT\_ALLOCATED}\\ \hline
-H5Dflush & \texttt{H5Dflush} is currently implemented as a no-op. \\ \hline
+H5Dflush & Blocks until all in-flight async tasks on the dataset are complete\\ \hline
 H5Drefresh & \\ \hline
 
 \end{tabularx}
+
+\newpage
 
 \textbf{Currently unsupported API calls}
 \vspace{.2in} \\
@@ -290,7 +305,7 @@ H5Drefresh & \\ \hline
 % Center just the header row
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
-H5Dget\_storage\_size & \texttt{H5Dget\_storage\_size} is not currently planned to be supported.\\ \hline
+H5Dget\_storage\_size & \texttt{H5Dget\_storage\_size} is not currently planned to be supported\\ \hline
 
 \end{tabularx}
 
@@ -314,8 +329,11 @@ H5Dget\_storage\_size & \texttt{H5Dget\_storage\_size} is not currently planned 
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
 H5Fcreate & \\ \hline
+H5Fcreate\_async & \\ \hline
 H5Fopen & \\ \hline
+H5Fopen\_async & \\ \hline
 H5Freopen & \\ \hline
+H5Freopen\_async & \\ \hline
 H5Fis\_accessible & \\ \hline
 H5Fget\_create\_plist & \\ \hline
 H5Fget\_access\_plist & \\ \hline
@@ -324,8 +342,10 @@ H5Fget\_name & \\ \hline
 H5Fget\_obj\_count & \\ \hline
 H5Fget\_obj\_ids & \\ \hline
 H5Fdelete & \\ \hline
-H5Fflush & \texttt{H5Fflush} is currently implemented as a no-op.\\ \hline
-H5Fclose & \\ \hline
+H5Fflush & Blocks until all in-flight async tasks on the file are complete\\ \hline
+H5Fflush\_async & Completes when all in-flight async tasks on the file are complete\\ \hline
+H5Fclose & Blocks until all in-flight async tasks on the file are complete\\ \hline
+H5Fclose\_async & Completes when all in-flight async tasks on the file are complete\\ \hline
 
 \end{tabularx}
 
@@ -338,8 +358,8 @@ H5Fclose & \\ \hline
 % Center just the header row
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
-H5Fmount & \texttt{H5Fmount} is not currently planned to be supported.\\ \hline
-H5Funmount & \texttt{H5Funmount} is not currently planned to be supported.\\ \hline
+H5Fmount & \texttt{H5Fmount} is not currently planned to be supported\\ \hline
+H5Funmount & \texttt{H5Funmount} is not currently planned to be supported\\ \hline
 
 \end{tabularx}
 
@@ -361,9 +381,12 @@ H5Funmount & \texttt{H5Funmount} is not currently planned to be supported.\\ \hl
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
 H5Gcreate(1/2) & \\ \hline
+H5Gcreate\_async & \\ \hline
 H5Gcreate\_anon & \\ \hline
 H5Gopen(1/2) & \\ \hline
-H5Gclose & \\ \hline
+H5Gopen\_async & \\ \hline
+H5Gclose & Blocks until all in-flight async tasks on the group are complete\\ \hline
+H5Gclose\_async & Completes when all in-flight async tasks on the group are complete\\ \hline
 H5Gunlink & \\ \hline
 H5Gget\_create\_plist & \\ \hline
 H5Gget\_info(\_by\_name/\_by\_idx) & Of the four fields in the \texttt{H5G\_info\_t} struct:
@@ -374,17 +397,27 @@ H5Gget\_info(\_by\_name/\_by\_idx) & Of the four fields in the \texttt{H5G\_info
                                          \item \texttt{mounted} is currently always set to \texttt{FALSE}
                                      \end{itemize}
                                      For \texttt{H5Gget\_info\_by\_idx}, \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type\\ \hline
+H5Gget\_info(\_by\_name/\_by\_idx)\_async & \\ \hline
 H5Gget\_linkval & \\ \hline
 H5Gget\_num\_objs & \\ \hline
 H5Gget\_objname\_by\_idx & \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type\\ \hline
 H5Glink(2) & Currently only hard and soft link creation are supported\footnotemark[1]\\ \hline
 H5Gmove(2) & Refer to Notes for \texttt{H5Lmove}\\ \hline
-H5Gflush & \texttt{H5Gflush} is currently implemented as a no-op.\\ \hline
-H5Grefresh & \texttt{H5Grefresh} is currently implemented as a no-op.\\ \hline
 
 \end{tabularx}
 
 \footnotetext[1]{External links are not currently planned to be supported.}
+
+\begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
+\hline
+\rowcolor{lightgray!50}%
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+H5Gflush & Blocks until all in-flight async tasks on the file are complete\\ \hline
+H5Grefresh & \texttt{H5Grefresh} is currently implemented as a no-op\\ \hline
+
+\end{tabularx}
 
 \textbf{Currently unsupported API calls}
 \vspace{.2in} \\
@@ -416,23 +449,31 @@ H5Grefresh & \texttt{H5Grefresh} is currently implemented as a no-op.\\ \hline
 % Center just the header row
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
-H5Lcreate\_hard & Reference count tracking is not currently implemented, so objects will not be removed when the last hard link pointing to them is removed\footnotemark[1]\\ \hline
+H5Lcreate\_hard & \\ \hline
+H5Lcreate\_hard\_async & Not currently tested due to a bug in HDF5\\ \hline
 H5Lcreate\_soft & \\ \hline
+H5Lcreate\_soft\_async & Currently H5P\_DEFAULT cannot be passed as the lapl\_id due to a bug in HDF5\\ \hline
 H5Lexists & \\ \hline
+H5Lexists\_async & \\ \hline
+
 H5Literate(\_by\_name) & \begin{itemize}
                              \item Restarting iteration from an index value is currently unsupported\footnotemark[1]
                              \item \texttt{H5\_ITER\_DEC} is currently unsupported for the iteration order when \texttt{H5\_INDEX\_NAME} is used for the index type
                          \end{itemize}\\ \hline
+
+H5Literate\_async & Currently executes in a blocking fashion\\ \hline
 H5Lvisit(\_by\_name) & \begin{itemize}
                              \item Restarting iteration from an index value is currently unsupported\footnotemark[1]
                              \item \texttt{H5\_ITER\_DEC} is currently unsupported for the iteration order when \texttt{H5\_INDEX\_NAME} is used for the index type
                          \end{itemize}\\ \hline
-H5Ldelete & Reference count tracking is not currently implemented, so objects will not be removed when the last hard link pointing to them is removed\footnotemark[1]\\ \hline
+H5Ldelete & \\ \hline
+H5Ldelete\_async & \\ \hline
 H5Ldelete\_by\_idx & \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type\\ \hline
+H5Ldelete\_by\_idx\_async & Currently untested\\ \hline
 
 \end{tabularx}
 
-\footnotetext[1]{Will be supported by end of Q4 2019.}
+\footnotetext[1]{Will be supported in the future.}
 
 \begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
 \hline
@@ -491,8 +532,8 @@ H5Lmove & Currently no support for the following properties:
 % Center just the header row
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
-H5Lcreate\_external & \texttt{H5Lcreate\_external} is not currently planned to be supported. As DAOS containers can contain large amounts of objects, the necessity for external links is lessened as compared to a traditional storage system. \\ \hline
-H5Lcreate\_ud & \texttt{H5Lcreate\_ud} is not currently planned to be supported.\\ \hline
+H5Lcreate\_external & \texttt{H5Lcreate\_external} is not currently planned to be supported. As DAOS containers can contain large amounts of objects, the necessity for external links is lessened as compared to a traditional storage system\\ \hline
+H5Lcreate\_ud & \texttt{H5Lcreate\_ud} is not currently planned to be supported\\ \hline
 
 \end{tabularx}
 
@@ -516,9 +557,14 @@ H5Lcreate\_ud & \texttt{H5Lcreate\_ud} is not currently planned to be supported.
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
 H5Oopen & \\ \hline
-H5Oopen\_by\_addr & \\ \hline
+H5Oopen\_async & \\ \hline
+H5Oopen\_by\_token & \\ \hline
 H5Oopen\_by\_idx & \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type\\ \hline
-H5Oclose & \\ \hline
+H5Oopen\_by\_idx\_async & \\ \hline
+H5Oclose & Blocks until all in-flight async tasks on the object are complete\\ \hline
+H5Oclose\_async & Completes when all in-flight async tasks on the object are complete\\ \hline
+H5Oincr\_refcount & \\ \hline
+H5Odecr\_refcount & \\ \hline
 H5Olink & \\ \hline
 H5Oexists\_by\_name & \\ \hline
 H5Ovisit(1/2) & \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type\\ \hline
@@ -533,8 +579,9 @@ H5Ocopy & Currently no support for the following properties: \begin{itemize}
                                                                      \item {\small\texttt{H5O\_COPY\_MERGE\_COMMITTED\_DTYPE\_FLAG}}
                                                                  \end{itemize}
                                                              \end{itemize}\\ \hline
-H5Oflush & \texttt{H5Oflush} delegates to the appropriate \texttt{H5Xflush} routine based upon the given object's type, but that particular object's flush routine may be implemented as a no-op. \\ \hline
-H5Orefresh & \texttt{H5Orefresh} delegates to the appropriate \texttt{H5Xrefresh} routine based upon the given object's type, but that particular object's refresh routine may be implemented as a no-op. \\ \hline
+H5Ocopy\_async & \\ \hline
+H5Oflush & Blocks until all in-flight async tasks on the object are complete\\ \hline
+H5Oflush\_async & Completes when all in-flight async tasks on the object are complete\\ \hline
 
 \end{tabularx}
 
@@ -542,6 +589,16 @@ H5Orefresh & \texttt{H5Orefresh} delegates to the appropriate \texttt{H5Xrefresh
 \footnotetext[2]{External links are not currently planned to be supported.}
 
 \newpage
+
+\begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
+\hline
+\rowcolor{lightgray!50}%
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+H5Orefresh & \texttt{H5Orefresh} delegates to the appropriate \texttt{H5Xrefresh} routine based upon the given object's type, but that particular object's refresh routine may be implemented as a no-op\\ \hline
+
+\end{tabularx}
 
 \textbf{Currently unsupported API calls}
 \vspace{.2in} \\
@@ -552,12 +609,9 @@ H5Orefresh & \texttt{H5Orefresh} delegates to the appropriate \texttt{H5Xrefresh
 % Center just the header row
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
-H5Oincr\_refcount\footnotemark[1] & \\ \hline
-H5Odecr\_refcount\footnotemark[1] & \\ \hline
+H5Oopen\_by\_addr & \\ \hline
 
 \end{tabularx}
-
-\footnotetext[1]{Will be supported by end of Q4 2019.}
 
 \end{center}
 
@@ -576,14 +630,14 @@ H5Odecr\_refcount\footnotemark[1] & \\ \hline
 % Center just the header row
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
-H5Rcreate\_object & Object lookup and retrieval of a container's info (which are needed for \texttt{H5Rcreate\_object}) are supported.\\ \hline
-H5Rcreate\_region & Object lookup and retrieval of a container's info (which are needed for \texttt{H5Rcreate\_region}) are supported.\\ \hline
-H5Rcreate\_attr & Object lookup and retrieval of a container's info (which are needed for \texttt{H5Rcreate\_attr}) are supported.\\ \hline
-H5Ropen\_object & Object opening (which is needed for \texttt{H5Ropen\_object}) is supported.\\ \hline
-H5Ropen\_region & Object opening and retrieval of a dataset's dataspace (which are needed for \texttt{H5Ropen\_region}) are supported.\\ \hline
-H5Ropen\_attr & Object opening and attribute opening (which are needed for \texttt{H5Ropen\_attr}) are supported.\\ \hline
+H5Rcreate\_object & Object lookup and retrieval of a container's info (which are needed for \texttt{H5Rcreate\_object}) are supported\\ \hline
+H5Rcreate\_region & Object lookup and retrieval of a container's info (which are needed for \texttt{H5Rcreate\_region}) are supported\\ \hline
+H5Rcreate\_attr & Object lookup and retrieval of a container's info (which are needed for \texttt{H5Rcreate\_attr}) are supported\\ \hline
+H5Ropen\_object & Object opening (which is needed for \texttt{H5Ropen\_object}) is supported\\ \hline
+H5Ropen\_region & Object opening and retrieval of a dataset's dataspace (which are needed for \texttt{H5Ropen\_region}) are supported\\ \hline
+H5Ropen\_attr & Object opening and attribute opening (which are needed for \texttt{H5Ropen\_attr}) are supported\\ \hline
 H5Rget\_obj\_type3 & \\ \hline
-H5Rget\_file\_name & Retrieval of a file's name (which is needed for \texttt{H5Rget\_file\_name}) is supported.\\ \hline
+H5Rget\_file\_name & Retrieval of a file's name (which is needed for \texttt{H5Rget\_file\_name}) is supported\\ \hline
 
 \end{tabularx}
 
@@ -620,10 +674,10 @@ H5Rget\_obj\_name & \\ \hline
 H5Tcommit(1/2) & \\ \hline
 H5Tcommit\_anon & \\ \hline
 H5Topen(1/2) & \\ \hline
-H5Tclose & \\ \hline
+H5Tclose & Blocks until all in-flight async tasks on the datatype are complete\\ \hline
 H5Tget\_create\_plist & \\ \hline
-H5Tflush & \texttt{H5Tflush} is currently implemented as a no-op.\\ \hline
-H5Trefresh & \texttt{H5Trefresh} is currently implemented as a no-op.\\ \hline
+H5Tflush & Blocks until all in-flight async tasks on the datatype are complete\\ \hline
+H5Trefresh & \texttt{H5Trefresh} is currently implemented as a no-op\\ \hline
 
 \end{tabularx}
 

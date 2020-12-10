@@ -250,6 +250,12 @@ write buffers around and don't examine the read buffer until it is complete).
 See the Operation Scope section for information on which operations are in scope
 for \mintcinline{H5Oflush_async}.
 
+Close operations such as \mintcinline{H5Gclose()} or \mintcinline{H5Fclose()}
+will only complete once all previously issued operations on their object, file
+or attribute complete. Therefore, the non-async versions of these operations
+will block until these operations are complete. Asynchronous versions of all
+close operations are available for non-blocking close.
+
 \subsubsection {Parallel Considerations}
 
 Parallel collective operations add another constraint on asynchronous

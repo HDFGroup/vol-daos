@@ -3464,6 +3464,7 @@ H5_daos_dataset_read_int(H5_daos_dset_t *dset, hid_t mem_type_id,
             D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create dependency on chunk I/O task: %s", H5_daos_err_to_string(ret));
     } /* end for */
 
+done:
     /* Schedule end_task if appropriate and update *dep_task */
     if(end_task) {
         if(0 != (ret = tse_task_schedule(end_task, false)))
@@ -3473,7 +3474,6 @@ H5_daos_dataset_read_int(H5_daos_dset_t *dset, hid_t mem_type_id,
     else
         *dep_task = io_task;
 
-done:
     D_FUNC_LEAVE;
 } /* end H5_daos_dataset_read_int() */
 
@@ -3788,6 +3788,7 @@ H5_daos_dataset_write_int(H5_daos_dset_t *dset, hid_t mem_type_id,
             D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create dependency on chunk I/O task: %s", H5_daos_err_to_string(ret));
     } /* end for */
 
+done:
     /* Schedule end_task if appropriate and update *dep_task */
     if(end_task) {
         if(0 != (ret = tse_task_schedule(end_task, false)))
@@ -3797,7 +3798,6 @@ H5_daos_dataset_write_int(H5_daos_dset_t *dset, hid_t mem_type_id,
     else
         *dep_task = io_task;
 
-done:
     D_FUNC_LEAVE;
 } /* end H5_daos_dataset_write_int() */
 

@@ -164,9 +164,11 @@ static herr_t H5_daos_dataset_io_types_unequal(H5_daos_select_chunk_info_t *chun
     void *buf, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 static int H5_daos_dset_io_int_task(tse_task_t *task);
 static int H5_daos_dset_io_int_end_task(tse_task_t *task);
+#if H5VL_VERSION >= 2
 static herr_t H5_daos_dataset_get_realize(void *future_object,
     hid_t *actual_object_id);
 static herr_t H5_daos_dataset_get_discard(void *future_object);
+#endif
 static int H5_daos_dataset_get_task(tse_task_t *task);
 static int H5_daos_dataset_refresh_comp_cb(tse_task_t *task, void *args);
 static herr_t H5_daos_dset_set_extent_comp_cb(tse_task_t *task, void *args);
@@ -556,8 +558,8 @@ done:
         } /* end if */
         else {
             /* Block until operation completes */
-            if(H5_daos_progress(int_req, H5_DAOS_PROGRESS_WAIT) < 0)
-                D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't progress scheduler");
+            if(H5_daos_task_wait(int_req->finalize_task, NULL) < 0)
+                D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't wait for request to finish");
 
             /* Check for failure */
             if(int_req->status < 0)
@@ -1855,9 +1857,8 @@ done:
         } /* end if */
         else {
             /* Block until operation completes */
-            /* Wait for scheduler to be empty */
-            if(H5_daos_progress(int_req, H5_DAOS_PROGRESS_WAIT) < 0)
-                D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't progress scheduler");
+            if(H5_daos_task_wait(int_req->finalize_task, NULL) < 0)
+                D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't wait for request to finish");
 
             /* Check for failure */
             if(int_req->status < 0)
@@ -3618,8 +3619,8 @@ done:
         } /* end if */
         else {
             /* Block until operation completes */
-            if(H5_daos_progress(int_req, H5_DAOS_PROGRESS_WAIT) < 0)
-                D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't progress scheduler");
+            if(H5_daos_task_wait(int_req->finalize_task, NULL) < 0)
+                D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't wait for request to finish");
 
             /* Check for failure */
             if(int_req->status < 0)
@@ -4449,8 +4450,8 @@ done:
         } /* end if */
         else {
             /* Block until operation completes */
-            if(H5_daos_progress(int_req, H5_DAOS_PROGRESS_WAIT) < 0)
-                D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't progress scheduler");
+            if(H5_daos_task_wait(int_req->finalize_task, NULL) < 0)
+                D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't wait for request to finish");
 
             /* Check for failure */
             if(int_req->status < 0)
@@ -4622,8 +4623,8 @@ done:
         } /* end if */
         else {
             /* Block until operation completes */
-            if(H5_daos_progress(int_req, H5_DAOS_PROGRESS_WAIT) < 0)
-                D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't progress scheduler");
+            if(H5_daos_task_wait(int_req->finalize_task, NULL) < 0)
+                D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't wait for request to finish");
 
             /* Check for failure */
             if(int_req->status < 0)
@@ -4828,8 +4829,8 @@ done:
         } /* end if */
         else {
             /* Block until operation completes */
-            if(H5_daos_progress(int_req, H5_DAOS_PROGRESS_WAIT) < 0)
-                D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't progress scheduler");
+            if(H5_daos_task_wait(int_req->finalize_task, NULL) < 0)
+                D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't wait for request to finish");
 
             /* Check for failure */
             if(int_req->status < 0)

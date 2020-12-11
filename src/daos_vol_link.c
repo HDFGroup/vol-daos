@@ -202,7 +202,7 @@ typedef struct H5_daos_link_get_val_ud_t {
 typedef struct H5_daos_link_exists_ud_t {
     H5_daos_req_t *req;
     H5_daos_obj_t *target_obj;
-    htri_t *exists;
+    H5_DAOS_LINK_EXISTS_OUT_TYPE *exists;
     daos_key_t dkey;
     daos_iod_t iod;
     char *path_buf;
@@ -3128,7 +3128,6 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
     tse_task_t *dep_task = NULL;
     hid_t target_grp_id = -1;
     herr_t iter_ret = 0;
-    htri_t *lexists_ret;
     hbool_t collective_md_read;
     hbool_t collective_md_write;
     hid_t lapl_id;
@@ -3167,7 +3166,7 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
         /* H5Lexists */
         case H5VL_LINK_EXISTS:
             {
-                lexists_ret = va_arg(arguments, htri_t *);
+                H5_DAOS_LINK_EXISTS_OUT_TYPE *lexists_ret = va_arg(arguments, H5_DAOS_LINK_EXISTS_OUT_TYPE *);
 
                 assert(H5VL_OBJECT_BY_NAME == loc_params->type);
                 assert(lexists_ret);
@@ -4367,8 +4366,8 @@ done:
  */
 herr_t
 H5_daos_link_exists(H5_daos_item_t *item, const char *link_path,
-    htri_t ***exists_p, htri_t *exists, H5_daos_req_t *req,
-    tse_task_t **first_task, tse_task_t **dep_task)
+    H5_DAOS_LINK_EXISTS_OUT_TYPE ***exists_p, H5_DAOS_LINK_EXISTS_OUT_TYPE *exists,
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_link_exists_ud_t *fetch_udata = NULL;
     H5_daos_obj_t *target_obj = NULL;

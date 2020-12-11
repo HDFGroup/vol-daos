@@ -55,6 +55,70 @@ typedef d_sg_list_t daos_sg_list_t;
 /* Private Macros */
 /******************/
 
+/* Define H5VL_VERSION if not already defined */
+#ifndef H5VL_VERSION
+#define H5VL_VERSION 0
+#endif
+
+/* Check for unknown H5VL_VERSION */
+#if H5VL_VERSION > 2
+#error Unknown H5VL_VERSION - HDF5 library is probably too new or connector is too old
+#endif
+
+/* Versioning for request status */
+#if H5VL_VERSION >= 2
+#define H5_DAOS_REQ_STATUS_OUT_TYPE H5VL_request_status_t
+#define H5_DAOS_REQ_STATUS_OUT_IN_PROGRESS H5VL_REQUEST_STATUS_IN_PROGRESS
+#define H5_DAOS_REQ_STATUS_OUT_SUCCEED H5VL_REQUEST_STATUS_SUCCEED
+#define H5_DAOS_REQ_STATUS_OUT_FAIL H5VL_REQUEST_STATUS_FAIL
+#define H5_DAOS_REQ_STATUS_OUT_CANT_CANCEL H5VL_REQUEST_STATUS_CANT_CANCEL
+#define H5_DAOS_REQ_STATUS_OUT_CANCELED H5VL_REQUEST_STATUS_CANCELED
+#else
+#define H5_DAOS_REQ_STATUS_OUT_TYPE H5ES_status_t
+#define H5_DAOS_REQ_STATUS_OUT_IN_PROGRESS H5ES_STATUS_IN_PROGRESS
+#define H5_DAOS_REQ_STATUS_OUT_SUCCEED H5ES_STATUS_SUCCEED
+#define H5_DAOS_REQ_STATUS_OUT_FAIL H5ES_STATUS_FAIL
+#define H5_DAOS_REQ_STATUS_OUT_CANT_CANCEL H5ES_STATUS_IN_PROGRESS
+#define H5_DAOS_REQ_STATUS_OUT_CANCELED H5ES_STATUS_CANCELED
+#endif
+
+/* Versioning for "opt_query" callback */
+#if H5VL_VERSION >= 1
+#define H5_DAOS_OPT_QUERY_OUT_TYPE uint64_t
+#define H5_DAOS_OPT_QUERY_SUPPORTED H5VL_OPT_QUERY_SUPPORTED
+#define H5_DAOS_OPT_QUERY_READ_DATA H5VL_OPT_QUERY_READ_DATA
+#define H5_DAOS_OPT_QUERY_WRITE_DATA H5VL_OPT_QUERY_WRITE_DATA
+#define H5_DAOS_OPT_QUERY_QUERY_METADATA H5VL_OPT_QUERY_QUERY_METADATA
+#define H5_DAOS_OPT_QUERY_MODIFY_METADATA H5VL_OPT_QUERY_MODIFY_METADATA
+#define H5_DAOS_OPT_QUERY_COLLECTIVE H5VL_OPT_QUERY_COLLECTIVE
+#define H5_DAOS_OPT_QUERY_NO_ASYNC H5VL_OPT_QUERY_NO_ASYNC
+#define H5_DAOS_OPT_QUERY_MULTI_OBJ H5VL_OPT_QUERY_MULTI_OBJ
+#else
+#define H5_DAOS_OPT_QUERY_OUT_TYPE hbool_t
+#define H5_DAOS_OPT_QUERY_SUPPORTED TRUE
+#define H5_DAOS_OPT_QUERY_READ_DATA FALSE
+#define H5_DAOS_OPT_QUERY_WRITE_DATA FALSE
+#define H5_DAOS_OPT_QUERY_QUERY_METADATA FALSE
+#define H5_DAOS_OPT_QUERY_MODIFY_METADATA FALSE
+#define H5_DAOS_OPT_QUERY_COLLECTIVE FALSE
+#define H5_DAOS_OPT_QUERY_NO_ASYNC FALSE
+#define H5_DAOS_OPT_QUERY_MULTI_OBJ FALSE
+#endif
+
+/* Versioning for H5Aexists */
+#if H5VL_VERSION >= 2
+#define H5_DAOS_ATTR_EXISTS_OUT_TYPE hbool_t
+#else
+#define H5_DAOS_ATTR_EXISTS_OUT_TYPE htri_t
+#endif
+
+/* Versioning for H5Lexists */
+#if H5VL_VERSION >= 2
+#define H5_DAOS_LINK_EXISTS_OUT_TYPE hbool_t
+#else
+#define H5_DAOS_LINK_EXISTS_OUT_TYPE htri_t
+#endif
+
 #define HDF5_VOL_DAOS_VERSION_1	(1)	/* Version number of DAOS VOL connector */
 /* Class value of the DAOS VOL connector as defined in H5VLpublic.h DSINC */
 #define H5_VOL_DAOS_CLS_VAL (H5VL_class_value_t) (H5_VOL_RESERVED + 2)
@@ -1019,7 +1083,12 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_link_copy_move_int(H5_daos_item_t *src_item,
     hbool_t collective, H5_daos_req_t *req,
     tse_task_t **first_task, tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE herr_t H5_daos_link_exists(H5_daos_item_t *item,
-    const char *link_path, htri_t ***exists_p, htri_t *exists,
+    const char *link_path,
+#if H5VL_VERSION >= 2
+    hbool_t ***exists_p, hbool_t *exists,
+#else
+    htri_t ***exists_p, htri_t *exists,
+#endif
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE htri_t H5_daos_link_follow(H5_daos_group_t *grp,
     const char *name, size_t name_len, hbool_t crt_missing_grp,
@@ -1263,10 +1332,14 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_blob_specific(void *_file, void *blob_id,
 
 /* Request callbacks */
 H5VL_DAOS_PRIVATE herr_t H5_daos_req_wait(void *req, uint64_t timeout,
-    H5ES_status_t *status);
+    H5_DAOS_REQ_STATUS_OUT_TYPE *status);
 H5VL_DAOS_PRIVATE herr_t H5_daos_req_notify(void *req, H5VL_request_notify_t cb,
     void *ctx);
-H5VL_DAOS_PRIVATE herr_t H5_daos_req_cancel(void *_req);
+H5VL_DAOS_PRIVATE herr_t H5_daos_req_cancel(void *_req
+#if H5VL_VERSION >= 2
+, H5_DAOS_REQ_STATUS_OUT_TYPE *status
+#endif
+);
 H5VL_DAOS_PRIVATE herr_t H5_daos_req_free(void *req);
 
 /* Other request routines */

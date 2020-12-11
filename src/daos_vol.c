@@ -123,7 +123,7 @@ static herr_t H5_daos_fapl_free(void *_fa);
 static herr_t H5_daos_get_conn_cls(void *item, H5VL_get_conn_lvl_t lvl,
     const H5VL_class_t **conn_cls);
 static herr_t H5_daos_opt_query(void *item, H5VL_subclass_t cls, int opt_type,
-    hbool_t *supported);
+    H5_DAOS_OPT_QUERY_OUT_TYPE *supported);
 static herr_t H5_daos_optional(void *item, int op_type, hid_t dxpl_id,
     void **req, va_list arguments);
 
@@ -153,9 +153,12 @@ static int H5_daos_collective_error_check_comp_cb(tse_task_t *task, void *args);
 
 /* The DAOS VOL connector struct */
 static const H5VL_class_t H5_daos_g = {
-    HDF5_VOL_DAOS_VERSION_1,                 /* Plugin Version number */
+    H5VL_VERSION,                            /* VOL interface version number */
     H5_VOL_DAOS_CLS_VAL,                     /* Plugin Value */
     H5_DAOS_VOL_NAME,                        /* Plugin Name */
+#if H5VL_VERSION >= 1
+    HDF5_VOL_DAOS_VERSION_1,                 /* Plugin Version number */
+#endif
     H5VL_CAP_FLAG_NONE,                      /* Plugin capability flags */
     H5_daos_init,                            /* Plugin initialize */
     H5_daos_term,                            /* Plugin terminate */
@@ -2097,20 +2100,82 @@ done:
  */
 static herr_t
 H5_daos_opt_query(void *item, H5VL_subclass_t H5VL_DAOS_UNUSED cls,
-    int H5VL_DAOS_UNUSED opt_type, hbool_t *supported)
+    int opt_type, H5_DAOS_OPT_QUERY_OUT_TYPE *supported)
 {
     herr_t          ret_value = SUCCEED;
 
     if(!item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "\"item\" parameter not supplied");
     if(!supported)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "\"supported\" parameter not supplied");
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "output parameter not supplied");
 
     H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
 
-    /* This VOL connector currently supports no optional operations queried by
-     * this function */
-    *supported = FALSE;
+    /* Check operation type */
+    switch(opt_type) {
+        /* H5Mcreate/create_anon */
+        case H5VL_MAP_CREATE:
+        {
+            *supported = H5_DAOS_OPT_QUERY_SUPPORTED | H5_DAOS_OPT_QUERY_MODIFY_METADATA;
+            break;
+        } /* end block */
+
+        /* H5Mopen */
+        case H5VL_MAP_OPEN:
+        {
+            *supported = H5_DAOS_OPT_QUERY_SUPPORTED | H5_DAOS_OPT_QUERY_QUERY_METADATA;
+            break;
+        } /* end block */
+
+        /* H5Mget */
+        case H5VL_MAP_GET_VAL:
+        {
+            *supported = H5_DAOS_OPT_QUERY_SUPPORTED | H5_DAOS_OPT_QUERY_READ_DATA | H5_DAOS_OPT_QUERY_NO_ASYNC;
+            break;
+        } /* end block */
+
+        /* H5Mexists */
+        case H5VL_MAP_EXISTS:
+        {
+            *supported = H5_DAOS_OPT_QUERY_SUPPORTED | H5_DAOS_OPT_QUERY_READ_DATA | H5_DAOS_OPT_QUERY_NO_ASYNC;
+            break;
+        } /* end block */
+
+        /* H5Mput */
+        case H5VL_MAP_PUT:
+        {
+            *supported = H5_DAOS_OPT_QUERY_SUPPORTED | H5_DAOS_OPT_QUERY_READ_DATA | H5_DAOS_OPT_QUERY_NO_ASYNC;
+            break;
+        } /* end block */
+
+        /* Operations that get misc info from the map */
+        case H5VL_MAP_GET:
+        {
+            *supported = H5_DAOS_OPT_QUERY_SUPPORTED | H5_DAOS_OPT_QUERY_QUERY_METADATA | H5_DAOS_OPT_QUERY_NO_ASYNC;
+            break;
+        } /* end block */
+
+        /* Specific operations (H5Miterate and H5Mdelete) */
+        case H5VL_MAP_SPECIFIC:
+        {
+            *supported = H5_DAOS_OPT_QUERY_SUPPORTED | H5_DAOS_OPT_QUERY_QUERY_METADATA | H5_DAOS_OPT_QUERY_MODIFY_METADATA | H5_DAOS_OPT_QUERY_NO_ASYNC;
+            break;
+        } /* end block */
+
+        /* H5Mclose */
+        case H5VL_MAP_CLOSE:
+        {
+            *supported = H5_DAOS_OPT_QUERY_SUPPORTED;
+            break;
+        } /* end block */
+
+        default:
+        {
+            /* Not supported */
+            *supported = 0;
+            break;
+        } /* end block */
+    } /* end switch */
 
 done:
     D_FUNC_LEAVE_API;
@@ -3247,16 +3312,16 @@ H5_daos_tx_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 done:
     /* Make notify callback */
     if(req->notify_cb) {
-        H5ES_status_t req_status;
+        H5_DAOS_REQ_STATUS_OUT_TYPE req_status;
 
         /* Determine request status */
         if(ret_value >= 0 && (req->status == -H5_DAOS_INCOMPLETE
                 || req->status == -H5_DAOS_SHORT_CIRCUIT))
-            req_status = H5ES_STATUS_SUCCEED;
-        /*else if(req->status == -H5_DAOS_CANCELED)
-            req_status = H5ES_STATUS_CANCELED;*/ /* Cancel may have been removed */
+            req_status = H5_DAOS_REQ_STATUS_OUT_SUCCEED;
+        else if(req->status == -H5_DAOS_CANCELED)
+            req_status = H5_DAOS_REQ_STATUS_OUT_CANCELED;
         else
-            req_status = H5ES_STATUS_FAIL;
+            req_status = H5_DAOS_REQ_STATUS_OUT_FAIL;
 
         /* Make callback */
         if(req->notify_cb(req->notify_ctx, req_status) < 0)
@@ -3431,8 +3496,8 @@ done:
             /* Make notify callback */
             if(req->notify_cb)
                 if(req->notify_cb(req->notify_ctx, ret_value >= 0 && (req->status == -H5_DAOS_INCOMPLETE
-                        || req->status == -H5_DAOS_SHORT_CIRCUIT) ? H5ES_STATUS_SUCCEED
-                        : /*req->status == -H5_DAOS_CANCELED ? H5ES_STATUS_CANCELED :*/ H5ES_STATUS_FAIL) < 0)
+                        || req->status == -H5_DAOS_SHORT_CIRCUIT) ? H5_DAOS_REQ_STATUS_OUT_SUCCEED
+                        : req->status == -H5_DAOS_CANCELED ? H5_DAOS_REQ_STATUS_OUT_CANCELED : H5_DAOS_REQ_STATUS_OUT_FAIL) < 0)
                     D_DONE_ERROR(H5E_VOL, H5E_CANTOPERATE, -H5_DAOS_CALLBACK_ERROR, "notify callback returned failure");
 
             /* Clear H5_daos_collective_req_tail if it refers to this request */

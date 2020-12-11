@@ -3947,8 +3947,8 @@ done:
         } /* end if */
         else {
             /* Block until operation completes */
-            if(H5_daos_progress(int_req, H5_DAOS_PROGRESS_WAIT) < 0)
-                D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't progress scheduler");
+            if(H5_daos_task_wait(int_req->finalize_task, NULL) < 0)
+                D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't wait for request to finish");
 
             /* Check for failure */
             if(int_req->status < 0)

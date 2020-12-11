@@ -4917,9 +4917,7 @@ done:
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_task_wait
  *
- * Purpose:     Schedules *first_task and blocks until *dep_task
- *              completes.  On successful exit, *first_task and *dep_task
- *              will be set to NULL.
+ * Purpose:     Schedules first_task and blocks until *task completes.
  *
  * Return:      Success:    Non-negative.
  *
@@ -4928,7 +4926,7 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_task_wait(tse_task_t **first_task, tse_task_t **dep_task)
+H5_daos_task_wait(tse_task_t *task, tse_task_t *first_task)
 {
     int      completed;
     bool     is_empty = FALSE;
@@ -4938,62 +4936,52 @@ H5_daos_task_wait(tse_task_t **first_task, tse_task_t **dep_task)
     int      ret;
     herr_t   ret_value = SUCCEED;
 
-    assert(first_task);
-    assert(dep_task);
+    assert(task);
 
-    /* If no *dep_task, nothing to do */
-    if(*dep_task) {
-        assert(*first_task);
+    /* Create end task which will execute after task, and mark task_complete as
+     * TRUE */
+    if(0 != (ret = tse_task_create(H5_daos_task_wait_task, &H5_daos_glob_sched_g, &task_complete, &end_task)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create end task for task wait: %s", H5_daos_err_to_string(ret));
 
-        /* Create end task which will execute after *dep_task, and mark
-         * task_complete as TRUE */
-        if(0 != (ret = tse_task_create(H5_daos_task_wait_task, &H5_daos_glob_sched_g, &task_complete, &end_task)))
-            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create end task for task wait: %s", H5_daos_err_to_string(ret));
+    /* Register dependency for end task */
+    if(0 != (ret = tse_task_register_deps(end_task, 1, &task)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create dependencies for end task: %s", H5_daos_err_to_string(ret));
 
-        /* Register dependency for end task */
-        if(0 != (ret = tse_task_register_deps(end_task, 1, dep_task)))
-            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create dependencies for end task: %s", H5_daos_err_to_string(ret));
+    /* Schedule end task */
+    if(0 != (ret = tse_task_schedule(end_task, false)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't schedule end task for task wait: %s", H5_daos_err_to_string(ret));
 
-        /* Schedule end task */
-        if(0 != (ret = tse_task_schedule(end_task, false)))
-            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't schedule end task for task wait: %s", H5_daos_err_to_string(ret));
+    /* Schedule first task if present */
+    if(first_task && 0 != (ret = tse_task_schedule(first_task, false)))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't schedule first task: %s", H5_daos_err_to_string(ret));
 
-        /* Schedule first task */
-        if(0 != (ret = tse_task_schedule(*first_task, false)))
-            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't schedule first task: %s", H5_daos_err_to_string(ret));
-        *first_task = NULL;
-        *dep_task = NULL;
+    /* Loop until the task is compelte */
+    while(!task_complete) {
+        /* Progress MPI if there is a task in flight */
+        if(H5_daos_mpi_task_g) {
+            /* Check if task is complete */
+            if(MPI_SUCCESS != (ret = MPI_Test(&H5_daos_mpi_req_g, &completed, MPI_STATUS_IGNORE)))
+                D_DONE_ERROR(H5E_VOL, H5E_MPI, FAIL, "MPI_Test failed: %d", ret);
 
-        /* Loop until the task is compelte */
-        while(!task_complete) {
-            /* Progress MPI if there is a task in flight */
-            if(H5_daos_mpi_task_g) {
-                /* Check if task is complete */
-                if(MPI_SUCCESS != (ret = MPI_Test(&H5_daos_mpi_req_g, &completed, MPI_STATUS_IGNORE)))
-                    D_DONE_ERROR(H5E_VOL, H5E_MPI, FAIL, "MPI_Test failed: %d", ret);
-
-                /* Complete matching DAOS task if so */
-                if(ret_value < 0) {
-                    tmp_task = H5_daos_mpi_task_g;
-                    H5_daos_mpi_task_g = NULL;
-                    tse_task_complete(tmp_task, -H5_DAOS_MPI_ERROR);
-                } /* end if */
-                else if(completed) {
-                    tmp_task = H5_daos_mpi_task_g;
-                    H5_daos_mpi_task_g = NULL;
-                    tse_task_complete(tmp_task, 0);
-                } /* end if */
+            /* Complete matching DAOS task if so */
+            if(ret_value < 0) {
+                tmp_task = H5_daos_mpi_task_g;
+                H5_daos_mpi_task_g = NULL;
+                tse_task_complete(tmp_task, -H5_DAOS_MPI_ERROR);
             } /* end if */
+            else if(completed) {
+                tmp_task = H5_daos_mpi_task_g;
+                H5_daos_mpi_task_g = NULL;
+                tse_task_complete(tmp_task, 0);
+            } /* end if */
+        } /* end if */
 
-            /* Progress DAOS */
-            if((0 != (ret = daos_progress(&H5_daos_glob_sched_g,
-                    H5_DAOS_ASYNC_POLL_INTERVAL,  &is_empty)))
-                    && (ret != -DER_TIMEDOUT))
-                D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't progress scheduler: %s", H5_daos_err_to_string(ret));
-        } /* end while */
-    } /* end if */
-    else
-        assert(!*first_task);
+        /* Progress DAOS */
+        if((0 != (ret = daos_progress(&H5_daos_glob_sched_g,
+                H5_DAOS_ASYNC_POLL_INTERVAL,  &is_empty)))
+                && (ret != -DER_TIMEDOUT))
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't progress scheduler: %s", H5_daos_err_to_string(ret));
+    } /* end while */
 
 done:
     D_FUNC_LEAVE;

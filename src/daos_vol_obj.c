@@ -375,8 +375,8 @@ done:
         } /* end if */
         else {
             /* Block until operation completes */
-            if(H5_daos_progress(int_req, H5_DAOS_PROGRESS_WAIT) < 0)
-                D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, NULL, "can't progress scheduler");
+            if(H5_daos_task_wait(int_req->finalize_task, NULL) < 0)
+                D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, NULL, "can't wait for request to finish");
 
             /* Check for failure */
             if(int_req->status < 0)
@@ -1500,8 +1500,8 @@ done:
         } /* end if */
         else {
             /* Block until operation completes */
-            if(H5_daos_progress(int_req, H5_DAOS_PROGRESS_WAIT) < 0)
-                D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't progress scheduler");
+            if(H5_daos_task_wait(int_req->finalize_task, NULL) < 0)
+                D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't wait for request to finish");
 
             /* Check for failure */
             if(int_req->status < 0)
@@ -3075,8 +3075,8 @@ done:
             D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
 
         /* Block until operation completes */
-        if(H5_daos_progress(int_req, H5_DAOS_PROGRESS_WAIT) < 0)
-            D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't progress scheduler");
+        if(H5_daos_task_wait(int_req->finalize_task, NULL) < 0)
+            D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't wait for request to finish");
 
         /* Check for failure */
         if(int_req->status < 0)
@@ -3492,8 +3492,8 @@ done:
         } /* end if */
         else {
             /* Block until operation completes */
-            if(H5_daos_progress(int_req, H5_DAOS_PROGRESS_WAIT) < 0)
-                D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't progress scheduler");
+            if(H5_daos_task_wait(int_req->finalize_task, NULL) < 0)
+                D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't wait for request to finish");
 
             /* Check for failure */
             if(int_req->status < 0)

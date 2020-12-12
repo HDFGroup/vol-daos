@@ -313,14 +313,10 @@ do {                                                                           \
 /* Temporary macro to wait until an async chain is complete when async
  * code exists inside of synchronous code.
  */
-#define H5_DAOS_WAIT_ON_ASYNC_CHAIN(req, first_task, dep_task, err_maj, err_min, ret_value)           \
+#define H5_DAOS_WAIT_ON_ASYNC_CHAIN(req, first_task, dep_task, err_maj, err_min, ret_value)    \
 do {                                                                                                  \
-    if(dep_task) {                                                                                    \
-        if(H5_daos_task_wait(dep_task, first_task) < 0)                                         \
-            D_GOTO_ERROR(err_maj, err_min, ret_value, "can't progress scheduler");                    \
-        (first_task) = NULL;                                                                          \
-        (dep_task) = NULL;                                                                            \
-    } /* end if */                                                                                    \
+    if(H5_daos_task_wait(&(first_task), &(dep_task)) < 0)                                      \
+        D_GOTO_ERROR(err_maj, err_min, ret_value, "can't progress scheduler");                        \
     if(req->status < -H5_DAOS_SHORT_CIRCUIT)                                                          \
         D_GOTO_ERROR(err_maj, err_min, ret_value, "asynchronous task failed: %s",                     \
                 H5_daos_err_to_string(req->status));                                                  \
@@ -1359,8 +1355,8 @@ H5VL_DAOS_PRIVATE void H5_daos_op_pool_free(H5_daos_op_pool_t *op_pool);
 
 /* Generic asynchronous routines */
 H5VL_DAOS_PRIVATE herr_t H5_daos_progress(H5_daos_req_t *req, uint64_t timeout);
-H5VL_DAOS_PRIVATE herr_t H5_daos_task_wait(tse_task_t *task,
-    tse_task_t *first_task);
+H5VL_DAOS_PRIVATE herr_t H5_daos_task_wait(tse_task_t **first_task,
+    tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE int H5_daos_list_key_start(H5_daos_iter_ud_t *iter_udata,
     daos_opc_t opc, tse_task_cb_t comp_cb, tse_task_t **first_task,
     tse_task_t **dep_task);

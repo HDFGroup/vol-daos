@@ -628,6 +628,9 @@ H5_daos_req_enqueue(H5_daos_req_t *req, tse_task_t *first_task,
                 D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTALLOC, FAIL, "can't allocate operation pool struct");
             tmp_pool = tmp_new_pool_alloc;
 
+            /* Initialize ref count */
+            tmp_pool->rc = 1;
+
             /* Create start task */
             if(0 != (ret = tse_task_create(H5_daos_op_pool_start_task, &H5_daos_glob_sched_g, tmp_pool, &tmp_pool->start_task)))
                 D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't create start task for operation pool: %s", H5_daos_err_to_string(ret));
@@ -749,7 +752,6 @@ H5_daos_req_enqueue(H5_daos_req_t *req, tse_task_t *first_task,
                     if(*parent_cur_op_pool[i])
                         H5_daos_op_pool_free(*parent_cur_op_pool[i]);
                     *parent_cur_op_pool[i] = tmp_new_pool_alloc_2;
-                    tmp_new_pool_alloc_2->rc++;
                     tmp_new_pool_alloc_2 = NULL;
                 } /* end if */
 
@@ -841,7 +843,6 @@ H5_daos_req_enqueue(H5_daos_req_t *req, tse_task_t *first_task,
             if(*parent_cur_op_pool[0])
                 H5_daos_op_pool_free(*parent_cur_op_pool[0]);
             *parent_cur_op_pool[0] = tmp_pool;
-            tmp_pool->rc++;
             tmp_pool = NULL;
             tmp_new_pool_alloc = NULL;
         } /* end if */

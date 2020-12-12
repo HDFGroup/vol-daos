@@ -583,37 +583,37 @@ static void initialize_data()
     /* Allocate the memory for the dataset write and read */
     if(!hand.uniqueGroupPerRank) {
         if(!strcmp(hand.dset_dtype, "int")) {
-            wdata = (int *)malloc((hand.dset_dim1/mpi_size) * hand.dset_dim2 * sizeof(int));
-            rdata = (int *)malloc((hand.dset_dim1/mpi_size) * hand.dset_dim2 * sizeof(int));
+            wdata = (int *)malloc(((size_t)hand.dset_dim1/(size_t)mpi_size) * (size_t)hand.dset_dim2 * sizeof(int));
+            rdata = (int *)malloc(((size_t)hand.dset_dim1/(size_t)mpi_size) * (size_t)hand.dset_dim2 * sizeof(int));
         } else if(!strcmp(hand.dset_dtype, "char")) {
-            wdata_char = (char *)malloc((hand.dset_dim1/mpi_size) * hand.dset_dim2 * sizeof(char));
-            rdata_char = (char *)malloc((hand.dset_dim1/mpi_size) * hand.dset_dim2 * sizeof(char));
+            wdata_char = (char *)malloc(((size_t)hand.dset_dim1/(size_t)mpi_size) * (size_t)hand.dset_dim2 * sizeof(char));
+            rdata_char = (char *)malloc(((size_t)hand.dset_dim1/(size_t)mpi_size) * (size_t)hand.dset_dim2 * sizeof(char));
         } else if(!strcmp(hand.dset_dtype, "llong")) {
-            wdata_llong = (long long *)malloc((hand.dset_dim1/mpi_size) * hand.dset_dim2 * sizeof(long long));
-            rdata_llong = (long long *)malloc((hand.dset_dim1/mpi_size) * hand.dset_dim2 * sizeof(long long));
+            wdata_llong = (long long *)malloc(((size_t)hand.dset_dim1/(size_t)mpi_size) * (size_t)hand.dset_dim2 * sizeof(long long));
+            rdata_llong = (long long *)malloc(((size_t)hand.dset_dim1/(size_t)mpi_size) * (size_t)hand.dset_dim2 * sizeof(long long));
         } else if(!strcmp(hand.dset_dtype, "float")) {
-            wdata_float = (float *)malloc((hand.dset_dim1/mpi_size) * hand.dset_dim2 * sizeof(float));
-            rdata_float = (float *)malloc((hand.dset_dim1/mpi_size) * hand.dset_dim2 * sizeof(float));
+            wdata_float = (float *)malloc(((size_t)hand.dset_dim1/(size_t)mpi_size) * (size_t)hand.dset_dim2 * sizeof(float));
+            rdata_float = (float *)malloc(((size_t)hand.dset_dim1/(size_t)mpi_size) * (size_t)hand.dset_dim2 * sizeof(float));
         } else if(!strcmp(hand.dset_dtype, "double")) {
-            wdata_double = (double *)malloc((hand.dset_dim1/mpi_size) * hand.dset_dim2 * sizeof(double));
-            rdata_double = (double *)malloc((hand.dset_dim1/mpi_size) * hand.dset_dim2 * sizeof(double));
+            wdata_double = (double *)malloc(((size_t)hand.dset_dim1/(size_t)mpi_size) * (size_t)hand.dset_dim2 * sizeof(double));
+            rdata_double = (double *)malloc(((size_t)hand.dset_dim1/(size_t)mpi_size) * (size_t)hand.dset_dim2 * sizeof(double));
         } 
     } else {
         if(!strcmp(hand.dset_dtype, "int")) {
-            wdata = (int *)malloc(hand.dset_dim1 * hand.dset_dim2 * sizeof(int));
-            rdata = (int *)malloc(hand.dset_dim1 * hand.dset_dim2 * sizeof(int));
+            wdata = (int *)malloc((size_t)hand.dset_dim1 * (size_t)hand.dset_dim2 * sizeof(int));
+            rdata = (int *)malloc((size_t)hand.dset_dim1 * (size_t)hand.dset_dim2 * sizeof(int));
         } else if(!strcmp(hand.dset_dtype, "char")) {
-            wdata_char = (char *)malloc(hand.dset_dim1 * hand.dset_dim2 * sizeof(char));
-            rdata_char = (char *)malloc(hand.dset_dim1 * hand.dset_dim2 * sizeof(char));
+            wdata_char = (char *)malloc((size_t)hand.dset_dim1 * (size_t)hand.dset_dim2 * sizeof(char));
+            rdata_char = (char *)malloc((size_t)hand.dset_dim1 * (size_t)hand.dset_dim2 * sizeof(char));
         } else if(!strcmp(hand.dset_dtype, "llong")) {
-            wdata_llong = (long long *)malloc(hand.dset_dim1 * hand.dset_dim2 * sizeof(long long));
-            rdata_llong = (long long *)malloc(hand.dset_dim1 * hand.dset_dim2 * sizeof(long long));
+            wdata_llong = (long long *)malloc((size_t)hand.dset_dim1 * (size_t)hand.dset_dim2 * sizeof(long long));
+            rdata_llong = (long long *)malloc((size_t)hand.dset_dim1 * (size_t)hand.dset_dim2 * sizeof(long long));
         } else if(!strcmp(hand.dset_dtype, "float")) {
-            wdata_float = (float *)malloc(hand.dset_dim1 * hand.dset_dim2 * sizeof(float));
-            rdata_float = (float *)malloc(hand.dset_dim1 * hand.dset_dim2 * sizeof(float));
+            wdata_float = (float *)malloc((size_t)hand.dset_dim1 * (size_t)hand.dset_dim2 * sizeof(float));
+            rdata_float = (float *)malloc((size_t)hand.dset_dim1 * (size_t)hand.dset_dim2 * sizeof(float));
         } else if(!strcmp(hand.dset_dtype, "double")) {
-            wdata_double = (double *)malloc(hand.dset_dim1 * hand.dset_dim2 * sizeof(double));
-            rdata_double = (double *)malloc(hand.dset_dim1 * hand.dset_dim2 * sizeof(double));
+            wdata_double = (double *)malloc((size_t)hand.dset_dim1 * (size_t)hand.dset_dim2 * sizeof(double));
+            rdata_double = (double *)malloc((size_t)hand.dset_dim1 * (size_t)hand.dset_dim2 * sizeof(double));
         } 
     }
 
@@ -623,21 +623,21 @@ static void initialize_data()
             if(!strcmp(hand.dset_dtype, "int"))
                 *(wdata + i * hand.dset_dim2 + j) = i + j;
             else if(!strcmp(hand.dset_dtype, "char"))
-                *(wdata_char + i * hand.dset_dim2 + j) = (i + j) % 128;
+                *(wdata_char + i * hand.dset_dim2 + j) = (char)((i + j) % 128);
             else if(!strcmp(hand.dset_dtype, "llong"))
-                *(wdata_llong + i * hand.dset_dim2 + j) = (i + j);
+                *(wdata_llong + i * hand.dset_dim2 + j) = (long long)(i + j);
             else if(!strcmp(hand.dset_dtype, "float"))
-                *(wdata_float + i * hand.dset_dim2 + j) = (i + j);
+                *(wdata_float + i * hand.dset_dim2 + j) = (float)(i + j);
             else if(!strcmp(hand.dset_dtype, "double"))
-                *(wdata_double + i * hand.dset_dim2 + j) = (i + j);
+                *(wdata_double + i * hand.dset_dim2 + j) = (double)(i + j);
         }
     }
 
     /* Allocate the memory for the map entries */
     if(!strcmp(hand.map_dtype, "int")) {
-    	map_keys = (int *)malloc(hand.numbOfMapEntries * sizeof(int));
-    	map_vals = (int *)malloc(hand.numbOfMapEntries * sizeof(int));
-    	map_vals_out = (int *)malloc(hand.numbOfMapEntries * sizeof(int));
+    	map_keys = (int *)malloc((size_t)hand.numbOfMapEntries * sizeof(int));
+    	map_vals = (int *)malloc((size_t)hand.numbOfMapEntries * sizeof(int));
+    	map_vals_out = (int *)malloc((size_t)hand.numbOfMapEntries * sizeof(int));
 
         /* Generate random keys and values for the map */
         for(i = 0; i < hand.numbOfMapEntries; i++) {
@@ -647,25 +647,25 @@ static void initialize_data()
     } else if(!strcmp(hand.map_dtype, "vl")) {
         char key[NAME_LENGTH];
 
-    	vls_vl_keys = (char **)malloc(hand.numbOfMapEntries * sizeof(char *));
-        vls_vl_vals = (hvl_t *)malloc(hand.numbOfMapEntries * sizeof(hvl_t));
-        vls_vl_out = (hvl_t *)malloc(hand.numbOfMapEntries * sizeof(hvl_t));
+    	vls_vl_keys = (char **)malloc((size_t)hand.numbOfMapEntries * sizeof(char *));
+        vls_vl_vals = (hvl_t *)malloc((size_t)hand.numbOfMapEntries * sizeof(hvl_t));
+        vls_vl_out = (hvl_t *)malloc((size_t)hand.numbOfMapEntries * sizeof(hvl_t));
 
         /* Generate random keys and values for the map */
         for(i = 0; i < hand.numbOfMapEntries; i++) {
             sprintf(key, "map_vls_key_%d", i);
             vls_vl_keys[i] = strdup(key);
 
-            vls_vl_vals[i].p = malloc((i + 4)*sizeof(int));
-            vls_vl_vals[i].len = i + 4;
+            vls_vl_vals[i].p = malloc((size_t)(i + 4)*sizeof(int));
+            vls_vl_vals[i].len = (size_t)i + 4;
             for(j=0; j<(i + 4); j++)
                 ((int *)vls_vl_vals[i].p)[j] = rand();
         } /* end for */
     }
 
     /* Allocate the memory for the attribute write and read */
-    attr_write = (int *)malloc(hand.attr_dim * sizeof(int));
-    attr_read = (int *)malloc(hand.attr_dim * sizeof(int));
+    attr_write = (int *)malloc((size_t)hand.attr_dim * sizeof(int));
+    attr_read = (int *)malloc((size_t)hand.attr_dim * sizeof(int));
 
     /* Initialize the data for the attribute */
     for(i = 0; i < hand.attr_dim; i++) 
@@ -721,9 +721,9 @@ calculate_results()
     }
 
     if(hand.uniqueGroupPerRank) {
-        all_max_rate_buf = (double *)calloc(mpi_size, sizeof(double));
-        all_min_rate_buf = (double *)calloc(mpi_size, sizeof(double));
-        all_mean_rate_buf = (double *)calloc(mpi_size, sizeof(double));
+        all_max_rate_buf = (double *)calloc((size_t)mpi_size, sizeof(double));
+        all_min_rate_buf = (double *)calloc((size_t)mpi_size, sizeof(double));
+        all_mean_rate_buf = (double *)calloc((size_t)mpi_size, sizeof(double));
     }
 
     /* For independent I/O, gather the rate from all ranks and sum them up. */
@@ -747,9 +747,9 @@ calculate_results()
             results.avg_min_rate[i] = results.total_min_rate[i] / mpi_size;
             results.avg_mean_rate[i] = results.total_mean_rate[i] / mpi_size;
 
-            memset(all_max_rate_buf, 0, mpi_size * sizeof(double));
-            memset(all_min_rate_buf, 0, mpi_size * sizeof(double));
-            memset(all_mean_rate_buf, 0, mpi_size * sizeof(double));
+            memset(all_max_rate_buf, 0, (size_t)mpi_size * sizeof(double));
+            memset(all_min_rate_buf, 0, (size_t)mpi_size * sizeof(double));
+            memset(all_mean_rate_buf, 0, (size_t)mpi_size * sizeof(double));
         }
     }
 
@@ -932,8 +932,8 @@ static int create_ids()
     hsize_t     chunk_dims[DSET_RANK];				
     hsize_t     attr_dim[ATTR_RANK];
 
-    dimsf[0] = hand.dset_dim1;
-    dimsf[1] = hand.dset_dim2;
+    dimsf[0] = (hsize_t)hand.dset_dim1;
+    dimsf[1] = (hsize_t)hand.dset_dim2;
     if((file_dspace = H5Screate_simple(DSET_RANK, dimsf, NULL)) < 0) {
         H5_FAILED(); AT();
         printf("failed to create the data space\n");
@@ -949,9 +949,9 @@ static int create_ids()
         } 
 
         /* set up dimensions of the slab this process accesses */
-        start[0] = mpi_rank*dimsf[0]/mpi_size;
+        start[0] = (hsize_t)mpi_rank*dimsf[0]/(hsize_t)mpi_size;
         start[1] = 0;
-        count[0] = dimsf[0]/mpi_size;
+        count[0] = dimsf[0]/(hsize_t)mpi_size;
         count[1] = dimsf[1];
         stride[0] = 1;
         stride[1] =1;
@@ -977,8 +977,8 @@ static int create_ids()
     } 
 
     if(!strcmp(hand.dset_layout, "chunked")) {
-        chunk_dims[0] = hand.chunk_dim1;
-        chunk_dims[1] = hand.chunk_dim2;
+        chunk_dims[0] = (hsize_t)hand.chunk_dim1;
+        chunk_dims[1] = (hsize_t)hand.chunk_dim2;
 
         if(H5Pset_chunk(dcpl_id, DSET_RANK, chunk_dims) < 0) {
             H5_FAILED(); AT();
@@ -1040,7 +1040,7 @@ static int create_ids()
         goto error;
     }
 
-    attr_dim[0] = hand.attr_dim;
+    attr_dim[0] = (hsize_t)hand.attr_dim;
     if((attr_space = H5Screate_simple(ATTR_RANK, attr_dim, NULL)) < 0) {
         H5_FAILED(); AT();
         printf("failed to create memory space\n");

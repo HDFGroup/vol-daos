@@ -475,6 +475,8 @@ done:
                 finalize_ndeps = 1;
             } /* end if */
         } /* end if */
+        else
+            assert(finalize_ndeps > 0 || !dep_task);
 
         /* Create task to finalize H5 operation */
         if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))

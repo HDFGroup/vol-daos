@@ -1505,7 +1505,7 @@ done:
 
             /* Check for failure */
             if(int_req->status < 0)
-                D_DONE_ERROR(H5E_OBJECT, H5E_CANTOPERATE, FAIL, "link creation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status));
+                D_DONE_ERROR(H5E_OBJECT, H5E_CANTOPERATE, FAIL, "object copy failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status));
 
             /* Close internal request */
             if(H5_daos_req_free_int(int_req) < 0)
@@ -5508,7 +5508,7 @@ H5_daos_obj_write_rc_task(tse_task_t *task)
             D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for object ref count write task");
         punch_args->oh = (*udata->obj_p)->obj_oh;
         punch_args->th = udata->req->th;
-        punch_args->flags = DAOS_COND_PUNCH;
+        punch_args->flags = 0;
         punch_args->dkey = NULL;
         punch_args->akeys = NULL;
         punch_args->akey_nr = 0;

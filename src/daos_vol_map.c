@@ -419,14 +419,6 @@ H5_daos_map_create(void *_item,
             finalize_ndeps++;
         } /* end if */
     } /* end if */
-    else {
-        /* Only dep_task created, register it as the finalize dependency */
-        assert(finalize_ndeps == 0);
-        if(dep_task) {
-            finalize_deps[0] = dep_task;
-            finalize_ndeps = 1;
-        } /* end if */
-    } /* end else */
 
     /* Finish setting up map struct */
     if((map->key_type_id = H5Tcopy(ktype_id)) < 0)
@@ -473,6 +465,18 @@ done:
         if(collective && (item->file->num_procs > 1))
             if(H5_daos_collective_error_check(&map->obj, int_req, &first_task, &dep_task) < 0)
                 D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't perform collective error check");
+
+        /* Setting of dep_task delayed until after collective error check */
+        if(collective && (item->file->my_rank != 0)) {
+            /* Only dep_task created, register it as the finalize dependency */
+            assert(finalize_ndeps == 0);
+            if(dep_task) {
+                finalize_deps[0] = dep_task;
+                finalize_ndeps = 1;
+            } /* end if */
+        } /* end if */
+        else
+            assert(finalize_ndeps > 0 || !dep_task);
 
         /* Create task to finalize H5 operation */
         if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))

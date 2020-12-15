@@ -869,10 +869,14 @@ test_map_nonexistent_key(hid_t file_id, const char *map_name, hid_t key_dtype, h
             goto error;
         } /* end if */
 
-        /* Deleting a non-existent key should succeed but do nothing */
-        if(H5Mdelete(map_id, key_dtype, &non_existent_key, H5P_DEFAULT) < 0) {
+        /* Attempt to delete a non-existent key (should fail) */
+        H5E_BEGIN_TRY {
+            error = H5Mdelete(map_id, key_dtype, &non_existent_key, H5P_DEFAULT);
+        } H5E_END_TRY;
+
+        if(error >= 0) {
             H5_FAILED(); AT();
-            printf("failed with a non-existent key\n");
+            printf("deleted a non-existent key!\n");
             goto error;
         } /* end if */
 
@@ -923,10 +927,14 @@ test_map_nonexistent_key(hid_t file_id, const char *map_name, hid_t key_dtype, h
             goto error;
         } /* end if */
 
-        /* Deleting a non-existent key should succeed but do nothing */
-        if(H5Mdelete(map_id, key_dtype, &non_existent_key, H5P_DEFAULT) < 0) {
+        /* Attempt to delete a non-existent key (should fail) */
+        H5E_BEGIN_TRY {
+            error = H5Mdelete(map_id, key_dtype, &non_existent_key, H5P_DEFAULT);
+        } H5E_END_TRY;
+
+        if(error >= 0) {
             H5_FAILED(); AT();
-            printf("failed with a non-existent key\n");
+            printf("deleted a non-existent key!\n");
             goto error;
         } /* end if */
 
@@ -982,10 +990,14 @@ test_map_nonexistent_key(hid_t file_id, const char *map_name, hid_t key_dtype, h
             goto error;
         } /* end if */
 
-        /* Deleting a non-existent key should succeed but do nothing */
-        if(H5Mdelete(map_id, key_dtype, &non_existent_key, H5P_DEFAULT) < 0) {
+        /* Attempt to delete a non-existent key (should fail) */
+        H5E_BEGIN_TRY {
+            error = H5Mdelete(map_id, key_dtype, &non_existent_key, H5P_DEFAULT);
+        } H5E_END_TRY;
+
+        if(error >= 0) {
             H5_FAILED(); AT();
-            printf("failed with a non-existent key\n");
+            printf("deleted a non-existent key!\n");
             goto error;
         } /* end if */
 
@@ -1047,10 +1059,14 @@ test_map_nonexistent_key(hid_t file_id, const char *map_name, hid_t key_dtype, h
             goto error;
         } /* end if */
 
-        /* Deleting a non-existent key should succeed but do nothing */
-        if(H5Mdelete(map_id, key_dtype, &non_existent_key, H5P_DEFAULT) < 0) {
+        /* Attempt to delete a non-existent key (should fail) */
+        H5E_BEGIN_TRY {
+            error = H5Mdelete(map_id, key_dtype, &non_existent_key, H5P_DEFAULT);
+        } H5E_END_TRY;
+
+        if(error >= 0) {
             H5_FAILED(); AT();
-            printf("failed with a non-existent key\n");
+            printf("deleted a non-existent key!\n");
             goto error;
         } /* end if */
 
@@ -1107,10 +1123,14 @@ test_map_nonexistent_key(hid_t file_id, const char *map_name, hid_t key_dtype, h
             goto error;
         } /* end if */
 
-        /* Deleting a non-existent key should succeed but do nothing */
-        if(H5Mdelete(map_id, key_dtype, &non_existent_key, H5P_DEFAULT) < 0) {
+        /* Attempt to delete a non-existent key (should fail) */
+        H5E_BEGIN_TRY {
+            error = H5Mdelete(map_id, key_dtype, &non_existent_key, H5P_DEFAULT);
+        } H5E_END_TRY;
+
+        if(error >= 0) {
             H5_FAILED(); AT();
-            printf("failed with a non-existent key\n");
+            printf("deleted a non-existent key!\n");
             goto error;
         } /* end if */
 
@@ -1167,10 +1187,14 @@ test_map_nonexistent_key(hid_t file_id, const char *map_name, hid_t key_dtype, h
             goto error;
         } /* end if */
 
-        /* Deleting a non-existent key should succeed but do nothing */
-        if(H5Mdelete(map_id, key_dtype, &non_existent_key, H5P_DEFAULT) < 0) {
+        /* Attempt to delete a non-existent key (should fail) */
+        H5E_BEGIN_TRY {
+            error = H5Mdelete(map_id, key_dtype, &non_existent_key, H5P_DEFAULT);
+        } H5E_END_TRY;
+
+        if(error >= 0) {
             H5_FAILED(); AT();
-            printf("failed with a non-existent key\n");
+            printf("deleted a non-existent key!\n");
             goto error;
         } /* end if */
 
@@ -1243,10 +1267,14 @@ test_map_nonexistent_key(hid_t file_id, const char *map_name, hid_t key_dtype, h
             goto error;
         } /* end if */
 
-        /* Deleting a non-existent key should succeed but do nothing */
-        if(H5Mdelete(map_id, key_dtype, &non_existent_key, H5P_DEFAULT) < 0) {
+        /* Attempt to delete a non-existent key (should fail) */
+        H5E_BEGIN_TRY {
+            error = H5Mdelete(map_id, key_dtype, &non_existent_key, H5P_DEFAULT);
+        } H5E_END_TRY;
+
+        if(error >= 0) {
             H5_FAILED(); AT();
-            printf("failed with a non-existent key\n");
+            printf("deleted a non-existent key!\n");
             goto error;
         } /* end if */
 
@@ -1305,10 +1333,14 @@ test_map_nonexistent_key(hid_t file_id, const char *map_name, hid_t key_dtype, h
             goto error;
         } /* end if */
 
-        /* Deleting a non-existent key should succeed but do nothing */
-        if(H5Mdelete(map_id, key_dtype, &non_existent_key, H5P_DEFAULT) < 0) {
+        /* Attempt to delete a non-existent key (should fail) */
+        H5E_BEGIN_TRY {
+            error = H5Mdelete(map_id, key_dtype, &non_existent_key, H5P_DEFAULT);
+        } H5E_END_TRY;
+
+        if(error >= 0) {
             H5_FAILED(); AT();
-            printf("failed with a non-existent key\n");
+            printf("deleted a non-existent key!\n");
             goto error;
         } /* end if */
 
@@ -1372,10 +1404,14 @@ test_map_nonexistent_key(hid_t file_id, const char *map_name, hid_t key_dtype, h
             goto error;
         } /* end if */
 
-        /* Deleting a non-existent key should succeed but do nothing */
-        if(H5Mdelete(map_id, key_dtype, &non_existent_key, H5P_DEFAULT) < 0) {
+        /* Attempt to delete a non-existent key (should fail) */
+        H5E_BEGIN_TRY {
+            error = H5Mdelete(map_id, key_dtype, &non_existent_key, H5P_DEFAULT);
+        } H5E_END_TRY;
+
+        if(error >= 0) {
             H5_FAILED(); AT();
-            printf("failed with a non-existent key\n");
+            printf("deleted a non-existent key!\n");
             goto error;
         } /* end if */
 
@@ -1449,10 +1485,14 @@ test_map_nonexistent_key(hid_t file_id, const char *map_name, hid_t key_dtype, h
             goto error;
         } /* end if */
 
-        /* Deleting a non-existent key should succeed but do nothing */
-        if(H5Mdelete(map_id, key_dtype, &non_existent_key, H5P_DEFAULT) < 0) {
+        /* Attempt to delete a non-existent key (should fail) */
+        H5E_BEGIN_TRY {
+            error = H5Mdelete(map_id, key_dtype, &non_existent_key, H5P_DEFAULT);
+        } H5E_END_TRY;
+
+        if(error >= 0) {
             H5_FAILED(); AT();
-            printf("failed with a non-existent key\n");
+            printf("deleted a non-existent key!\n");
             goto error;
         } /* end if */
 

@@ -1832,7 +1832,7 @@ done:
 
             /* Check for failure */
             if(int_req->status < 0)
-                D_DONE_ERROR(H5E_SYM, H5E_CANTOPERATE, FAIL, "dataset specific operation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status));
+                D_DONE_ERROR(H5E_SYM, H5E_CANTOPERATE, FAIL, "group specific operation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status));
 
             /* Close internal request */
             if(H5_daos_req_free_int(int_req) < 0)

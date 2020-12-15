@@ -3529,12 +3529,10 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
     if(NULL == (int_req = H5_daos_req_create(dset->obj.item.file, req_dxpl_id)))
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't create DAOS request");
 
-    /* Check if we can call the internal routine directly - the dataset open
-     * must be complete and the request queue must either be NULL or have a type
-     * compatible with this operation and not be closed. */
-    if((dset->obj.item.open_req->status == 0) && (!dset->obj.item.cur_op_pool
-            || (dset->obj.item.cur_op_pool->type <= H5_DAOS_OP_TYPE_WRITE
-            && !dset->obj.item.cur_op_pool->closed))) {
+    /* Check if we can call the internal routine directly -  the dataset open
+     * must be complete and there must not be an in-flight set_extent. */
+    if((dset->obj.item.open_req->status == 0)
+            && (dset->cur_set_extent_space_id == H5I_INVALID_HID)) {
         /* Call internal routine */
         if(H5_daos_dataset_read_int(dset, mem_type_id, mem_space_id, file_space_id,
                 need_tconv, buf, NULL, int_req, &first_task, &dep_task) < 0)
@@ -3858,11 +3856,9 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
         D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, FAIL, "can't create DAOS request");
 
     /* Check if we can call the internal routine directly - the dataset open
-     * must be complete and the request queue must either be NULL or have a type
-     * compatible with this operation and not be closed. */
-    if((dset->obj.item.open_req->status == 0) && (!dset->obj.item.cur_op_pool
-            || (dset->obj.item.cur_op_pool->type <= H5_DAOS_OP_TYPE_WRITE
-            && !dset->obj.item.cur_op_pool->closed))) {
+     * must be complete and there must not be an in-flight set_extent. */
+    if((dset->obj.item.open_req->status == 0)
+            && (dset->cur_set_extent_space_id == H5I_INVALID_HID)) {
         /* Call internal routine */
         if(H5_daos_dataset_write_int(dset, mem_type_id, mem_space_id, file_space_id,
                 need_tconv, buf, NULL, int_req, &first_task, &dep_task) < 0)

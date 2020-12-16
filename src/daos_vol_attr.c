@@ -2730,7 +2730,7 @@ H5_daos_attribute_read_int(H5_daos_attr_t *attr, hid_t mem_type_id,
 done:
     /* Broadcast attribute data buffer if necessary */
     if(collective && attr && (attr->item.file->num_procs > 1)) {
-        if(H5_daos_mpi_ibcast(bcast_udata, NULL,
+        if(bcast_udata && H5_daos_mpi_ibcast(bcast_udata, NULL,
                 (size_t)bcast_udata->buffer_len, FALSE, NULL, H5_daos_attribute_read_bcast_comp_cb,
                 req, first_task, dep_task) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't broadcast attribute data buffer");

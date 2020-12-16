@@ -2011,45 +2011,81 @@ create_objects_in_tree_node(hid_t tree_node_gid)
         loc_id = tree_node_gid;
 
     /* Test group object. Test for link is also included */
-    if ((hand.testAllObjects || hand.testGroupOnly) && test_group(loc_id) < 0) {
-        H5_FAILED(); AT();
-        printf("    couldn't test group objects in the tree node\n");
-        goto error;
+    if (hand.testAllObjects || hand.testGroupOnly) {
+        if (MAINPROCESS) {
+            printf("\r%-80s", "** Performing Group operations **");
+        }
+
+        if (test_group(loc_id) < 0) {
+            H5_FAILED(); AT();
+            printf("    couldn't test group objects in the tree node\n");
+            goto error;
+        }
     }
 
     /* Test dataset object. */
-    if ((hand.testAllObjects || hand.testDsetOnly) && test_dataset(loc_id) < 0) {
-        H5_FAILED(); AT();
-        printf("    couldn't test dataset objects in the tree node\n");
-        goto error;
+    if (hand.testAllObjects || hand.testDsetOnly) {
+        if (MAINPROCESS) {
+            printf("\r%-80s", "** Performing Dataset operations **");
+        }
+
+        if (test_dataset(loc_id) < 0) {
+            H5_FAILED(); AT();
+            printf("    couldn't test dataset objects in the tree node\n");
+            goto error;
+        }
     }
 
     /* Test attribute object. */
-    if ((hand.testAllObjects || hand.testAttrOnly) && test_attribute(loc_id) < 0) {
-        H5_FAILED(); AT();
-        printf("    couldn't test attribute objects in the tree node\n");
-        goto error;
+    if (hand.testAllObjects || hand.testAttrOnly) {
+        if (MAINPROCESS) {
+            printf("\r%-80s", "** Performing Attribute operations **");
+        }
+
+        if (test_attribute(loc_id) < 0) {
+            H5_FAILED(); AT();
+            printf("    couldn't test attribute objects in the tree node\n");
+            goto error;
+        }
     }
 
     /* Test datatype object. */
-    if ((hand.testAllObjects || hand.testDtypeOnly) && test_datatype(loc_id) < 0) {
-        H5_FAILED(); AT();
-        printf("    couldn't test datatype objects in the tree node\n");
-        goto error;
+    if (hand.testAllObjects || hand.testDtypeOnly) {
+        if (MAINPROCESS) {
+            printf("\r%-80s", "** Performing Datatype operations **");
+        }
+
+        if (test_datatype(loc_id) < 0) {
+            H5_FAILED(); AT();
+            printf("    couldn't test datatype objects in the tree node\n");
+            goto error;
+        }
     }
 
     /* Test H5O API. */
-    if ((hand.testAllObjects || hand.testObjectOnly) && test_H5O(loc_id) < 0) {
-        H5_FAILED(); AT();
-        printf("    couldn't test H5O API in the tree node\n");
-        goto error;
+    if (hand.testAllObjects || hand.testObjectOnly) {
+        if (MAINPROCESS) {
+            printf("\r%-80s", "** Performing H5O operations **");
+        }
+
+        if (test_H5O(loc_id) < 0) {
+            H5_FAILED(); AT();
+            printf("    couldn't test H5O API in the tree node\n");
+            goto error;
+        }
     }
 
     /* Test map object.  Map object only works for H5VOL */
-    if (!hand.runMPIIO && (hand.testAllObjects || hand.testMapOnly) && test_map(loc_id) < 0) {
-        H5_FAILED(); AT();
-        printf("    couldn't test map objects in the tree node\n");
-        goto error;
+    if (!hand.runMPIIO && (hand.testAllObjects || hand.testMapOnly)) {
+        if (MAINPROCESS) {
+            printf("\r%-80s", "** Performing Map operations **");
+        }
+
+        if (test_map(loc_id) < 0) {
+            H5_FAILED(); AT();
+            printf("    couldn't test map objects in the tree node\n");
+            goto error;
+        }
     }
 
     /* Close the unique group per rank */
@@ -2059,6 +2095,10 @@ create_objects_in_tree_node(hid_t tree_node_gid)
             printf("failed to close the unique group per rank '%s'\n", unique_group_per_rank_name);
             goto error;
         }
+    }
+
+    if (MAINPROCESS) {
+        printf("\n");
     }
 
     return 0;
@@ -2228,6 +2268,10 @@ static int create_trees(hid_t file) {
 
         tree_order = (unsigned)i;
 
+        if (MAINPROCESS) {
+            printf("Creating tree root %d\n", i);
+        }
+
         /* Create the group as the tree root */
         if ((tree_root_id = H5Gcreate2(file, tree_root_name, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT)) < 0) {
             H5_FAILED(); AT();
@@ -2325,6 +2369,10 @@ main( int argc, char** argv )
             goto error;
         }
 
+        if (MAINPROCESS) {
+            puts("** Creating object trees **");
+        }
+
         /* Create trees */
         if(create_trees(file_id) < 0) {
             nerrors++;
@@ -2344,6 +2392,10 @@ main( int argc, char** argv )
                 nerrors++;
                 goto error;
             }
+        }
+
+        if (MAINPROCESS) {
+            printf("\r%-80s", "** Performing File operations **");
         }
 
         /* File operations */

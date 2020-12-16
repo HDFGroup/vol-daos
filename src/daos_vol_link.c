@@ -496,7 +496,6 @@ H5_daos_link_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         tse_task_t *read_task;
 
         assert(udata->md_rw_cb_ud.req->file);
-        assert(!udata->md_rw_cb_ud.req->file->closed);
         assert(udata->md_rw_cb_ud.obj->item.type == H5I_GROUP);
 
         /* Verify iod size makes sense */
@@ -546,7 +545,6 @@ H5_daos_link_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         } /* end if */
         else if(task->dt_result == 0) {
             assert(udata->md_rw_cb_ud.req->file);
-            assert(!udata->md_rw_cb_ud.req->file->closed);
             assert(udata->md_rw_cb_ud.obj->item.type == H5I_GROUP);
 
             if(udata->md_rw_cb_ud.iod[0].iod_size == (uint64_t)0) {
@@ -810,7 +808,6 @@ H5_daos_link_read_ln_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     assert(udata->md_rw_cb_ud.obj);
     assert(udata->md_rw_cb_ud.req->file);
-    assert(!udata->md_rw_cb_ud.req->file->closed);
 
     /* Check type of target_obj */
     if(udata->md_rw_cb_ud.obj->item.type != H5I_GROUP)
@@ -1401,7 +1398,6 @@ H5_daos_link_write_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     assert(udata->md_rw_cb_ud.obj);
     assert(udata->md_rw_cb_ud.req->file);
-    assert(!udata->md_rw_cb_ud.req->file->closed);
     assert(udata->link_val_buf);
 
     /* If this is a hard link, encoding of the OID into
@@ -1480,7 +1476,6 @@ H5_daos_link_write_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     } /* end if */
     else {
         assert(udata->md_rw_cb_ud.req->file);
-        assert(!udata->md_rw_cb_ud.req->file->closed);
         assert(udata->md_rw_cb_ud.obj->item.type == H5I_GROUP);
     } /* end else */
 
@@ -1822,7 +1817,6 @@ H5_daos_link_write_corder_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for link creation order info writing task");
 
-    assert(!udata->md_rw_cb_ud.req->file->closed || task->dt_result != 0);
     assert(udata->link_write_ud);
 
     /* Handle errors in update task.  Only record error in udata->req_status if
@@ -4256,7 +4250,6 @@ H5_daos_link_exists_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     assert(udata->target_obj);
     assert(udata->req->file);
-    assert(!udata->req->file->closed);
 
     /* Set update task arguments */
     if(NULL == (rw_args = daos_task_get_args(task))) {
@@ -4309,8 +4302,6 @@ H5_daos_link_exists_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         udata->req->failed_task = "link exists fetch";
     } /* end if */
     else if(task->dt_result == 0) {
-        assert(!udata->req->file->closed);
-
         /* Set output */
         assert(udata->exists);
         *udata->exists = (udata->iod.iod_size != 0);
@@ -6289,8 +6280,6 @@ H5_daos_link_delete_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         udata->req->status = task->dt_result;
         udata->req->failed_task = "link deletion task";
     } /* end if */
-    else
-        assert(!udata->req->file->closed);
 
 done:
     if(udata) {
@@ -6579,7 +6568,6 @@ H5_daos_link_delete_corder_unl_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *
     } /* end if */
 
     assert(udata->req->file);
-    assert(!udata->req->file->closed);
     assert(udata->target_grp);
 
     /* Decrement number of links to account for removed link */

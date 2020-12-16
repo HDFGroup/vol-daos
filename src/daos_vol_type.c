@@ -1350,7 +1350,6 @@ H5_daos_datatype_open_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *arg
     else if(task->dt_result == 0) {
         assert(udata->obj);
         assert(udata->obj->item.file);
-        assert(!udata->obj->item.file->closed);
         assert(udata->obj->item.file->my_rank == 0);
         assert(udata->obj->item.type == H5I_DATATYPE);
 
@@ -1455,7 +1454,6 @@ H5_daos_datatype_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args
 
         assert(udata->obj);
         assert(udata->obj->item.file);
-        assert(!udata->req->file->closed);
         assert(udata->obj->item.file->my_rank > 0);
         assert(udata->obj->item.type == H5I_DATATYPE);
 
@@ -1630,7 +1628,6 @@ H5_daos_tinfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
         assert(udata->md_rw_cb_ud.req->file);
         assert(udata->md_rw_cb_ud.obj);
-        assert(!udata->md_rw_cb_ud.req->file->closed);
         assert(udata->md_rw_cb_ud.obj->item.type == H5I_DATATYPE);
 
         /* Verify iod size makes sense */
@@ -2025,8 +2022,7 @@ H5_daos_datatype_close(void *_dtype, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
     if(!_dtype)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "datatype object is NULL");
 
-    if(!dtype->obj.item.file->closed)
-        H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
+    H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
 
     /* Check if the datatype's request queue is empty, if so we can close it
      * immediately.  Cannot immediately close with an empty op pool since it may

@@ -1130,6 +1130,9 @@ test_group(hid_t loc_id)
 #endif
     }
 
+    if(!hand.uniqueGroupPerRank)
+        MPI_Barrier(MPI_COMM_WORLD);
+
     /* Group info */
     for (i = 0; i < hand.numbOfObjs; i++) {
         sprintf(gname, "group_object_%d", i + 1);
@@ -1151,6 +1154,9 @@ test_group(hid_t loc_id)
 #endif
     }
 
+    if(!hand.uniqueGroupPerRank)
+        MPI_Barrier(MPI_COMM_WORLD);
+
     /* Link traversal */
     {
         op_data = 0;
@@ -1170,6 +1176,9 @@ test_group(hid_t loc_id)
         printf("Link iterate time: %lf, mpi_rank=%d\n", time, mpi_rank);
 #endif
     }
+
+    if(!hand.uniqueGroupPerRank)
+        MPI_Barrier(MPI_COMM_WORLD);
 
     /* Link existence and group open */
     for (i = 0; i < hand.numbOfObjs; i++) {
@@ -1214,6 +1223,9 @@ test_group(hid_t loc_id)
         }
     }
 
+    if(!hand.uniqueGroupPerRank)
+        MPI_Barrier(MPI_COMM_WORLD);
+
     /* Group removal */
     for (i = 0; i < hand.numbOfObjs; i++) {
         sprintf(gname, "group_object_%d", i + 1);
@@ -1233,6 +1245,9 @@ test_group(hid_t loc_id)
         printf("Group removal time: %lf, mpi_rank=%d\n", time, mpi_rank);
 #endif
     }
+
+    if(!hand.uniqueGroupPerRank)
+        MPI_Barrier(MPI_COMM_WORLD);
 
     return 0;
 
@@ -1368,6 +1383,9 @@ test_dataset(hid_t loc_id)
 #endif
     }
 
+    if(!hand.uniqueGroupPerRank)
+        MPI_Barrier(MPI_COMM_WORLD);
+
     /*  Dataset open */
     for (i = 0; i < hand.numbOfObjs; i++) {
         sprintf(dset_name, "dset_object_%d", i + 1);
@@ -1482,6 +1500,9 @@ test_dataset(hid_t loc_id)
         op_time[DSET_OPENREADCLOSE_NUM][tree_order] += time;
     }
 
+    if(!hand.uniqueGroupPerRank)
+        MPI_Barrier(MPI_COMM_WORLD);
+
     /* Dataset info */
     for (i = 0; i < hand.numbOfObjs; i++) {
         sprintf(dset_name, "dset_object_%d", i + 1);
@@ -1503,6 +1524,9 @@ test_dataset(hid_t loc_id)
 #endif
     }
 
+    if(!hand.uniqueGroupPerRank)
+        MPI_Barrier(MPI_COMM_WORLD);
+
     /* Dataset removal */
     for (i = 0; i < hand.numbOfObjs; i++) {
         sprintf(dset_name, "dset_object_%d", i + 1);
@@ -1522,6 +1546,9 @@ test_dataset(hid_t loc_id)
         printf("Dset removal time: %lf, mpi_rank=%d\n", time, mpi_rank);
 #endif
     }
+
+    if(!hand.uniqueGroupPerRank)
+        MPI_Barrier(MPI_COMM_WORLD);
 
     return 0;
 
@@ -1589,6 +1616,9 @@ test_attribute(hid_t loc_id)
 #endif
     }
 
+    if(!hand.uniqueGroupPerRank)
+        MPI_Barrier(MPI_COMM_WORLD);
+
     /* Attribute open */
     for (i = 0; i < hand.numbOfObjs; i++) {
         sprintf(attr_name, "attribute_object_%d", i + 1);
@@ -1632,6 +1662,9 @@ test_attribute(hid_t loc_id)
         } 
     }
 
+    if(!hand.uniqueGroupPerRank)
+        MPI_Barrier(MPI_COMM_WORLD);
+
     /* Attribute removal */
     for (i = 0; i < hand.numbOfObjs; i++) {
         sprintf(attr_name, "attribute_object_%d", i + 1);
@@ -1651,6 +1684,9 @@ test_attribute(hid_t loc_id)
         printf("Attr removal time: %lf, mpi_rank=%d\n", time, mpi_rank);
 #endif
     }
+
+    if(!hand.uniqueGroupPerRank)
+        MPI_Barrier(MPI_COMM_WORLD);
 
     return 0;
 
@@ -1708,6 +1744,9 @@ test_datatype(hid_t loc_id)
 #endif
     }
 
+    if(!hand.uniqueGroupPerRank)
+        MPI_Barrier(MPI_COMM_WORLD);
+
     /* Datatype open */
     for (i = 0; i < hand.numbOfObjs; i++) {
         sprintf(dtype_name, "dtype_object_%d", i + 1);
@@ -1733,6 +1772,9 @@ test_datatype(hid_t loc_id)
             goto error;
         } 
     }
+
+    if(!hand.uniqueGroupPerRank)
+        MPI_Barrier(MPI_COMM_WORLD);
 
     return 0;
 
@@ -1784,6 +1826,9 @@ test_H5O(hid_t loc_id)
         }
     }
 
+    if(!hand.uniqueGroupPerRank)
+        MPI_Barrier(MPI_COMM_WORLD);
+
     /* Object open for groups */
     for (i = 0; i < hand.numbOfObjs; i++) {
         sprintf(gname, "H5O_group_object_%d", i + 1);
@@ -1804,6 +1849,9 @@ test_H5O(hid_t loc_id)
         printf("H5Oopen group time: %lf, mpi_rank=%d\n", time, mpi_rank);
 #endif
     }
+
+    if(!hand.uniqueGroupPerRank)
+        MPI_Barrier(MPI_COMM_WORLD);
 
     /* Object copy for groups */
     for (i = 0; i < hand.numbOfObjs; i++) {
@@ -1826,6 +1874,9 @@ test_H5O(hid_t loc_id)
 #endif
     }
 
+    if(!hand.uniqueGroupPerRank)
+        MPI_Barrier(MPI_COMM_WORLD);
+
     return 0;
 
 error:
@@ -1840,151 +1891,160 @@ test_map(hid_t loc_id)
     int i, j;
     double start, end, time;
 
-        /* Map creation and put */
-        for (i = 0; i < hand.numbOfObjs; i++) {
-            sprintf(map_name, "map_object_%d", i + 1);
+    /* Map creation and put */
+    for (i = 0; i < hand.numbOfObjs; i++) {
+        sprintf(map_name, "map_object_%d", i + 1);
+        start = MPI_Wtime();
+
+        if(!strcmp(hand.map_dtype, "int")) {
+            if((map_id = H5Mcreate(loc_id, map_name, H5T_NATIVE_INT, H5T_NATIVE_INT, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT)) < 0) {
+                H5_FAILED(); AT();
+                printf("failed to create map object '%s'\n", map_name);
+                goto error;
+            }
+        } else if(!strcmp(hand.map_dtype, "vl")) {
+            if((map_id = H5Mcreate(loc_id, map_name, map_vl_key_dtype_id, map_vl_value_dtype_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT)) < 0) {
+                H5_FAILED(); AT();
+                printf("failed to create map object '%s'\n", map_name);
+                goto error;
+            }
+        }
+
+        end = MPI_Wtime();
+        time = end - start;
+        op_time[MAP_CREATE_NUM][tree_order] += time;
+
+#ifdef DEBUG
+        printf("Map creation time: %lf, mpi_rank=%d\n", time, mpi_rank);
+#endif
+
+        if(!hand.noMapEntry) {
             start = MPI_Wtime();
 
             if(!strcmp(hand.map_dtype, "int")) {
-                if((map_id = H5Mcreate(loc_id, map_name, H5T_NATIVE_INT, H5T_NATIVE_INT, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT)) < 0) {
-                    H5_FAILED(); AT();
-                    printf("failed to create map object '%s'\n", map_name);
-                    goto error;
-                }
+                for(j = 0; j < hand.numbOfMapEntries; j++)
+                    if(H5Mput(map_id, H5T_NATIVE_INT, &map_keys[j], H5T_NATIVE_INT, &map_vals[j], H5P_DEFAULT) < 0) {
+                        H5_FAILED(); AT();
+                        printf("failed to set key-value pair\n");
+                        goto error;
+                    } /* end if */
             } else if(!strcmp(hand.map_dtype, "vl")) {
-                if((map_id = H5Mcreate(loc_id, map_name, map_vl_key_dtype_id, map_vl_value_dtype_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT)) < 0) {
-                    H5_FAILED(); AT();
-                    printf("failed to create map object '%s'\n", map_name);
-                    goto error;
-                }
+                for(j = 0; j < hand.numbOfMapEntries; j++)
+                    if(H5Mput(map_id, map_vl_key_dtype_id, &vls_vl_keys[j], map_vl_value_dtype_id, &vls_vl_vals[j], H5P_DEFAULT) < 0) {
+                        H5_FAILED(); AT();
+                        printf("failed to set key-value pair\n");
+                        goto error;
+                    } /* end if */
             }
 
             end = MPI_Wtime();
             time = end - start;
-            op_time[MAP_CREATE_NUM][tree_order] += time;
+            op_time[MAP_PUT_NUM][tree_order] += time;
 
 #ifdef DEBUG
-            printf("Map creation time: %lf, mpi_rank=%d\n", time, mpi_rank);
-#endif
-
-            if(!hand.noMapEntry) {
-                start = MPI_Wtime();
-
-                if(!strcmp(hand.map_dtype, "int")) {
-                    for(j = 0; j < hand.numbOfMapEntries; j++)
-                        if(H5Mput(map_id, H5T_NATIVE_INT, &map_keys[j], H5T_NATIVE_INT, &map_vals[j], H5P_DEFAULT) < 0) {
-                            H5_FAILED(); AT();
-                            printf("failed to set key-value pair\n");
-                            goto error;
-                        } /* end if */
-                } else if(!strcmp(hand.map_dtype, "vl")) {
-                    for(j = 0; j < hand.numbOfMapEntries; j++)
-                        if(H5Mput(map_id, map_vl_key_dtype_id, &vls_vl_keys[j], map_vl_value_dtype_id, &vls_vl_vals[j], H5P_DEFAULT) < 0) {
-                            H5_FAILED(); AT();
-                            printf("failed to set key-value pair\n");
-                            goto error;
-                        } /* end if */
-                }
-
-                end = MPI_Wtime();
-                time = end - start;
-                op_time[MAP_PUT_NUM][tree_order] += time;
-
-#ifdef DEBUG
-                printf("Map put time: %lf, mpi_rank=%d\n", time, mpi_rank);
-#endif
-            }
-
-            start = MPI_Wtime();
-
-            if(H5Mclose(map_id) < 0) {
-                H5_FAILED(); AT();
-                printf("failed to close the map\n");
-                goto error;
-            } 
-
-            end = MPI_Wtime();
-            time = end - start;
-            op_time[MAP_CLOSE_NUM][tree_order] += time;
-
-#ifdef DEBUG
-            printf("Map close time: %lf, mpi_rank=%d\n", time, mpi_rank);
+            printf("Map put time: %lf, mpi_rank=%d\n", time, mpi_rank);
 #endif
         }
 
-        /* Map open and get */
-        for (i = 0; i < hand.numbOfObjs; i++) {
-            sprintf(map_name, "map_object_%d", i + 1);
+        start = MPI_Wtime();
+
+        if(H5Mclose(map_id) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to close the map\n");
+            goto error;
+        }
+
+        end = MPI_Wtime();
+        time = end - start;
+        op_time[MAP_CLOSE_NUM][tree_order] += time;
+
+#ifdef DEBUG
+        printf("Map close time: %lf, mpi_rank=%d\n", time, mpi_rank);
+#endif
+    }
+
+    if(!hand.uniqueGroupPerRank)
+        MPI_Barrier(MPI_COMM_WORLD);
+
+    /* Map open and get */
+    for (i = 0; i < hand.numbOfObjs; i++) {
+        sprintf(map_name, "map_object_%d", i + 1);
+        start = MPI_Wtime();
+
+        if ((map_id = H5Mopen(loc_id, map_name, H5P_DEFAULT)) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to open map object '%s'\n", map_name);
+            goto error;
+        }
+
+        end = MPI_Wtime();
+        time = end - start;
+        op_time[MAP_OPEN_NUM][tree_order] += time;
+
+#ifdef DEBUG
+        printf("Map open time: %lf, mpi_rank=%d\n", time, mpi_rank);
+#endif
+
+        if(!hand.noMapEntry) {
             start = MPI_Wtime();
 
-            if ((map_id = H5Mopen(loc_id, map_name, H5P_DEFAULT)) < 0) {
-                H5_FAILED(); AT();
-                printf("failed to open map object '%s'\n", map_name);
-                goto error;
+            if(!strcmp(hand.map_dtype, "int")) {
+                for(j = 0; j < hand.numbOfMapEntries; j++)
+                    if(H5Mget(map_id, H5T_NATIVE_INT, &map_keys[j], H5T_NATIVE_INT, &map_vals_out[j], H5P_DEFAULT) < 0) {
+                        H5_FAILED(); AT();
+                        printf("failed to get key-value pair %d for the map: %s\n", j, map_name);
+                        goto error;
+                    } /* end if */
+            } else if(!strcmp(hand.map_dtype, "vl")) {
+                for(j = 0; j < hand.numbOfMapEntries; j++)
+                    if(H5Mget(map_id, map_vl_key_dtype_id, &vls_vl_keys[j], map_vl_value_dtype_id, &vls_vl_out[j], H5P_DEFAULT) < 0) {
+                        H5_FAILED(); AT();
+                        printf("failed to get key-value pair %d for the map: %s\n", j, map_name);
+                        goto error;
+                    } /* end if */
             }
 
             end = MPI_Wtime();
             time = end - start;
-            op_time[MAP_OPEN_NUM][tree_order] += time;
+            op_time[MAP_GET_NUM][tree_order] += time;
 
 #ifdef DEBUG
-            printf("Map open time: %lf, mpi_rank=%d\n", time, mpi_rank);
-#endif
-
-            if(!hand.noMapEntry) {
-                start = MPI_Wtime();
-
-                if(!strcmp(hand.map_dtype, "int")) {
-                    for(j = 0; j < hand.numbOfMapEntries; j++)
-                        if(H5Mget(map_id, H5T_NATIVE_INT, &map_keys[j], H5T_NATIVE_INT, &map_vals_out[j], H5P_DEFAULT) < 0) {
-                            H5_FAILED(); AT();
-                            printf("failed to get %dth key-value pair for the map: %s\n", i, map_name);
-                            goto error;
-                        } /* end if */
-                } else if(!strcmp(hand.map_dtype, "vl")) {
-                    for(j = 0; j < hand.numbOfMapEntries; j++)
-                        if(H5Mget(map_id, map_vl_key_dtype_id, &vls_vl_keys[j], map_vl_value_dtype_id, &vls_vl_out[j], H5P_DEFAULT) < 0) {
-                            H5_FAILED(); AT();
-                            printf("failed to get %dth key-value pair for the map: %s\n", i, map_name);
-                            goto error;
-                        } /* end if */
-                }
-
-                end = MPI_Wtime();
-                time = end - start;
-                op_time[MAP_GET_NUM][tree_order] += time;
-
-#ifdef DEBUG
-                printf("Map get time: %lf, mpi_rank=%d\n", time, mpi_rank);
-#endif
-            }
-
-            if(H5Mclose(map_id) < 0) {
-                H5_FAILED(); AT();
-                printf("failed to close the map\n");
-                goto error;
-            } 
-        }
-
-        /* Map removal */
-        for (i = 0; i < hand.numbOfObjs; i++) {
-            sprintf(map_name, "map_object_%d", i + 1);
-
-            start = MPI_Wtime();
-            if (H5Ldelete(loc_id, map_name, H5P_DEFAULT) < 0) { 
-                H5_FAILED(); AT();
-                printf("failed to remove the map '%s'\n", map_name);
-                goto error;
-            }
-
-            end = MPI_Wtime();
-            time = end - start;
-            op_time[MAP_REMOVE_NUM][tree_order] += time;
-
-#ifdef DEBUG
-            printf("Map removal time: %lf, mpi_rank=%d\n", time, mpi_rank);
+            printf("Map get time: %lf, mpi_rank=%d\n", time, mpi_rank);
 #endif
         }
+
+        if(H5Mclose(map_id) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to close the map\n");
+            goto error;
+        }
+    }
+
+    if(!hand.uniqueGroupPerRank)
+        MPI_Barrier(MPI_COMM_WORLD);
+
+    /* Map removal */
+    for (i = 0; i < hand.numbOfObjs; i++) {
+        sprintf(map_name, "map_object_%d", i + 1);
+
+        start = MPI_Wtime();
+        if (H5Ldelete(loc_id, map_name, H5P_DEFAULT) < 0) {
+            H5_FAILED(); AT();
+            printf("failed to remove the map '%s'\n", map_name);
+            goto error;
+        }
+
+        end = MPI_Wtime();
+        time = end - start;
+        op_time[MAP_REMOVE_NUM][tree_order] += time;
+
+#ifdef DEBUG
+        printf("Map removal time: %lf, mpi_rank=%d\n", time, mpi_rank);
+#endif
+    }
+
+    if(!hand.uniqueGroupPerRank)
+        MPI_Barrier(MPI_COMM_WORLD);
 
     return 0;
 

@@ -2529,7 +2529,6 @@ H5_daos_oidx_generate_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for OIDX generation task");
 
     assert(udata->file);
-    assert(!udata->file->closed);
 
     /* Handle errors in OIDX generation task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if
@@ -2561,7 +2560,8 @@ H5_daos_oidx_generate_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 done:
     if(udata) {
         /* Release our reference on the file */
-        H5_daos_file_decref(udata->file);
+        if(H5_daos_file_close_helper(udata->file) < 0)
+            D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, FAIL, "can't close file");
 
         /* Handle errors in this function */
         /* Do not place any code that can issue errors after this block, except for
@@ -2777,6 +2777,10 @@ H5_daos_oidx_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
 done:
     if(udata) {
+        /* Release our reference on the file */
+        if(H5_daos_file_close_helper(udata->file) < 0)
+            D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, FAIL, "can't close file");
+
         /* Handle errors in this function */
         /* Do not place any code that can issue errors after this block, except
          * for H5_daos_req_free_int, which updates req->status if it sees an
@@ -2786,11 +2790,9 @@ done:
             udata->bcast_udata.req->failed_task = "MPI_Ibcast next object index completion callback";
         } /* end if */
 
-        H5_daos_file_decref(udata->file);
-
         /* Release our reference to req */
         if(H5_daos_req_free_int(udata->bcast_udata.req) < 0)
-            D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+            D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
 
         /* Free private data */
         DV_free(udata);
@@ -2922,7 +2924,9 @@ done:
             if(H5Idec_ref(udata->crt_plist_id) < 0)
                 D_DONE_ERROR(H5E_PLIST, H5E_CANTDEC, -H5_DAOS_H5_CLOSE_ERROR, "can't decrement ref. count on creation plist");
 
-        H5_daos_file_decref(udata->file);
+        /* Release our reference on the file */
+        if(H5_daos_file_close_helper(udata->file) < 0)
+            D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, FAIL, "can't close file");
 
         /* Handle errors in this function */
         /* Do not place any code that can issue errors after this block, except for
@@ -3685,7 +3689,6 @@ H5_daos_md_rw_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     assert(udata->obj);
     assert(udata->obj->item.file);
-    assert(!udata->obj->item.file->closed);
 
     /* Set update task arguments */
     if(NULL == (update_args = daos_task_get_args(task))) {
@@ -3730,7 +3733,6 @@ H5_daos_md_update_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for metadata I/O task");
-    assert(!udata->req->file->closed || task->dt_result != 0);
 
     /* Handle errors in update task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if
@@ -3843,7 +3845,6 @@ H5_daos_mpi_ibarrier_task(tse_task_t *task)
 
     assert(req);
     assert(req->file);
-    assert(!req->file->closed);
 
     /* Make call to MPI_Ibarrier */
     if(MPI_SUCCESS != MPI_Ibarrier(req->file->comm, &H5_daos_mpi_req_g))
@@ -3959,7 +3960,6 @@ H5_daos_list_key_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     assert(udata->target_obj);
     assert(udata->iter_data->req->file);
-    assert(!udata->iter_data->req->file->closed);
 
     /* Set oh argument */
     if(NULL == (list_args = daos_task_get_args(task))) {
@@ -4651,7 +4651,6 @@ H5_daos_collective_error_check_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for MPI broadcast task");
 
     assert(udata->req);
-    assert(!udata->req->file->closed || udata->req->status < -H5_DAOS_SHORT_CIRCUIT);
     assert(udata->req->file->my_rank == 0);
     assert(udata->buffer);
     assert(udata->buffer_len == sizeof(udata->req->status));

@@ -501,7 +501,6 @@ typedef struct H5_daos_file_t {
     uuid_t uuid;
     uuid_t puuid;
     unsigned flags;
-    hbool_t closed;
     daos_handle_t glob_md_oh;
     daos_obj_id_t glob_md_oid;
     struct H5_daos_group_t *root_grp;
@@ -1055,7 +1054,7 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_file_close(void *_file, hid_t dxpl_id, void **r
 /* Other file routines */
 H5VL_DAOS_PRIVATE herr_t H5_daos_file_flush(H5_daos_file_t *file,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
-H5VL_DAOS_PRIVATE void H5_daos_file_decref(H5_daos_file_t *file);
+H5VL_DAOS_PRIVATE herr_t H5_daos_file_close_helper(H5_daos_file_t *file);
 
 /* Link callbacks */
 H5VL_DAOS_PRIVATE herr_t H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,

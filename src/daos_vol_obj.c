@@ -4874,7 +4874,6 @@ H5_daos_get_num_attrs_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     assert(udata->md_rw_cb_ud.obj);
     assert(udata->md_rw_cb_ud.req->file);
-    assert(!udata->md_rw_cb_ud.req->file->closed);
 
     /* Set update task arguments */
     if(NULL == (fetch_args = daos_task_get_args(task)))
@@ -4917,8 +4916,6 @@ H5_daos_get_num_attrs_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for attribute count fetch task");
-
-    assert(!udata->md_rw_cb_ud.req->file->closed || task->dt_result != 0);
 
     /* Handle errors in fetch task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if
@@ -5108,7 +5105,6 @@ H5_daos_object_update_num_attrs_key_prep_cb(tse_task_t *task, void H5VL_DAOS_UNU
 
     assert(udata->update_ud.obj);
     assert(udata->update_ud.req->file);
-    assert(!udata->update_ud.req->file->closed);
 
     /* Encode new value into buffer */
     p = udata->nattrs_new_buf;
@@ -5155,8 +5151,6 @@ H5_daos_object_update_num_attrs_key_comp_cb(tse_task_t *task, void H5VL_DAOS_UNU
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for object attribute number tracking akey update task");
-
-    assert(!udata->update_ud.req->file->closed || task->dt_result != 0);
 
     /* Handle errors in update task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if
@@ -5236,7 +5230,6 @@ H5_daos_obj_read_rc_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     assert(udata->obj_p);
     assert(udata->req->file);
-    assert(!udata->req->file->closed);
 
     /* Set update task arguments */
     if(NULL == (rw_args = daos_task_get_args(task))) {
@@ -5298,7 +5291,6 @@ H5_daos_obj_read_rc_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for metadata I/O task");
-    assert(!udata->req->file->closed || task->dt_result != 0);
 
     /* Handle errors in fetch task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if
@@ -5464,7 +5456,6 @@ H5_daos_obj_write_rc_task(tse_task_t *task)
 
     assert(udata->req);
     assert(udata->req->file);
-    assert(!udata->req->file->closed);
     assert(task == udata->op_task);
 
     /* Assign req convenience pointer and take a refernce to it */
@@ -5635,7 +5626,6 @@ H5_daos_obj_write_rc_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for metadata I/O task");
-    assert(!udata->req->file->closed || task->dt_result != 0);
 
     /* Handle errors in update task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if

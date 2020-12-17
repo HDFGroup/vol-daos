@@ -299,7 +299,6 @@ H5_daos_fill_val_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     else if(task->dt_result == 0) {
         assert(udata->obj);
         assert(udata->obj->item.file);
-        assert(!udata->obj->item.file->closed);
         assert(udata->obj->item.type == H5I_DATASET);
     } /* end if */
 
@@ -1256,7 +1255,6 @@ H5_daos_dset_open_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     else if(task->dt_result == 0) {
         assert(udata->obj);
         assert(udata->obj->item.file);
-        assert(!udata->obj->item.file->closed);
         assert(udata->obj->item.file->my_rank == 0);
         assert(udata->obj->item.type == H5I_DATASET);
 
@@ -1366,7 +1364,6 @@ H5_daos_dset_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
         assert(udata->obj);
         assert(udata->obj->item.file);
-        assert(!udata->obj->item.file->closed);
         assert(udata->obj->item.file->my_rank > 0);
         assert(udata->obj->item.type == H5I_DATASET);
 
@@ -1502,7 +1499,6 @@ H5_daos_dinfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
         assert(udata->md_rw_cb_ud.req->file);
         assert(udata->md_rw_cb_ud.obj);
-        assert(!udata->md_rw_cb_ud.req->file->closed);
         assert(udata->md_rw_cb_ud.obj->item.type == H5I_DATASET);
 
         /* Verify iod size makes sense */
@@ -1593,7 +1589,6 @@ H5_daos_dinfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
             assert(udata->md_rw_cb_ud.req->file);
             assert(udata->md_rw_cb_ud.obj);
-            assert(!udata->md_rw_cb_ud.req->file->closed);
             assert(udata->md_rw_cb_ud.obj->item.type == H5I_DATASET);
 
             /* Check for missing metadata */
@@ -2299,7 +2294,6 @@ H5_daos_chunk_io_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     assert(udata->dset);
     assert(udata->req->file);
-    assert(!udata->req->file->closed);
 
     /* Set I/O task arguments */
     if(NULL == (update_args = daos_task_get_args(task))) {
@@ -2345,7 +2339,6 @@ H5_daos_chunk_io_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     assert(udata->req);
     assert(udata->dset);
     assert(udata->req->file);
-    assert(!udata->req->file->closed || task->dt_result != 0);
 
     /* Handle errors in update task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if
@@ -2610,8 +2603,6 @@ H5_daos_chunk_io_tconv_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
     } /* end if */
 
-    assert(!udata->req->file->closed);
-
     /* If writing, gather the write buffer data to the type conversion buffer */
     if(udata->tconv.io_type == IO_WRITE) {
         /* Gather data to conversion buffer */
@@ -2672,7 +2663,6 @@ H5_daos_chunk_io_tconv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     assert(udata->req);
     assert(udata->req->file);
-    assert(!udata->req->file->closed || task->dt_result != 0);
     assert(udata->dset);
 
     /* Handle errors in update task.  Only record error in udata->req_status if
@@ -2780,8 +2770,6 @@ H5_daos_chunk_fill_bkg_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
     } /* end if */
 
-    assert(!udata->req->file->closed);
-
     /* Set sg_iov to point to background buffer */
     daos_iov_set(&udata->sg_iov, udata->tconv.bkg_buf,
             (daos_size_t)udata->tconv.num_elem * (daos_size_t)udata->tconv.file_type_size);
@@ -2831,7 +2819,6 @@ H5_daos_chunk_fill_bkg_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     assert(udata);
     assert(udata->req);
     assert(udata->req->file);
-    assert(!udata->req->file->closed || task->dt_result != 0);
 
     /* Handle errors in update task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if
@@ -4745,8 +4732,7 @@ H5_daos_dataset_close(void *_dset, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
     if(!_dset)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "dataset object is NULL");
 
-    if(!dset->obj.item.file->closed)
-        H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
+    H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
 
     /* Check if the dataset's request queue is NULL, if so we can close it
      * immediately.  Cannot immediately close with an empty op pool since it may
@@ -4920,7 +4906,6 @@ H5_daos_dataset_refresh_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         size_t daos_info_len = udata->md_rw_cb_ud.iod[0].iod_size;
 
         assert(udata->md_rw_cb_ud.req->file);
-        assert(!udata->md_rw_cb_ud.req->file->closed);
         assert(udata->md_rw_cb_ud.obj);
         assert(udata->md_rw_cb_ud.obj->item.type == H5I_DATASET);
 
@@ -4988,7 +4973,6 @@ H5_daos_dataset_refresh_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
             hid_t decoded_space;
 
             assert(udata->md_rw_cb_ud.req->file);
-            assert(!udata->md_rw_cb_ud.req->file->closed);
             assert(udata->md_rw_cb_ud.obj);
             assert(udata->md_rw_cb_ud.obj->item.type == H5I_DATASET);
 
@@ -5204,7 +5188,6 @@ H5_daos_dset_set_extent_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for metadata I/O task");
-    assert(!udata->md_rw_cb_ud.req->file->closed || task->dt_result != 0);
 
     /* Clear cached new space ID on dataset */
     if(((H5_daos_dset_t *)udata->md_rw_cb_ud.obj)->cur_set_extent_space_id

@@ -424,7 +424,6 @@ H5_daos_attribute_md_rw_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     } /* end if */
 
     assert(udata->fetch_ud.md_rw_cb_ud.req->file);
-    assert(!udata->fetch_ud.md_rw_cb_ud.req->file->closed);
 
     /* Now that the attribute's parent object will have been opened,
      * set the target object for the metadata I/O operation.
@@ -966,7 +965,6 @@ H5_daos_attribute_create_helper_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED 
     assert(udata->attr);
     assert(udata->attr->parent);
     assert(udata->attr->parent->item.file);
-    assert(!udata->attr->parent->item.file->closed);
 
     /* Set update task arguments */
     if(NULL == (update_args = daos_task_get_args(task))) {
@@ -1008,8 +1006,6 @@ H5_daos_attribute_create_helper_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED 
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for metadata I/O task");
-
-    assert(!udata->req->file->closed || task->dt_result != 0);
 
     /* Handle errors in update task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if
@@ -1200,7 +1196,6 @@ H5_daos_attribute_create_get_crt_order_info_prep_cb(tse_task_t *task,
     assert(udata->attr);
     assert(udata->attr->parent);
     assert(udata->attr->parent->item.file);
-    assert(!udata->attr->parent->item.file->closed);
 
     /* Check if creation order is actually tracked */
     if(udata->attr->parent->ocpl_cache.track_acorder) {
@@ -1250,8 +1245,6 @@ H5_daos_attribute_create_get_crt_order_info_comp_cb(tse_task_t *task,
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for metadata I/O task");
-
-    assert(!udata->req->file->closed || task->dt_result != 0);
 
     /* Handle errors in fetch task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if
@@ -1930,7 +1923,6 @@ H5_daos_attribute_open_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *ar
         assert(udata->bcast_ud.obj);
         assert(udata->attr);
         assert(udata->bcast_ud.obj->item.file);
-        assert(!udata->bcast_ud.obj->item.file->closed);
         assert(udata->bcast_ud.obj->item.file->my_rank == 0);
 
         /* Reissue bcast if necesary */
@@ -2036,7 +2028,6 @@ H5_daos_attribute_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *arg
         assert(udata->attr);
         assert(udata->attr->parent);
         assert(udata->attr->parent->item.file);
-        assert(!udata->attr->parent->item.file->closed);
         assert(udata->attr->parent->item.file->my_rank > 0);
 
         /* Decode serialized info lengths */
@@ -2202,7 +2193,6 @@ H5_daos_ainfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     assert(udata->fetch_ud.md_rw_cb_ud.req);
     assert(udata->fetch_ud.fetch_metatask);
     assert(udata->fetch_ud.md_rw_cb_ud.req->file || task->dt_result != 0);
-    assert(!udata->fetch_ud.md_rw_cb_ud.req->file->closed || task->dt_result != 0);
 
     /* Check for buffer not large enough */
     if(task->dt_result == -DER_REC2BIG) {
@@ -2998,7 +2988,6 @@ H5_daos_attribute_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     assert(udata->md_rw_cb_ud.req);
     assert(udata->md_rw_cb_ud.req->file || task->dt_result != 0);
-    assert(!udata->md_rw_cb_ud.req->file->closed || task->dt_result != 0);
     assert(udata->attr);
 
     /* Handle errors in fetch task.  Only record error in udata->req_status if
@@ -3155,7 +3144,6 @@ H5_daos_attr_read_tconv(tse_task_t *task)
 
     assert(udata->md_rw_cb_ud.req);
     assert(udata->md_rw_cb_ud.req->file);
-    assert(!udata->md_rw_cb_ud.req->file->closed);
     assert(udata->collective);
     assert(udata->need_tconv);
 
@@ -3671,7 +3659,6 @@ H5_daos_attribute_read_bkg_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args
 
     assert(udata->md_rw_cb_ud.req);
     assert(udata->md_rw_cb_ud.req->file || task->dt_result != 0);
-    assert(!udata->md_rw_cb_ud.req->file->closed || task->dt_result != 0);
     assert(udata->attr);
     assert(udata->need_tconv);
 
@@ -3734,7 +3721,6 @@ H5_daos_attribute_write_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     assert(udata->md_rw_cb_ud.req);
     assert(udata->md_rw_cb_ud.req->file || task->dt_result != 0);
-    assert(!udata->md_rw_cb_ud.req->file->closed || task->dt_result != 0);
     assert(udata->attr);
 
     /* Handle errors in update task.  Only record error in udata->req_status if
@@ -4301,8 +4287,7 @@ H5_daos_attribute_close(void *_attr, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
     if(!_attr)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "attribute object is NULL");
 
-    if(!attr->item.file->closed)
-        H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
+    H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
 
     /* Check if the attribute's request queue is empty, if so we can close it
      * immediately.  Also close if it is marked to close nonblocking. */
@@ -4975,8 +4960,6 @@ H5_daos_attribute_delete_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for attribute deletion task");
 
-    assert(!udata->req->file->closed || task->dt_result != 0);
-
     /* Handle errors in deletion task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if
      * another task this task is not dependent on also failed). */
@@ -5545,7 +5528,6 @@ H5_daos_attr_exists_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     assert(udata->bcast_ud.obj);
     assert(udata->bcast_ud.req->file);
-    assert(!udata->bcast_ud.req->file->closed);
 
     /* Set update task arguments */
     if(NULL == (rw_args = daos_task_get_args(task)))
@@ -5713,7 +5695,6 @@ H5_daos_attr_exists_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         assert(udata->bcast_ud.buffer);
         assert(udata->bcast_ud.obj);
         assert(udata->bcast_ud.obj->item.file);
-        assert(!udata->bcast_ud.obj->item.file->closed);
 
         attr_exists = *((htri_t *)udata->bcast_ud.buffer);
 
@@ -5986,7 +5967,6 @@ H5_daos_attribute_iterate_by_name_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSE
     assert(udata->attr_container_obj);
     assert(udata->u.name_order_data.md_rw_cb_ud.obj);
     assert(udata->req->file);
-    assert(!udata->req->file->closed);
 
     /* Determine if short-circuit success was returned in previous tasks */
     if(udata->iter_data.op_ret > 0)
@@ -6060,7 +6040,6 @@ H5_daos_attribute_iterate_by_name_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSE
     assert(udata->req->file || (task->dt_result != 0 && task->dt_result != -DER_KEY2BIG));
     assert(udata->u.name_order_data.md_rw_cb_ud.obj || (task->dt_result != 0 && task->dt_result != -DER_KEY2BIG));
     assert(udata->iterate_metatask);
-    assert(!udata->req->file->closed || (task->dt_result != 0 && task->dt_result != -DER_KEY2BIG));
 
     /* Check for buffer not large enough */
     if(task->dt_result == -DER_KEY2BIG) {
@@ -7200,7 +7179,6 @@ H5_daos_attribute_get_name_by_crt_order_prep_cb(tse_task_t *task, void H5VL_DAOS
 
     assert(udata->u.by_crt_order_data.md_rw_cb_ud.obj);
     assert(udata->u.by_crt_order_data.md_rw_cb_ud.req->file);
-    assert(!udata->u.by_crt_order_data.md_rw_cb_ud.req->file->closed);
 
     /* Ensure the index is within range */
     if(udata->idx >= (uint64_t)udata->obj_nattrs)
@@ -7266,8 +7244,6 @@ H5_daos_attribute_get_name_by_crt_order_comp_cb(tse_task_t *task, void H5VL_DAOS
         udata->u.by_crt_order_data.md_rw_cb_ud.req->failed_task = udata->u.by_crt_order_data.md_rw_cb_ud.task_name;
     } /* end if */
     else if(task->dt_result == 0) {
-        assert(!udata->u.by_crt_order_data.md_rw_cb_ud.req->file->closed);
-
         /* Check for missing metadata */
         if(udata->u.by_crt_order_data.md_rw_cb_ud.iod[0].iod_size == (daos_size_t)0)
             D_GOTO_ERROR(H5E_ATTR, H5E_NOTFOUND, -H5_DAOS_H5_GET_ERROR, "attribute name record not found");

@@ -239,8 +239,8 @@ H5_daos_req_free_int(H5_daos_req_t *req)
                 } /* end if */
                 D_DONE_ERROR(H5E_DAOS_ASYNC, H5E_CLOSEERROR, FAIL, "can't close data transfer property list");
             } /* end if */
-        if(req->file)
-            H5_daos_file_decref(req->file);
+        if(req->file && H5_daos_file_close_helper(req->file) < 0)
+            D_DONE_ERROR(H5E_DAOS_ASYNC, H5E_CLOSEERROR, FAIL, "can't close file");
         DV_free(req);
     } /* end if */
 

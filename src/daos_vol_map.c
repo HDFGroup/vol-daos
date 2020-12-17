@@ -1097,7 +1097,6 @@ H5_daos_map_open_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     else if(task->dt_result == 0) {
         assert(udata->obj);
         assert(udata->obj->item.file);
-        assert(!udata->obj->item.file->closed);
         assert(udata->obj->item.file->my_rank == 0);
         assert(udata->obj->item.type == H5I_MAP);
 
@@ -1203,7 +1202,6 @@ H5_daos_map_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
         assert(udata->obj);
         assert(udata->obj->item.file);
-        assert(!udata->req->file->closed);
         assert(udata->obj->item.file->my_rank > 0);
         assert(udata->obj->item.type == H5I_MAP);
 
@@ -1425,7 +1423,6 @@ H5_daos_minfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
         assert(udata->md_rw_cb_ud.req->file);
         assert(udata->md_rw_cb_ud.obj);
-        assert(!udata->md_rw_cb_ud.req->file->closed);
         assert(udata->md_rw_cb_ud.obj->item.type == H5I_MAP);
 
         /* Verify iod size makes sense */
@@ -1503,7 +1500,6 @@ H5_daos_minfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
             assert(udata->md_rw_cb_ud.req->file);
             assert(udata->md_rw_cb_ud.obj);
-            assert(!udata->md_rw_cb_ud.req->file->closed);
             assert(udata->md_rw_cb_ud.obj->item.type == H5I_MAP);
 
             /* Check for missing metadata */
@@ -2200,7 +2196,6 @@ H5_daos_map_get_val_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     assert(udata->md_rw_cb_ud.req);
     assert(udata->md_rw_cb_ud.req->file);
-    assert(!udata->md_rw_cb_ud.req->file->closed);
 
     /* Handle errors in fetch task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if
@@ -2527,7 +2522,6 @@ H5_daos_map_put_fill_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     assert(udata->md_rw_cb_ud.req);
     assert(udata->md_rw_cb_ud.req->file);
-    assert(!udata->md_rw_cb_ud.req->file->closed);
 
     /* Handle errors in fetch task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if
@@ -2610,7 +2604,6 @@ H5_daos_map_put_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     assert(udata->md_rw_cb_ud.req);
     assert(udata->md_rw_cb_ud.req->file);
-    assert(!udata->md_rw_cb_ud.req->file->closed);
 
     /* Close map */
     if(udata->md_rw_cb_ud.obj &&
@@ -2819,7 +2812,6 @@ H5_daos_map_exists_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     assert(udata->md_rw_cb_ud.obj);
     assert(udata->md_rw_cb_ud.req->file);
-    assert(!udata->md_rw_cb_ud.req->file->closed);
 
     /* Set fetch task arguments */
     if(NULL == (rw_args = daos_task_get_args(task)))
@@ -2874,7 +2866,6 @@ H5_daos_map_exists_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     } /* end if */
     else if(task->dt_result == 0) {
         assert(udata->md_rw_cb_ud.req->file);
-        assert(!udata->md_rw_cb_ud.req->file->closed);
 
         /* Set output */
         *udata->exists_ret = (udata->md_rw_cb_ud.iod[0].iod_size != 0);
@@ -4000,8 +3991,6 @@ H5_daos_map_delete_key_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for map key deletion task");
 
-    assert(!udata->req->file->closed || task->dt_result != 0);
-
     /* Handle errors in deletion task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if
      * another task this task is not dependent on also failed). */
@@ -4127,8 +4116,7 @@ H5_daos_map_close(void *_map, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
     if(!_map)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map object is NULL");
 
-    if(!map->obj.item.file->closed)
-        H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
+    H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
 
     /* Check if the map's request queue is empty, if so we can close it
      * immediately.  Cannot immediately close with an empty op pool since it may

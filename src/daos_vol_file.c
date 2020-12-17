@@ -120,7 +120,6 @@ static int H5_daos_cont_destroy_comp_cb(tse_task_t *task, void *args);
 
 static herr_t H5_daos_fill_fapl_cache(H5_daos_file_t *file, hid_t fapl_id);
 static herr_t H5_daos_fill_enc_plist_cache(H5_daos_file_t *file, hid_t fapl_id);
-static herr_t H5_daos_file_close_helper(H5_daos_file_t *file);
 static herr_t H5_daos_get_obj_count_callback(hid_t id, void *udata);
 static herr_t H5_daos_get_obj_ids_callback(hid_t id, void *udata);
 
@@ -443,7 +442,6 @@ H5_daos_handles_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     assert(udata->req);
     assert(udata->req->file);
-    assert(!udata->req->file->closed);
 
     /* Handle errors in bcast task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if
@@ -1394,7 +1392,6 @@ H5_daos_cont_create_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     } /* end if */
 
     assert(udata->req->file);
-    assert(!udata->req->file->closed);
     assert(udata->poh);
 
     /* Set daos_cont_create task args */
@@ -2156,7 +2153,6 @@ H5_daos_cont_open_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     } /* end if */
 
     assert(udata->req->file);
-    assert(!udata->req->file->closed);
     assert(udata->poh);
 
     /* Set file's UUID if necessary */
@@ -3178,35 +3174,6 @@ done:
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_file_decref
- *
- * Purpose:     Decrements the reference count on an HDF5/DAOS file,
- *              freeing it if the ref count reaches 0.
- *
- * Return:      Success:        the file id. 
- *              Failure:        NULL
- *
- * Programmer:  Neil Fortner
- *              January, 2019
- *
- *-------------------------------------------------------------------------
- */
-void
-H5_daos_file_decref(H5_daos_file_t *file)
-{
-    assert(file);
-
-    if(--file->item.rc == 0) {
-        /* Free file data structure */
-        assert(file->closed);
-        H5FL_FREE(H5_daos_file_t, file);
-    } /* end if */
-
-    return;
-} /* end H5_daos_file_decref() */
-
-
-/*-------------------------------------------------------------------------
  * Function:    H5_daos_file_close_helper
  *
  * Purpose:     Closes a daos HDF5 file.
@@ -3219,7 +3186,7 @@ H5_daos_file_decref(H5_daos_file_t *file)
  *
  *-------------------------------------------------------------------------
  */
-static herr_t
+herr_t
 H5_daos_file_close_helper(H5_daos_file_t *file)
 {
     int ret;
@@ -3227,52 +3194,53 @@ H5_daos_file_close_helper(H5_daos_file_t *file)
 
     assert(file && (H5I_FILE == file->item.type));
 
-    /* Free file data structures */
-    if(file->item.cur_op_pool) {
-        if(0 != (ret = H5_daos_op_pool_finish(file->item.cur_op_pool)))
-            D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, FAIL, "can't finish operation pool: %s", H5_daos_err_to_string(ret));
-        H5_daos_op_pool_free(file->item.cur_op_pool);
+    /* Decrement rc */
+    if(--file->item.rc == 0) {
+        /* Free file data structures */
+        if(file->item.cur_op_pool) {
+            if(0 != (ret = H5_daos_op_pool_finish(file->item.cur_op_pool)))
+                D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, FAIL, "can't finish operation pool: %s", H5_daos_err_to_string(ret));
+            H5_daos_op_pool_free(file->item.cur_op_pool);
+        } /* end if */
+        assert(file->item.open_req == NULL);
+        if(file->file_name)
+            file->file_name = DV_free(file->file_name);
+        if(file->def_plist_cache.plist_buffer)
+            file->def_plist_cache.plist_buffer = DV_free(file->def_plist_cache.plist_buffer);
+        if(file->comm || file->info)
+            if(H5_daos_comm_info_free(&file->comm, &file->info) < 0)
+                D_DONE_ERROR(H5E_INTERNAL, H5E_CANTFREE, FAIL, "failed to free copy of MPI communicator and info");
+        if(file->fapl_id != H5I_INVALID_HID && file->fapl_id != H5P_FILE_ACCESS_DEFAULT)
+            if(H5Idec_ref(file->fapl_id) < 0)
+                D_DONE_ERROR(H5E_SYM, H5E_CANTDEC, FAIL, "failed to close fapl");
+        if(!daos_handle_is_inval(file->glob_md_oh))
+            if(0 != (ret = daos_obj_close(file->glob_md_oh, NULL /*event*/)))
+                D_DONE_ERROR(H5E_FILE, H5E_CANTCLOSEFILE, FAIL, "can't close global metadata object: %s", H5_daos_err_to_string(ret));
+        if(file->root_grp)
+            if(H5_daos_group_close_real(file->root_grp) < 0)
+                D_DONE_ERROR(H5E_FILE, H5E_CANTCLOSEFILE, FAIL, "can't close root group");
+        if(!daos_handle_is_inval(file->coh))
+            if(0 != (ret = daos_cont_close(file->coh, NULL /*event*/)))
+                D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, FAIL, "can't close container: %s", H5_daos_err_to_string(ret));
+        if(!daos_handle_is_inval(file->container_poh)) {
+            if(0 != (ret = daos_pool_disconnect(file->container_poh, NULL)))
+                D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, FAIL, "can't disconnect from container's pool: %s", H5_daos_err_to_string(ret));
+            file->container_poh = DAOS_HDL_INVAL;
+        }
+        if(file->vol_id >= 0) {
+            if(H5VLfree_connector_info(file->vol_id, file->vol_info) < 0)
+                D_DONE_ERROR(H5E_FILE, H5E_CANTFREE, FAIL, "can't free VOL connector info");
+            if(H5Idec_ref(file->vol_id) < 0)
+                D_DONE_ERROR(H5E_FILE, H5E_CANTDEC, FAIL, "can't decrement VOL connector ID");
+        } /* end if */
+        H5FL_FREE(H5_daos_file_t, file);
     } /* end if */
-    if(file->item.open_req)
+    else if(file->item.rc == 1 && file->item.open_req) {
+        /* Only the open request holds a reference, free it */
         if(H5_daos_req_free_int(file->item.open_req) < 0)
             D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, FAIL, "can't free request");
-    file->item.open_req = NULL;
-    if(file->file_name)
-        file->file_name = DV_free(file->file_name);
-    if(file->def_plist_cache.plist_buffer)
-        file->def_plist_cache.plist_buffer = DV_free(file->def_plist_cache.plist_buffer);
-    if(file->comm || file->info)
-        if(H5_daos_comm_info_free(&file->comm, &file->info) < 0)
-            D_DONE_ERROR(H5E_INTERNAL, H5E_CANTFREE, FAIL, "failed to free copy of MPI communicator and info");
-    if(file->fapl_id != H5I_INVALID_HID && file->fapl_id != H5P_FILE_ACCESS_DEFAULT)
-        if(H5Idec_ref(file->fapl_id) < 0)
-            D_DONE_ERROR(H5E_SYM, H5E_CANTDEC, FAIL, "failed to close fapl");
-    if(!daos_handle_is_inval(file->glob_md_oh))
-        if(0 != (ret = daos_obj_close(file->glob_md_oh, NULL /*event*/)))
-            D_DONE_ERROR(H5E_FILE, H5E_CANTCLOSEFILE, FAIL, "can't close global metadata object: %s", H5_daos_err_to_string(ret));
-    if(file->root_grp)
-        if(H5_daos_group_close_real(file->root_grp) < 0)
-            D_DONE_ERROR(H5E_FILE, H5E_CANTCLOSEFILE, FAIL, "can't close root group");
-    if(!daos_handle_is_inval(file->coh))
-        if(0 != (ret = daos_cont_close(file->coh, NULL /*event*/)))
-            D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, FAIL, "can't close container: %s", H5_daos_err_to_string(ret));
-    if(!daos_handle_is_inval(file->container_poh)) {
-        if(0 != (ret = daos_pool_disconnect(file->container_poh, NULL)))
-            D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, FAIL, "can't disconnect from container's pool: %s", H5_daos_err_to_string(ret));
-        file->container_poh = DAOS_HDL_INVAL;
-    }
-    if(file->vol_id >= 0) {
-        if(H5VLfree_connector_info(file->vol_id, file->vol_info) < 0)
-            D_DONE_ERROR(H5E_FILE, H5E_CANTFREE, FAIL, "can't free VOL connector info");
-        if(H5Idec_ref(file->vol_id) < 0)
-            D_DONE_ERROR(H5E_FILE, H5E_CANTDEC, FAIL, "can't decrement VOL connector ID");
+        file->item.open_req = NULL;
     } /* end if */
-
-    /* File is closed */
-    file->closed = TRUE;
-
-    /* Decrement ref count on file struct */
-    H5_daos_file_decref(file);
 
     D_FUNC_LEAVE;
 } /* end H5_daos_file_close_helper() */
@@ -3304,7 +3272,6 @@ H5_daos_file_close_barrier_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args
 
     assert(req);
     assert(req->file);
-    assert(!req->file->closed);
 
     /* Handle errors in barrier task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if
@@ -3366,8 +3333,6 @@ H5_daos_file_close(void *_file, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "file object is NULL");
     if(H5I_FILE != file->item.type)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a file");
-
-    assert(!file->closed);
 
     /* Start H5 operation. Currently, the DXPL is only copied when datatype conversion is needed. */
     if(NULL == (int_req = H5_daos_req_create(file, H5P_DATASET_XFER_DEFAULT)))

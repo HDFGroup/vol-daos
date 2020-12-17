@@ -3216,9 +3216,7 @@ H5_daos_file_close_helper(H5_daos_file_t *file)
         if(!daos_handle_is_inval(file->glob_md_oh))
             if(0 != (ret = daos_obj_close(file->glob_md_oh, NULL /*event*/)))
                 D_DONE_ERROR(H5E_FILE, H5E_CANTCLOSEFILE, FAIL, "can't close global metadata object: %s", H5_daos_err_to_string(ret));
-        if(file->root_grp)
-            if(H5_daos_group_close_real(file->root_grp) < 0)
-                D_DONE_ERROR(H5E_FILE, H5E_CANTCLOSEFILE, FAIL, "can't close root group");
+        assert(file->root_grp == NULL);
         if(!daos_handle_is_inval(file->coh))
             if(0 != (ret = daos_cont_close(file->coh, NULL /*event*/)))
                 D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, FAIL, "can't close container: %s", H5_daos_err_to_string(ret));
@@ -3235,11 +3233,30 @@ H5_daos_file_close_helper(H5_daos_file_t *file)
         } /* end if */
         H5FL_FREE(H5_daos_file_t, file);
     } /* end if */
-    else if(file->item.rc == 1 && file->item.open_req) {
-        /* Only the open request holds a reference, free it */
-        if(H5_daos_req_free_int(file->item.open_req) < 0)
-            D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, FAIL, "can't free request");
-        file->item.open_req = NULL;
+    else if(file->item.rc == 1) {
+        /* Only the open request holds a reference, free the file's reference to
+         * it.  Clear file's req first so if this function is reentered through
+         * H5_daos_req_free_int it doesn't trigger an assertion or try to free
+         * the req again. */
+        if(file->item.open_req) {
+            H5_daos_req_t *tmp_req = file->item.open_req;
+
+            file->item.open_req = NULL;
+            if(H5_daos_req_free_int(tmp_req) < 0)
+                D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, FAIL, "can't free request");
+        } /* end if */
+
+        /* Close the root group so the root group releases its reference to the
+         * file's open request.  Clear file's root_grp pointer first so if this
+         * function is reentered through H5_daos_group_close_real it doesn't
+         * trigger an assertion or try to close the root group again. */
+        if(file->root_grp) {
+            H5_daos_group_t *tmp_root_grp = file->root_grp;
+
+            file->root_grp = NULL;
+            if(H5_daos_group_close_real(tmp_root_grp) < 0)
+                D_DONE_ERROR(H5E_FILE, H5E_CANTCLOSEFILE, FAIL, "can't close root group");
+        } /* end if */
     } /* end if */
 
     D_FUNC_LEAVE;
@@ -3264,6 +3281,7 @@ static int
 H5_daos_file_close_barrier_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
     H5_daos_req_t *req;
+    H5_daos_file_t *file;
     int ret_value = 0;
 
     /* Get private data */
@@ -3272,6 +3290,7 @@ H5_daos_file_close_barrier_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args
 
     assert(req);
     assert(req->file);
+    file = req->file;
 
     /* Handle errors in barrier task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if
@@ -3282,8 +3301,17 @@ H5_daos_file_close_barrier_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args
         req->failed_task = "MPI_Ibarrier";
     } /* end if */
 
-    /* Always close file even if something failed */
-    if(H5_daos_file_close_helper(req->file) < 0)
+    /* Remove req's reference to file, so it can be closed before the file close
+     * request finishes.  This prevents the file from being held open if, for
+     * example, the application calls H5Fclose_async() but doesn't call
+     * H5ESwait() for a while. */
+    req->file = NULL;
+    if(H5_daos_file_close_helper(file) < 0)
+        D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close file");
+
+    /* Release the API/ID's reference to file.  Always close file even if
+     * something failed */
+    if(H5_daos_file_close_helper(file) < 0)
         D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close file");
 
     /* Handle errors in this function */

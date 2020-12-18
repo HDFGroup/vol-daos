@@ -165,7 +165,7 @@ else()
   set(H5VL_TEST_SERVER_START_MSG "DAOS I/O server")
 
   # Test will start running after following line is printed
-  set(H5VL_TEST_CLIENT_HELPER_START_MSG "Listening on")
+  set(H5VL_TEST_CLIENT_HELPER_START_MSG "listening on")
 
   # Look for and match DAOS POOL UUID using regex
   set(H5VL_TEST_CLIENT_INIT_TOKEN_REGEX "([a-f0-9]+-[a-f0-9]+-[a-f0-9]+-[a-f0-9]+-[a-f0-9]+)")

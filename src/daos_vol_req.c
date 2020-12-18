@@ -503,6 +503,7 @@ H5_daos_req_enqueue(H5_daos_req_t *req, tse_task_t *first_task,
     H5_daos_op_pool_t *tmp_new_pool_alloc_2 = NULL;
     hbool_t create_new_pool;
     hbool_t init_pool;
+    H5_daos_op_pool_type_t new_type = H5_DAOS_OP_TYPE_EMPTY;
     int nlevels;
     int i;
     int ret;
@@ -621,7 +622,7 @@ H5_daos_req_enqueue(H5_daos_req_t *req, tse_task_t *first_task,
             tmp_pool = *parent_cur_op_pool[0];
 
             /* Upgrade pool type if appropriate */
-            if(!init_pool && op_type > (*parent_cur_op_pool[0])->type)
+            if(op_type > (*parent_cur_op_pool[0])->type)
                 (*parent_cur_op_pool[0])->type = op_type;
         } /* end if */
         else {
@@ -647,6 +648,10 @@ H5_daos_req_enqueue(H5_daos_req_t *req, tse_task_t *first_task,
             if(might_skip_pool)
                 goto skip_pool;
         } /* end if */
+
+        /* upgrade pool type if appropriate */
+        if(new_type != H5_DAOS_OP_TYPE_EMPTY)
+            (*parent_cur_op_pool[0])->type = new_type;
 
         /* Create new pool if appropriate */
         if(create_new_pool) {

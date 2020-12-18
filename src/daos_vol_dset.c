@@ -3763,9 +3763,14 @@ H5_daos_dataset_write_int(H5_daos_dset_t *dset, hid_t mem_type_id,
 
     /* Perform I/O on each chunk selected */
     for(i = 0; i < nchunks_sel; i++) {
+        union {
+            const void *const_buf;
+            void *buf;
+        } safe_buf = {.const_buf = buf};
+
         io_task = *dep_task;
         if(single_chunk_write_func(&chunk_info[i], dset, (uint64_t)ndims, mem_type_id,
-                IO_WRITE, (void *)buf, req, first_task, &io_task) < 0)
+                IO_WRITE, safe_buf.buf, req, first_task, &io_task) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_WRITEERROR, FAIL, "dataset write failed");
 
         /* Set up dependency on io_task for end task */

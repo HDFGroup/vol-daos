@@ -457,26 +457,47 @@ done:
     if(int_req) {
         H5_daos_op_pool_type_t op_type;
 
-        /* Free path_buf if necessary */
-        if(path_buf && H5_daos_free_async(path_buf, &first_task, &dep_task) < 0)
-            D_DONE_ERROR(H5E_MAP, H5E_CANTFREE, NULL, "can't free path buffer");
-
         /* Perform collective error check if appropriate */
-        if(collective && (item->file->num_procs > 1))
-            if(H5_daos_collective_error_check(&map->obj, int_req, &first_task, &dep_task) < 0)
-                D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't perform collective error check");
-
-        /* Setting of dep_task delayed until after collective error check */
-        if(collective && (item->file->my_rank != 0)) {
-            /* Only dep_task created, register it as the finalize dependency */
-            assert(finalize_ndeps == 0);
-            if(dep_task) {
-                finalize_deps[0] = dep_task;
-                finalize_ndeps = 1;
+        if(collective && (item->file->num_procs > 1)) {
+            if(finalize_ndeps == 0) {
+                /* Only dep_task created, register it as the finalize dependency
+                 */
+                if(dep_task) {
+                    finalize_deps[0] = dep_task;
+                    finalize_ndeps = 1;
+                } /* end if */
             } /* end if */
+            else if(finalize_ndeps > 1) {
+                tse_task_t *metatask = NULL;
+
+                /* Create metatask for coordination */
+                if(0 != (ret = tse_task_create(H5_daos_metatask_autocomplete, &H5_daos_glob_sched_g, NULL, &metatask)))
+                    D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create metatask for map create: %s", H5_daos_err_to_string(ret));
+                /* Register dependency (if any) */
+                else if(finalize_ndeps > 0 && 0 != (ret = tse_task_register_deps(metatask, finalize_ndeps, finalize_deps)))
+                    D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create dependencies for metatask for map create: %s", H5_daos_err_to_string(ret));
+                /* Schedule metatask */
+                else if(0 != (ret = tse_task_schedule(metatask, false)))
+                    D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't schedule metatask for map create: %s", H5_daos_err_to_string(ret));
+                else {
+                    finalize_ndeps = 1;
+                    finalize_deps[0] = metatask;
+                } /* end if */
+            } /* end if */
+
+            /* At this point we have 0 or 1 finalize deps */
+            if(H5_daos_collective_error_check(&map->obj, int_req, &first_task, &finalize_deps[0]) < 0)
+                D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't perform collective error check");
         } /* end if */
-        else
-            assert(finalize_ndeps > 0 || !dep_task);
+
+        assert(finalize_ndeps > 0 || !dep_task);
+
+        /* Free path_buf if necessary */
+        if(path_buf) {
+            assert(finalize_ndeps > 0);
+            if(H5_daos_free_async(path_buf, &first_task, &finalize_deps[0]) < 0)
+                D_DONE_ERROR(H5E_MAP, H5E_CANTFREE, NULL, "can't free path buffer");
+        } /* end if */
 
         /* Create task to finalize H5 operation */
         if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))

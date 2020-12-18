@@ -953,6 +953,8 @@ done:
             D_GOTO_ERROR(H5E_INTERNAL, H5E_CANTFREE, NULL, "failed to free copy of MPI communicator and info");
 
     if(int_req) {
+        assert(file);
+
         /* Create task to finalize H5 operation */
         if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))
             D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
@@ -971,7 +973,7 @@ done:
             int_req->status = -H5_DAOS_SETUP_ERROR;
 
         /* Enqueue the request and add to the global operation pool */
-        if(H5_daos_req_enqueue(int_req, first_task, NULL, H5_DAOS_OP_TYPE_WRITE,
+        if(H5_daos_req_enqueue(int_req, first_task, &file->item, H5_DAOS_OP_TYPE_WRITE,
                 H5_DAOS_OP_SCOPE_GLOB, TRUE, NULL) < 0)
             D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't add request to request queue");
 
@@ -1658,6 +1660,8 @@ done:
             D_GOTO_ERROR(H5E_INTERNAL, H5E_CANTFREE, NULL, "failed to free copy of MPI communicator and info");
 
     if(int_req) {
+        assert(file);
+
         /* Create task to finalize H5 operation */
         if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))
             D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
@@ -1676,7 +1680,7 @@ done:
             int_req->status = -H5_DAOS_SETUP_ERROR;
 
         /* Add the request to the global request queue */
-        if(H5_daos_req_enqueue(int_req, first_task, NULL, H5_DAOS_OP_TYPE_READ,
+        if(H5_daos_req_enqueue(int_req, first_task, &file->item, H5_DAOS_OP_TYPE_READ,
                 H5_DAOS_OP_SCOPE_GLOB, TRUE, NULL) < 0)
             D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't add request to request queue");
 

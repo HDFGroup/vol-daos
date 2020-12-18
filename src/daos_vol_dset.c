@@ -4652,11 +4652,8 @@ H5_daos_dataset_close_real(H5_daos_dset_t *dset)
 
     if(--dset->obj.item.rc == 0) {
         /* Free dataset data structures */
-        if(dset->obj.item.cur_op_pool) {
-            if(0 != (ret = H5_daos_op_pool_finish(dset->obj.item.cur_op_pool)))
-                D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, FAIL, "can't finish operation pool: %s", H5_daos_err_to_string(ret));
+        if(dset->obj.item.cur_op_pool)
             H5_daos_op_pool_free(dset->obj.item.cur_op_pool);
-        } /* end if */
         if(dset->obj.item.open_req)
             if(H5_daos_req_free_int(dset->obj.item.open_req) < 0)
                 D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, FAIL, "can't free request");

@@ -4222,7 +4222,6 @@ done:
 herr_t
 H5_daos_attribute_close_real(H5_daos_attr_t *attr)
 {
-    int ret;
     herr_t ret_value = SUCCEED;
 
     if(!attr)
@@ -4232,11 +4231,8 @@ H5_daos_attribute_close_real(H5_daos_attr_t *attr)
 
     if(--attr->item.rc == 0) {
         /* Free attribute data structures */
-        if(attr->item.cur_op_pool) {
-            if(0 != (ret = H5_daos_op_pool_finish(attr->item.cur_op_pool)))
-                D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't finish operation pool: %s", H5_daos_err_to_string(ret));
+        if(attr->item.cur_op_pool)
             H5_daos_op_pool_free(attr->item.cur_op_pool);
-        } /* end if */
         if(attr->item.open_req)
             if(H5_daos_req_free_int(attr->item.open_req) < 0)
                 D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't free request");

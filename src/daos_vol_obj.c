@@ -361,7 +361,7 @@ done:
         /* Add the request to the object's request queue.  This will add the
          * dependency on the group open if necessary. */
         if(H5_daos_req_enqueue(int_req, first_task, item, H5_DAOS_OP_TYPE_READ,
-                H5_DAOS_OP_SCOPE_OBJ, collective, item->open_req) < 0)
+                H5_DAOS_OP_SCOPE_OBJ, collective, !req, item->open_req) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't add request to request queue");
 
         /* Check for external async - disabled except for open by token */
@@ -1491,7 +1491,7 @@ done:
         /* Add the request to the object's request queue.  This will add the
          * dependency on the source object open if necessary. */
         if(H5_daos_req_enqueue(int_req, first_task, item, op_type, op_scope,
-                collective, item->open_req) < 0)
+                collective, !req, item->open_req) < 0)
             D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
         /* Check for external async */
@@ -3497,7 +3497,7 @@ done:
         if(H5_daos_req_enqueue(int_req, first_task, item,
                 specific_type == H5VL_OBJECT_CHANGE_REF_COUNT || specific_type == H5VL_OBJECT_FLUSH
                 ? H5_DAOS_OP_TYPE_WRITE_ORDERED : H5_DAOS_OP_TYPE_READ,
-                H5_DAOS_OP_SCOPE_OBJ, must_coll_req, item ? item->open_req : NULL) < 0)
+                H5_DAOS_OP_SCOPE_OBJ, must_coll_req, !req, item ? item->open_req : NULL) < 0)
             D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
         /* Check for external async.  Disabled for H5Ovisit for now. */

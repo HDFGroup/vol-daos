@@ -974,7 +974,7 @@ done:
 
         /* Enqueue the request and add to the global operation pool */
         if(H5_daos_req_enqueue(int_req, first_task, &file->item, H5_DAOS_OP_TYPE_WRITE,
-                H5_DAOS_OP_SCOPE_GLOB, TRUE, NULL) < 0)
+                H5_DAOS_OP_SCOPE_GLOB, TRUE, !req, NULL) < 0)
             D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't add request to request queue");
 
         /* Check for external async */
@@ -1681,7 +1681,7 @@ done:
 
         /* Add the request to the global request queue */
         if(H5_daos_req_enqueue(int_req, first_task, &file->item, H5_DAOS_OP_TYPE_READ,
-                H5_DAOS_OP_SCOPE_GLOB, TRUE, NULL) < 0)
+                H5_DAOS_OP_SCOPE_GLOB, TRUE, !req, NULL) < 0)
             D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't add request to request queue");
 
         /* Check for external async */
@@ -2659,7 +2659,7 @@ done:
         op_scope = item ? H5_DAOS_OP_SCOPE_FILE : H5_DAOS_OP_SCOPE_GLOB;
 
         if(H5_daos_req_enqueue(int_req, first_task, file ? &file->item : NULL,
-                op_type, op_scope, FALSE, file ? file->item.open_req : NULL) < 0)
+                op_type, op_scope, FALSE, !req, file ? file->item.open_req : NULL) < 0)
             D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
         /* Check for external async */
@@ -3409,7 +3409,7 @@ done:
         /* Add the request to the file's request queue.  This will add the
          * dependency on the file open if necessary. */
         if(H5_daos_req_enqueue(int_req, first_task, &file->item,
-                H5_DAOS_OP_TYPE_CLOSE, H5_DAOS_OP_SCOPE_FILE, TRUE,
+                H5_DAOS_OP_TYPE_CLOSE, H5_DAOS_OP_SCOPE_FILE, TRUE, !req,
                 file->item.open_req) < 0)
             D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't add request to request queue");
         file = NULL;

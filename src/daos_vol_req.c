@@ -494,7 +494,8 @@ done:
 herr_t
 H5_daos_req_enqueue(H5_daos_req_t *req, tse_task_t *first_task,
     H5_daos_item_t *item, H5_daos_op_pool_type_t op_type,
-    H5_daos_op_pool_scope_t scope, hbool_t collective, H5_daos_req_t *dep_req)
+    H5_daos_op_pool_scope_t scope, hbool_t collective, hbool_t sync,
+    H5_daos_req_t *dep_req)
 {
     H5_daos_op_pool_t **parent_cur_op_pool[4];
     H5_daos_op_pool_t *tmp_pool;
@@ -502,6 +503,7 @@ H5_daos_req_enqueue(H5_daos_req_t *req, tse_task_t *first_task,
     H5_daos_op_pool_t *tmp_new_pool_alloc_2 = NULL;
     hbool_t create_new_pool;
     hbool_t init_pool;
+    H5_daos_op_pool_type_t new_type = H5_DAOS_OP_TYPE_EMPTY;
     int nlevels;
     int i;
     int ret;
@@ -518,6 +520,7 @@ H5_daos_req_enqueue(H5_daos_req_t *req, tse_task_t *first_task,
     /* Check if we don't need to add to a pool */
     if(op_type != H5_DAOS_OP_TYPE_NOPOOL
             && (item || scope == H5_DAOS_OP_SCOPE_GLOB)) {
+        hbool_t might_skip_pool = FALSE;
 
         /* Assign parent_cur_op_pool and parent_static_op_pool */
         switch(scope) {
@@ -573,7 +576,10 @@ H5_daos_req_enqueue(H5_daos_req_t *req, tse_task_t *first_task,
 
         /* Determine if we need to allocate and/or initialize a new pool */
         if(!*parent_cur_op_pool[0]) {
-            /* No pool present at this level, must create a new one */
+            /* No pool present at this level, check for sync executiong,
+             * otherwise must create a new pool */
+            if(sync)
+                might_skip_pool = TRUE;
             create_new_pool = TRUE;
             init_pool = TRUE;
         } /* end if */
@@ -606,20 +612,46 @@ H5_daos_req_enqueue(H5_daos_req_t *req, tse_task_t *first_task,
             assert(!(*parent_cur_op_pool[0])->init_task);
             assert((*parent_cur_op_pool[0])->end_task);
 
-            /* Start off using existing pool */
+            /* Check for sync execution */
+            if(sync && !(*parent_cur_op_pool[0])->start_task)
+                might_skip_pool = TRUE;
+
+            /* Use existing pool */
             create_new_pool = FALSE;
             init_pool = FALSE;
             tmp_pool = *parent_cur_op_pool[0];
 
             /* Upgrade pool type if appropriate */
-            if(!init_pool && op_type > (*parent_cur_op_pool[0])->type)
+            if(op_type > (*parent_cur_op_pool[0])->type)
                 (*parent_cur_op_pool[0])->type = op_type;
         } /* end if */
         else {
+            /* Check for sync execution */
+            if(sync && !(*parent_cur_op_pool[0])->end_task)
+                might_skip_pool = TRUE;
+
             /* Cannot combine with existing pool, create new one */
             create_new_pool = TRUE;
             init_pool = TRUE;
         } /* end else */
+
+        /* Check for sync execution */
+        if(might_skip_pool) {
+            assert(sync);
+            for(i = 1; i < nlevels; i++)
+                if(*parent_cur_op_pool[i]
+                        && (*parent_cur_op_pool[i])->end_task) {
+                    might_skip_pool = FALSE;
+                    break;
+                } /* end if */
+
+            if(might_skip_pool)
+                goto skip_pool;
+        } /* end if */
+
+        /* upgrade pool type if appropriate */
+        if(new_type != H5_DAOS_OP_TYPE_EMPTY)
+            (*parent_cur_op_pool[0])->type = new_type;
 
         /* Create new pool if appropriate */
         if(create_new_pool) {
@@ -848,6 +880,7 @@ H5_daos_req_enqueue(H5_daos_req_t *req, tse_task_t *first_task,
         } /* end if */
     } /* end if */
 
+skip_pool:
     /* Add dependency on H5_daos_collective_req_tail and update it if this is a
      * collective operation.  This cannot cause a deadlock since this schedules
      * requests in order, and requests can never be scheduled out of order by

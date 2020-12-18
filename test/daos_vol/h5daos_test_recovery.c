@@ -130,7 +130,11 @@ static void inject_fault(d_rank_t which_server)
         targets.tl_tgts = &tgt;
 
         /* Exclude the server from the pool */
+#if DAOS_API_VERSION_MAJOR < 1
         if(daos_pool_tgt_exclude(pool_uuid, "daos_server", svcl, &targets, NULL) < 0) {
+#else
+        if(daos_pool_tgt_exclude(pool_uuid, "daos_server", &targets, NULL) < 0) {
+#endif
             printf("daos_pool_tgt_exclude failed");
             return;
         }
@@ -1189,7 +1193,9 @@ main( int argc, char** argv )
     if (MAINPROCESS) {
         fprintf(stdout, "Test parameters:\n\n");
         fprintf(stdout, "  - Pool UUID: %s\n", pool_string);
+#if DAOS_API_VERSION_MAJOR < 1
         fprintf(stdout, "  - POOL SVCL: %s\n", pool_svcl_string);
+#endif
         fprintf(stdout, "  - Test File name: %s\n", filename);
         fprintf(stdout, "\n\n");
     }

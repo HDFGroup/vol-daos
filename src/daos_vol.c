@@ -1581,7 +1581,9 @@ H5_daos_pool_connect_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for pool connect task");
     connect_args->poh = udata->poh;
     connect_args->grp = udata->grp;
+#if DAOS_API_VERSION_MAJOR < 1
     connect_args->svc = udata->svc;
+#endif
     connect_args->flags = udata->flags;
     connect_args->info = udata->info;
     /* TODO that cast can be removed once DAOS task struct is fixed */

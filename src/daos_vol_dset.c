@@ -4477,6 +4477,7 @@ H5_daos_dataset_specific(void *_item, H5VL_dataset_specific_t specific_type,
     tse_task_t *dep_task = NULL;
     hbool_t collective_md_read;
     hbool_t collective_md_write;
+    hbool_t must_coll_req = FALSE;
     hid_t dapl_id = H5P_DATASET_ACCESS_DEFAULT;
     int ret;
     herr_t ret_value = SUCCEED;
@@ -4525,6 +4526,7 @@ H5_daos_dataset_specific(void *_item, H5VL_dataset_specific_t specific_type,
 #endif /* H5_DAOS_USE_TRANSACTIONS */
 
                 /* Call main routine */
+                must_coll_req = collective_md_write;
                 if(H5_daos_dataset_set_extent(dset, size, collective_md_write,
                         int_req, &first_task, &dep_task) < 0)
                     D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "failed to set dataset extent");
@@ -4592,7 +4594,7 @@ done:
         if(H5_daos_req_enqueue(int_req, first_task, &dset->obj.item,
                 specific_type == H5VL_DATASET_SET_EXTENT || specific_type == H5VL_DATASET_FLUSH
                 ? H5_DAOS_OP_TYPE_WRITE_ORDERED : H5_DAOS_OP_TYPE_READ,
-                H5_DAOS_OP_SCOPE_OBJ, FALSE, dset->obj.item.open_req) < 0)
+                H5_DAOS_OP_SCOPE_OBJ, must_coll_req, dset->obj.item.open_req) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
         /* Check for external async */

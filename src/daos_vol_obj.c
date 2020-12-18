@@ -1446,6 +1446,11 @@ done:
         H5_daos_op_pool_type_t op_type;
         H5_daos_op_pool_scope_t op_scope;
 
+        /* Perform collective error check */
+        if(collective && (item->file->num_procs > 1))
+            if(H5_daos_collective_error_check((H5_daos_obj_t *)item, int_req, &first_task, &dep_task) < 0)
+                D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't perform collective error check");
+
         /* Create task to finalize H5 operation */
         if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))
             D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
@@ -3199,6 +3204,8 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
     hbool_t collective_md_read;
     hbool_t collective_md_write;
     hbool_t collective;
+    hbool_t must_coll_err_check = FALSE;
+    hbool_t must_coll_req = FALSE;
     hid_t lapl_id;
     int ret;
     herr_t ret_value = SUCCEED;
@@ -3261,11 +3268,13 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
                     &oexists_obj_name, &oexists_obj_name_len, &first_task, &dep_task)))
                 D_GOTO_ERROR(H5E_SYM, H5E_CANTOPENOBJ, FAIL, "can't open group");
         } /* end if */
-        else
+        else {
             /* Open the object */
+            must_coll_req = collective;
             if(H5_daos_object_open_helper(item, loc_params, NULL, collective,
                     &target_obj_p, NULL, int_req, &first_task, &dep_task) < 0)
                 D_GOTO_ERROR(H5E_OBJECT, H5E_CANTOPENOBJ, FAIL, "can't open target object");
+        } /* else */
     } /* end if */
     else
         D_GOTO_ERROR(H5E_OBJECT, H5E_UNSUPPORTED, FAIL, "unsupported object operation location parameters type");
@@ -3279,6 +3288,8 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
             assert(loc_params->type == H5VL_OBJECT_BY_SELF);
             assert(target_obj);
 
+            must_coll_err_check = collective;
+            must_coll_req = collective;
             if(!collective || (item->file->my_rank == 0)) {
                 /* Allocate buffer to hold rc */
                 if(NULL == (rc_buf = DV_malloc(sizeof(uint64_t))))
@@ -3309,6 +3320,9 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
             if(target_obj->item.type != H5I_GROUP)
                 D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "target object is not a group");
 
+            /* Make collective -NAF */
+            /*must_coll_err_check = collective;
+            must_coll_req = collective;*/
             if(H5_daos_object_exists((H5_daos_group_t *)target_obj, oexists_obj_name,
                     oexists_obj_name_len, oexists_ret,
                     int_req, &first_task, &dep_task) < 0)
@@ -3456,6 +3470,11 @@ done:
         if(rc_buf && H5_daos_free_async(rc_buf, &first_task, &dep_task) < 0)
             D_DONE_ERROR(H5E_OBJECT, H5E_CANTFREE, FAIL, "can't free ref count buffer");
 
+        /* Perform collective error check */
+        if(must_coll_err_check && (item->file->num_procs > 1))
+            if(H5_daos_collective_error_check((H5_daos_obj_t *)item, int_req, &first_task, &dep_task) < 0)
+                D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't perform collective error check");
+
         /* Create task to finalize H5 operation */
         if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))
             D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
@@ -3478,7 +3497,7 @@ done:
         if(H5_daos_req_enqueue(int_req, first_task, item,
                 specific_type == H5VL_OBJECT_CHANGE_REF_COUNT || specific_type == H5VL_OBJECT_FLUSH
                 ? H5_DAOS_OP_TYPE_WRITE_ORDERED : H5_DAOS_OP_TYPE_READ,
-                H5_DAOS_OP_SCOPE_OBJ, collective, item ? item->open_req : NULL) < 0)
+                H5_DAOS_OP_SCOPE_OBJ, must_coll_req, item ? item->open_req : NULL) < 0)
             D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
         /* Check for external async.  Disabled for H5Ovisit for now. */

@@ -852,7 +852,7 @@ H5_daos_req_enqueue(H5_daos_req_t *req, tse_task_t *first_task,
      * collective operation.  This cannot cause a deadlock since this schedules
      * requests in order, and requests can never be scheduled out of order by
      * the main pool scheme above. */
-    if(collective) {
+    if(collective && (!item || item->file->num_procs > 1)) {
         if(H5_daos_collective_req_tail) {
             /* Create dep task for previous collective request if necessary.
              * This will be completed by the request finalize task.  We do this

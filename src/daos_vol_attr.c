@@ -2911,7 +2911,7 @@ done:
         /* Add the request to the object's request queue.  This will add the
          * dependency on the attribute open if necessary. */
         if(H5_daos_req_enqueue(int_req, first_task, &attr->item,
-                H5_DAOS_OP_TYPE_READ, H5_DAOS_OP_SCOPE_ATTR, FALSE,
+                H5_DAOS_OP_TYPE_READ, H5_DAOS_OP_SCOPE_ATTR, collective,
                 attr->item.open_req) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
@@ -3582,7 +3582,7 @@ done:
         /* Add the request to the object's request queue.  This will add the
          * dependency on the attribute open if necessary. */
         if(H5_daos_req_enqueue(int_req, first_task, &attr->item,
-                H5_DAOS_OP_TYPE_WRITE, H5_DAOS_OP_SCOPE_ATTR, FALSE,
+                H5_DAOS_OP_TYPE_WRITE, H5_DAOS_OP_SCOPE_ATTR, collective,
                 attr->item.open_req) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't add request to request queue");
 

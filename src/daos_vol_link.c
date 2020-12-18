@@ -2099,7 +2099,6 @@ H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
 #endif /* H5_DAOS_USE_TRANSACTIONS */
 
     /* Find target group */
-    /* This needs to be made collective DSINC */
     if(NULL == (link_obj = H5_daos_group_traverse(item, loc_params->loc_data.loc_by_name.name,
             lcpl_id, int_req, collective, &path_buf, &link_name, &link_name_len, &first_task, &dep_tasks[0])))
         D_GOTO_ERROR(H5E_SYM, H5E_BADITER, FAIL, "can't traverse path");
@@ -2124,14 +2123,14 @@ H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
 
                 assert(target_loc_obj_hard);
 
-                /* Allocate task udata struct and give it ownership of link_obj and
-                 * a reference to req */
+                /* Allocate task udata struct and give it a reference to
+                 * link_obj and req */
                  if(NULL == (create_udata = (H5_daos_link_create_hard_ud_t *)DV_calloc(sizeof(H5_daos_link_create_hard_ud_t))))
                     D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate get link create user data");
                 create_udata->req = int_req;
                 int_req->rc++;
                 create_udata->link_grp = (H5_daos_group_t *)link_obj;
-                link_obj = NULL;
+                link_obj->item.rc++;
                 create_udata->link_name = link_name;
                 create_udata->link_name_len = link_name_len;
                 create_udata->link_val.type = H5L_TYPE_HARD;
@@ -2259,6 +2258,28 @@ done:
                 && H5_daos_free_async(link_val.target.soft, &first_task, &dep_tasks[0]) < 0)
             D_DONE_ERROR(H5E_LINK, H5E_CANTFREE, FAIL, "can't free soft link value buffer");
 
+        /* Perform collective error check */
+        if(collective && item->file->num_procs > 1) {
+            tse_task_t *metatask = NULL;
+
+            /* Create metatask for coordination */
+            if(0 != (ret = tse_task_create(H5_daos_metatask_autocomplete, &H5_daos_glob_sched_g, NULL, &metatask)))
+                D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create metatask for link create: %s", H5_daos_err_to_string(ret));
+            /* Register dependency (if any) */
+            else if(ndeps > 0 && 0 != (ret = tse_task_register_deps(metatask, ndeps, dep_tasks)))
+                D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create dependencies for metatask for link create: %s", H5_daos_err_to_string(ret));
+            /* Schedule metatask */
+            else if(0 != (ret = tse_task_schedule(metatask, false)))
+                D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't schedule metatask for link create: %s", H5_daos_err_to_string(ret));
+            else {
+                ndeps = 1;
+                dep_tasks[0] = metatask;
+
+                if(H5_daos_collective_error_check((H5_daos_obj_t *)item, int_req, &first_task, &dep_tasks[0]) < 0)
+                    D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't perform collective error check");
+            } /* end else */
+        } /* end if */
+
         /* Create task to finalize H5 operation */
         if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))
             D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
@@ -2282,8 +2303,10 @@ done:
          * order tracked and link_obj is not different from item use
          * H5_DAOS_OP_TYPE_WRITE_ORDERED, otherwise use H5_DAOS_OP_TYPE_WRITE.
          * Add to item's pool because that's where we're creating the link.  */
-        if(!link_obj)
+        if(!link_obj) {
+            assert(ret_value < 0);
             op_type = H5_DAOS_OP_TYPE_NOPOOL;
+        } /* end if */
         else if(&link_obj->item != item
                 || ((link_obj->item.open_req->status == 0
                 || link_obj->item.created)
@@ -3124,6 +3147,7 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
     herr_t iter_ret = 0;
     hbool_t collective_md_read;
     hbool_t collective_md_write;
+    hbool_t collective = FALSE;
     hid_t lapl_id;
     int ret;
     herr_t ret_value = SUCCEED;    /* Return value */
@@ -3207,6 +3231,7 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
                         /* Open target_grp */
                         sub_loc_params.obj_type = item->type;
                         sub_loc_params.type = H5VL_OBJECT_BY_SELF;
+                        collective = collective_md_read;
                         if(NULL == (target_grp = (H5_daos_group_t *)H5_daos_group_open_int(item, &sub_loc_params,
                                 loc_params->loc_data.loc_by_name.name, H5P_GROUP_ACCESS_DEFAULT, int_req,
                                 collective_md_read, &first_task, &dep_task)))
@@ -3243,6 +3268,7 @@ H5_daos_link_specific(void *_item, const H5VL_loc_params_t *loc_params,
 
         /* H5Ldelete(_by_idx) */
         case H5VL_LINK_DELETE:
+            collective = collective_md_write;
             if(H5_daos_link_delete(item, loc_params, collective_md_write, TRUE,
                     int_req, &first_task, &dep_task) < 0)
                 D_GOTO_ERROR(H5E_LINK, H5E_CANTREMOVE, FAIL, "failed to delete link");
@@ -3293,7 +3319,7 @@ done:
         /* Add the request to the object's request queue.  This will add the
          * dependency on the group open if necessary. */
         if(H5_daos_req_enqueue(int_req, first_task, item, op_type,
-                H5_DAOS_OP_SCOPE_OBJ, FALSE, item->open_req) < 0)
+                H5_DAOS_OP_SCOPE_OBJ, collective, item->open_req) < 0)
             D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
         /* Check for external async.  Disabled for iteration for now. */

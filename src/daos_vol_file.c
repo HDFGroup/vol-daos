@@ -1677,7 +1677,7 @@ done:
 
         /* Add the request to the global request queue */
         if(H5_daos_req_enqueue(int_req, first_task, NULL, H5_DAOS_OP_TYPE_READ,
-                H5_DAOS_OP_SCOPE_GLOB, file->num_procs > 1, NULL) < 0)
+                H5_DAOS_OP_SCOPE_GLOB, TRUE, NULL) < 0)
             D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't add request to request queue");
 
         /* Check for external async */

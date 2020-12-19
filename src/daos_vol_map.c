@@ -2308,6 +2308,10 @@ H5_daos_map_put(void *_map, hid_t key_mem_type_id, const void *key,
 {
     H5_daos_map_rw_ud_t *write_udata = NULL;
     H5_daos_map_t *map = (H5_daos_map_t *)_map;
+    union {
+        const void *const_buf;
+        void *buf;
+    } safe_value = {.const_buf = value};
     H5_daos_req_t *int_req = NULL;
     tse_task_t *first_task = NULL;
     tse_task_t *dep_task = NULL;
@@ -2340,7 +2344,7 @@ H5_daos_map_put(void *_map, hid_t key_mem_type_id, const void *key,
     write_udata->md_rw_cb_ud.req = int_req;
     write_udata->md_rw_cb_ud.obj = &map->obj;
     write_udata->val_mem_type_id = val_mem_type_id;
-    write_udata->value_buf = (void *)value;
+    write_udata->value_buf = safe_value.buf;
 
     /* Convert key (if necessary) */
     if(H5_daos_map_key_conv(key_mem_type_id, map->key_file_type_id, key, &write_udata->key_buf,

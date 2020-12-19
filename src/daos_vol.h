@@ -120,10 +120,6 @@ typedef d_sg_list_t daos_sg_list_t;
 #endif
 
 #define HDF5_VOL_DAOS_VERSION_1	(1)	/* Version number of DAOS VOL connector */
-/* Class value of the DAOS VOL connector as defined in H5VLpublic.h DSINC */
-#define H5_VOL_DAOS_CLS_VAL (H5VL_class_value_t) (H5_VOL_RESERVED + 2)
-#define H5_DAOS_VOL_NAME "daos"
-#define H5_DAOS_VOL_NAME_LEN 4
 
 /* Macro to ensure H5_DAOS_g is initialized. H5_DAOS_g is only set if
  * the connector is manually initialized; if the connector has been
@@ -133,7 +129,7 @@ typedef d_sg_list_t daos_sg_list_t;
 #define H5_DAOS_G_INIT(ERR) \
 do { \
     if(H5_DAOS_g < 0) \
-        if((H5_DAOS_g = H5VLpeek_connector_id_by_value(H5_VOL_DAOS_CLS_VAL)) < 0) \
+        if((H5_DAOS_g = H5VLpeek_connector_id_by_value(H5_DAOS_CONNECTOR_VALUE)) < 0) \
             D_GOTO_ERROR(H5E_ID, H5E_CANTGET, ERR, "unable to get registered ID for DAOS VOL connector"); \
 } while(0)
 

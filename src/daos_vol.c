@@ -154,112 +154,112 @@ static int H5_daos_collective_error_check_comp_cb(tse_task_t *task, void *args);
 /* The DAOS VOL connector struct */
 static const H5VL_class_t H5_daos_g = {
     H5VL_VERSION,                            /* VOL interface version number */
-    H5_VOL_DAOS_CLS_VAL,                     /* Plugin Value */
-    H5_DAOS_VOL_NAME,                        /* Plugin Name */
+    H5_DAOS_CONNECTOR_VALUE,                 /* Connector Value */
+    H5_DAOS_CONNECTOR_NAME,                  /* Connector Name */
 #if H5VL_VERSION >= 1
-    HDF5_VOL_DAOS_VERSION_1,                 /* Plugin Version number */
+    HDF5_VOL_DAOS_VERSION_1,                 /* Connector Version number */
 #endif
-    H5VL_CAP_FLAG_NONE,                      /* Plugin capability flags */
-    H5_daos_init,                            /* Plugin initialize */
-    H5_daos_term,                            /* Plugin terminate */
+    H5VL_CAP_FLAG_NONE,                      /* Connector capability flags */
+    H5_daos_init,                            /* Connector initialize */
+    H5_daos_term,                            /* Connector terminate */
     {
-        sizeof(H5_daos_fapl_t),              /* Plugin Info size */
-        H5_daos_fapl_copy,                   /* Plugin Info copy */
-        NULL,                                /* Plugin Info compare */
-        H5_daos_fapl_free,                   /* Plugin Info free */
-        NULL,                                /* Plugin Info To String */
-        NULL,                                /* Plugin String To Info */
-    },
-    {
-        NULL,                                /* Plugin Get Object */
-        NULL,                                /* Plugin Get Wrap Ctx */
-        NULL,                                /* Plugin Wrap Object */
-        NULL,                                /* Plugin Unwrap Object */
-        NULL,                                /* Plugin Free Wrap Ctx */
-    },
-    {                                        /* Plugin Attribute cls */
-        H5_daos_attribute_create,            /* Plugin Attribute create */
-        H5_daos_attribute_open,              /* Plugin Attribute open */
-        H5_daos_attribute_read,              /* Plugin Attribute read */
-        H5_daos_attribute_write,             /* Plugin Attribute write */
-        H5_daos_attribute_get,               /* Plugin Attribute get */
-        H5_daos_attribute_specific,          /* Plugin Attribute specific */
-        NULL,                                /* Plugin Attribute optional */
-        H5_daos_attribute_close              /* Plugin Attribute close */
-    },
-    {                                        /* Plugin Dataset cls */
-        H5_daos_dataset_create,              /* Plugin Dataset create */
-        H5_daos_dataset_open,                /* Plugin Dataset open */
-        H5_daos_dataset_read,                /* Plugin Dataset read */
-        H5_daos_dataset_write,               /* Plugin Dataset write */
-        H5_daos_dataset_get,                 /* Plugin Dataset get */
-        H5_daos_dataset_specific,            /* Plugin Dataset specific */
-        NULL,                                /* Plugin Dataset optional */
-        H5_daos_dataset_close                /* Plugin Dataset close */
-    },
-    {                                        /* Plugin Datatype cls */
-        H5_daos_datatype_commit,             /* Plugin Datatype commit */
-        H5_daos_datatype_open,               /* Plugin Datatype open */
-        H5_daos_datatype_get,                /* Plugin Datatype get */
-        H5_daos_datatype_specific,           /* Plugin Datatype specific */
-        NULL,                                /* Plugin Datatype optional */
-        H5_daos_datatype_close               /* Plugin Datatype close */
-    },
-    {                                        /* Plugin File cls */
-        H5_daos_file_create,                 /* Plugin File create */
-        H5_daos_file_open,                   /* Plugin File open */
-        H5_daos_file_get,                    /* Plugin File get */
-        H5_daos_file_specific,               /* Plugin File specific */
-        NULL,                                /* Plugin File optional */
-        H5_daos_file_close                   /* Plugin File close */
-    },
-    {                                        /* Plugin Group cls */
-        H5_daos_group_create,                /* Plugin Group create */
-        H5_daos_group_open,                  /* Plugin Group open */
-        H5_daos_group_get,                   /* Plugin Group get */
-        H5_daos_group_specific,              /* Plugin Group specific */
-        NULL,                                /* Plugin Group optional */
-        H5_daos_group_close                  /* Plugin Group close */
-    },
-    {                                        /* Plugin Link cls */
-        H5_daos_link_create,                 /* Plugin Link create */
-        H5_daos_link_copy,                   /* Plugin Link copy */
-        H5_daos_link_move,                   /* Plugin Link move */
-        H5_daos_link_get,                    /* Plugin Link get */
-        H5_daos_link_specific,               /* Plugin Link specific */
-        NULL                                 /* Plugin Link optional */
-    },
-    {                                        /* Plugin Object cls */
-        H5_daos_object_open,                 /* Plugin Object open */
-        H5_daos_object_copy,                 /* Plugin Object copy */
-        H5_daos_object_get,                  /* Plugin Object get */
-        H5_daos_object_specific,             /* Plugin Object specific */
-        NULL                                 /* Plugin Object optional */
+        sizeof(H5_daos_fapl_t),              /* Connector Info size */
+        H5_daos_fapl_copy,                   /* Connector Info copy */
+        NULL,                                /* Connector Info compare */
+        H5_daos_fapl_free,                   /* Connector Info free */
+        NULL,                                /* Connector Info To String */
+        NULL,                                /* Connector String To Info */
     },
     {
-        H5_daos_get_conn_cls,                /* Plugin get connector class */
-        H5_daos_opt_query                    /* Plugin optional callback query */
+        NULL,                                /* Connector Get Object */
+        NULL,                                /* Connector Get Wrap Ctx */
+        NULL,                                /* Connector Wrap Object */
+        NULL,                                /* Connector Unwrap Object */
+        NULL,                                /* Connector Free Wrap Ctx */
+    },
+    {                                        /* Connector Attribute cls */
+        H5_daos_attribute_create,            /* Connector Attribute create */
+        H5_daos_attribute_open,              /* Connector Attribute open */
+        H5_daos_attribute_read,              /* Connector Attribute read */
+        H5_daos_attribute_write,             /* Connector Attribute write */
+        H5_daos_attribute_get,               /* Connector Attribute get */
+        H5_daos_attribute_specific,          /* Connector Attribute specific */
+        NULL,                                /* Connector Attribute optional */
+        H5_daos_attribute_close              /* Connector Attribute close */
+    },
+    {                                        /* Connector Dataset cls */
+        H5_daos_dataset_create,              /* Connector Dataset create */
+        H5_daos_dataset_open,                /* Connector Dataset open */
+        H5_daos_dataset_read,                /* Connector Dataset read */
+        H5_daos_dataset_write,               /* Connector Dataset write */
+        H5_daos_dataset_get,                 /* Connector Dataset get */
+        H5_daos_dataset_specific,            /* Connector Dataset specific */
+        NULL,                                /* Connector Dataset optional */
+        H5_daos_dataset_close                /* Connector Dataset close */
+    },
+    {                                        /* Connector Datatype cls */
+        H5_daos_datatype_commit,             /* Connector Datatype commit */
+        H5_daos_datatype_open,               /* Connector Datatype open */
+        H5_daos_datatype_get,                /* Connector Datatype get */
+        H5_daos_datatype_specific,           /* Connector Datatype specific */
+        NULL,                                /* Connector Datatype optional */
+        H5_daos_datatype_close               /* Connector Datatype close */
+    },
+    {                                        /* Connector File cls */
+        H5_daos_file_create,                 /* Connector File create */
+        H5_daos_file_open,                   /* Connector File open */
+        H5_daos_file_get,                    /* Connector File get */
+        H5_daos_file_specific,               /* Connector File specific */
+        NULL,                                /* Connector File optional */
+        H5_daos_file_close                   /* Connector File close */
+    },
+    {                                        /* Connector Group cls */
+        H5_daos_group_create,                /* Connector Group create */
+        H5_daos_group_open,                  /* Connector Group open */
+        H5_daos_group_get,                   /* Connector Group get */
+        H5_daos_group_specific,              /* Connector Group specific */
+        NULL,                                /* Connector Group optional */
+        H5_daos_group_close                  /* Connector Group close */
+    },
+    {                                        /* Connector Link cls */
+        H5_daos_link_create,                 /* Connector Link create */
+        H5_daos_link_copy,                   /* Connector Link copy */
+        H5_daos_link_move,                   /* Connector Link move */
+        H5_daos_link_get,                    /* Connector Link get */
+        H5_daos_link_specific,               /* Connector Link specific */
+        NULL                                 /* Connector Link optional */
+    },
+    {                                        /* Connector Object cls */
+        H5_daos_object_open,                 /* Connector Object open */
+        H5_daos_object_copy,                 /* Connector Object copy */
+        H5_daos_object_get,                  /* Connector Object get */
+        H5_daos_object_specific,             /* Connector Object specific */
+        NULL                                 /* Connector Object optional */
     },
     {
-        H5_daos_req_wait,                    /* Plugin Request wait */
-        H5_daos_req_notify,                  /* Plugin Request notify */
-        H5_daos_req_cancel,                  /* Plugin Request cancel */
-        NULL,                                /* Plugin Request specific */
-        NULL,                                /* Plugin Request optional */
-        H5_daos_req_free                     /* Plugin Request free */
+        H5_daos_get_conn_cls,                /* Connector get connector class */
+        H5_daos_opt_query                    /* Connector optional callback query */
     },
     {
-        H5_daos_blob_put,                    /* Plugin 'blob' put */
-        H5_daos_blob_get,                    /* Plugin 'blob' get */
-        H5_daos_blob_specific,               /* Plugin 'blob' specific */
-        NULL                                 /* Plugin 'blob' optional */
+        H5_daos_req_wait,                    /* Connector Request wait */
+        H5_daos_req_notify,                  /* Connector Request notify */
+        H5_daos_req_cancel,                  /* Connector Request cancel */
+        NULL,                                /* Connector Request specific */
+        NULL,                                /* Connector Request optional */
+        H5_daos_req_free                     /* Connector Request free */
     },
     {
-        NULL,                                /* Plugin Token compare */
-        NULL,                                /* Plugin Token to string */
-        NULL                                 /* Plugin Token from string */
+        H5_daos_blob_put,                    /* Connector 'blob' put */
+        H5_daos_blob_get,                    /* Connector 'blob' get */
+        H5_daos_blob_specific,               /* Connector 'blob' specific */
+        NULL                                 /* Connector 'blob' optional */
     },
-    H5_daos_optional                         /* Plugin optional */
+    {
+        NULL,                                /* Connector Token compare */
+        NULL,                                /* Connector Token to string */
+        NULL                                 /* Connector Token from string */
+    },
+    H5_daos_optional                         /* Connector optional */
 };
 
 /* Free list definitions */

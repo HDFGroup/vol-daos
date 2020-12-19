@@ -27,6 +27,15 @@
 /* Public Macros */
 /*****************/
 
+/* These values are used when registering and identifying the DAOS VOL
+ * connector. They can be helpful when working with plugins and for passing
+ * to the HDF5 command-line tools.
+ */
+#define H5_DAOS_CONNECTOR_NAME      "daos"
+#define H5_DAOS_CONNECTOR_NAME_LEN  4
+
+#define H5_DAOS_CONNECTOR_VALUE     ((H5VL_class_value_t)4004)
+
 #define H5_DAOS_SNAP_ID_INVAL (uint64_t)(int64_t)-1
 
 /*******************/

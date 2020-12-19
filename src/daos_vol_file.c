@@ -3678,19 +3678,19 @@ H5_daos_get_obj_count_callback(hid_t id, void *udata)
     get_obj_count_udata_t *count_udata = (get_obj_count_udata_t *)udata;
     H5_daos_obj_t *cur_obj = NULL;
     ssize_t connector_name_len;
-    char connector_name[H5_DAOS_VOL_NAME_LEN + 1];
+    char connector_name[H5_DAOS_CONNECTOR_NAME_LEN + 1];
     herr_t ret_value = H5_ITER_CONT;
 
     /* Ensure that the ID represents a DAOS VOL object */
     H5E_BEGIN_TRY {
-        connector_name_len = H5VLget_connector_name(id, connector_name, H5_DAOS_VOL_NAME_LEN + 1);
+        connector_name_len = H5VLget_connector_name(id, connector_name, H5_DAOS_CONNECTOR_NAME_LEN + 1);
     } H5E_END_TRY;
 
     /* H5VLget_connector_name should only fail for IDs that don't represent VOL objects */
     if(connector_name_len < 0)
         D_GOTO_DONE(H5_ITER_CONT);
 
-    if(!strncmp(H5_DAOS_VOL_NAME, connector_name, H5_DAOS_VOL_NAME_LEN)) {
+    if(!strncmp(H5_DAOS_CONNECTOR_NAME, connector_name, H5_DAOS_CONNECTOR_NAME_LEN)) {
         if(NULL == (cur_obj = (H5_daos_obj_t *) H5VLobject(id)))
             D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, H5_ITER_ERROR, "can't retrieve VOL object for ID");
 
@@ -3723,19 +3723,19 @@ H5_daos_get_obj_ids_callback(hid_t id, void *udata)
     get_obj_ids_udata_t *id_udata = (get_obj_ids_udata_t *)udata;
     H5_daos_obj_t *cur_obj = NULL;
     ssize_t connector_name_len;
-    char connector_name[H5_DAOS_VOL_NAME_LEN + 1];
+    char connector_name[H5_DAOS_CONNECTOR_NAME_LEN + 1];
     herr_t ret_value = H5_ITER_CONT;
 
     /* Ensure that the ID represents a DAOS VOL object */
     H5E_BEGIN_TRY {
-        connector_name_len = H5VLget_connector_name(id, connector_name, H5_DAOS_VOL_NAME_LEN + 1);
+        connector_name_len = H5VLget_connector_name(id, connector_name, H5_DAOS_CONNECTOR_NAME_LEN + 1);
     } H5E_END_TRY;
 
     /* H5VLget_connector_name should only fail for IDs that don't represent VOL objects */
     if(connector_name_len < 0)
         D_GOTO_DONE(H5_ITER_CONT);
 
-    if(!strncmp(H5_DAOS_VOL_NAME, connector_name, H5_DAOS_VOL_NAME_LEN)) {
+    if(!strncmp(H5_DAOS_CONNECTOR_NAME, connector_name, H5_DAOS_CONNECTOR_NAME_LEN)) {
         if(NULL == (cur_obj = (H5_daos_obj_t *) H5VLobject(id)))
             D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, H5_ITER_ERROR, "can't retrieve VOL object for ID");
 

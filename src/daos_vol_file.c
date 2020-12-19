@@ -3201,11 +3201,8 @@ H5_daos_file_close_helper(H5_daos_file_t *file)
     /* Decrement rc */
     if(--file->item.rc == 0) {
         /* Free file data structures */
-        if(file->item.cur_op_pool) {
-            if(0 != (ret = H5_daos_op_pool_finish(file->item.cur_op_pool)))
-                D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, FAIL, "can't finish operation pool: %s", H5_daos_err_to_string(ret));
+        if(file->item.cur_op_pool)
             H5_daos_op_pool_free(file->item.cur_op_pool);
-        } /* end if */
         assert(file->item.open_req == NULL);
         if(file->file_name)
             file->file_name = DV_free(file->file_name);

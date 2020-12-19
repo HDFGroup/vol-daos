@@ -1277,7 +1277,6 @@ done:
 static herr_t
 H5_daos_term(void)
 {
-    int ret;
     herr_t ret_value = SUCCEED;
 
     /**
@@ -1288,14 +1287,8 @@ H5_daos_term(void)
         D_GOTO_DONE(ret_value);
 
     /* Release global op pool */
-    if(H5_daos_glob_cur_op_pool_g) {
-        /* Finish global operation pool so all tasks complete, etc. */
-        if(0 != (ret = H5_daos_op_pool_finish(H5_daos_glob_cur_op_pool_g)))
-            D_GOTO_ERROR(H5E_FILE, H5E_CLOSEERROR, FAIL, "can't finish operation pool: %s", H5_daos_err_to_string(ret));
-
-        /* Free op pool */
+    if(H5_daos_glob_cur_op_pool_g)
         H5_daos_op_pool_free(H5_daos_glob_cur_op_pool_g);
-    } /* end if */
 
     /* Close global scheduler */
     if(H5_daos_progress(NULL, H5_DAOS_PROGRESS_WAIT) < 0)

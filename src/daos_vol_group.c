@@ -1870,11 +1870,8 @@ H5_daos_group_close_real(H5_daos_group_t *grp)
                           && grp->gcpl_id != H5P_FILE_CREATE_DEFAULT;
 
         /* Free group data structures */
-        if(grp->obj.item.cur_op_pool) {
-            if(0 != (ret = H5_daos_op_pool_finish(grp->obj.item.cur_op_pool)))
-                D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't finish operation pool: %s", H5_daos_err_to_string(ret));
+        if(grp->obj.item.cur_op_pool)
             H5_daos_op_pool_free(grp->obj.item.cur_op_pool);
-        } /* end if */
         if(grp->obj.item.open_req)
             if(H5_daos_req_free_int(grp->obj.item.open_req) < 0)
                 D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't free request");

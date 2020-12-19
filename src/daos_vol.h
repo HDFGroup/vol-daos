@@ -697,11 +697,10 @@ typedef enum H5_daos_op_pool_scope_t {
 /* Struct for an operation pool */
 struct H5_daos_op_pool_t {
     H5_daos_op_pool_type_t type;
-    tse_task_t *init_task;
     tse_task_t *start_task;
     tse_task_t *end_task;
     tse_task_t *dep_task;
-    hbool_t closed;
+    uint64_t op_gens[4];
     int rc;
 };
 
@@ -1345,7 +1344,6 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_req_enqueue(H5_daos_req_t *req,
     tse_task_t *first_task, H5_daos_item_t *item,
     H5_daos_op_pool_type_t op_type, H5_daos_op_pool_scope_t scope,
     hbool_t collective, hbool_t sync, H5_daos_req_t *dep_req);
-H5VL_DAOS_PRIVATE int H5_daos_op_pool_finish(H5_daos_op_pool_t *op_pool);
 H5VL_DAOS_PRIVATE void H5_daos_op_pool_free(H5_daos_op_pool_t *op_pool);
 
 /* Generic asynchronous routines */

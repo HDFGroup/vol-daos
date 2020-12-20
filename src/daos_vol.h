@@ -731,6 +731,7 @@ typedef struct H5_daos_md_rw_cb_ud_t {
     hbool_t free_akeys;
     hbool_t free_sg_iov[7];
     const char *task_name;
+    uint8_t flex_buf[];
 } H5_daos_md_rw_cb_ud_t;
 
 /* Task user data for object metadata fetch */

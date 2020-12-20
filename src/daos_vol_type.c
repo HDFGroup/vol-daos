@@ -643,8 +643,6 @@ H5_daos_datatype_commit_helper(H5_daos_file_t *file, hid_t type_id,
     tse_task_t *datatype_metatask;
     tse_task_t *finalize_deps[2];
     hbool_t default_tcpl = (tcpl_id == H5P_DATATYPE_CREATE_DEFAULT);
-    void *type_buf = NULL;
-    void *tcpl_buf = NULL;
     int finalize_ndeps = 0;
     int ret;
     void *ret_value = NULL;
@@ -683,28 +681,32 @@ H5_daos_datatype_commit_helper(H5_daos_file_t *file, hid_t type_id,
     if(!collective || (file->my_rank == 0)) {
         size_t type_size = 0;
         size_t tcpl_size = 0;
+        void *type_buf = NULL;
+        void *tcpl_buf = NULL;
         tse_task_t *update_task;
 
         /* Create datatype */
+        /* Determine serialized datatype size */
+        if(H5Tencode(type_id, NULL, &type_size) < 0)
+            D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of datatype");
+
+        /* Determine serialized TCPL size if not the default */
+        if(!default_tcpl)
+            if(H5Pencode2(tcpl_id, NULL, &tcpl_size, file->fapl_id) < 0)
+                D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of tcpl");
 
         /* Allocate argument struct */
-        if(NULL == (update_cb_ud = (H5_daos_md_rw_cb_ud_t *)DV_calloc(sizeof(H5_daos_md_rw_cb_ud_t))))
+        if(NULL == (update_cb_ud = (H5_daos_md_rw_cb_ud_t *)DV_calloc(sizeof(H5_daos_md_rw_cb_ud_t) + type_size + tcpl_size)))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for update callback arguments");
 
         /* Encode datatype */
-        if(H5Tencode(type_id, NULL, &type_size) < 0)
-            D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of datatype");
-        if(NULL == (type_buf = DV_malloc(type_size)))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized datatype");
+        type_buf = update_cb_ud->flex_buf;
         if(H5Tencode(type_id, type_buf, &type_size) < 0)
             D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTENCODE, NULL, "can't serialize datatype");
 
         /* Encode TCPL if not the default */
         if(!default_tcpl) {
-            if(H5Pencode2(tcpl_id, NULL, &tcpl_size, file->fapl_id) < 0)
-                D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of tcpl");
-            if(NULL == (tcpl_buf = DV_malloc(tcpl_size)))
-                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized tcpl");
+            tcpl_buf = update_cb_ud->flex_buf + type_size;
             if(H5Pencode2(tcpl_id, tcpl_buf, &tcpl_size, file->fapl_id) < 0)
                 D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTENCODE, NULL, "can't serialize tcpl");
         } /* end if */
@@ -742,12 +744,12 @@ H5_daos_datatype_commit_helper(H5_daos_file_t *file, hid_t type_id,
         update_cb_ud->sgl[0].sg_nr = 1;
         update_cb_ud->sgl[0].sg_nr_out = 0;
         update_cb_ud->sgl[0].sg_iovs = &update_cb_ud->sg_iov[0];
-        update_cb_ud->free_sg_iov[0] = TRUE;
+        update_cb_ud->free_sg_iov[0] = FALSE;
         daos_iov_set(&update_cb_ud->sg_iov[1], tcpl_buf, (daos_size_t)tcpl_size);
         update_cb_ud->sgl[1].sg_nr = 1;
         update_cb_ud->sgl[1].sg_nr_out = 0;
         update_cb_ud->sgl[1].sg_iovs = &update_cb_ud->sg_iov[1];
-        update_cb_ud->free_sg_iov[1] = !default_tcpl;
+        update_cb_ud->free_sg_iov[1] = FALSE;
 
         /* Set nr */
         update_cb_ud->nr = 2u;
@@ -775,8 +777,6 @@ H5_daos_datatype_commit_helper(H5_daos_file_t *file, hid_t type_id,
         req->rc++;
         dtype->obj.item.rc++;
         update_cb_ud = NULL;
-        type_buf = NULL;
-        tcpl_buf = NULL;
 
         /* Add dependency for finalize task */
         finalize_deps[finalize_ndeps] = update_task;
@@ -868,14 +868,10 @@ done:
         /* Free memory */
         if(update_cb_ud && update_cb_ud->obj && H5_daos_object_close(&update_cb_ud->obj->item) < 0)
             D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, NULL, "can't close object");
-        type_buf = DV_free(type_buf);
-        if(!default_tcpl) tcpl_buf = DV_free(tcpl_buf);
         update_cb_ud = DV_free(update_cb_ud);
     } /* end if */
 
     assert(!update_cb_ud);
-    assert(!type_buf);
-    assert(!tcpl_buf);
 
     D_FUNC_LEAVE;
 } /* end H5_daos_datatype_commit_helper() */

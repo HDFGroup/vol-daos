@@ -282,7 +282,6 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hbool_t is_root,
     tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_group_t *grp = NULL;
-    void *gcpl_buf = NULL;
     H5_daos_md_rw_cb_ud_t *update_cb_ud = NULL;
     tse_task_t *group_metatask;
     int gmt_ndeps = 0;
@@ -334,19 +333,22 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hbool_t is_root,
     /* Create group and write metadata if this process should */
     if(!collective || (file->my_rank == 0)) {
         size_t gcpl_size = 0;
+        void *gcpl_buf = NULL;
         tse_task_t *update_task;
 
         /* Create group */
+        /* Determine serialized GCPL size if it is not default */
+        if(!default_gcpl)
+            if(H5Pencode2(gcpl_id, NULL, &gcpl_size, file->fapl_id) < 0)
+                D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of gcpl");
+
         /* Allocate argument struct */
-        if(NULL == (update_cb_ud = (H5_daos_md_rw_cb_ud_t *)DV_calloc(sizeof(H5_daos_md_rw_cb_ud_t))))
+        if(NULL == (update_cb_ud = (H5_daos_md_rw_cb_ud_t *)DV_calloc(sizeof(H5_daos_md_rw_cb_ud_t) + gcpl_size)))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for update callback arguments");
 
         /* Encode GCPL if not the default */
         if(!default_gcpl) {
-            if(H5Pencode2(gcpl_id, NULL, &gcpl_size, file->fapl_id) < 0)
-                D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of gcpl");
-            if(NULL == (gcpl_buf = DV_malloc(gcpl_size)))
-                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized gcpl");
+            gcpl_buf = update_cb_ud->flex_buf;
             if(H5Pencode2(gcpl_id, gcpl_buf, &gcpl_size, file->fapl_id) < 0)
                 D_GOTO_ERROR(H5E_SYM, H5E_CANTENCODE, NULL, "can't serialize gcpl");
         } /* end if */
@@ -383,7 +385,7 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hbool_t is_root,
         update_cb_ud->sgl[0].sg_nr = 1;
         update_cb_ud->sgl[0].sg_nr_out = 0;
         update_cb_ud->sgl[0].sg_iovs = &update_cb_ud->sg_iov[0];
-        update_cb_ud->free_sg_iov[0] = !default_gcpl;
+        update_cb_ud->free_sg_iov[0] = FALSE;
 
         /* Set task name */
         update_cb_ud->task_name = "group metadata write";
@@ -408,7 +410,6 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hbool_t is_root,
         req->rc++;
         grp->obj.item.rc++;
         update_cb_ud = NULL;
-        gcpl_buf = NULL;
 
         /* Add dependency for group metatask */
         gmt_deps[gmt_ndeps] = update_task;
@@ -504,12 +505,10 @@ done:
         /* Free memory */
         if(update_cb_ud && update_cb_ud->obj && H5_daos_object_close(&update_cb_ud->obj->item) < 0)
             D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, NULL, "can't close object");
-        if(!default_gcpl) gcpl_buf = DV_free(gcpl_buf);
         update_cb_ud = DV_free(update_cb_ud);
     } /* end if */
 
     assert(!update_cb_ud);
-    assert(!gcpl_buf);
 
     D_FUNC_LEAVE;
 } /* end H5_daos_group_create_helper() */

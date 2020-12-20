@@ -41,6 +41,7 @@ typedef struct H5_daos_attr_create_ud_t {
     uint8_t nattr_old_buf[H5_DAOS_ENCODED_NUM_ATTRS_SIZE + 1];
     uint8_t max_corder_old_buf[H5_DAOS_ENCODED_CRT_ORDER_SIZE];
     uint8_t max_corder_new_buf[H5_DAOS_ENCODED_CRT_ORDER_SIZE];
+    uint8_t flex_buf[];
 } H5_daos_attr_create_ud_t;
 
 /* Task user data for opening an attribute */
@@ -618,12 +619,6 @@ H5_daos_attribute_create_helper(H5_daos_item_t *item, const H5VL_loc_params_t *l
     H5_daos_attr_t *attr = NULL;
     tse_task_t *update_task;
     hbool_t default_acpl = (acpl_id == H5P_ATTRIBUTE_CREATE_DEFAULT);
-    size_t type_size = 0;
-    size_t space_size = 0;
-    size_t acpl_size = 0;
-    void *type_buf = NULL;
-    void *space_buf = NULL;
-    void *acpl_buf = NULL;
     int ret;
     void *ret_value = NULL;
 
@@ -676,39 +671,49 @@ H5_daos_attribute_create_helper(H5_daos_item_t *item, const H5VL_loc_params_t *l
 
     /* Create attribute and write metadata if this process should */
     if(!collective || (item->file->my_rank == 0)) {
+        size_t type_size = 0;
+        size_t space_size = 0;
+        size_t acpl_size = 0;
+        void *type_buf = NULL;
+        void *space_buf = NULL;
+        void *acpl_buf = NULL;
         hbool_t may_track_acorder = !attr->parent ||
                 (attr->parent->item.open_req->status < 0 && !attr->parent->item.created)
                 || attr->parent->ocpl_cache.track_acorder;
 
+        /* Determine serialized datatype size */
+        if(H5Tencode(type_id, NULL, &type_size) < 0)
+            D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of datatype");
+
+        /* Determine serialized dataspace size */
+        if(H5Sencode2(space_id, NULL, &space_size, item->file->fapl_id) < 0)
+            D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of dataspace");
+
+        /* Determine serialized ACPL size if not the default */
+        if(!default_acpl)
+            if(H5Pencode2(acpl_id, NULL, &acpl_size, item->file->fapl_id) < 0)
+                D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of acpl");
+
         /* Allocate argument struct */
-        if(NULL == (create_ud = (H5_daos_attr_create_ud_t *)DV_calloc(sizeof(H5_daos_attr_create_ud_t))))
+        if(NULL == (create_ud = (H5_daos_attr_create_ud_t *)DV_calloc(sizeof(H5_daos_attr_create_ud_t) + type_size + space_size + acpl_size)))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for update callback arguments");
         create_ud->req = req;
         create_ud->attr = attr;
         create_ud->akeys_buf = NULL;
 
         /* Encode datatype */
-        if(H5Tencode(type_id, NULL, &type_size) < 0)
-            D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of datatype");
-        if(NULL == (type_buf = DV_malloc(type_size)))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized datatype");
+        type_buf = create_ud->flex_buf;
         if(H5Tencode(type_id, type_buf, &type_size) < 0)
             D_GOTO_ERROR(H5E_ATTR, H5E_CANTENCODE, NULL, "can't serialize datatype");
 
         /* Encode dataspace */
-        if(H5Sencode2(space_id, NULL, &space_size, item->file->fapl_id) < 0)
-            D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of dataspace");
-        if(NULL == (space_buf = DV_malloc(space_size)))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized dataspace");
+        space_buf = create_ud->flex_buf + type_size;
         if(H5Sencode2(space_id, space_buf, &space_size, item->file->fapl_id) < 0)
             D_GOTO_ERROR(H5E_ATTR, H5E_CANTENCODE, NULL, "can't serialize dataspace");
 
         /* Encode ACPL if not the default */
         if(!default_acpl) {
-            if(H5Pencode2(acpl_id, NULL, &acpl_size, item->file->fapl_id) < 0)
-                D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of acpl");
-            if(NULL == (acpl_buf = DV_malloc(acpl_size)))
-                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized acpl");
+            acpl_buf = create_ud->flex_buf + type_size + space_size;
             if(H5Pencode2(acpl_id, acpl_buf, &acpl_size, item->file->fapl_id) < 0)
                 D_GOTO_ERROR(H5E_ATTR, H5E_CANTENCODE, NULL, "can't serialize acpl");
         } /* end if */
@@ -770,21 +775,21 @@ H5_daos_attribute_create_helper(H5_daos_item_t *item, const H5VL_loc_params_t *l
         create_ud->md_rw_cb_ud.sgl[0].sg_nr = 1;
         create_ud->md_rw_cb_ud.sgl[0].sg_nr_out = 0;
         create_ud->md_rw_cb_ud.sgl[0].sg_iovs = &create_ud->md_rw_cb_ud.sg_iov[0];
-        create_ud->md_rw_cb_ud.free_sg_iov[0] = TRUE;
+        create_ud->md_rw_cb_ud.free_sg_iov[0] = FALSE;
 
         /* sgl[1] contains the serialized dataspace description */
         daos_iov_set(&create_ud->md_rw_cb_ud.sg_iov[1], space_buf, (daos_size_t)space_size);
         create_ud->md_rw_cb_ud.sgl[1].sg_nr = 1;
         create_ud->md_rw_cb_ud.sgl[1].sg_nr_out = 0;
         create_ud->md_rw_cb_ud.sgl[1].sg_iovs = &create_ud->md_rw_cb_ud.sg_iov[1];
-        create_ud->md_rw_cb_ud.free_sg_iov[1] = TRUE;
+        create_ud->md_rw_cb_ud.free_sg_iov[1] = FALSE;
 
         /* sgl[2] contains the serialized ACPL */
         daos_iov_set(&create_ud->md_rw_cb_ud.sg_iov[2], acpl_buf, (daos_size_t)acpl_size);
         create_ud->md_rw_cb_ud.sgl[2].sg_nr = 1;
         create_ud->md_rw_cb_ud.sgl[2].sg_nr_out = 0;
         create_ud->md_rw_cb_ud.sgl[2].sg_iovs = &create_ud->md_rw_cb_ud.sg_iov[2];
-        create_ud->md_rw_cb_ud.free_sg_iov[2] = !default_acpl;
+        create_ud->md_rw_cb_ud.free_sg_iov[2] = FALSE;
 
         /* Set nr */
         create_ud->md_rw_cb_ud.nr = 3u;
@@ -831,9 +836,6 @@ H5_daos_attribute_create_helper(H5_daos_item_t *item, const H5VL_loc_params_t *l
         *dep_task = update_task;
 
         create_ud = NULL;
-        type_buf = NULL;
-        space_buf = NULL;
-        acpl_buf = NULL;
     } /* end if */
 
     /* Finish setting up attribute struct */
@@ -906,16 +908,10 @@ done:
         } /* end if */
 
         /* Free memory */
-        type_buf = DV_free(type_buf);
-        space_buf = DV_free(space_buf);
-        if(!default_acpl) acpl_buf = DV_free(acpl_buf);
         create_ud = DV_free(create_ud);
     } /* end if */
 
     assert(!create_ud);
-    assert(!type_buf);
-    assert(!space_buf);
-    assert(!acpl_buf);
 
     D_FUNC_LEAVE;
 } /* end H5_daos_attribute_create_helper() */

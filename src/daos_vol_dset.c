@@ -607,12 +607,8 @@ H5_daos_dataset_create_helper(H5_daos_file_t *file, hid_t type_id, hid_t space_i
     tse_task_t *finalize_deps[3];
     hbool_t default_dcpl = (dcpl_id == H5P_DATASET_CREATE_DEFAULT);
     htri_t is_vl_ref = FALSE;
-    size_t fill_val_size;
     hid_t tmp_dcpl_id = H5I_INVALID_HID;
-    void *type_buf = NULL;
-    void *space_buf = NULL;
-    void *dcpl_buf = NULL;
-    void *fill_val_buf = NULL;
+    size_t fill_val_size = 0;
     int finalize_ndeps = 0;
     int ret;
     void *ret_value = NULL;
@@ -764,53 +760,68 @@ H5_daos_dataset_create_helper(H5_daos_file_t *file, hid_t type_id, hid_t space_i
         size_t type_size = 0;
         size_t space_size = 0;
         size_t dcpl_size = 0;
+        void *type_buf = NULL;
+        void *space_buf = NULL;
+        void *dcpl_buf = NULL;
+        void *fill_val_buf = NULL;
         tse_task_t *update_task;
+
+        /* Determine serialized datatype size */
+        if(H5Tencode(type_id, NULL, &type_size) < 0)
+            D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of datatype");
+
+        /* Determine serialized dataspace size */
+        if(H5Sencode2(space_id, NULL, &space_size, file->fapl_id) < 0)
+            D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of dataspace");
+
+        /* Actions to take if the DCPL is not the default */
+        if(!default_dcpl) {
+            /* If there's a vl or reference type fill value set we must copy the
+             * DCPL and unset the fill value.  This is a workaround for the bug that
+             * prevents deep copying/flattening of encoded fill values.  Even though
+             * the encoded value is never used by the connector, when it is replaced
+             * on file open with one converted from the explicitly stored fill,
+             * the library tries to free the fill value stored in the property list,
+             * causing memory errors. */
+            if(dset->dcpl_cache.fill_status == H5D_FILL_VALUE_USER_DEFINED) {
+                fill_val_size = dset->file_type_size;
+
+                if((is_vl_ref = H5_daos_detect_vl_vlstr_ref(type_id)) < 0)
+                    D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, NULL, "can't check for vl or reference type");
+                if(is_vl_ref) {
+                    if((tmp_dcpl_id = H5Pcopy(dset->dcpl_id)) < 0)
+                        D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, NULL, "failed to copy dcpl");
+                    if(H5Pset_fill_value(tmp_dcpl_id, dset->type_id, NULL) < 0)
+                        D_GOTO_ERROR(H5E_DATASET, H5E_CANTSET, NULL, "can't unset fill value");
+                } /* end if */
+            } /* end if */
+
+            /* Determine serialized DCPL size */
+            if(H5Pencode2(tmp_dcpl_id >= 0 ? tmp_dcpl_id : dset->dcpl_id, NULL, &dcpl_size, file->fapl_id) < 0)
+                D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of dcpl");
+        } /* end if */
+        else
+            /* Default DCPL should not have a user defined fill value */
+            assert(dset->dcpl_cache.fill_status != H5D_FILL_VALUE_USER_DEFINED);
 
         /* Create dataset */
         /* Allocate argument struct */
-        if(NULL == (update_cb_ud = (H5_daos_md_rw_cb_ud_t *)DV_calloc(sizeof(H5_daos_md_rw_cb_ud_t))))
+        if(NULL == (update_cb_ud = (H5_daos_md_rw_cb_ud_t *)DV_calloc(sizeof(H5_daos_md_rw_cb_ud_t) + type_size + space_size + dcpl_size + fill_val_size)))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for update callback arguments");
 
         /* Encode datatype */
-        if(H5Tencode(type_id, NULL, &type_size) < 0)
-            D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of datatype");
-        if(NULL == (type_buf = DV_malloc(type_size)))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized datatype");
+        type_buf = update_cb_ud->flex_buf;
         if(H5Tencode(type_id, type_buf, &type_size) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTENCODE, NULL, "can't serialize datatype");
 
         /* Encode dataspace */
-        if(H5Sencode2(space_id, NULL, &space_size, file->fapl_id) < 0)
-            D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of dataspace");
-        if(NULL == (space_buf = DV_malloc(space_size)))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized dataspace");
+        space_buf = update_cb_ud->flex_buf + type_size;
         if(H5Sencode2(space_id, space_buf, &space_size, file->fapl_id) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTENCODE, NULL, "can't serialize dataspace");
 
-        /* If there's a vl or reference type fill value set we must copy the
-         * DCPL and unset the fill value.  This is a workaround for the bug that
-         * prevents deep copying/flattening of encoded fill values.  Even though
-         * the encoded value is never used by the connector, when it is replaced
-         * on file open with one converted from the explicitly stored fill,
-         * the library tries to free the fill value stored in the property list,
-         * causing memory errors. */
-        if(dset->dcpl_cache.fill_status == H5D_FILL_VALUE_USER_DEFINED) {
-            if((is_vl_ref = H5_daos_detect_vl_vlstr_ref(type_id)) < 0)
-                D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, NULL, "can't check for vl or reference type");
-            if(is_vl_ref) {
-                if((tmp_dcpl_id = H5Pcopy(dset->dcpl_id)) < 0)
-                    D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, NULL, "failed to copy dcpl");
-                if(H5Pset_fill_value(tmp_dcpl_id, dset->type_id, NULL) < 0)
-                    D_GOTO_ERROR(H5E_DATASET, H5E_CANTSET, NULL, "can't unset fill value");
-            } /* end if */
-        } /* end if */
-
         /* Encode DCPL if not the default */
         if(!default_dcpl) {
-            if(H5Pencode2(tmp_dcpl_id >= 0 ? tmp_dcpl_id : dset->dcpl_id, NULL, &dcpl_size, file->fapl_id) < 0)
-                D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of dcpl");
-            if(NULL == (dcpl_buf = DV_malloc(dcpl_size)))
-                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized dcpl");
+            dcpl_buf = update_cb_ud->flex_buf + type_size + space_size;
             if(H5Pencode2(tmp_dcpl_id >= 0 ? tmp_dcpl_id : dset->dcpl_id, dcpl_buf, &dcpl_size, file->fapl_id) < 0)
                 D_GOTO_ERROR(H5E_DATASET, H5E_CANTENCODE, NULL, "can't serialize dcpl");
         } /* end if */
@@ -853,17 +864,17 @@ H5_daos_dataset_create_helper(H5_daos_file_t *file, hid_t type_id, hid_t space_i
         update_cb_ud->sgl[0].sg_nr = 1;
         update_cb_ud->sgl[0].sg_nr_out = 0;
         update_cb_ud->sgl[0].sg_iovs = &update_cb_ud->sg_iov[0];
-        update_cb_ud->free_sg_iov[0] = TRUE;
+        update_cb_ud->free_sg_iov[0] = FALSE;
         daos_iov_set(&update_cb_ud->sg_iov[1], space_buf, (daos_size_t)space_size);
         update_cb_ud->sgl[1].sg_nr = 1;
         update_cb_ud->sgl[1].sg_nr_out = 0;
         update_cb_ud->sgl[1].sg_iovs = &update_cb_ud->sg_iov[1];
-        update_cb_ud->free_sg_iov[1] = TRUE;
+        update_cb_ud->free_sg_iov[1] = FALSE;
         daos_iov_set(&update_cb_ud->sg_iov[2], dcpl_buf, (daos_size_t)dcpl_size);
         update_cb_ud->sgl[2].sg_nr = 1;
         update_cb_ud->sgl[2].sg_nr_out = 0;
         update_cb_ud->sgl[2].sg_iovs = &update_cb_ud->sg_iov[2];
-        update_cb_ud->free_sg_iov[2] = !default_dcpl;
+        update_cb_ud->free_sg_iov[2] = FALSE;
 
         /* Set nr */
         update_cb_ud->nr = 3u;
@@ -886,8 +897,7 @@ H5_daos_dataset_create_helper(H5_daos_file_t *file, hid_t type_id, hid_t space_i
             /* Copy fill value buffer - only needed because the generic
              * daos_obj_update frees the buffers.  We could avoid this with
              * extra work but this location isn't critical for performance. */
-            if(NULL == (fill_val_buf = DV_malloc(fill_val_size)))
-                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for fill value");
+            fill_val_buf = update_cb_ud->flex_buf + type_size + space_size + (default_dcpl ? 0 : dcpl_size);
             (void)memcpy(fill_val_buf, dset->fill_val, fill_val_size);
 
             /* Set up iod */
@@ -901,7 +911,7 @@ H5_daos_dataset_create_helper(H5_daos_file_t *file, hid_t type_id, hid_t space_i
             update_cb_ud->sgl[update_cb_ud->nr].sg_nr = 1;
             update_cb_ud->sgl[update_cb_ud->nr].sg_nr_out = 0;
             update_cb_ud->sgl[update_cb_ud->nr].sg_iovs = &update_cb_ud->sg_iov[update_cb_ud->nr];
-            update_cb_ud->free_sg_iov[update_cb_ud->nr] = TRUE;
+            update_cb_ud->free_sg_iov[update_cb_ud->nr] = FALSE;
 
             /* Adjust nr */
             update_cb_ud->nr++;
@@ -941,10 +951,6 @@ H5_daos_dataset_create_helper(H5_daos_file_t *file, hid_t type_id, hid_t space_i
         req->rc++;
         dset->obj.item.rc++;
         update_cb_ud = NULL;
-        type_buf = NULL;
-        space_buf = NULL;
-        dcpl_buf = NULL;
-        fill_val_buf = NULL;
 
         /* Add dependency for finalize task */
         finalize_deps[finalize_ndeps] = update_task;
@@ -1056,18 +1062,10 @@ done:
         /* Free memory */
         if(update_cb_ud && update_cb_ud->obj && H5_daos_object_close(&update_cb_ud->obj->item) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, NULL, "can't close object");
-        type_buf = DV_free(type_buf);
-        space_buf = DV_free(space_buf);
-        if(!default_dcpl) dcpl_buf = DV_free(dcpl_buf);
-        fill_val_buf = DV_free(fill_val_buf);
         update_cb_ud = DV_free(update_cb_ud);
     } /* end if */
 
     assert(!update_cb_ud);
-    assert(!type_buf);
-    assert(!space_buf);
-    assert(!dcpl_buf);
-    assert(!fill_val_buf);
 
     D_FUNC_LEAVE;
 } /* end H5_daos_dataset_create_helper() */

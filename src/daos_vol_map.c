@@ -156,9 +156,6 @@ H5_daos_map_create(void *_item,
     H5T_class_t ktype_class;
     htri_t has_vl_vlstr_ref;
     hid_t ktype_parent_id = H5I_INVALID_HID;
-    void *ktype_buf = NULL;
-    void *vtype_buf = NULL;
-    void *mcpl_buf = NULL;
     hbool_t collective;
     H5_daos_md_rw_cb_ud_t *update_cb_ud = NULL;
     int finalize_ndeps = 0;
@@ -277,34 +274,39 @@ H5_daos_map_create(void *_item,
         size_t mcpl_size = 0;
         size_t ktype_size = 0;
         size_t vtype_size = 0;
+        void *ktype_buf = NULL;
+        void *vtype_buf = NULL;
+        void *mcpl_buf = NULL;
         tse_task_t *update_task;
+
+        /* Determine serialized datatype sizes */
+        if(H5Tencode(ktype_id, NULL, &ktype_size) < 0)
+            D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of datatype");
+        if(H5Tencode(vtype_id, NULL, &vtype_size) < 0)
+            D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of datatype");
+
+        /* Determine serialized MCPL size if not the default */
+        if(!default_mcpl)
+            if(H5Pencode2(mcpl_id, NULL, &mcpl_size, item->file->fapl_id) < 0)
+                D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of mcpl");
 
         /* Create map */
         /* Allocate argument struct */
-        if(NULL == (update_cb_ud = (H5_daos_md_rw_cb_ud_t *)DV_calloc(sizeof(H5_daos_md_rw_cb_ud_t))))
+        if(NULL == (update_cb_ud = (H5_daos_md_rw_cb_ud_t *)DV_calloc(sizeof(H5_daos_md_rw_cb_ud_t) + ktype_size + vtype_size + mcpl_size)))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for update callback arguments");
 
         /* Encode datatypes */
-        if(H5Tencode(ktype_id, NULL, &ktype_size) < 0)
-            D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of datatype");
-        if(NULL == (ktype_buf = DV_malloc(ktype_size)))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized datatype");
+        ktype_buf = update_cb_ud->flex_buf;
         if(H5Tencode(ktype_id, ktype_buf, &ktype_size) < 0)
             D_GOTO_ERROR(H5E_MAP, H5E_CANTENCODE, NULL, "can't serialize datatype");
 
-        if(H5Tencode(vtype_id, NULL, &vtype_size) < 0)
-            D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of datatype");
-        if(NULL == (vtype_buf = DV_malloc(vtype_size)))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized datatype");
+        vtype_buf = update_cb_ud->flex_buf + ktype_size;
         if(H5Tencode(vtype_id, vtype_buf, &vtype_size) < 0)
             D_GOTO_ERROR(H5E_MAP, H5E_CANTENCODE, NULL, "can't serialize datatype");
 
         /* Encode MCPL if not the default */
         if(!default_mcpl) {
-            if(H5Pencode2(mcpl_id, NULL, &mcpl_size, item->file->fapl_id) < 0)
-                D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of mcpl");
-            if(NULL == (mcpl_buf = DV_malloc(mcpl_size)))
-                D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized mcpl");
+            mcpl_buf = update_cb_ud->flex_buf + ktype_size + vtype_size;
             if(H5Pencode2(mcpl_id, mcpl_buf, &mcpl_size, item->file->fapl_id) < 0)
                 D_GOTO_ERROR(H5E_MAP, H5E_CANTENCODE, NULL, "can't serialize mcpl");
         } /* end if */
@@ -354,17 +356,17 @@ H5_daos_map_create(void *_item,
         update_cb_ud->sgl[0].sg_nr = 1;
         update_cb_ud->sgl[0].sg_nr_out = 0;
         update_cb_ud->sgl[0].sg_iovs = &update_cb_ud->sg_iov[0];
-        update_cb_ud->free_sg_iov[0] = TRUE;
+        update_cb_ud->free_sg_iov[0] = FALSE;
         daos_iov_set(&update_cb_ud->sg_iov[1], vtype_buf, (daos_size_t)vtype_size);
         update_cb_ud->sgl[1].sg_nr = 1;
         update_cb_ud->sgl[1].sg_nr_out = 0;
         update_cb_ud->sgl[1].sg_iovs = &update_cb_ud->sg_iov[1];
-        update_cb_ud->free_sg_iov[1] = TRUE;
+        update_cb_ud->free_sg_iov[1] = FALSE;
         daos_iov_set(&update_cb_ud->sg_iov[2], mcpl_buf, (daos_size_t)mcpl_size);
         update_cb_ud->sgl[2].sg_nr = 1;
         update_cb_ud->sgl[2].sg_nr_out = 0;
         update_cb_ud->sgl[2].sg_iovs = &update_cb_ud->sg_iov[2];
-        update_cb_ud->free_sg_iov[2] = !default_mcpl;
+        update_cb_ud->free_sg_iov[2] = FALSE;
 
         /* Set task name */
         update_cb_ud->task_name = "map metadata write";
@@ -389,9 +391,6 @@ H5_daos_map_create(void *_item,
         int_req->rc++;
         map->obj.item.rc++;
         update_cb_ud = NULL;
-        ktype_buf = NULL;
-        vtype_buf = NULL;
-        mcpl_buf = NULL;
 
         /* Add dependency for finalize task */
         finalize_deps[finalize_ndeps] = update_task;
@@ -573,16 +572,10 @@ done:
         /* Free memory */
         if(update_cb_ud && update_cb_ud->obj && H5_daos_object_close(&update_cb_ud->obj->item) < 0)
             D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, NULL, "can't close object");
-        ktype_buf = DV_free(ktype_buf);
-        vtype_buf = DV_free(vtype_buf);
-        if(!default_mcpl) mcpl_buf = DV_free(mcpl_buf);
         update_cb_ud = DV_free(update_cb_ud);
     } /* end if */
 
     assert(!update_cb_ud);
-    assert(!ktype_buf);
-    assert(!vtype_buf);
-    assert(!mcpl_buf);
 
     D_FUNC_LEAVE;
 } /* end H5_daos_map_create() */

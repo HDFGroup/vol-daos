@@ -2000,12 +2000,14 @@ H5_daos_datatype_close(void *_dtype, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
     H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
 
     /* Check if the datatype's request queue is empty, if so we can close it
-     * immediately.  Cannot immediately close with an empty op pool since it may
-     * depend on attribute ops.  Also close if it is marked to close
+     * immediately.  Also close if the pool is empty and has no start task (and
+     * hence does not depend on anything).  Also close if it is marked to close
      * nonblocking. */
     if(((dtype->obj.item.open_req->status == 0
             || dtype->obj.item.open_req->status < -H5_DAOS_SHORT_CIRCUIT)
-            && (!dtype->obj.item.cur_op_pool))
+            && (!dtype->obj.item.cur_op_pool
+            || (dtype->obj.item.cur_op_pool->type == H5_DAOS_OP_TYPE_EMPTY
+            && !dtype->obj.item.cur_op_pool->start_task)))
             || dtype->obj.item.nonblocking_close) {
         if(H5_daos_datatype_close_real(dtype) < 0)
             D_GOTO_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, FAIL, "can't close datatype");

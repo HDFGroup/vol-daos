@@ -1904,12 +1904,14 @@ H5_daos_group_close(void *_grp, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
     H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
 
     /* Check if the group's request queue is NULL, if so we can close it
-     * immediately.  Cannot immediately close with an empty op pool since it may
-     * depend on attribute ops.  Also close if it is marked to close
+     * immediately.  Also close if the pool is empty and has no start task (and
+     * hence does not depend on anything).  Also close if it is marked to close
      * nonblocking. */
     if(((grp->obj.item.open_req->status == 0
             || grp->obj.item.open_req->status < -H5_DAOS_SHORT_CIRCUIT)
-            && (!grp->obj.item.cur_op_pool))
+            && (!grp->obj.item.cur_op_pool
+            || (grp->obj.item.cur_op_pool->type == H5_DAOS_OP_TYPE_EMPTY
+            && !grp->obj.item.cur_op_pool->start_task)))
             || grp->obj.item.nonblocking_close) {
 
         if(H5_daos_group_close_real(grp) < 0)

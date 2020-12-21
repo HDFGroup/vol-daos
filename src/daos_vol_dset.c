@@ -1305,7 +1305,8 @@ done:
         tse_task_complete(udata->bcast_metatask, ret_value);
 
         /* Free buffer */
-        DV_free(udata->buffer);
+        if(udata->buffer != udata->flex_buf)
+            DV_free(udata->buffer);
 
         /* Free private data */
         DV_free(udata);
@@ -1388,9 +1389,9 @@ H5_daos_dset_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
             assert(udata->buffer_len == H5_DAOS_DINFO_BCAST_BUF_SIZE);
             assert(udata->count == H5_DAOS_DINFO_BCAST_BUF_SIZE);
+            assert(udata->buffer == udata->flex_buf);
 
             /* Realloc buffer */
-            DV_free(udata->buffer);
             if(NULL == (udata->buffer = DV_malloc(dinfo_len)))
                 D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "failed to allocate memory for dataset info buffer");
             udata->buffer_len = (int)dinfo_len;
@@ -1446,7 +1447,8 @@ done:
         tse_task_complete(udata->bcast_metatask, ret_value);
 
         /* Free buffer */
-        DV_free(udata->buffer);
+        if(udata->buffer != udata->flex_buf)
+            DV_free(udata->buffer);
 
         /* Free private data */
         DV_free(udata);
@@ -1507,10 +1509,11 @@ H5_daos_dinfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
             D_GOTO_ERROR(H5E_DATASET, H5E_BADVALUE, -H5_DAOS_BAD_VALUE, "buffer length does not match expected value");
 
         if(udata->bcast_udata) {
+            assert(udata->bcast_udata->buffer == udata->bcast_udata->flex_buf);
+
             /* Reallocate dataset info buffer if necessary */
             if(daos_info_len > H5_DAOS_TYPE_BUF_SIZE + H5_DAOS_SPACE_BUF_SIZE
                     + H5_DAOS_DCPL_BUF_SIZE + H5_DAOS_FILL_VAL_BUF_SIZE) {
-                udata->bcast_udata->buffer = DV_free(udata->bcast_udata->buffer);
                 if(NULL == (udata->bcast_udata->buffer = DV_malloc(daos_info_len + 6 * H5_DAOS_ENCODED_UINT64_T_SIZE)))
                     D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate buffer for serialized dataset info");
                 udata->bcast_udata->buffer_len = (int)(daos_info_len + 6 * H5_DAOS_ENCODED_UINT64_T_SIZE);
@@ -1520,12 +1523,14 @@ H5_daos_dinfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
             p = (uint8_t *)udata->bcast_udata->buffer + 6 * H5_DAOS_ENCODED_UINT64_T_SIZE;
         } /* end if */
         else {
+            assert(udata->md_rw_cb_ud.sg_iov[0].iov_buf == udata->flex_buf);
+
             /* Reallocate dataset info buffer if necessary */
             if(daos_info_len > H5_DAOS_TYPE_BUF_SIZE + H5_DAOS_SPACE_BUF_SIZE
                     + H5_DAOS_DCPL_BUF_SIZE + H5_DAOS_FILL_VAL_BUF_SIZE) {
-                udata->md_rw_cb_ud.sg_iov[0].iov_buf = DV_free(udata->md_rw_cb_ud.sg_iov[0].iov_buf);
                 if(NULL == (udata->md_rw_cb_ud.sg_iov[0].iov_buf = DV_malloc(daos_info_len)))
                     D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate buffer for serialized dataset info");
+                udata->md_rw_cb_ud.free_sg_iov[0] = TRUE;
             } /* end if */
 
             /* Set starting point for fetch sg_iovs */
@@ -1631,7 +1636,7 @@ done:
             if(udata->md_rw_cb_ud.req->status < -H5_DAOS_INCOMPLETE)
                 (void)memset(udata->bcast_udata->buffer, 0, (size_t)udata->bcast_udata->count);
         } /* end if */
-        else
+        else if(udata->md_rw_cb_ud.free_sg_iov[0])
             /* No broadcast, free buffer */
             DV_free(udata->md_rw_cb_ud.sg_iov[0].iov_buf);
 
@@ -1895,7 +1900,6 @@ H5_daos_dataset_open_helper(H5_daos_file_t *file, hid_t dapl_id, hbool_t collect
     H5_daos_mpi_ibcast_ud_t *bcast_udata = NULL;
     H5_daos_omd_fetch_ud_t *fetch_udata = NULL;
     H5_daos_dset_t *dset = NULL;
-    uint8_t *dinfo_buf = NULL;
     size_t dinfo_buf_size = 0;
     int ret;
     H5_daos_dset_t *ret_value = NULL;
@@ -1931,13 +1935,13 @@ H5_daos_dataset_open_helper(H5_daos_file_t *file, hid_t dapl_id, hbool_t collect
     /* Set up broadcast user data (if appropriate) and calculate initial dataset
      * info buffer size */
     if(collective && (file->num_procs > 1)) {
-        if(NULL == (bcast_udata = (H5_daos_mpi_ibcast_ud_t *)DV_malloc(sizeof(H5_daos_mpi_ibcast_ud_t))))
+        if(NULL == (bcast_udata = (H5_daos_mpi_ibcast_ud_t *)DV_malloc(sizeof(H5_daos_mpi_ibcast_ud_t) + H5_DAOS_DINFO_BCAST_BUF_SIZE)))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "failed to allocate buffer for MPI broadcast user data");
         bcast_udata->req = req;
         bcast_udata->obj = &dset->obj;
-        bcast_udata->buffer = NULL;
-        bcast_udata->buffer_len = 0;
-        bcast_udata->count = 0;
+        bcast_udata->buffer = bcast_udata->flex_buf;
+        bcast_udata->buffer_len = H5_DAOS_DINFO_BCAST_BUF_SIZE;
+        bcast_udata->count = H5_DAOS_DINFO_BCAST_BUF_SIZE;
         bcast_udata->comm = req->file->comm;
 
         dinfo_buf_size = H5_DAOS_DINFO_BCAST_BUF_SIZE;
@@ -1959,7 +1963,8 @@ H5_daos_dataset_open_helper(H5_daos_file_t *file, hid_t dapl_id, hbool_t collect
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTOPENOBJ, NULL, "can't open dataset object");
 
         /* Allocate argument struct for fetch task */
-        if(NULL == (fetch_udata = (H5_daos_omd_fetch_ud_t *)DV_calloc(sizeof(H5_daos_omd_fetch_ud_t))))
+        if(NULL == (fetch_udata = (H5_daos_omd_fetch_ud_t *)DV_calloc(sizeof(H5_daos_omd_fetch_ud_t)
+                + (bcast_udata ? 0 : dinfo_buf_size))))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for fetch callback arguments");
 
         /* Set up operation to read datatype, dataspace, and DCPL sizes from
@@ -2000,20 +2005,11 @@ H5_daos_dataset_open_helper(H5_daos_file_t *file, hid_t dapl_id, hbool_t collect
 
         fetch_udata->md_rw_cb_ud.free_akeys = FALSE;
 
-        /* Allocate initial dataset info buffer */
-        if(NULL == (dinfo_buf = DV_malloc(dinfo_buf_size)))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized dataset info");
-
         /* Set up buffer */
-        if(bcast_udata) {
-            p = dinfo_buf + (6 * sizeof(uint64_t));
-            bcast_udata->buffer = dinfo_buf;
-            dinfo_buf = NULL;
-            bcast_udata->buffer_len = (int)dinfo_buf_size;
-            bcast_udata->count = (int)dinfo_buf_size;
-        } /* end if */
+        if(bcast_udata)
+            p = bcast_udata->flex_buf + (6 * H5_DAOS_ENCODED_UINT64_T_SIZE);
         else
-            p = dinfo_buf;
+            p = fetch_udata->flex_buf;
 
         /* Set up sgl */
         daos_iov_set(&fetch_udata->md_rw_cb_ud.sg_iov[0], p, (daos_size_t)H5_DAOS_TYPE_BUF_SIZE);
@@ -2081,29 +2077,19 @@ H5_daos_dataset_open_helper(H5_daos_file_t *file, hid_t dapl_id, hbool_t collect
         req->rc++;
         dset->obj.item.rc++;
         fetch_udata = NULL;
-        dinfo_buf = NULL;
     } /* end if */
-    else {
+    else
         assert(bcast_udata);
-
-        /* Allocate buffer for dataset info */
-        if(NULL == (bcast_udata->buffer = DV_malloc(dinfo_buf_size)))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized dataset info");
-        bcast_udata->buffer_len = (int)dinfo_buf_size;
-        bcast_udata->count = (int)dinfo_buf_size;
-    } /* end else */
 
     ret_value = dset;
 
 done:
     /* Broadcast dataset info */
     if(bcast_udata) {
-        assert(!dinfo_buf);
         if(H5_daos_mpi_ibcast(bcast_udata, &dset->obj, dinfo_buf_size,
                 NULL == ret_value ? TRUE : FALSE, NULL,
                 file->my_rank == 0 ? H5_daos_dset_open_bcast_comp_cb : H5_daos_dset_open_recv_comp_cb,
                 req, first_task, dep_task) < 0) {
-            DV_free(bcast_udata->buffer);
             DV_free(bcast_udata);
             D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "failed to broadcast dataset info buffer");
         } /* end if */
@@ -2119,13 +2105,11 @@ done:
 
         /* Free memory */
         fetch_udata = DV_free(fetch_udata);
-        dinfo_buf = DV_free(dinfo_buf);
     } /* end if */
 
     /* Make sure we cleaned up */
     assert(!fetch_udata);
     assert(!bcast_udata);
-    assert(!dinfo_buf);
 
     D_FUNC_LEAVE;
 } /* end H5_daos_dataset_open_helper() */

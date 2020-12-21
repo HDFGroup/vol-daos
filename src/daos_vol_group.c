@@ -829,7 +829,8 @@ done:
         tse_task_complete(udata->bcast_metatask, ret_value);
 
         /* Free buffer */
-        DV_free(udata->buffer);
+        if(udata->buffer != udata->flex_buf)
+            DV_free(udata->buffer);
 
         /* Free private data */
         DV_free(udata);
@@ -906,9 +907,9 @@ H5_daos_group_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
             assert(udata->buffer_len == H5_DAOS_GINFO_BUF_SIZE);
             assert(udata->count == H5_DAOS_GINFO_BUF_SIZE);
+            assert(udata->buffer == udata->flex_buf);
 
             /* Realloc buffer */
-            DV_free(udata->buffer);
             if(NULL == (udata->buffer = DV_malloc(ginfo_len)))
                 D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "failed to allocate memory for group info buffer");
             udata->buffer_len = (int)ginfo_len;
@@ -962,7 +963,8 @@ done:
         tse_task_complete(udata->bcast_metatask, ret_value);
 
         /* Free buffer */
-        DV_free(udata->buffer);
+        if(udata->buffer != udata->flex_buf)
+            DV_free(udata->buffer);
 
         /* Free private data */
         DV_free(udata);
@@ -1011,6 +1013,8 @@ H5_daos_ginfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         assert(udata->md_rw_cb_ud.obj->item.type == H5I_GROUP);
 
         if(udata->bcast_udata) {
+            assert(udata->bcast_udata->buffer == udata->bcast_udata->flex_buf);
+
             /* Verify iod size makes sense */
             if(udata->md_rw_cb_ud.sg_iov[0].iov_buf_len != (H5_DAOS_GINFO_BUF_SIZE - 3 * H5_DAOS_ENCODED_UINT64_T_SIZE))
                 D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, -H5_DAOS_BAD_VALUE, "buffer length does not match expected value");
@@ -1018,7 +1022,6 @@ H5_daos_ginfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
                 D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, -H5_DAOS_BAD_VALUE, "invalid iod_size returned from DAOS (buffer should have been large enough)");
             
             /* Reallocate group info buffer */
-            udata->bcast_udata->buffer = DV_free(udata->bcast_udata->buffer);
             if(NULL == (udata->bcast_udata->buffer = DV_malloc(udata->md_rw_cb_ud.iod[0].iod_size + 3 * H5_DAOS_ENCODED_UINT64_T_SIZE)))
                 D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate buffer for serialized group info");
             udata->bcast_udata->buffer_len = (int)(udata->md_rw_cb_ud.iod[0].iod_size + 3 * H5_DAOS_ENCODED_UINT64_T_SIZE);
@@ -1028,6 +1031,8 @@ H5_daos_ginfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
             udata->md_rw_cb_ud.sgl[0].sg_nr_out = 0;
         } /* end if */
         else {
+            assert(udata->md_rw_cb_ud.sg_iov[0].iov_buf == udata->flex_buf);
+
             /* Verify iod size makes sense */
             if(udata->md_rw_cb_ud.sg_iov[0].iov_buf_len != H5_DAOS_GINFO_BUF_SIZE)
                 D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, -H5_DAOS_BAD_VALUE, "buffer length does not match expected value");
@@ -1035,7 +1040,6 @@ H5_daos_ginfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
                 D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, -H5_DAOS_BAD_VALUE, "invalid iod_size returned from DAOS (buffer should have been large enough)");
             
             /* Reallocate group info buffer */
-            udata->md_rw_cb_ud.sg_iov[0].iov_buf = DV_free(udata->md_rw_cb_ud.sg_iov[0].iov_buf);
             if(NULL == (udata->md_rw_cb_ud.sg_iov[0].iov_buf = DV_malloc(udata->md_rw_cb_ud.iod[0].iod_size)))
                 D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate buffer for serialized group info");
 
@@ -1043,6 +1047,7 @@ H5_daos_ginfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
             udata->md_rw_cb_ud.sg_iov[0].iov_buf_len = udata->md_rw_cb_ud.iod[0].iod_size;
             udata->md_rw_cb_ud.sg_iov[0].iov_len = udata->md_rw_cb_ud.iod[0].iod_size;
             udata->md_rw_cb_ud.sgl[0].sg_nr_out = 0;
+            udata->md_rw_cb_ud.free_sg_iov[0] = TRUE;
         } /* end else */
 
         /* Create task for reissued group metadata read */
@@ -1111,7 +1116,7 @@ done:
             if(udata->md_rw_cb_ud.req->status < -H5_DAOS_INCOMPLETE)
                 (void)memset(udata->bcast_udata->buffer, 0, H5_DAOS_GINFO_BUF_SIZE);
         } /* end if */
-        else
+        else if(udata->md_rw_cb_ud.free_sg_iov[0])
             /* No broadcast, free buffer */
             DV_free(udata->md_rw_cb_ud.sg_iov[0].iov_buf);
 
@@ -1166,7 +1171,6 @@ H5_daos_group_open_helper(H5_daos_file_t *file, hid_t gapl_id,
     tse_task_t **dep_task)
 {
     H5_daos_group_t *grp = NULL;
-    uint8_t *ginfo_buf = NULL;
     H5_daos_mpi_ibcast_ud_t *bcast_udata = NULL;
     H5_daos_omd_fetch_ud_t *fetch_udata = NULL;
     int ret;
@@ -1192,13 +1196,13 @@ H5_daos_group_open_helper(H5_daos_file_t *file, hid_t gapl_id,
 
     /* Set up broadcast user data */
     if(collective && (file->num_procs > 1)) {
-        if(NULL == (bcast_udata = (H5_daos_mpi_ibcast_ud_t *)DV_malloc(sizeof(H5_daos_mpi_ibcast_ud_t))))
+        if(NULL == (bcast_udata = (H5_daos_mpi_ibcast_ud_t *)DV_malloc(sizeof(H5_daos_mpi_ibcast_ud_t) + H5_DAOS_GINFO_BUF_SIZE)))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "failed to allocate buffer for MPI broadcast user data");
         bcast_udata->req = req;
         bcast_udata->obj = &grp->obj;
-        bcast_udata->buffer = NULL;
-        bcast_udata->buffer_len = 0;
-        bcast_udata->count = 0;
+        bcast_udata->buffer = bcast_udata->flex_buf;
+        bcast_udata->buffer_len = H5_DAOS_GINFO_BUF_SIZE;
+        bcast_udata->count = H5_DAOS_GINFO_BUF_SIZE;
         bcast_udata->comm = req->file->comm;
     } /* end if */
 
@@ -1211,7 +1215,8 @@ H5_daos_group_open_helper(H5_daos_file_t *file, hid_t gapl_id,
             D_GOTO_ERROR(H5E_SYM, H5E_CANTOPENOBJ, NULL, "can't open group object");
 
         /* Allocate argument struct for fetch task */
-        if(NULL == (fetch_udata = (H5_daos_omd_fetch_ud_t *)DV_calloc(sizeof(H5_daos_omd_fetch_ud_t))))
+        if(NULL == (fetch_udata = (H5_daos_omd_fetch_ud_t *)DV_calloc(sizeof(H5_daos_omd_fetch_ud_t)
+                + (bcast_udata ? 0 : H5_DAOS_GINFO_BUF_SIZE))))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for fetch callback arguments");
 
         /* Set up operation to read GCPL size from group */
@@ -1234,20 +1239,11 @@ H5_daos_group_open_helper(H5_daos_file_t *file, hid_t gapl_id,
         fetch_udata->md_rw_cb_ud.iod[0].iod_type = DAOS_IOD_SINGLE;
         fetch_udata->md_rw_cb_ud.free_akeys = FALSE;
 
-        /* Allocate initial group info buffer */
-        if(NULL == (ginfo_buf = DV_malloc(H5_DAOS_GINFO_BUF_SIZE)))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized gcpl");
-
         /* Set up sgl */
-        if(bcast_udata) {
-            daos_iov_set(&fetch_udata->md_rw_cb_ud.sg_iov[0], ginfo_buf + 3 * H5_DAOS_ENCODED_UINT64_T_SIZE, (daos_size_t)(H5_DAOS_GINFO_BUF_SIZE - 3 * H5_DAOS_ENCODED_UINT64_T_SIZE));
-            bcast_udata->buffer = ginfo_buf;
-            ginfo_buf = NULL;
-            bcast_udata->buffer_len = H5_DAOS_GINFO_BUF_SIZE;
-            bcast_udata->count = H5_DAOS_GINFO_BUF_SIZE;
-        } /* end if */
+        if(bcast_udata)
+            daos_iov_set(&fetch_udata->md_rw_cb_ud.sg_iov[0], bcast_udata->flex_buf + 3 * H5_DAOS_ENCODED_UINT64_T_SIZE, (daos_size_t)(H5_DAOS_GINFO_BUF_SIZE - 3 * H5_DAOS_ENCODED_UINT64_T_SIZE));
         else
-            daos_iov_set(&fetch_udata->md_rw_cb_ud.sg_iov[0], ginfo_buf, (daos_size_t)(H5_DAOS_GINFO_BUF_SIZE));
+            daos_iov_set(&fetch_udata->md_rw_cb_ud.sg_iov[0], fetch_udata->flex_buf, (daos_size_t)(H5_DAOS_GINFO_BUF_SIZE));
         fetch_udata->md_rw_cb_ud.sgl[0].sg_nr = 1;
         fetch_udata->md_rw_cb_ud.sgl[0].sg_nr_out = 0;
         fetch_udata->md_rw_cb_ud.sgl[0].sg_iovs = &fetch_udata->md_rw_cb_ud.sg_iov[0];
@@ -1291,29 +1287,19 @@ H5_daos_group_open_helper(H5_daos_file_t *file, hid_t gapl_id,
         req->rc++;
         grp->obj.item.rc++;
         fetch_udata = NULL;
-        ginfo_buf = NULL;
     } /* end if */
-    else {
+    else
         assert(bcast_udata);
-
-        /* Allocate buffer for group info */
-        if(NULL == (bcast_udata->buffer = DV_malloc(H5_DAOS_GINFO_BUF_SIZE)))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized gcpl");
-        bcast_udata->buffer_len = H5_DAOS_GINFO_BUF_SIZE;
-        bcast_udata->count = H5_DAOS_GINFO_BUF_SIZE;
-    } /* end else */
 
     ret_value = grp;
 
 done:
     /* Broadcast group info */
     if(bcast_udata) {
-        assert(!ginfo_buf);
         if(H5_daos_mpi_ibcast(bcast_udata, &grp->obj, H5_DAOS_GINFO_BUF_SIZE,
                 NULL == ret_value ? TRUE : FALSE, NULL,
                 file->my_rank == 0 ? H5_daos_group_open_bcast_comp_cb : H5_daos_group_open_recv_comp_cb,
                 req, first_task, dep_task) < 0) {
-            DV_free(bcast_udata->buffer);
             DV_free(bcast_udata);
             D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "failed to broadcast group info buffer");
         } /* end if */
@@ -1329,13 +1315,11 @@ done:
 
         /* Free memory */
         fetch_udata = DV_free(fetch_udata);
-        ginfo_buf = DV_free(ginfo_buf);
     } /* end if */
 
     /* Make sure we cleaned up */
     assert(!fetch_udata);
     assert(!bcast_udata);
-    assert(!ginfo_buf);
 
     D_FUNC_LEAVE;
 } /* end H5_daos_group_open_helper() */

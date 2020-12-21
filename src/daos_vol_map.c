@@ -715,7 +715,6 @@ H5_daos_map_open_helper(H5_daos_file_t *file, hid_t mapl_id, hbool_t collective,
     H5_daos_mpi_ibcast_ud_t *bcast_udata = NULL;
     H5_daos_omd_fetch_ud_t *fetch_udata = NULL;
     H5_daos_map_t *map = NULL;
-    uint8_t *minfo_buf = NULL;
     size_t minfo_buf_size = 0;
     int ret;
     H5_daos_map_t *ret_value = NULL;
@@ -749,13 +748,13 @@ H5_daos_map_open_helper(H5_daos_file_t *file, hid_t mapl_id, hbool_t collective,
     /* Set up broadcast user data (if appropriate) and calculate initial map
      * info buffer size */
     if(collective && (file->num_procs > 1)) {
-        if(NULL == (bcast_udata = (H5_daos_mpi_ibcast_ud_t *)DV_malloc(sizeof(H5_daos_mpi_ibcast_ud_t))))
+        if(NULL == (bcast_udata = (H5_daos_mpi_ibcast_ud_t *)DV_malloc(sizeof(H5_daos_mpi_ibcast_ud_t) + H5_DAOS_MINFO_BCAST_BUF_SIZE)))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "failed to allocate buffer for MPI broadcast user data");
         bcast_udata->req = req;
         bcast_udata->obj = &map->obj;
-        bcast_udata->buffer = NULL;
-        bcast_udata->buffer_len = 0;
-        bcast_udata->count = 0;
+        bcast_udata->buffer = bcast_udata->flex_buf;
+        bcast_udata->buffer_len = H5_DAOS_MINFO_BCAST_BUF_SIZE;
+        bcast_udata->count = H5_DAOS_MINFO_BCAST_BUF_SIZE;
         bcast_udata->comm = req->file->comm;
 
         minfo_buf_size = H5_DAOS_MINFO_BCAST_BUF_SIZE;
@@ -776,7 +775,8 @@ H5_daos_map_open_helper(H5_daos_file_t *file, hid_t mapl_id, hbool_t collective,
             D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, NULL, "can't open map object");
 
         /* Allocate argument struct for fetch task */
-        if(NULL == (fetch_udata = (H5_daos_omd_fetch_ud_t *)DV_calloc(sizeof(H5_daos_omd_fetch_ud_t))))
+        if(NULL == (fetch_udata = (H5_daos_omd_fetch_ud_t *)DV_calloc(sizeof(H5_daos_omd_fetch_ud_t)
+                + (bcast_udata ? 0 : minfo_buf_size))))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for fetch callback arguments");
 
         /* Set up operation to read key/memory datatypes and MCPL sizes from map */
@@ -808,20 +808,11 @@ H5_daos_map_open_helper(H5_daos_file_t *file, hid_t mapl_id, hbool_t collective,
 
         fetch_udata->md_rw_cb_ud.free_akeys = FALSE;
 
-        /* Allocate initial map info buffer */
-        if(NULL == (minfo_buf = DV_malloc(minfo_buf_size)))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized map info");
-
         /* Set up buffer */
-        if(bcast_udata) {
-            p = minfo_buf + (5 * sizeof(uint64_t));
-            bcast_udata->buffer = minfo_buf;
-            minfo_buf = NULL;
-            bcast_udata->buffer_len = (int)minfo_buf_size;
-            bcast_udata->count = (int)minfo_buf_size;
-        } /* end if */
+        if(bcast_udata)
+            p = bcast_udata->flex_buf + (5 * H5_DAOS_ENCODED_UINT64_T_SIZE);
         else
-            p = minfo_buf;
+            p = fetch_udata->flex_buf;
 
         /* Set up sgl */
         daos_iov_set(&fetch_udata->md_rw_cb_ud.sg_iov[0], p, (daos_size_t)H5_DAOS_TYPE_BUF_SIZE);
@@ -888,31 +879,20 @@ H5_daos_map_open_helper(H5_daos_file_t *file, hid_t mapl_id, hbool_t collective,
         req->rc++;
         map->obj.item.rc++;
         fetch_udata = NULL;
-        minfo_buf = NULL;
     } /* end if */
-    else {
+    else
         assert(bcast_udata);
-
-        /* Allocate buffer for map info */
-        minfo_buf_size = H5_DAOS_MINFO_BCAST_BUF_SIZE;
-        if(NULL == (bcast_udata->buffer = DV_malloc(minfo_buf_size)))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for serialized map info");
-        bcast_udata->buffer_len = (int)minfo_buf_size;
-        bcast_udata->count = (int)minfo_buf_size;
-    } /* end else */
 
     ret_value = map;
 
 done:
     /* Broadcast map info */
     if(bcast_udata) {
-        assert(!minfo_buf);
         assert(minfo_buf_size == H5_DAOS_MINFO_BCAST_BUF_SIZE);
         if(H5_daos_mpi_ibcast(bcast_udata, &map->obj, minfo_buf_size,
                 NULL == ret_value ? TRUE : FALSE, NULL,
                 file->my_rank == 0 ? H5_daos_map_open_bcast_comp_cb : H5_daos_map_open_recv_comp_cb,
                 req, first_task, dep_task) < 0) {
-            DV_free(bcast_udata->buffer);
             DV_free(bcast_udata);
             D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "failed to broadcast map info buffer");
         } /* end if */
@@ -928,13 +908,11 @@ done:
 
         /* Free memory */
         fetch_udata = DV_free(fetch_udata);
-        minfo_buf = DV_free(minfo_buf);
     } /* end if */
 
     /* Make sure we cleaned up */
     assert(!fetch_udata);
     assert(!bcast_udata);
-    assert(!minfo_buf);
 
     D_FUNC_LEAVE;
 } /* end H5_daos_map_open_helper() */
@@ -1163,7 +1141,8 @@ done:
         tse_task_complete(udata->bcast_metatask, ret_value);
 
         /* Free buffer */
-        DV_free(udata->buffer);
+        if(udata->buffer != udata->flex_buf)
+            DV_free(udata->buffer);
 
         /* Free private data */
         DV_free(udata);
@@ -1241,9 +1220,9 @@ H5_daos_map_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
             assert(udata->buffer_len == H5_DAOS_MINFO_BCAST_BUF_SIZE);
             assert(udata->count == H5_DAOS_MINFO_BCAST_BUF_SIZE);
+            assert(udata->buffer == udata->flex_buf);
 
             /* Realloc buffer */
-            DV_free(udata->buffer);
             if(NULL == (udata->buffer = DV_malloc(minfo_len)))
                 D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "failed to allocate memory for map info buffer");
             udata->buffer_len = (int)minfo_len;
@@ -1300,7 +1279,8 @@ done:
         tse_task_complete(udata->bcast_metatask, ret_value);
 
         /* Free buffer */
-        DV_free(udata->buffer);
+        if(udata->buffer != udata->flex_buf)
+            DV_free(udata->buffer);
 
         /* Free private data */
         DV_free(udata);
@@ -1446,9 +1426,10 @@ H5_daos_minfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
             D_GOTO_ERROR(H5E_MAP, H5E_BADVALUE, -H5_DAOS_BAD_VALUE, "buffer length does not match expected value");
 
         if(udata->bcast_udata) {
+            assert(udata->bcast_udata->buffer == udata->bcast_udata->flex_buf);
+
             /* Reallocate map info buffer if necessary */
             if(daos_info_len > (2 * H5_DAOS_TYPE_BUF_SIZE) + H5_DAOS_MCPL_BUF_SIZE) {
-                udata->bcast_udata->buffer = DV_free(udata->bcast_udata->buffer);
                 if(NULL == (udata->bcast_udata->buffer = DV_malloc(daos_info_len + H5_DAOS_ENCODED_OID_SIZE + 3 * H5_DAOS_ENCODED_UINT64_T_SIZE)))
                     D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate buffer for serialized map info");
                 udata->bcast_udata->buffer_len = (int)(daos_info_len + H5_DAOS_ENCODED_OID_SIZE + 3 * H5_DAOS_ENCODED_UINT64_T_SIZE);
@@ -1458,11 +1439,13 @@ H5_daos_minfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
             p = (uint8_t *)udata->bcast_udata->buffer + H5_DAOS_ENCODED_OID_SIZE + 3 * H5_DAOS_ENCODED_UINT64_T_SIZE;
         } /* end if */
         else {
+            assert(udata->md_rw_cb_ud.sg_iov[0].iov_buf == udata->flex_buf);
+
             /* Reallocate map info buffer if necessary */
             if(daos_info_len > (2 * H5_DAOS_TYPE_BUF_SIZE) + H5_DAOS_MCPL_BUF_SIZE) {
-                udata->md_rw_cb_ud.sg_iov[0].iov_buf = DV_free(udata->md_rw_cb_ud.sg_iov[0].iov_buf);
                 if(NULL == (udata->md_rw_cb_ud.sg_iov[0].iov_buf = DV_malloc(daos_info_len)))
                     D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate buffer for serialized map info");
+                udata->md_rw_cb_ud.free_sg_iov[0] = TRUE;
             } /* end if */
 
             /* Set starting point for fetch sg_iovs */
@@ -1555,7 +1538,7 @@ done:
             if(udata->md_rw_cb_ud.req->status < -H5_DAOS_INCOMPLETE)
                 (void)memset(udata->bcast_udata->buffer, 0, (size_t)udata->bcast_udata->count);
         } /* end if */
-        else
+        else if(udata->md_rw_cb_ud.free_sg_iov[0])
             /* No broadcast, free buffer */
             DV_free(udata->md_rw_cb_ud.sg_iov[0].iov_buf);
 

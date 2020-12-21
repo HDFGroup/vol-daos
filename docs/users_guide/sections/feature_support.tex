@@ -469,7 +469,7 @@ H5Lvisit(\_by\_name) & \begin{itemize}
 H5Ldelete & \\ \hline
 H5Ldelete\_async & \\ \hline
 H5Ldelete\_by\_idx & \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type\\ \hline
-H5Ldelete\_by\_idx\_async & Currently untested\\ \hline
+H5Ldelete\_by\_idx\_async & \\ \hline
 
 \end{tabularx}
 
@@ -493,17 +493,6 @@ H5Lget\_info\_by\_idx & \texttt{H5\_ITER\_DEC} is currently unsupported for the 
 H5Lget\_val & \\ \hline
 H5Lget\_val\_by\_idx & \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type\\ \hline
 H5Lget\_name\_by\_idx & \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type\\ \hline
-
-\end{tabularx}
-
-\newpage
-
-\begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
-\hline
-\rowcolor{lightgray!50}%
-% Center just the header row
-\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
-
 H5Lcopy & Currently no support for the following properties:
 \begin{itemize}
  \item LAPL
@@ -523,6 +512,8 @@ H5Lmove & Currently no support for the following properties:
 
 \end{tabularx}
 
+\newpage
+
 \textbf{Currently unsupported API calls}
 \vspace{.2in} \\
 
@@ -538,6 +529,59 @@ H5Lcreate\_ud & \texttt{H5Lcreate\_ud} is not currently planned to be supported\
 \end{tabularx}
 
 \footnotetext[1]{External links are not currently planned to be supported.}
+
+\end{center}
+
+\newpage
+
+\subsubsection{H5M interface}
+
+\begin{center}
+
+\textbf{Supported API calls}
+\vspace{.2in} \\
+
+\begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
+\hline
+\rowcolor{lightgray!50}%
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+H5Mcreate & \\ \hline
+H5Mcreate\_async & \\ \hline
+H5Mcreate\_anon & \\ \hline
+H5Mopen & \\ \hline
+H5Mopen\_async & \\ \hline
+H5Mclose & Blocks until all in-flight async tasks on the group are complete\\ \hline
+H5Mclose\_async & Completes when all in-flight async tasks on the group are complete\\ \hline
+H5Mget\_key\_type & \\ \hline
+H5Mget\_val\_type & \\ \hline
+H5Mget\_create\_plist & \\ \hline
+H5Mget\_access\_plist & \\ \hline
+H5Mget\_count & \\ \hline
+H5Mput & \\ \hline
+H5Mput\_async & Currently executes in a blocking fashion\\ \hline
+H5Mget & \\ \hline
+H5Mget\_async & Currently executes in a blocking fashion\\ \hline
+H5Mexists & \\ \hline
+H5Miterate & \\ \hline
+H5Miterate\_by\_name & \\ \hline
+H5Mdelete & \\ \hline
+
+\end{tabularx}
+
+\textbf{Currently unsupported API calls}
+\vspace{.2in} \\
+
+\begin{tabularx}{\linewidth}{| X | >{\RaggedRight}X |}
+\hline
+\rowcolor{lightgray!50}%
+% Center just the header row
+\multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
+
+& \\ \hline
+
+\end{tabularx}
 
 \end{center}
 
@@ -567,6 +611,8 @@ H5Oincr\_refcount & \\ \hline
 H5Odecr\_refcount & \\ \hline
 H5Olink & \\ \hline
 H5Oexists\_by\_name & \\ \hline
+H5Oget\_info(\_by\_name)3 & \\ \hline
+H5Oget\_info\_by\_name\_async & Currently executes in a blocking fashion\\ \hline
 H5Ovisit(1/2) & \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type\\ \hline
 H5Ovisit\_by\_name(1/2) & \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type\\ \hline
 H5Ocopy & Currently no support for the following properties: \begin{itemize}
@@ -574,19 +620,17 @@ H5Ocopy & Currently no support for the following properties: \begin{itemize}
                                                                  \item OCpyPL
                                                                  \begin{itemize}
                                                                      \setlength{\itemindent}{-2.5em}
-                                                                     \item {\small\texttt{H5O\_COPY\_EXPAND\_EXT\_LINK\_FLAG}}\footnotemark[2]
-                                                                     \item {\small\texttt{H5O\_COPY\_EXPAND\_REFERENCE\_FLAG}}\footnotemark[1]
+                                                                     \item {\small\texttt{H5O\_COPY\_EXPAND\_EXT\_LINK\_FLAG}}\footnotemark[1]
+                                                                     \item {\small\texttt{H5O\_COPY\_EXPAND\_REFERENCE\_FLAG}}\footnotemark[2]
                                                                      \item {\small\texttt{H5O\_COPY\_MERGE\_COMMITTED\_DTYPE\_FLAG}}
                                                                  \end{itemize}
                                                              \end{itemize}\\ \hline
 H5Ocopy\_async & \\ \hline
-H5Oflush & Blocks until all in-flight async tasks on the object are complete\\ \hline
-H5Oflush\_async & Completes when all in-flight async tasks on the object are complete\\ \hline
 
 \end{tabularx}
 
-\footnotetext[1]{Will be supported in the future.}
-\footnotetext[2]{External links are not currently planned to be supported.}
+\footnotetext[1]{External links are not currently planned to be supported.}
+\footnotetext[2]{Will be supported in the future.}
 
 \newpage
 
@@ -596,6 +640,10 @@ H5Oflush\_async & Completes when all in-flight async tasks on the object are com
 % Center just the header row
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
+H5Oclose & Blocks until all in-flight async tasks on the object are complete\\ \hline
+H5Oclose\_async & Completes when all in-flight async tasks on the object are complete\\ \hline
+H5Oflush & Blocks until all in-flight async tasks on the object are complete\\ \hline
+H5Oflush\_async & Completes when all in-flight async tasks on the object are complete\\ \hline
 H5Orefresh & \texttt{H5Orefresh} delegates to the appropriate \texttt{H5Xrefresh} routine based upon the given object's type, but that particular object's refresh routine may be implemented as a no-op\\ \hline
 
 \end{tabularx}
@@ -636,6 +684,9 @@ H5Rcreate\_attr & Object lookup and retrieval of a container's info (which are n
 H5Ropen\_object & Object opening (which is needed for \texttt{H5Ropen\_object}) is supported\\ \hline
 H5Ropen\_region & Object opening and retrieval of a dataset's dataspace (which are needed for \texttt{H5Ropen\_region}) are supported\\ \hline
 H5Ropen\_attr & Object opening and attribute opening (which are needed for \texttt{H5Ropen\_attr}) are supported\\ \hline
+H5Ropen\_object\_async & Currently untested\\ \hline
+H5Ropen\_region\_async & Currently untested\\ \hline
+H5Ropen\_attr\_async & Currently untested\\ \hline
 H5Rget\_obj\_type3 & \\ \hline
 H5Rget\_file\_name & Retrieval of a file's name (which is needed for \texttt{H5Rget\_file\_name}) is supported\\ \hline
 
@@ -672,9 +723,12 @@ H5Rget\_obj\_name & \\ \hline
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
 H5Tcommit(1/2) & \\ \hline
+H5Tcommit\_async & Currently executes in a blocking fashion\\ \hline
 H5Tcommit\_anon & \\ \hline
 H5Topen(1/2) & \\ \hline
+H5Topen\_async & Currently untested\\ \hline
 H5Tclose & Blocks until all in-flight async tasks on the datatype are complete\\ \hline
+H5Tclose\_async & Completes when all in-flight async tasks on the datatype are complete, currently untested\\ \hline
 H5Tget\_create\_plist & \\ \hline
 H5Tflush & Blocks until all in-flight async tasks on the datatype are complete\\ \hline
 H5Trefresh & \texttt{H5Trefresh} is currently implemented as a no-op\\ \hline

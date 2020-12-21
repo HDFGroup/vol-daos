@@ -4134,12 +4134,14 @@ H5_daos_map_close(void *_map, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
     H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
 
     /* Check if the map's request queue is empty, if so we can close it
-     * immediately.  Cannot immediately close with an empty op pool since it may
-     * depend on attribute ops.  Also close if it is marked to close
+     * immediately.  Also close if the pool is empty and has no start task (and
+     * hence does not depend on anything).  Also close if it is marked to close
      * nonblocking. */
     if(((map->obj.item.open_req->status == 0
             || map->obj.item.open_req->status < -H5_DAOS_SHORT_CIRCUIT)
-            && (!map->obj.item.cur_op_pool))
+            && (!map->obj.item.cur_op_pool
+            || (map->obj.item.cur_op_pool->type == H5_DAOS_OP_TYPE_EMPTY
+            && !map->obj.item.cur_op_pool->start_task)))
             || map->obj.item.nonblocking_close) {
         if(H5_daos_map_close_real(map) < 0)
             D_GOTO_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't close map");

@@ -4281,12 +4281,14 @@ H5_daos_attribute_close(void *_attr, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
 
     H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
 
-    /* Check if the attribute's request queue is empty, if so we can close it
+    /* Check if the attribute's request queue is empty and has no start task
+     * (and hence does not depend on anything), if so we can close it
      * immediately.  Also close if it is marked to close nonblocking. */
     if(((attr->item.open_req->status == 0
             || attr->item.open_req->status < -H5_DAOS_SHORT_CIRCUIT)
             && (!attr->item.cur_op_pool
-            || attr->item.cur_op_pool->type == H5_DAOS_OP_TYPE_EMPTY))
+            || (attr->item.cur_op_pool->type == H5_DAOS_OP_TYPE_EMPTY
+            && !attr->item.cur_op_pool->start_task)))
             || attr->item.nonblocking_close) {
         /* Close attribute */
         if(H5_daos_attribute_close_real(attr) < 0)

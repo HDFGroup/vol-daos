@@ -650,8 +650,13 @@ typedef struct H5_daos_mpi_ibcast_ud_t {
     int buffer_len;
     int count;
     MPI_Comm comm;
-    uint8_t flex_buf[];
 } H5_daos_mpi_ibcast_ud_t;
+
+/* Task user data for asynchronous MPI broadcast (with flexible array member) */
+typedef struct H5_daos_mpi_ibcast_ud_flex_t {
+    H5_daos_mpi_ibcast_ud_t bcast_udata; /* Must be first */
+    uint8_t flex_buf[];
+} H5_daos_mpi_ibcast_ud_flex_t;
 
 /* Generic request struct */
 struct H5_daos_req_t {
@@ -732,13 +737,18 @@ typedef struct H5_daos_md_rw_cb_ud_t {
     hbool_t free_akeys;
     hbool_t free_sg_iov[7];
     const char *task_name;
-    uint8_t flex_buf[];
 } H5_daos_md_rw_cb_ud_t;
+
+/* Task user data for generic metadata I/O (with flexible array member) */
+typedef struct H5_daos_md_rw_cb_ud_flex_t {
+    H5_daos_md_rw_cb_ud_t md_rw_cb_ud; /* Must be first */
+    uint8_t flex_buf[];
+} H5_daos_md_rw_cb_ud_flex_t;
 
 /* Task user data for object metadata fetch */
 typedef struct H5_daos_omd_fetch_ud_t {
     H5_daos_md_rw_cb_ud_t md_rw_cb_ud; /* Must be first */
-    H5_daos_mpi_ibcast_ud_t *bcast_udata;
+    H5_daos_mpi_ibcast_ud_flex_t *bcast_udata;
     tse_task_t *fetch_metatask;
     uint8_t flex_buf[];
 } H5_daos_omd_fetch_ud_t;

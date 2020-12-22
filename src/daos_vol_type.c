@@ -638,7 +638,7 @@ H5_daos_datatype_commit_helper(H5_daos_file_t *file, hid_t type_id,
     size_t name_len, hbool_t collective, H5_daos_req_t *req,
     tse_task_t **first_task, tse_task_t **dep_task)
 {
-    H5_daos_md_rw_cb_ud_t *update_cb_ud = NULL;
+    H5_daos_md_rw_cb_ud_flex_t *update_cb_ud = NULL;
     H5_daos_dtype_t *dtype = NULL;
     tse_task_t *datatype_metatask;
     tse_task_t *finalize_deps[2];
@@ -696,7 +696,7 @@ H5_daos_datatype_commit_helper(H5_daos_file_t *file, hid_t type_id,
                 D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, NULL, "can't determine serialized length of tcpl");
 
         /* Allocate argument struct */
-        if(NULL == (update_cb_ud = (H5_daos_md_rw_cb_ud_t *)DV_calloc(sizeof(H5_daos_md_rw_cb_ud_t) + type_size + tcpl_size)))
+        if(NULL == (update_cb_ud = (H5_daos_md_rw_cb_ud_flex_t *)DV_calloc(sizeof(H5_daos_md_rw_cb_ud_flex_t) + type_size + tcpl_size)))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for update callback arguments");
 
         /* Encode datatype */
@@ -717,45 +717,45 @@ H5_daos_datatype_commit_helper(H5_daos_file_t *file, hid_t type_id,
 
         /* Set up operation to write datatype and TCPL to datatype */
         /* Point to datatype object */
-        update_cb_ud->obj = &dtype->obj;
+        update_cb_ud->md_rw_cb_ud.obj = &dtype->obj;
 
         /* Point to req */
-        update_cb_ud->req = req;
+        update_cb_ud->md_rw_cb_ud.req = req;
 
         /* Set up dkey.  Point to global name buffer, do not free. */
-        daos_const_iov_set((d_const_iov_t *)&update_cb_ud->dkey, H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
-        update_cb_ud->free_dkey = FALSE;
+        daos_const_iov_set((d_const_iov_t *)&update_cb_ud->md_rw_cb_ud.dkey, H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
+        update_cb_ud->md_rw_cb_ud.free_dkey = FALSE;
 
         /* Set up iod */
-        daos_const_iov_set((d_const_iov_t *)&update_cb_ud->iod[0].iod_name, H5_daos_type_key_g, H5_daos_type_key_size_g);
-        update_cb_ud->iod[0].iod_nr = 1u;
-        update_cb_ud->iod[0].iod_size = (uint64_t)type_size;
-        update_cb_ud->iod[0].iod_type = DAOS_IOD_SINGLE;
+        daos_const_iov_set((d_const_iov_t *)&update_cb_ud->md_rw_cb_ud.iod[0].iod_name, H5_daos_type_key_g, H5_daos_type_key_size_g);
+        update_cb_ud->md_rw_cb_ud.iod[0].iod_nr = 1u;
+        update_cb_ud->md_rw_cb_ud.iod[0].iod_size = (uint64_t)type_size;
+        update_cb_ud->md_rw_cb_ud.iod[0].iod_type = DAOS_IOD_SINGLE;
 
-        daos_const_iov_set((d_const_iov_t *)&update_cb_ud->iod[1].iod_name, H5_daos_cpl_key_g, H5_daos_cpl_key_size_g);
-        update_cb_ud->iod[1].iod_nr = 1u;
-        update_cb_ud->iod[1].iod_size = (uint64_t)tcpl_size;
-        update_cb_ud->iod[1].iod_type = DAOS_IOD_SINGLE;
+        daos_const_iov_set((d_const_iov_t *)&update_cb_ud->md_rw_cb_ud.iod[1].iod_name, H5_daos_cpl_key_g, H5_daos_cpl_key_size_g);
+        update_cb_ud->md_rw_cb_ud.iod[1].iod_nr = 1u;
+        update_cb_ud->md_rw_cb_ud.iod[1].iod_size = (uint64_t)tcpl_size;
+        update_cb_ud->md_rw_cb_ud.iod[1].iod_type = DAOS_IOD_SINGLE;
 
-        update_cb_ud->free_akeys = FALSE;
+        update_cb_ud->md_rw_cb_ud.free_akeys = FALSE;
 
         /* Set up sgl */
-        daos_iov_set(&update_cb_ud->sg_iov[0], type_buf, (daos_size_t)type_size);
-        update_cb_ud->sgl[0].sg_nr = 1;
-        update_cb_ud->sgl[0].sg_nr_out = 0;
-        update_cb_ud->sgl[0].sg_iovs = &update_cb_ud->sg_iov[0];
-        update_cb_ud->free_sg_iov[0] = FALSE;
-        daos_iov_set(&update_cb_ud->sg_iov[1], tcpl_buf, (daos_size_t)tcpl_size);
-        update_cb_ud->sgl[1].sg_nr = 1;
-        update_cb_ud->sgl[1].sg_nr_out = 0;
-        update_cb_ud->sgl[1].sg_iovs = &update_cb_ud->sg_iov[1];
-        update_cb_ud->free_sg_iov[1] = FALSE;
+        daos_iov_set(&update_cb_ud->md_rw_cb_ud.sg_iov[0], type_buf, (daos_size_t)type_size);
+        update_cb_ud->md_rw_cb_ud.sgl[0].sg_nr = 1;
+        update_cb_ud->md_rw_cb_ud.sgl[0].sg_nr_out = 0;
+        update_cb_ud->md_rw_cb_ud.sgl[0].sg_iovs = &update_cb_ud->md_rw_cb_ud.sg_iov[0];
+        update_cb_ud->md_rw_cb_ud.free_sg_iov[0] = FALSE;
+        daos_iov_set(&update_cb_ud->md_rw_cb_ud.sg_iov[1], tcpl_buf, (daos_size_t)tcpl_size);
+        update_cb_ud->md_rw_cb_ud.sgl[1].sg_nr = 1;
+        update_cb_ud->md_rw_cb_ud.sgl[1].sg_nr_out = 0;
+        update_cb_ud->md_rw_cb_ud.sgl[1].sg_iovs = &update_cb_ud->md_rw_cb_ud.sg_iov[1];
+        update_cb_ud->md_rw_cb_ud.free_sg_iov[1] = FALSE;
 
         /* Set nr */
-        update_cb_ud->nr = 2u;
+        update_cb_ud->md_rw_cb_ud.nr = 2u;
 
         /* Set task name */
-        update_cb_ud->task_name = "datatype metadata write";
+        update_cb_ud->md_rw_cb_ud.task_name = "datatype metadata write";
 
         /* Create task for datatype metadata write */
         assert(dep_task);
@@ -866,7 +866,7 @@ done:
             D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, NULL, "can't close datatype");
 
         /* Free memory */
-        if(update_cb_ud && update_cb_ud->obj && H5_daos_object_close(&update_cb_ud->obj->item) < 0)
+        if(update_cb_ud && update_cb_ud->md_rw_cb_ud.obj && H5_daos_object_close(&update_cb_ud->md_rw_cb_ud.obj->item) < 0)
             D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, NULL, "can't close object");
         update_cb_ud = DV_free(update_cb_ud);
     } /* end if */
@@ -1104,7 +1104,7 @@ H5_daos_dtype_t *
 H5_daos_datatype_open_helper(H5_daos_file_t *file, hid_t tapl_id, hbool_t collective,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
-    H5_daos_mpi_ibcast_ud_t *bcast_udata = NULL;
+    H5_daos_mpi_ibcast_ud_flex_t *bcast_udata = NULL;
     H5_daos_omd_fetch_ud_t *fetch_udata = NULL;
     H5_daos_dtype_t *dtype = NULL;
     size_t tinfo_buf_size = 0;
@@ -1134,14 +1134,14 @@ H5_daos_datatype_open_helper(H5_daos_file_t *file, hid_t tapl_id, hbool_t collec
     /* Set up broadcast user data (if appropriate) and calculate initial datatype
      * info buffer size */
     if(collective && (file->num_procs > 1)) {
-        if(NULL == (bcast_udata = (H5_daos_mpi_ibcast_ud_t *)DV_malloc(sizeof(H5_daos_mpi_ibcast_ud_t) + H5_DAOS_TINFO_BCAST_BUF_SIZE)))
+        if(NULL == (bcast_udata = (H5_daos_mpi_ibcast_ud_flex_t *)DV_malloc(sizeof(H5_daos_mpi_ibcast_ud_flex_t) + H5_DAOS_TINFO_BCAST_BUF_SIZE)))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "failed to allocate buffer for MPI broadcast user data");
-        bcast_udata->req = req;
-        bcast_udata->obj = &dtype->obj;
-        bcast_udata->buffer = bcast_udata->flex_buf;
-        bcast_udata->buffer_len = H5_DAOS_TINFO_BCAST_BUF_SIZE;
-        bcast_udata->count = H5_DAOS_TINFO_BCAST_BUF_SIZE;
-        bcast_udata->comm = req->file->comm;
+        bcast_udata->bcast_udata.req = req;
+        bcast_udata->bcast_udata.obj = &dtype->obj;
+        bcast_udata->bcast_udata.buffer = bcast_udata->flex_buf;
+        bcast_udata->bcast_udata.buffer_len = H5_DAOS_TINFO_BCAST_BUF_SIZE;
+        bcast_udata->bcast_udata.count = H5_DAOS_TINFO_BCAST_BUF_SIZE;
+        bcast_udata->bcast_udata.comm = req->file->comm;
 
         tinfo_buf_size = H5_DAOS_TINFO_BCAST_BUF_SIZE;
     } /* end if */
@@ -1259,7 +1259,7 @@ done:
     /* Broadcast datatype info */
     if(bcast_udata) {
         assert(tinfo_buf_size == H5_DAOS_TINFO_BCAST_BUF_SIZE);
-        if(H5_daos_mpi_ibcast(bcast_udata, &dtype->obj, tinfo_buf_size,
+        if(H5_daos_mpi_ibcast(&bcast_udata->bcast_udata, &dtype->obj, tinfo_buf_size,
                 NULL == ret_value ? TRUE : FALSE, NULL,
                 file->my_rank == 0 ? H5_daos_datatype_open_bcast_comp_cb : H5_daos_datatype_open_recv_comp_cb,
                 req, first_task, dep_task) < 0) {
@@ -1302,7 +1302,7 @@ done:
 static int
 H5_daos_datatype_open_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
-    H5_daos_mpi_ibcast_ud_t *udata;
+    H5_daos_mpi_ibcast_ud_flex_t *udata;
     int ret;
     int ret_value = 0;
 
@@ -1310,31 +1310,31 @@ H5_daos_datatype_open_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *arg
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for datatype info broadcast task");
 
-    assert(udata->req);
+    assert(udata->bcast_udata.req);
 
-    /* Handle errors in bcast task.  Only record error in udata->req_status if
+    /* Handle errors in bcast task.  Only record error in udata->bcast_udata.req_status if
      * it does not already contain an error (it could contain an error if
      * another task this task is not dependent on also failed). */
     if(task->dt_result < -H5_DAOS_PRE_ERROR
-            && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
-        udata->req->status = task->dt_result;
-        udata->req->failed_task = "MPI_Ibcast datatype info";
+            && udata->bcast_udata.req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+        udata->bcast_udata.req->status = task->dt_result;
+        udata->bcast_udata.req->failed_task = "MPI_Ibcast datatype info";
     } /* end if */
     else if(task->dt_result == 0) {
-        assert(udata->obj);
-        assert(udata->obj->item.file);
-        assert(udata->obj->item.file->my_rank == 0);
-        assert(udata->obj->item.type == H5I_DATATYPE);
+        assert(udata->bcast_udata.obj);
+        assert(udata->bcast_udata.obj->item.file);
+        assert(udata->bcast_udata.obj->item.file->my_rank == 0);
+        assert(udata->bcast_udata.obj->item.type == H5I_DATATYPE);
 
         /* Reissue bcast if necesary */
-        if(udata->buffer_len != udata->count) {
+        if(udata->bcast_udata.buffer_len != udata->bcast_udata.count) {
             tse_task_t *bcast_task;
 
-            assert(udata->count == H5_DAOS_TINFO_BCAST_BUF_SIZE);
-            assert(udata->buffer_len > udata->count);
+            assert(udata->bcast_udata.count == H5_DAOS_TINFO_BCAST_BUF_SIZE);
+            assert(udata->bcast_udata.buffer_len > udata->bcast_udata.count);
 
             /* Use full buffer this time */
-            udata->count = udata->buffer_len;
+            udata->bcast_udata.count = udata->bcast_udata.buffer_len;
 
             /* Create task for second bcast */
             if(0 !=  (ret = tse_task_create(H5_daos_mpi_ibcast_task, &H5_daos_glob_sched_g, udata, &bcast_task)))
@@ -1355,28 +1355,28 @@ done:
     /* Free private data if we haven't released ownership */
     if(udata) {
         /* Close datatype */
-        if(udata->obj && H5_daos_datatype_close_real((H5_daos_dtype_t *)udata->obj) < 0)
+        if(udata->bcast_udata.obj && H5_daos_datatype_close_real((H5_daos_dtype_t *)udata->bcast_udata.obj) < 0)
             D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close datatype");
 
         /* Handle errors in this function */
         /* Do not place any code that can issue errors after this block, except
          * for H5_daos_req_free_int, which updates req->status if it sees an
          * error */
-        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
-            udata->req->status = ret_value;
-            udata->req->failed_task = "MPI_Ibcast datatype info completion callback";
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->bcast_udata.req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+            udata->bcast_udata.req->status = ret_value;
+            udata->bcast_udata.req->failed_task = "MPI_Ibcast datatype info completion callback";
         } /* end if */
 
         /* Release our reference to req */
-        if(H5_daos_req_free_int(udata->req) < 0)
+        if(H5_daos_req_free_int(udata->bcast_udata.req) < 0)
             D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
 
         /* Complete bcast metatask */
-        tse_task_complete(udata->bcast_metatask, ret_value);
+        tse_task_complete(udata->bcast_udata.bcast_metatask, ret_value);
 
         /* Free buffer */
-        if(udata->buffer != udata->flex_buf)
-            DV_free(udata->buffer);
+        if(udata->bcast_udata.buffer != udata->flex_buf)
+            DV_free(udata->bcast_udata.buffer);
 
         /* Free private data */
         DV_free(udata);
@@ -1402,7 +1402,7 @@ done:
 static int
 H5_daos_datatype_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
-    H5_daos_mpi_ibcast_ud_t *udata;
+    H5_daos_mpi_ibcast_ud_flex_t *udata;
     int ret;
     int ret_value = 0;
 
@@ -1410,30 +1410,30 @@ H5_daos_datatype_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for datatype info receive task");
 
-    assert(udata->req);
+    assert(udata->bcast_udata.req);
 
-    /* Handle errors in bcast task.  Only record error in udata->req_status if
+    /* Handle errors in bcast task.  Only record error in udata->bcast_udata.req_status if
      * it does not already contain an error (it could contain an error if
      * another task this task is not dependent on also failed). */
     if(task->dt_result < -H5_DAOS_PRE_ERROR
-            && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
-        udata->req->status = task->dt_result;
-        udata->req->failed_task = "MPI_Ibcast datatype info";
+            && udata->bcast_udata.req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+        udata->bcast_udata.req->status = task->dt_result;
+        udata->bcast_udata.req->failed_task = "MPI_Ibcast datatype info";
     } /* end if */
     else if(task->dt_result == 0) {
         uint64_t type_buf_len = 0;
         uint64_t tcpl_buf_len = 0;
         size_t tinfo_len;
-        uint8_t *p = udata->buffer;
+        uint8_t *p = udata->bcast_udata.buffer;
 
-        assert(udata->obj);
-        assert(udata->obj->item.file);
-        assert(udata->obj->item.file->my_rank > 0);
-        assert(udata->obj->item.type == H5I_DATATYPE);
+        assert(udata->bcast_udata.obj);
+        assert(udata->bcast_udata.obj->item.file);
+        assert(udata->bcast_udata.obj->item.file->my_rank > 0);
+        assert(udata->bcast_udata.obj->item.type == H5I_DATATYPE);
 
         /* Decode oid */
-        UINT64DECODE(p, udata->obj->oid.lo)
-        UINT64DECODE(p, udata->obj->oid.hi)
+        UINT64DECODE(p, udata->bcast_udata.obj->oid.lo)
+        UINT64DECODE(p, udata->bcast_udata.obj->oid.hi)
 
         /* Decode serialized info lengths */
         UINT64DECODE(p, type_buf_len)
@@ -1447,18 +1447,18 @@ H5_daos_datatype_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args
         tinfo_len = (size_t)type_buf_len + (size_t)tcpl_buf_len + H5_DAOS_ENCODED_OID_SIZE + 2 * sizeof(uint64_t);
 
         /* Reissue bcast if necesary */
-        if(tinfo_len > (size_t)udata->count) {
+        if(tinfo_len > (size_t)udata->bcast_udata.count) {
             tse_task_t *bcast_task;
 
-            assert(udata->buffer_len == H5_DAOS_TINFO_BCAST_BUF_SIZE);
-            assert(udata->count == H5_DAOS_TINFO_BCAST_BUF_SIZE);
-            assert(udata->buffer == udata->flex_buf);
+            assert(udata->bcast_udata.buffer_len == H5_DAOS_TINFO_BCAST_BUF_SIZE);
+            assert(udata->bcast_udata.count == H5_DAOS_TINFO_BCAST_BUF_SIZE);
+            assert(udata->bcast_udata.buffer == udata->flex_buf);
 
             /* Realloc buffer */
-            if(NULL == (udata->buffer = DV_malloc(tinfo_len)))
+            if(NULL == (udata->bcast_udata.buffer = DV_malloc(tinfo_len)))
                 D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "failed to allocate memory for datatype info buffer");
-            udata->buffer_len = (int)tinfo_len;
-            udata->count = (int)tinfo_len;
+            udata->bcast_udata.buffer_len = (int)tinfo_len;
+            udata->bcast_udata.count = (int)tinfo_len;
 
             /* Create task for second bcast */
             if(0 !=  (ret = tse_task_create(H5_daos_mpi_ibcast_task, &H5_daos_glob_sched_g, udata, &bcast_task)))
@@ -1475,14 +1475,14 @@ H5_daos_datatype_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args
         } /* end if */
         else {
             /* Open datatype */
-            if(0 != (ret = daos_obj_open(udata->obj->item.file->coh, udata->obj->oid,
-                    (udata->obj->item.file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO),
-                    &udata->obj->obj_oh, NULL /*event*/)))
+            if(0 != (ret = daos_obj_open(udata->bcast_udata.obj->item.file->coh, udata->bcast_udata.obj->oid,
+                    (udata->bcast_udata.obj->item.file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO),
+                    &udata->bcast_udata.obj->obj_oh, NULL /*event*/)))
                 D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTOPENOBJ, ret, "can't open datatype: %s", H5_daos_err_to_string(ret));
 
             /* Finish building datatype object */
-            if(0 != (ret = H5_daos_datatype_open_end((H5_daos_dtype_t *)udata->obj,
-                    p, type_buf_len, tcpl_buf_len, udata->req->dxpl_id)))
+            if(0 != (ret = H5_daos_datatype_open_end((H5_daos_dtype_t *)udata->bcast_udata.obj,
+                    p, type_buf_len, tcpl_buf_len, udata->bcast_udata.req->dxpl_id)))
                 D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, ret, "can't finish opening datatype");
         } /* end else */
     } /* end else */
@@ -1491,28 +1491,28 @@ done:
     /* Free private data if we haven't released ownership */
     if(udata) {
         /* Close datatype */
-        if(udata->obj && H5_daos_datatype_close_real((H5_daos_dtype_t *)udata->obj) < 0)
+        if(udata->bcast_udata.obj && H5_daos_datatype_close_real((H5_daos_dtype_t *)udata->bcast_udata.obj) < 0)
             D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close datatype");
 
         /* Handle errors in this function */
         /* Do not place any code that can issue errors after this block, except
          * for H5_daos_req_free_int, which updates req->status if it sees an
          * error */
-        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
-            udata->req->status = ret_value;
-            udata->req->failed_task = "MPI_Ibcast datatype info completion callback";
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->bcast_udata.req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+            udata->bcast_udata.req->status = ret_value;
+            udata->bcast_udata.req->failed_task = "MPI_Ibcast datatype info completion callback";
         } /* end if */
 
         /* Release our reference to req */
-        if(H5_daos_req_free_int(udata->req) < 0)
+        if(H5_daos_req_free_int(udata->bcast_udata.req) < 0)
             D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
 
         /* Complete bcast metatask */
-        tse_task_complete(udata->bcast_metatask, ret_value);
+        tse_task_complete(udata->bcast_udata.bcast_metatask, ret_value);
 
         /* Free buffer */
-        if(udata->buffer != udata->flex_buf)
-            DV_free(udata->buffer);
+        if(udata->bcast_udata.buffer != udata->flex_buf)
+            DV_free(udata->bcast_udata.buffer);
 
         /* Free private data */
         DV_free(udata);
@@ -1611,17 +1611,17 @@ H5_daos_tinfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
             D_GOTO_ERROR(H5E_DATATYPE, H5E_BADVALUE, -H5_DAOS_BAD_VALUE, "buffer length does not match expected value");
 
         if(udata->bcast_udata) {
-            assert(udata->bcast_udata->buffer == udata->bcast_udata->flex_buf);
+            assert(udata->bcast_udata->bcast_udata.buffer == udata->bcast_udata->flex_buf);
 
             /* Reallocate datatype info buffer if necessary */
             if(daos_info_len > H5_DAOS_TYPE_BUF_SIZE + H5_DAOS_TCPL_BUF_SIZE) {
-                if(NULL == (udata->bcast_udata->buffer = DV_malloc(daos_info_len + H5_DAOS_ENCODED_OID_SIZE + 2 * H5_DAOS_ENCODED_UINT64_T_SIZE)))
+                if(NULL == (udata->bcast_udata->bcast_udata.buffer = DV_malloc(daos_info_len + H5_DAOS_ENCODED_OID_SIZE + 2 * H5_DAOS_ENCODED_UINT64_T_SIZE)))
                     D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate buffer for serialized datatype info");
-                udata->bcast_udata->buffer_len = (int)(daos_info_len + H5_DAOS_ENCODED_OID_SIZE + 2 * H5_DAOS_ENCODED_UINT64_T_SIZE);
+                udata->bcast_udata->bcast_udata.buffer_len = (int)(daos_info_len + H5_DAOS_ENCODED_OID_SIZE + 2 * H5_DAOS_ENCODED_UINT64_T_SIZE);
             } /* end if */
 
             /* Set starting point for fetch sg_iovs */
-            p = (uint8_t *)udata->bcast_udata->buffer + H5_DAOS_ENCODED_OID_SIZE + 2 * H5_DAOS_ENCODED_UINT64_T_SIZE;
+            p = (uint8_t *)udata->bcast_udata->bcast_udata.buffer + H5_DAOS_ENCODED_OID_SIZE + 2 * H5_DAOS_ENCODED_UINT64_T_SIZE;
         } /* end if */
         else {
             assert(udata->md_rw_cb_ud.sg_iov[0].iov_buf == udata->flex_buf);
@@ -1683,7 +1683,7 @@ H5_daos_tinfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
             if(udata->bcast_udata) {
                 /* Encode oid */
-                p = udata->bcast_udata->buffer;
+                p = udata->bcast_udata->bcast_udata.buffer;
                 UINT64ENCODE(p, udata->md_rw_cb_ud.obj->oid.lo)
                 UINT64ENCODE(p, udata->md_rw_cb_ud.obj->oid.hi)
 
@@ -1711,7 +1711,7 @@ done:
         if(udata->bcast_udata) {
             /* Clear broadcast buffer if there was an error */
             if(udata->md_rw_cb_ud.req->status < -H5_DAOS_INCOMPLETE)
-                (void)memset(udata->bcast_udata->buffer, 0, (size_t)udata->bcast_udata->count);
+                (void)memset(udata->bcast_udata->bcast_udata.buffer, 0, (size_t)udata->bcast_udata->bcast_udata.count);
         } /* end if */
         else if(udata->md_rw_cb_ud.free_sg_iov[0])
             /* No broadcast, free buffer */

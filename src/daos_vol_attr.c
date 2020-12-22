@@ -46,7 +46,9 @@ typedef struct H5_daos_attr_create_ud_t {
 
 /* Task user data for opening an attribute */
 typedef struct H5_daos_attr_open_ud_t {
-    H5_daos_omd_fetch_ud_t fetch_ud;
+    H5_daos_md_rw_cb_ud_t md_rw_cb_ud; /* Must be first */
+    H5_daos_mpi_ibcast_ud_t *bcast_udata;
+    tse_task_t *fetch_metatask;
     H5_daos_attr_t *attr;
     uint8_t flex_buf[];
 } H5_daos_attr_open_ud_t;
@@ -414,38 +416,38 @@ H5_daos_attribute_md_rw_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for attribute metadata I/O task");
 
-    assert(udata->fetch_ud.md_rw_cb_ud.req);
+    assert(udata->md_rw_cb_ud.req);
 
     /* Handle errors */
-    if(udata->fetch_ud.md_rw_cb_ud.req->status < -H5_DAOS_SHORT_CIRCUIT) {
+    if(udata->md_rw_cb_ud.req->status < -H5_DAOS_SHORT_CIRCUIT) {
         udata = NULL;
         D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
     } /* end if */
-    else if(udata->fetch_ud.md_rw_cb_ud.req->status == -H5_DAOS_SHORT_CIRCUIT) {
+    else if(udata->md_rw_cb_ud.req->status == -H5_DAOS_SHORT_CIRCUIT) {
         udata = NULL;
         D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
     } /* end if */
 
-    assert(udata->fetch_ud.md_rw_cb_ud.req->file);
+    assert(udata->md_rw_cb_ud.req->file);
 
     /* Now that the attribute's parent object will have been opened,
      * set the target object for the metadata I/O operation.
      */
     assert(udata->attr->parent);
-    udata->fetch_ud.md_rw_cb_ud.obj = udata->attr->parent;
-    if(udata->fetch_ud.bcast_udata)
-        udata->fetch_ud.bcast_udata->obj = udata->attr->parent;
+    udata->md_rw_cb_ud.obj = udata->attr->parent;
+    if(udata->bcast_udata)
+        udata->bcast_udata->obj = udata->attr->parent;
 
     /* Set task arguments */
     if(NULL == (op_args = daos_task_get_args(task)))
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for attribute metadata I/O task");
-    op_args->oh = udata->fetch_ud.md_rw_cb_ud.obj->obj_oh;
+    op_args->oh = udata->md_rw_cb_ud.obj->obj_oh;
     op_args->th = DAOS_TX_NONE;
-    op_args->flags = udata->fetch_ud.md_rw_cb_ud.flags;
-    op_args->dkey = &udata->fetch_ud.md_rw_cb_ud.dkey;
-    op_args->nr = udata->fetch_ud.md_rw_cb_ud.nr;
-    op_args->iods = udata->fetch_ud.md_rw_cb_ud.iod;
-    op_args->sgls = udata->fetch_ud.md_rw_cb_ud.sgl;
+    op_args->flags = udata->md_rw_cb_ud.flags;
+    op_args->dkey = &udata->md_rw_cb_ud.dkey;
+    op_args->nr = udata->md_rw_cb_ud.nr;
+    op_args->iods = udata->md_rw_cb_ud.iod;
+    op_args->sgls = udata->md_rw_cb_ud.sgl;
 
 done:
     if(ret_value < 0)
@@ -1650,31 +1652,31 @@ H5_daos_attribute_open_helper(H5_daos_item_t *item, const H5VL_loc_params_t *loc
 
         /* Set up operation to read datatype, dataspace, and ACPL sizes from attribute */
         /* Set up ud struct */
-        open_udata->fetch_ud.md_rw_cb_ud.req = req;
-        open_udata->fetch_ud.md_rw_cb_ud.obj = NULL; /* Set later, once attribute's parent object is opened */
-        open_udata->fetch_ud.bcast_udata = (H5_daos_mpi_ibcast_ud_t *)bcast_udata;
+        open_udata->md_rw_cb_ud.req = req;
+        open_udata->md_rw_cb_ud.obj = NULL; /* Set later, once attribute's parent object is opened */
+        open_udata->bcast_udata = (H5_daos_mpi_ibcast_ud_t *)bcast_udata;
 
         /* Set up dkey.  Point to global name buffer, do not free. */
-        daos_const_iov_set((d_const_iov_t *)&open_udata->fetch_ud.md_rw_cb_ud.dkey, H5_daos_attr_key_g, H5_daos_attr_key_size_g);
-        open_udata->fetch_ud.md_rw_cb_ud.free_dkey = FALSE;
+        daos_const_iov_set((d_const_iov_t *)&open_udata->md_rw_cb_ud.dkey, H5_daos_attr_key_g, H5_daos_attr_key_size_g);
+        open_udata->md_rw_cb_ud.free_dkey = FALSE;
 
         /* Set up iod */
-        daos_iov_set(&open_udata->fetch_ud.md_rw_cb_ud.iod[0].iod_name, akeys[0].iov_buf, (daos_size_t)akeys[0].iov_len);
-        open_udata->fetch_ud.md_rw_cb_ud.iod[0].iod_nr = 1u;
-        open_udata->fetch_ud.md_rw_cb_ud.iod[0].iod_size = DAOS_REC_ANY;
-        open_udata->fetch_ud.md_rw_cb_ud.iod[0].iod_type = DAOS_IOD_SINGLE;
+        daos_iov_set(&open_udata->md_rw_cb_ud.iod[0].iod_name, akeys[0].iov_buf, (daos_size_t)akeys[0].iov_len);
+        open_udata->md_rw_cb_ud.iod[0].iod_nr = 1u;
+        open_udata->md_rw_cb_ud.iod[0].iod_size = DAOS_REC_ANY;
+        open_udata->md_rw_cb_ud.iod[0].iod_type = DAOS_IOD_SINGLE;
 
-        daos_iov_set(&open_udata->fetch_ud.md_rw_cb_ud.iod[1].iod_name, akeys[1].iov_buf, (daos_size_t)akeys[1].iov_len);
-        open_udata->fetch_ud.md_rw_cb_ud.iod[1].iod_nr = 1u;
-        open_udata->fetch_ud.md_rw_cb_ud.iod[1].iod_size = DAOS_REC_ANY;
-        open_udata->fetch_ud.md_rw_cb_ud.iod[1].iod_type = DAOS_IOD_SINGLE;
+        daos_iov_set(&open_udata->md_rw_cb_ud.iod[1].iod_name, akeys[1].iov_buf, (daos_size_t)akeys[1].iov_len);
+        open_udata->md_rw_cb_ud.iod[1].iod_nr = 1u;
+        open_udata->md_rw_cb_ud.iod[1].iod_size = DAOS_REC_ANY;
+        open_udata->md_rw_cb_ud.iod[1].iod_type = DAOS_IOD_SINGLE;
 
-        daos_iov_set(&open_udata->fetch_ud.md_rw_cb_ud.iod[2].iod_name, akeys[2].iov_buf, (daos_size_t)akeys[2].iov_len);
-        open_udata->fetch_ud.md_rw_cb_ud.iod[2].iod_nr = 1u;
-        open_udata->fetch_ud.md_rw_cb_ud.iod[2].iod_size = DAOS_REC_ANY;
-        open_udata->fetch_ud.md_rw_cb_ud.iod[2].iod_type = DAOS_IOD_SINGLE;
+        daos_iov_set(&open_udata->md_rw_cb_ud.iod[2].iod_name, akeys[2].iov_buf, (daos_size_t)akeys[2].iov_len);
+        open_udata->md_rw_cb_ud.iod[2].iod_nr = 1u;
+        open_udata->md_rw_cb_ud.iod[2].iod_size = DAOS_REC_ANY;
+        open_udata->md_rw_cb_ud.iod[2].iod_type = DAOS_IOD_SINGLE;
 
-        open_udata->fetch_ud.md_rw_cb_ud.free_akeys = FALSE;
+        open_udata->md_rw_cb_ud.free_akeys = FALSE;
 
         /* Set up buffer */
         if(bcast_udata)
@@ -1683,38 +1685,38 @@ H5_daos_attribute_open_helper(H5_daos_item_t *item, const H5VL_loc_params_t *loc
             p = open_udata->flex_buf;
 
         /* Set up sgl */
-        daos_iov_set(&open_udata->fetch_ud.md_rw_cb_ud.sg_iov[0], p, (daos_size_t)H5_DAOS_TYPE_BUF_SIZE);
-        open_udata->fetch_ud.md_rw_cb_ud.sgl[0].sg_nr = 1;
-        open_udata->fetch_ud.md_rw_cb_ud.sgl[0].sg_nr_out = 0;
-        open_udata->fetch_ud.md_rw_cb_ud.sgl[0].sg_iovs = &open_udata->fetch_ud.md_rw_cb_ud.sg_iov[0];
-        open_udata->fetch_ud.md_rw_cb_ud.free_sg_iov[0] = FALSE;
+        daos_iov_set(&open_udata->md_rw_cb_ud.sg_iov[0], p, (daos_size_t)H5_DAOS_TYPE_BUF_SIZE);
+        open_udata->md_rw_cb_ud.sgl[0].sg_nr = 1;
+        open_udata->md_rw_cb_ud.sgl[0].sg_nr_out = 0;
+        open_udata->md_rw_cb_ud.sgl[0].sg_iovs = &open_udata->md_rw_cb_ud.sg_iov[0];
+        open_udata->md_rw_cb_ud.free_sg_iov[0] = FALSE;
         p += H5_DAOS_TYPE_BUF_SIZE;
-        daos_iov_set(&open_udata->fetch_ud.md_rw_cb_ud.sg_iov[1], p, (daos_size_t)H5_DAOS_SPACE_BUF_SIZE);
-        open_udata->fetch_ud.md_rw_cb_ud.sgl[1].sg_nr = 1;
-        open_udata->fetch_ud.md_rw_cb_ud.sgl[1].sg_nr_out = 0;
-        open_udata->fetch_ud.md_rw_cb_ud.sgl[1].sg_iovs = &open_udata->fetch_ud.md_rw_cb_ud.sg_iov[1];
-        open_udata->fetch_ud.md_rw_cb_ud.free_sg_iov[1] = FALSE;
+        daos_iov_set(&open_udata->md_rw_cb_ud.sg_iov[1], p, (daos_size_t)H5_DAOS_SPACE_BUF_SIZE);
+        open_udata->md_rw_cb_ud.sgl[1].sg_nr = 1;
+        open_udata->md_rw_cb_ud.sgl[1].sg_nr_out = 0;
+        open_udata->md_rw_cb_ud.sgl[1].sg_iovs = &open_udata->md_rw_cb_ud.sg_iov[1];
+        open_udata->md_rw_cb_ud.free_sg_iov[1] = FALSE;
         p += H5_DAOS_SPACE_BUF_SIZE;
-        daos_iov_set(&open_udata->fetch_ud.md_rw_cb_ud.sg_iov[2], p, (daos_size_t)H5_DAOS_ACPL_BUF_SIZE);
-        open_udata->fetch_ud.md_rw_cb_ud.sgl[2].sg_nr = 1;
-        open_udata->fetch_ud.md_rw_cb_ud.sgl[2].sg_nr_out = 0;
-        open_udata->fetch_ud.md_rw_cb_ud.sgl[2].sg_iovs = &open_udata->fetch_ud.md_rw_cb_ud.sg_iov[2];
-        open_udata->fetch_ud.md_rw_cb_ud.free_sg_iov[2] = FALSE;
+        daos_iov_set(&open_udata->md_rw_cb_ud.sg_iov[2], p, (daos_size_t)H5_DAOS_ACPL_BUF_SIZE);
+        open_udata->md_rw_cb_ud.sgl[2].sg_nr = 1;
+        open_udata->md_rw_cb_ud.sgl[2].sg_nr_out = 0;
+        open_udata->md_rw_cb_ud.sgl[2].sg_iovs = &open_udata->md_rw_cb_ud.sg_iov[2];
+        open_udata->md_rw_cb_ud.free_sg_iov[2] = FALSE;
 
         /* Set conditional akey fetch for attribute metadata read operation */
-        open_udata->fetch_ud.md_rw_cb_ud.flags = DAOS_COND_AKEY_FETCH;
+        open_udata->md_rw_cb_ud.flags = DAOS_COND_AKEY_FETCH;
 
         /* Set nr */
-        open_udata->fetch_ud.md_rw_cb_ud.nr = 3u;
+        open_udata->md_rw_cb_ud.nr = 3u;
 
         /* Set task name */
-        open_udata->fetch_ud.md_rw_cb_ud.task_name = "attribute metadata read";
+        open_udata->md_rw_cb_ud.task_name = "attribute metadata read";
 
         /* Create meta task for attribute metadata read.  This empty task will be
          * completed when the read is finished by H5_daos_ainfo_read_comp_cb.
          * We can't use fetch_task since it may not be completed by the first
          * fetch. */
-        if(0 != (ret = tse_task_create(NULL, &H5_daos_glob_sched_g, NULL, &open_udata->fetch_ud.fetch_metatask)))
+        if(0 != (ret = tse_task_create(NULL, &H5_daos_glob_sched_g, NULL, &open_udata->fetch_metatask)))
             D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't create meta task for attribute metadata read: %s", H5_daos_err_to_string(ret));
 
         /* Create task for attribute metadata read */
@@ -1731,7 +1733,7 @@ H5_daos_attribute_open_helper(H5_daos_item_t *item, const H5VL_loc_params_t *loc
         (void)tse_task_set_priv(fetch_task, open_udata);
 
         /* Schedule meta task */
-        if(0 != (ret = tse_task_schedule(open_udata->fetch_ud.fetch_metatask, false)))
+        if(0 != (ret = tse_task_schedule(open_udata->fetch_metatask, false)))
             D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't schedule meta task for attribute metadata read: %s", H5_daos_err_to_string(ret));
 
         /* Schedule attribute metadata read task (or save it to be scheduled
@@ -1742,7 +1744,7 @@ H5_daos_attribute_open_helper(H5_daos_item_t *item, const H5VL_loc_params_t *loc
         } /* end if */
         else
             *first_task = fetch_task;
-        *dep_task = open_udata->fetch_ud.fetch_metatask;
+        *dep_task = open_udata->fetch_metatask;
         req->rc++;
         attr->item.rc++;
         open_udata = NULL;
@@ -2168,61 +2170,61 @@ H5_daos_ainfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for attribute info read task");
 
-    assert(udata->fetch_ud.md_rw_cb_ud.req);
-    assert(udata->fetch_ud.fetch_metatask);
-    assert(udata->fetch_ud.md_rw_cb_ud.req->file || task->dt_result != 0);
+    assert(udata->md_rw_cb_ud.req);
+    assert(udata->fetch_metatask);
+    assert(udata->md_rw_cb_ud.req->file || task->dt_result != 0);
 
     /* Check for buffer not large enough */
     if(task->dt_result == -DER_REC2BIG) {
         tse_task_t *fetch_task;
-        size_t daos_info_len = udata->fetch_ud.md_rw_cb_ud.iod[0].iod_size
-                + udata->fetch_ud.md_rw_cb_ud.iod[1].iod_size
-                + udata->fetch_ud.md_rw_cb_ud.iod[2].iod_size;
+        size_t daos_info_len = udata->md_rw_cb_ud.iod[0].iod_size
+                + udata->md_rw_cb_ud.iod[1].iod_size
+                + udata->md_rw_cb_ud.iod[2].iod_size;
 
-        assert(udata->fetch_ud.md_rw_cb_ud.obj);
+        assert(udata->md_rw_cb_ud.obj);
 
         /* Verify iod size makes sense */
-        if(udata->fetch_ud.md_rw_cb_ud.sg_iov[0].iov_buf_len != H5_DAOS_TYPE_BUF_SIZE
-                || udata->fetch_ud.md_rw_cb_ud.sg_iov[1].iov_buf_len != H5_DAOS_SPACE_BUF_SIZE
-                || udata->fetch_ud.md_rw_cb_ud.sg_iov[2].iov_buf_len != H5_DAOS_ACPL_BUF_SIZE)
+        if(udata->md_rw_cb_ud.sg_iov[0].iov_buf_len != H5_DAOS_TYPE_BUF_SIZE
+                || udata->md_rw_cb_ud.sg_iov[1].iov_buf_len != H5_DAOS_SPACE_BUF_SIZE
+                || udata->md_rw_cb_ud.sg_iov[2].iov_buf_len != H5_DAOS_ACPL_BUF_SIZE)
             D_GOTO_ERROR(H5E_ATTR, H5E_BADVALUE, -H5_DAOS_BAD_VALUE, "buffer length does not match expected value");
 
-        if(udata->fetch_ud.bcast_udata) {
-            assert(udata->fetch_ud.bcast_udata->buffer == ((H5_daos_attr_ibcast_ud_t *)udata->fetch_ud.bcast_udata)->flex_buf);
+        if(udata->bcast_udata) {
+            assert(udata->bcast_udata->buffer == ((H5_daos_attr_ibcast_ud_t *)udata->bcast_udata)->flex_buf);
 
             /* Reallocate attribute info buffer if necessary */
             if(daos_info_len > H5_DAOS_TYPE_BUF_SIZE + H5_DAOS_SPACE_BUF_SIZE + H5_DAOS_ACPL_BUF_SIZE) {
-                if(NULL == (udata->fetch_ud.bcast_udata->buffer = DV_malloc(daos_info_len + 3 * H5_DAOS_ENCODED_UINT64_T_SIZE)))
+                if(NULL == (udata->bcast_udata->buffer = DV_malloc(daos_info_len + 3 * H5_DAOS_ENCODED_UINT64_T_SIZE)))
                     D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate buffer for serialized attribute info");
-                udata->fetch_ud.bcast_udata->buffer_len = (int)daos_info_len + 3 * H5_DAOS_ENCODED_UINT64_T_SIZE;
+                udata->bcast_udata->buffer_len = (int)daos_info_len + 3 * H5_DAOS_ENCODED_UINT64_T_SIZE;
             } /* end if */
 
             /* Set starting point for fetch sg_iovs */
-            p = (uint8_t *)udata->fetch_ud.bcast_udata->buffer + 3 * H5_DAOS_ENCODED_UINT64_T_SIZE;
+            p = (uint8_t *)udata->bcast_udata->buffer + 3 * H5_DAOS_ENCODED_UINT64_T_SIZE;
         } /* end if */
         else {
-            assert(udata->fetch_ud.md_rw_cb_ud.sg_iov[0].iov_buf == udata->flex_buf);
+            assert(udata->md_rw_cb_ud.sg_iov[0].iov_buf == udata->flex_buf);
 
             /* Reallocate attribute info buffer if necessary */
             if(daos_info_len > H5_DAOS_TYPE_BUF_SIZE + H5_DAOS_SPACE_BUF_SIZE + H5_DAOS_ACPL_BUF_SIZE) {
-                if(NULL == (udata->fetch_ud.md_rw_cb_ud.sg_iov[0].iov_buf = DV_malloc(daos_info_len)))
+                if(NULL == (udata->md_rw_cb_ud.sg_iov[0].iov_buf = DV_malloc(daos_info_len)))
                     D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate buffer for serialized attribute info");
-                 udata->fetch_ud.md_rw_cb_ud.free_sg_iov[0] = TRUE;
+                 udata->md_rw_cb_ud.free_sg_iov[0] = TRUE;
             } /* end if */
 
             /* Set starting point for fetch sg_iovs */
-            p = (uint8_t *)udata->fetch_ud.md_rw_cb_ud.sg_iov[0].iov_buf;
+            p = (uint8_t *)udata->md_rw_cb_ud.sg_iov[0].iov_buf;
         } /* end else */
 
         /* Set up sgl */
-        daos_iov_set(&udata->fetch_ud.md_rw_cb_ud.sg_iov[0], p, udata->fetch_ud.md_rw_cb_ud.iod[0].iod_size);
-        udata->fetch_ud.md_rw_cb_ud.sgl[0].sg_nr_out = 0;
-        p += udata->fetch_ud.md_rw_cb_ud.iod[0].iod_size;
-        daos_iov_set(&udata->fetch_ud.md_rw_cb_ud.sg_iov[1], p, udata->fetch_ud.md_rw_cb_ud.iod[1].iod_size);
-        udata->fetch_ud.md_rw_cb_ud.sgl[1].sg_nr_out = 0;
-        p += udata->fetch_ud.md_rw_cb_ud.iod[1].iod_size;
-        daos_iov_set(&udata->fetch_ud.md_rw_cb_ud.sg_iov[2], p, udata->fetch_ud.md_rw_cb_ud.iod[2].iod_size);
-        udata->fetch_ud.md_rw_cb_ud.sgl[2].sg_nr_out = 0;
+        daos_iov_set(&udata->md_rw_cb_ud.sg_iov[0], p, udata->md_rw_cb_ud.iod[0].iod_size);
+        udata->md_rw_cb_ud.sgl[0].sg_nr_out = 0;
+        p += udata->md_rw_cb_ud.iod[0].iod_size;
+        daos_iov_set(&udata->md_rw_cb_ud.sg_iov[1], p, udata->md_rw_cb_ud.iod[1].iod_size);
+        udata->md_rw_cb_ud.sgl[1].sg_nr_out = 0;
+        p += udata->md_rw_cb_ud.iod[1].iod_size;
+        daos_iov_set(&udata->md_rw_cb_ud.sg_iov[2], p, udata->md_rw_cb_ud.iod[2].iod_size);
+        udata->md_rw_cb_ud.sgl[2].sg_nr_out = 0;
 
         /* Create task for reissued attribute metadata read */
         if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &H5_daos_glob_sched_g, 0, NULL, &fetch_task)))
@@ -2246,35 +2248,35 @@ H5_daos_ainfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
          * if it does not already contain an error (it could contain an error if
          * another task this task is not dependent on also failed). */
         if(task->dt_result < -H5_DAOS_PRE_ERROR
-                && udata->fetch_ud.md_rw_cb_ud.req->status >= -H5_DAOS_SHORT_CIRCUIT) {
-            udata->fetch_ud.md_rw_cb_ud.req->status = task->dt_result;
-            udata->fetch_ud.md_rw_cb_ud.req->failed_task = udata->fetch_ud.md_rw_cb_ud.task_name;
+                && udata->md_rw_cb_ud.req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+            udata->md_rw_cb_ud.req->status = task->dt_result;
+            udata->md_rw_cb_ud.req->failed_task = udata->md_rw_cb_ud.task_name;
         } /* end if */
         else if(task->dt_result == 0) {
-            uint64_t type_buf_len = (uint64_t)((char *)udata->fetch_ud.md_rw_cb_ud.sg_iov[1].iov_buf
-                    - (char *)udata->fetch_ud.md_rw_cb_ud.sg_iov[0].iov_buf);
-            uint64_t space_buf_len = (uint64_t)((char *)udata->fetch_ud.md_rw_cb_ud.sg_iov[2].iov_buf
-                    - (char *)udata->fetch_ud.md_rw_cb_ud.sg_iov[1].iov_buf);
-            uint64_t acpl_buf_len = (uint64_t)(udata->fetch_ud.md_rw_cb_ud.iod[2].iod_size);
+            uint64_t type_buf_len = (uint64_t)((char *)udata->md_rw_cb_ud.sg_iov[1].iov_buf
+                    - (char *)udata->md_rw_cb_ud.sg_iov[0].iov_buf);
+            uint64_t space_buf_len = (uint64_t)((char *)udata->md_rw_cb_ud.sg_iov[2].iov_buf
+                    - (char *)udata->md_rw_cb_ud.sg_iov[1].iov_buf);
+            uint64_t acpl_buf_len = (uint64_t)(udata->md_rw_cb_ud.iod[2].iod_size);
 
             /* Check for missing metadata */
-            if(udata->fetch_ud.md_rw_cb_ud.iod[0].iod_size == 0
-                    || udata->fetch_ud.md_rw_cb_ud.iod[1].iod_size == 0
-                    || udata->fetch_ud.md_rw_cb_ud.iod[2].iod_size == 0)
+            if(udata->md_rw_cb_ud.iod[0].iod_size == 0
+                    || udata->md_rw_cb_ud.iod[1].iod_size == 0
+                    || udata->md_rw_cb_ud.iod[2].iod_size == 0)
                 D_GOTO_ERROR(H5E_ATTR, H5E_NOTFOUND, -H5_DAOS_DAOS_GET_ERROR, "internal metadata not found");
 
-            if(udata->fetch_ud.bcast_udata) {
+            if(udata->bcast_udata) {
                 /* Encode serialized info lengths */
-                p = udata->fetch_ud.bcast_udata->buffer;
+                p = udata->bcast_udata->buffer;
                 UINT64ENCODE(p, type_buf_len)
                 UINT64ENCODE(p, space_buf_len)
                 UINT64ENCODE(p, acpl_buf_len)
-                assert(p == udata->fetch_ud.md_rw_cb_ud.sg_iov[0].iov_buf);
+                assert(p == udata->md_rw_cb_ud.sg_iov[0].iov_buf);
             } /* end if */
 
             /* Finish building attribute object */
             if(0 != (ret = H5_daos_attribute_open_end(udata->attr,
-                    udata->fetch_ud.md_rw_cb_ud.sg_iov[0].iov_buf, type_buf_len, space_buf_len, acpl_buf_len)))
+                    udata->md_rw_cb_ud.sg_iov[0].iov_buf, type_buf_len, space_buf_len, acpl_buf_len)))
                 D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, ret, "can't finish opening attribute");
         } /* end else */
     } /* end else */
@@ -2286,33 +2288,33 @@ done:
         if(H5_daos_attribute_close_real(udata->attr) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close attribute");
 
-        if(udata->fetch_ud.bcast_udata) {
+        if(udata->bcast_udata) {
             /* Clear broadcast buffer if there was an error */
-            if(udata->fetch_ud.md_rw_cb_ud.req->status < -H5_DAOS_INCOMPLETE)
-                (void)memset(udata->fetch_ud.bcast_udata->buffer, 0, (size_t)udata->fetch_ud.bcast_udata->count);
+            if(udata->md_rw_cb_ud.req->status < -H5_DAOS_INCOMPLETE)
+                (void)memset(udata->bcast_udata->buffer, 0, (size_t)udata->bcast_udata->count);
         } /* end if */
-        else if(udata->fetch_ud.md_rw_cb_ud.free_sg_iov[0])
+        else if(udata->md_rw_cb_ud.free_sg_iov[0])
             /* No broadcast, free buffer */
-            DV_free(udata->fetch_ud.md_rw_cb_ud.sg_iov[0].iov_buf);
+            DV_free(udata->md_rw_cb_ud.sg_iov[0].iov_buf);
 
         /* Handle errors in this function */
         /* Do not place any code that can issue errors after this block, except
          * for H5_daos_req_free_int, which updates req->status if it sees an
          * error */
-        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->fetch_ud.md_rw_cb_ud.req->status >= -H5_DAOS_SHORT_CIRCUIT) {
-            udata->fetch_ud.md_rw_cb_ud.req->status = ret_value;
-            udata->fetch_ud.md_rw_cb_ud.req->failed_task = udata->fetch_ud.md_rw_cb_ud.task_name;
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->md_rw_cb_ud.req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+            udata->md_rw_cb_ud.req->status = ret_value;
+            udata->md_rw_cb_ud.req->failed_task = udata->md_rw_cb_ud.task_name;
         } /* end if */
 
         /* Release our reference to req */
-        if(H5_daos_req_free_int(udata->fetch_ud.md_rw_cb_ud.req) < 0)
+        if(H5_daos_req_free_int(udata->md_rw_cb_ud.req) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
 
         /* Complete fetch metatask */
-        tse_task_complete(udata->fetch_ud.fetch_metatask, ret_value);
+        tse_task_complete(udata->fetch_metatask, ret_value);
 
-        assert(!udata->fetch_ud.md_rw_cb_ud.free_dkey);
-        assert(!udata->fetch_ud.md_rw_cb_ud.free_akeys);
+        assert(!udata->md_rw_cb_ud.free_dkey);
+        assert(!udata->md_rw_cb_ud.free_akeys);
 
         /* Free udata */
         DV_free(udata);

@@ -2984,6 +2984,14 @@ H5_daos_map_get(void *_map, H5VL_map_get_t get_type,
             {
                 hid_t *plist_id = va_arg(arguments, hid_t *);
 
+                /* Wait for the map to open if necessary */
+                if(!map->obj.item.created && map->obj.item.open_req->status != 0) {
+                    if(H5_daos_progress(map->obj.item.open_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't progress scheduler");
+                    if(map->obj.item.open_req->status != 0)
+                        D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, FAIL, "group open failed");
+                } /* end if */
+
                 /* Retrieve the map's creation property list */
                 if((*plist_id = H5Pcopy(map->mcpl_id)) < 0)
                     D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get map creation property list");
@@ -2998,6 +3006,14 @@ H5_daos_map_get(void *_map, H5VL_map_get_t get_type,
             {
                 hid_t *plist_id = va_arg(arguments, hid_t *);
 
+                /* Wait for the map to open if necessary */
+                if(!map->obj.item.created && map->obj.item.open_req->status != 0) {
+                    if(H5_daos_progress(map->obj.item.open_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't progress scheduler");
+                    if(map->obj.item.open_req->status != 0)
+                        D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, FAIL, "group open failed");
+                } /* end if */
+
                 /* Retrieve the map's access property list */
                 if((*plist_id = H5Pcopy(map->mapl_id)) < 0)
                     D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get map access property list");
@@ -3008,6 +3024,14 @@ H5_daos_map_get(void *_map, H5VL_map_get_t get_type,
             {
                 hid_t *ret_id = va_arg(arguments, hid_t *);
 
+                /* Wait for the map to open if necessary */
+                if(!map->obj.item.created && map->obj.item.open_req->status != 0) {
+                    if(H5_daos_progress(map->obj.item.open_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't progress scheduler");
+                    if(map->obj.item.open_req->status != 0)
+                        D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, FAIL, "group open failed");
+                } /* end if */
+
                 /* Retrieve the map's key datatype */
                 if((*ret_id = H5Tcopy(map->key_type_id)) < 0)
                     D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, FAIL, "can't get key datatype ID of map");
@@ -3016,6 +3040,14 @@ H5_daos_map_get(void *_map, H5VL_map_get_t get_type,
         case H5VL_MAP_GET_VAL_TYPE:
             {
                 hid_t *ret_id = va_arg(arguments, hid_t *);
+
+                /* Wait for the map to open if necessary */
+                if(!map->obj.item.created && map->obj.item.open_req->status != 0) {
+                    if(H5_daos_progress(map->obj.item.open_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't progress scheduler");
+                    if(map->obj.item.open_req->status != 0)
+                        D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, FAIL, "group open failed");
+                } /* end if */
 
                 /* Retrieve the map's value datatype */
                 if((*ret_id = H5Tcopy(map->val_type_id)) < 0)
@@ -3026,6 +3058,15 @@ H5_daos_map_get(void *_map, H5VL_map_get_t get_type,
             {
                 H5_daos_iter_data_t iter_data;
                 hsize_t *count = va_arg(arguments, hsize_t *);
+
+                /* Wait for the map to open if necessary */
+                /* Needed because below code accesses map->key_type_id */
+                if(!map->obj.item.created && map->obj.item.open_req->status != 0) {
+                    if(H5_daos_progress(map->obj.item.open_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't progress scheduler");
+                    if(map->obj.item.open_req->status != 0)
+                        D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, FAIL, "group open failed");
+                } /* end if */
 
                 /* Start H5 operation */
                 if(NULL == (int_req = H5_daos_req_create(map->obj.item.file, dxpl_id)))

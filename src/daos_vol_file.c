@@ -2311,6 +2311,14 @@ H5_daos_file_get(void *_item, H5VL_file_get_t get_type, hid_t H5VL_DAOS_UNUSED d
         {
             hid_t *ret_id = va_arg(arguments, hid_t *);
 
+            /* Wait for the file to open if necessary */
+            if(!file->item.created && file->item.open_req->status != 0) {
+                if(H5_daos_progress(file->item.open_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                    D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't progress scheduler");
+                if(file->item.open_req->status != 0)
+                    D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENOBJ, FAIL, "file open failed");
+            } /* end if */
+
             /* The file's FCPL is stored as the group's GCPL */
             if((*ret_id = H5Pcopy(file->root_grp->gcpl_id)) < 0)
                 D_GOTO_ERROR(H5E_PLIST, H5E_CANTCOPY, FAIL, "can't get file's FCPL");

@@ -1811,8 +1811,16 @@ H5_daos_datatype_get(void *_dtype, H5VL_datatype_get_t get_type,
                 void *buf = va_arg(arguments, void *);
                 size_t size = va_arg(arguments, size_t);
 
+                /* Wait for the datatype to open if necessary */
+                if(!dtype->obj.item.created && dtype->obj.item.open_req->status != 0) {
+                    if(H5_daos_progress(dtype->obj.item.open_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't progress scheduler");
+                    if(dtype->obj.item.open_req->status != 0)
+                        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTOPENOBJ, FAIL, "group open failed");
+                } /* end if */
+
                 if(H5Tencode(dtype->type_id, buf, &size) < 0)
-                    D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "can't determine serialized length of datatype");
+                    D_GOTO_ERROR(H5E_DATATYPE, H5E_BADTYPE, FAIL, "can't determine serialized length of datatype");
 
                 *nalloc = (ssize_t)size;
                 break;
@@ -1820,6 +1828,14 @@ H5_daos_datatype_get(void *_dtype, H5VL_datatype_get_t get_type,
         case H5VL_DATATYPE_GET_TCPL:
             {
                 hid_t *plist_id = va_arg(arguments, hid_t *);
+
+                /* Wait for the datatype to open if necessary */
+                if(!dtype->obj.item.created && dtype->obj.item.open_req->status != 0) {
+                    if(H5_daos_progress(dtype->obj.item.open_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't progress scheduler");
+                    if(dtype->obj.item.open_req->status != 0)
+                        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTOPENOBJ, FAIL, "group open failed");
+                } /* end if */
 
                 /* Retrieve the datatype's creation property list */
                 if((*plist_id = H5Pcopy(dtype->tcpl_id)) < 0)

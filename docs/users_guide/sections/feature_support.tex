@@ -189,7 +189,7 @@ H5Acreate\_by\_name & \\ \hline
 H5Acreate\_by\_name\_async & \\ \hline
 H5Aopen(\_by\_name/\_by\_idx) & For H5Aopen\_by\_idx, \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type\\ \hline
 H5Aopen(\_by\_name)\_async & \\ \hline
-H5Aopen\_by\_idx\_async & Currently executes in a blocking fashion\\ \hline
+H5Aopen\_by\_idx\_async & Currently executes in a semi-blocking fashion, currently untested\\ \hline
 H5Aopen\_idx & Deprecated in favor of H5A\_open\_by\_idx\\ \hline
 H5Aopen\_name & Deprecated in favor of H5A\_open\_by\_name\\ \hline
 H5Awrite & \\ \hline
@@ -221,7 +221,7 @@ H5Aexists(\_by\_name) & \\ \hline
 H5Aexists\_async & \\ \hline
 H5Aexists\_by\_name\_async & Currently untested\\ \hline
 H5Arename(\_by\_name) & \\ \hline
-H5Arename(\_by\_name)\_async & Currently executes in a blocking fashion\\ \hline
+H5Arename(\_by\_name)\_async & Currently executes in a semi-blocking fashion, currently untested\\ \hline
 H5Adelete(\_by\_name/\_by\_idx) & For H5Adelete\_by\_idx, \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type\\ \hline
 H5Aget\_name(\_by\_idx) & For H5Aget\_name\_by\_idx, \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type\\ \hline
 H5Aget\_space & \\ \hline
@@ -280,9 +280,9 @@ H5Dread & \\ \hline
 H5Dread\_async & \\ \hline
 H5Dclose & Blocks until all in-flight async tasks on the dataset are complete\\ \hline
 H5Dclose\_async & Completes when all in-flight async tasks on the dataset are complete\\ \hline
-H5Dextend & Upon dataset shrinking, data is currently not cleared.\footnotemark[1]\\ \hline
-H5Dset\_extent & Upon dataset shrinking, data is currently not cleared.\footnotemark[1]\\ \hline
-H5Dset\_extent\_async & \\ \hline
+H5Dextend & Upon dataset shrinking, data is currently not cleared\footnotemark[1]\\ \hline
+H5Dset\_extent & Upon dataset shrinking, data is currently not cleared\footnotemark[1]\\ \hline
+H5Dset\_extent\_async & If the dataset was opened and not created, blocks until the dataset open is complete\\ \hline
 H5Dget\_space & \\ \hline
 H5Dget\_space\_async & \\ \hline
 H5Dget\_type & \\ \hline
@@ -560,9 +560,9 @@ H5Mget\_create\_plist & \\ \hline
 H5Mget\_access\_plist & \\ \hline
 H5Mget\_count & \\ \hline
 H5Mput & \\ \hline
-H5Mput\_async & Currently executes in a blocking fashion\\ \hline
+H5Mput\_async & If the map was opened and not created, blocks until the map open is complete, currently untested\\ \hline
 H5Mget & \\ \hline
-H5Mget\_async & Currently executes in a blocking fashion\\ \hline
+H5Mget\_async & If the map was opened and not created, blocks until the map open is complete, currently untested\\ \hline
 H5Mexists & \\ \hline
 H5Miterate & \\ \hline
 H5Miterate\_by\_name & \\ \hline
@@ -612,7 +612,7 @@ H5Odecr\_refcount & \\ \hline
 H5Olink & \\ \hline
 H5Oexists\_by\_name & \\ \hline
 H5Oget\_info(\_by\_name)3 & \\ \hline
-H5Oget\_info\_by\_name\_async & Currently executes in a blocking fashion\\ \hline
+H5Oget\_info\_by\_name\_async & Currently untested\\ \hline
 H5Ovisit(1/2) & \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type\\ \hline
 H5Ovisit\_by\_name(1/2) & \texttt{H5\_ITER\_DEC} is currently unsupported for the index ordering when \texttt{H5\_INDEX\_NAME} is used for the index type\\ \hline
 H5Ocopy & Currently no support for the following properties: \begin{itemize}
@@ -723,7 +723,7 @@ H5Rget\_obj\_name & \\ \hline
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
 H5Tcommit(1/2) & \\ \hline
-H5Tcommit\_async & Currently executes in a blocking fashion\\ \hline
+H5Tcommit\_async & Currently untested\\ \hline
 H5Tcommit\_anon & \\ \hline
 H5Topen(1/2) & \\ \hline
 H5Topen\_async & Currently untested\\ \hline

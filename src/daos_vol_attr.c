@@ -565,7 +565,7 @@ done:
         /* Add the request to the object's request queue.  This will add the
          * dependency on the parent object open if necessary. */
         if(H5_daos_req_enqueue(int_req, first_task, item, op_type,
-                H5_DAOS_OP_SCOPE_OBJ, collective, !req, item->open_req) < 0)
+                H5_DAOS_OP_SCOPE_OBJ, collective, !req, item->open_req, NULL) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't add request to request queue");
 
         /* Check for external async */
@@ -1481,7 +1481,7 @@ done:
         /* Add the request to the object's request queue.  This will add the
          * dependency on the parent object open if necessary. */
         if(H5_daos_req_enqueue(int_req, first_task, item, H5_DAOS_OP_TYPE_READ,
-                H5_DAOS_OP_SCOPE_OBJ, collective, !req, item->open_req) < 0)
+                H5_DAOS_OP_SCOPE_OBJ, collective, !req, item->open_req, NULL) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't add request to request queue");
 
         /* Check for external async */
@@ -2895,7 +2895,7 @@ done:
          * dependency on the attribute open if necessary. */
         if(H5_daos_req_enqueue(int_req, first_task, &attr->item,
                 H5_DAOS_OP_TYPE_READ, H5_DAOS_OP_SCOPE_ATTR, collective, !req,
-                attr->item.open_req) < 0)
+                attr->item.open_req, NULL) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
         /* Check for external async */
@@ -3566,7 +3566,7 @@ done:
          * dependency on the attribute open if necessary. */
         if(H5_daos_req_enqueue(int_req, first_task, &attr->item,
                 H5_DAOS_OP_TYPE_WRITE, H5_DAOS_OP_SCOPE_ATTR, collective, !req,
-                attr->item.open_req) < 0)
+                attr->item.open_req, NULL) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
         /* Check for external async */
@@ -3759,9 +3759,10 @@ done:
  */
 herr_t
 H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
-    hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req, va_list arguments)
+    hid_t H5VL_DAOS_UNUSED dxpl_id, void **req, va_list arguments)
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
+    H5_daos_op_pool_scope_t op_scope = H5_DAOS_OP_SCOPE_OBJ;
     H5_daos_req_t *int_req = NULL;
     tse_task_t *first_task = NULL;
     tse_task_t *dep_task = NULL;
@@ -3779,6 +3780,8 @@ H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
             {
                 hid_t *ret_id = va_arg(arguments, hid_t *);
                 H5_daos_attr_t *attr = (H5_daos_attr_t *)_item;
+
+                op_scope = H5_DAOS_OP_SCOPE_ATTR;
 
                 /* Wait for the attribute to open if necessary */
                 if(!attr->item.created && attr->item.open_req->status != 0) {
@@ -3799,6 +3802,8 @@ H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
                 hid_t *ret_id = va_arg(arguments, hid_t *);
                 H5_daos_attr_t *attr = (H5_daos_attr_t *)_item;
 
+                op_scope = H5_DAOS_OP_SCOPE_ATTR;
+
                 /* Wait for the attribute to open if necessary */
                 if(!attr->item.created && attr->item.open_req->status != 0) {
                     if(H5_daos_progress(attr->item.open_req, H5_DAOS_PROGRESS_WAIT) < 0)
@@ -3817,6 +3822,8 @@ H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
             {
                 hid_t *ret_id = va_arg(arguments, hid_t *);
                 H5_daos_attr_t *attr = (H5_daos_attr_t *)_item;
+
+                op_scope = H5_DAOS_OP_SCOPE_ATTR;
 
                 /* Wait for the attribute to open if necessary */
                 if(!attr->item.created && attr->item.open_req->status != 0) {
@@ -3838,6 +3845,9 @@ H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
                 size_t buf_size = va_arg(arguments, size_t);
                 char *buf = va_arg(arguments, char *);
                 ssize_t *ret_size = va_arg(arguments, ssize_t *);
+
+                if(loc_params->type == H5VL_OBJECT_BY_SELF)
+                    op_scope = H5_DAOS_OP_SCOPE_ATTR;
 
                 /* Wait for the item to open if necessary */
                 if(!item->created && item->open_req->status != 0) {
@@ -3869,6 +3879,9 @@ H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
                 const char *attr_name = (H5VL_OBJECT_BY_NAME == loc_params->type) ?
                         va_arg(arguments, const char *) : NULL;
 
+                if(loc_params->type == H5VL_OBJECT_BY_SELF)
+                    op_scope = H5_DAOS_OP_SCOPE_ATTR;
+
                 /* Start H5 operation */
                 if(NULL == (int_req = H5_daos_req_create(item->file, H5I_INVALID_HID)))
                     D_GOTO_ERROR(H5E_ATTR, H5E_CANTALLOC, FAIL, "can't create DAOS request");
@@ -3887,6 +3900,8 @@ H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
 
 done:
     if(int_req) {
+        assert(item);
+
         /* Create task to finalize H5 operation */
         if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))
             D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
@@ -3904,21 +3919,34 @@ done:
         if(ret_value < 0)
             int_req->status = -H5_DAOS_SETUP_ERROR;
 
-        /* Schedule first task */
-        if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
-            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
+        /* Add the request to the object's request queue.  This will add the
+         * dependency on the attribute open if necessary. */
+        if(H5_daos_req_enqueue(int_req, first_task, item, H5_DAOS_OP_TYPE_READ,
+                op_scope, FALSE, !req, item->open_req, NULL) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
-        /* Block until operation completes */
-        if(H5_daos_progress(int_req, H5_DAOS_PROGRESS_WAIT) < 0)
-            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't progress scheduler");
+        /* Check for external async */
+        if(req) {
+            /* Return int_req as req */
+            *req = int_req;
 
-        /* Check for failure */
-        if(int_req->status < 0)
-            D_DONE_ERROR(H5E_ATTR, H5E_CANTOPERATE, FAIL, "attribute get operation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status));
+            /* Kick task engine */
+            if(H5_daos_progress(NULL, H5_DAOS_PROGRESS_KICK) < 0)
+                D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't progress scheduler");
+        } /* end if */
+        else {
+            /* Block until operation completes */
+            if(H5_daos_progress(int_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't progress scheduler");
 
-        /* Close internal request */
-        if(H5_daos_req_free_int(int_req) < 0)
-            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't free request");
+            /* Check for failure */
+            if(int_req->status < 0)
+                D_DONE_ERROR(H5E_ATTR, H5E_CANTOPERATE, FAIL, "attribute get operation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status));
+
+            /* Close internal request */
+            if(H5_daos_req_free_int(int_req) < 0)
+                D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't free request");
+        } /* end else */
     } /* end if */
 
     D_FUNC_LEAVE_API;
@@ -4147,7 +4175,7 @@ done:
         /* Add the request to the object's request queue.  This will add the
          * dependency on the parent object open if necessary. */
         if(H5_daos_req_enqueue(int_req, first_task, item, op_type,
-                H5_DAOS_OP_SCOPE_OBJ, collective, !req, item->open_req) < 0)
+                H5_DAOS_OP_SCOPE_OBJ, collective, !req, item->open_req, NULL) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
         /* Check for external async (disabled for iterate currently) */
@@ -4332,7 +4360,7 @@ done:
          * dependency on the attribute open if necessary. */
         if(H5_daos_req_enqueue(int_req, first_task, &attr->item,
                 H5_DAOS_OP_TYPE_CLOSE, H5_DAOS_OP_SCOPE_ATTR, FALSE, !req,
-                attr->item.open_req) < 0)
+                attr->item.open_req, NULL) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't add request to request queue");
         attr = NULL;
 

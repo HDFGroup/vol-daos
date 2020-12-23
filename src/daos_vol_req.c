@@ -383,7 +383,7 @@ herr_t
 H5_daos_req_enqueue(H5_daos_req_t *req, tse_task_t *first_task,
     H5_daos_item_t *item, H5_daos_op_pool_type_t op_type,
     H5_daos_op_pool_scope_t scope, hbool_t collective, hbool_t sync,
-    H5_daos_req_t *dep_req)
+    H5_daos_req_t *dep_req1, H5_daos_req_t *dep_req2)
 {
     H5_daos_op_pool_t **parent_cur_op_pool[4];
     H5_daos_op_pool_t *tmp_pool;
@@ -402,6 +402,7 @@ H5_daos_req_enqueue(H5_daos_req_t *req, tse_task_t *first_task,
     assert(req);
     assert(op_type >= H5_DAOS_OP_TYPE_READ && op_type <= H5_DAOS_OP_TYPE_NOPOOL);
     assert(scope >= H5_DAOS_OP_SCOPE_ATTR &&  scope <= H5_DAOS_OP_SCOPE_GLOB);
+    assert(!(!dep_req1 && dep_req2));
 
     /* If there's no first task there's nothing to do */
     if(!first_task)
@@ -794,12 +795,22 @@ skip_pool:
         H5_daos_collective_req_tail = req;
     } /* end if */
 
-    /* Add dependency on dep_req if necessary */
-    if(dep_req && (dep_req->status == -H5_DAOS_INCOMPLETE
-            || dep_req->status == -H5_DAOS_SHORT_CIRCUIT))
-        /* Register dependency */
-        if((ret = tse_task_register_deps(first_task, 1, &dep_req->finalize_task)) < 0)
-            D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't register task dependency: %s", H5_daos_err_to_string(ret));
+    /* Add dependencies on dep_reqs if necessary */
+    if(dep_req1) {
+        if(dep_req1->status == -H5_DAOS_INCOMPLETE
+            || dep_req1->status == -H5_DAOS_SHORT_CIRCUIT)
+            /* Register dependency on dep_req1 */
+            if((ret = tse_task_register_deps(first_task, 1, &dep_req1->finalize_task)) < 0)
+                D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't register task dependency: %s", H5_daos_err_to_string(ret));
+
+        if(dep_req2 && (dep_req2->status == -H5_DAOS_INCOMPLETE
+                || dep_req2->status == -H5_DAOS_SHORT_CIRCUIT))
+            /* Register dependency on dep_req2 */
+            if((ret = tse_task_register_deps(first_task, 1, &dep_req2->finalize_task)) < 0)
+                D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't register task dependency: %s", H5_daos_err_to_string(ret));
+    } /* end if */
+    else
+        assert(!dep_req2);
 
 done:
     /* Schedule first task */

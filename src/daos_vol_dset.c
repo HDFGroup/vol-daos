@@ -543,7 +543,7 @@ done:
          * create add to the file pool. */
         if(H5_daos_req_enqueue(int_req, first_task, item, op_type,
                 target_obj ? H5_DAOS_OP_SCOPE_OBJ : H5_DAOS_OP_SCOPE_FILE,
-                collective, !req, item->open_req) < 0)
+                collective, !req, item->open_req, NULL) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't add request to request queue");
 
         /* Check for external async */
@@ -1841,7 +1841,7 @@ done:
         /* Add the request to the object's request queue.  This will add the
          * dependency on the group open if necessary. */
         if(H5_daos_req_enqueue(int_req, first_task, item, H5_DAOS_OP_TYPE_READ,
-                H5_DAOS_OP_SCOPE_OBJ, collective, !req, item->open_req) < 0)
+                H5_DAOS_OP_SCOPE_OBJ, collective, !req, item->open_req, NULL) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't add request to request queue");
 
         /* Check for external async */
@@ -3572,7 +3572,7 @@ done:
          * dependency on the dataset open if necessary. */
         if(H5_daos_req_enqueue(int_req, first_task, &dset->obj.item,
                 H5_DAOS_OP_TYPE_READ, H5_DAOS_OP_SCOPE_OBJ, FALSE, !req,
-                dset->obj.item.open_req) < 0)
+                dset->obj.item.open_req, NULL) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
         /* Check for external async */
@@ -3903,7 +3903,7 @@ done:
          * dependency on the dataset open if necessary. */
         if(H5_daos_req_enqueue(int_req, first_task, &dset->obj.item,
                 H5_DAOS_OP_TYPE_WRITE, H5_DAOS_OP_SCOPE_OBJ, FALSE, !req,
-                dset->obj.item.open_req) < 0)
+                dset->obj.item.open_req, NULL) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
         /* Check for external async */
@@ -4406,7 +4406,7 @@ done:
          * dependency on the dataset open if necessary. */
         if(H5_daos_req_enqueue(int_req, first_task, &dset->obj.item,
                 H5_DAOS_OP_TYPE_READ, H5_DAOS_OP_SCOPE_OBJ, FALSE, !req,
-                dset->obj.item.open_req) < 0)
+                dset->obj.item.open_req, NULL) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
         /* Check for external async */
@@ -4581,7 +4581,7 @@ done:
         if(H5_daos_req_enqueue(int_req, first_task, &dset->obj.item,
                 specific_type == H5VL_DATASET_SET_EXTENT || specific_type == H5VL_DATASET_FLUSH
                 ? H5_DAOS_OP_TYPE_WRITE_ORDERED : H5_DAOS_OP_TYPE_READ,
-                H5_DAOS_OP_SCOPE_OBJ, must_coll_req, !req, dset->obj.item.open_req) < 0)
+                H5_DAOS_OP_SCOPE_OBJ, must_coll_req, !req, dset->obj.item.open_req, NULL) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
         /* Check for external async */
@@ -4784,7 +4784,7 @@ done:
          * dependency on the dataset open if necessary. */
         if(H5_daos_req_enqueue(int_req, first_task, &dset->obj.item,
                 H5_DAOS_OP_TYPE_CLOSE, H5_DAOS_OP_SCOPE_OBJ, FALSE, !req,
-                dset->obj.item.open_req) < 0)
+                dset->obj.item.open_req, NULL) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't add request to request queue");
         dset = NULL;
 

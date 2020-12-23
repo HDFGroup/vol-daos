@@ -635,7 +635,7 @@ done:
          * and target_obj is not different from item use
          * H5_DAOS_OP_TYPE_WRITE_ORDERED, otherwise use H5_DAOS_OP_TYPE_WRITE.
          * Add to item's pool because that's where we're creating the link.  No
-         * need to add to dataset's pool since it's the open request. */
+         * need to add to new group's pool since it's the open request. */
         if(!target_obj || &target_obj->item != item
                 || target_obj->item.type != H5I_GROUP
                 || ((target_obj->item.open_req->status == 0
@@ -650,7 +650,7 @@ done:
          * create add to the file pool. */
         if(H5_daos_req_enqueue(int_req, first_task, item, op_type,
                 target_obj ? H5_DAOS_OP_SCOPE_OBJ : H5_DAOS_OP_SCOPE_FILE,
-                collective, !req, item->open_req) < 0)
+                collective, !req, item->open_req, NULL) < 0)
             D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't add request to request queue");
 
         /* Check for external async */
@@ -1539,7 +1539,7 @@ done:
         /* Add the request to the object's request queue.  This will add the
          * dependency on the parent group open if necessary. */
         if(H5_daos_req_enqueue(int_req, first_task, item, H5_DAOS_OP_TYPE_READ,
-                H5_DAOS_OP_SCOPE_OBJ, collective, !req, item->open_req) < 0)
+                H5_DAOS_OP_SCOPE_OBJ, collective, !req, item->open_req, NULL) < 0)
             D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't add request to request queue");
 
         /* Check for external async */
@@ -1589,7 +1589,7 @@ done:
  */
 herr_t
 H5_daos_group_get(void *_item, H5VL_group_get_t get_type, hid_t dxpl_id,
-    void H5VL_DAOS_UNUSED **req, va_list arguments)
+    void **req, va_list arguments)
 {
     H5_daos_group_t *grp = (H5_daos_group_t *)_item;
     H5_daos_req_t   *int_req = NULL;
@@ -1679,7 +1679,7 @@ done:
          * dependency on the group open if necessary. */
         if(H5_daos_req_enqueue(int_req, first_task, &grp->obj.item,
                 H5_DAOS_OP_TYPE_READ, H5_DAOS_OP_SCOPE_OBJ, FALSE, !req,
-                grp->obj.item.open_req) < 0)
+                grp->obj.item.open_req, NULL) < 0)
             D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
         /* Check for external async */
@@ -1792,7 +1792,7 @@ done:
         assert(specific_type == H5VL_GROUP_FLUSH);
         if(H5_daos_req_enqueue(int_req, first_task, &grp->obj.item,
                 H5_DAOS_OP_TYPE_WRITE_ORDERED, H5_DAOS_OP_SCOPE_OBJ, FALSE, !req,
-                grp->obj.item.open_req) < 0)
+                grp->obj.item.open_req, NULL) < 0)
             D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
         /* Check for external async */
@@ -1968,7 +1968,7 @@ done:
          * dependency on the group open if necessary. */
         if(H5_daos_req_enqueue(int_req, first_task, &grp->obj.item,
                 H5_DAOS_OP_TYPE_CLOSE, H5_DAOS_OP_SCOPE_OBJ, FALSE, !req,
-                grp->obj.item.open_req) < 0)
+                grp->obj.item.open_req, NULL) < 0)
             D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't add request to request queue");
         grp = NULL;
 

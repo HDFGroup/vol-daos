@@ -358,11 +358,11 @@ done:
         if(ret_value == NULL)
             int_req->status = -H5_DAOS_SETUP_ERROR;
 
-        /* Add the request to the object's request queue.  This will add the
-         * dependency on the group open if necessary. */
+        /* Add the request to the parent object's request queue.  This will add
+         * the dependency on the parent object open if necessary. */
         if(H5_daos_req_enqueue(int_req, first_task, item, H5_DAOS_OP_TYPE_READ,
-                H5_DAOS_OP_SCOPE_OBJ, collective, !req, item->open_req) < 0)
-            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't add request to request queue");
+                H5_DAOS_OP_SCOPE_OBJ, collective, !req, item->open_req, NULL) < 0)
+            D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, NULL, "can't add request to request queue");
 
         /* Check for external async - disabled except for open by token */
         if(req && loc_params->type == H5VL_OBJECT_BY_TOKEN) {
@@ -371,7 +371,7 @@ done:
 
             /* Kick task engine */
             if(H5_daos_progress(NULL, H5_DAOS_PROGRESS_KICK) < 0)
-                D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't progress scheduler");
+                D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, NULL, "can't progress scheduler");
         } /* end if */
         else {
             /* Block until operation completes */
@@ -1481,17 +1481,18 @@ done:
         else
             op_type = H5_DAOS_OP_TYPE_WRITE_ORDERED;
 
-        /* Determin operation scope - use global if the files are different or
-         * if either item is not specified */
-        if(!item || !dst_item || item->file != dst_item->file)
+        /* Determine operation scope - use global if the files are different */
+        if(item && dst_item && item->file != dst_item->file)
             op_scope = H5_DAOS_OP_SCOPE_GLOB;
         else
             op_scope = H5_DAOS_OP_SCOPE_FILE;
 
-        /* Add the request to the object's request queue.  This will add the
-         * dependency on the source object open if necessary. */
+        /* Add the request to the request queue.  This will add the dependency
+         * on the source object open if necessary. */
         if(H5_daos_req_enqueue(int_req, first_task, item, op_type, op_scope,
-                collective, !req, item->open_req) < 0)
+                collective, !req, item->open_req,
+                item->open_req == dst_item->open_req ? NULL
+                : dst_item->open_req) < 0)
             D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
         /* Check for external async */
@@ -2920,7 +2921,7 @@ done:
  */
 herr_t
 H5_daos_object_get(void *_item, const H5VL_loc_params_t *loc_params,
-    H5VL_object_get_t get_type, hid_t dxpl_id, void H5VL_DAOS_UNUSED **req,
+    H5VL_object_get_t get_type, hid_t dxpl_id, void **req,
     va_list H5VL_DAOS_UNUSED arguments)
 {
     H5_daos_item_t *item = (H5_daos_item_t *) _item;
@@ -3075,21 +3076,34 @@ done:
         if(ret_value < 0)
             int_req->status = -H5_DAOS_SETUP_ERROR;
 
-        /* Schedule first task */
-        if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
-            D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
+        /* Add the request to the object's request queue.  This will add the
+         * dependency on the object open if necessary. */
+        if(H5_daos_req_enqueue(int_req, first_task, item, H5_DAOS_OP_TYPE_READ,
+                H5_DAOS_OP_SCOPE_OBJ, FALSE, !req, item->open_req, NULL) < 0)
+            D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, NULL, "can't add request to request queue");
 
-        /* Block until operation completes */
-        if(H5_daos_progress(int_req, H5_DAOS_PROGRESS_WAIT) < 0)
-            D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't progress scheduler");
+        /* Check for external async */
+        if(req) {
+            /* Return int_req as req */
+            *req = int_req;
 
-        /* Check for failure */
-        if(int_req->status < 0)
-            D_DONE_ERROR(H5E_OBJECT, H5E_CANTOPERATE, FAIL, "object get operation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status));
+            /* Kick task engine */
+            if(H5_daos_progress(NULL, H5_DAOS_PROGRESS_KICK) < 0)
+                D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, NULL, "can't progress scheduler");
+        } /* end if */
+        else {
+            /* Block until operation completes */
+            if(H5_daos_progress(int_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't progress scheduler");
 
-        /* Close internal request */
-        if(H5_daos_req_free_int(int_req) < 0)
-            D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, FAIL, "can't free request");
+            /* Check for failure */
+            if(int_req->status < 0)
+                D_DONE_ERROR(H5E_OBJECT, H5E_CANTOPERATE, FAIL, "object get operation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status));
+
+            /* Close internal request */
+            if(H5_daos_req_free_int(int_req) < 0)
+                D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, FAIL, "can't free request");
+        } /* end else */
     } /* end if */
 
     if(target_obj) {
@@ -3497,7 +3511,7 @@ done:
         if(H5_daos_req_enqueue(int_req, first_task, item,
                 specific_type == H5VL_OBJECT_CHANGE_REF_COUNT || specific_type == H5VL_OBJECT_FLUSH
                 ? H5_DAOS_OP_TYPE_WRITE_ORDERED : H5_DAOS_OP_TYPE_READ,
-                H5_DAOS_OP_SCOPE_OBJ, must_coll_req, !req, item ? item->open_req : NULL) < 0)
+                H5_DAOS_OP_SCOPE_OBJ, must_coll_req, !req, item ? item->open_req : NULL, NULL) < 0)
             D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
         /* Check for external async.  Disabled for H5Ovisit for now. */

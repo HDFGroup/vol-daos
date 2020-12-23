@@ -494,7 +494,7 @@ void *
 H5_daos_datatype_commit(void *_item,
     const H5VL_loc_params_t H5VL_DAOS_UNUSED *loc_params, const char *name,
     hid_t type_id, hid_t lcpl_id, hid_t tcpl_id, hid_t tapl_id,
-    hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req)
+    hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_dtype_t *dtype = NULL;
@@ -573,6 +573,8 @@ done:
         D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, NULL, "can't close object");
 
     if(int_req) {
+        H5_daos_op_pool_type_t op_type;
+
         /* Free path_buf if necessary */
         if(path_buf && H5_daos_free_async(path_buf, &first_task, &dep_task) < 0)
             D_DONE_ERROR(H5E_DATATYPE, H5E_CANTFREE, NULL, "can't free path buffer");
@@ -594,21 +596,51 @@ done:
         if(NULL == ret_value)
             int_req->status = -H5_DAOS_SETUP_ERROR;
 
-        /* Schedule first task */
-        if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
+        /* Determine operation type - we will add the operation to item's
+         * op pool.  If the target_obj might have link creation order tracked
+         * and target_obj is not different from item use
+         * H5_DAOS_OP_TYPE_WRITE_ORDERED, otherwise use H5_DAOS_OP_TYPE_WRITE.
+         * Add to item's pool because that's where we're creating the link.  No
+         * need to add to datatype's pool since it's the open request. */
+        if(!target_obj || &target_obj->item != item
+                || target_obj->item.type != H5I_GROUP
+                || ((target_obj->item.open_req->status == 0
+                || target_obj->item.created)
+                && !((H5_daos_group_t *)target_obj)->gcpl_cache.track_corder))
+            op_type = H5_DAOS_OP_TYPE_WRITE;
+        else
+            op_type = H5_DAOS_OP_TYPE_WRITE_ORDERED;
 
-        /* Block until operation completes */
-        if(H5_daos_progress(int_req, H5_DAOS_PROGRESS_WAIT) < 0)
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't progress scheduler");
+        /* Add the request to the object's request queue.  This will add the
+         * dependency on the group open if necessary.  If this is an anonymous
+         * create add to the file pool. */
+        if(H5_daos_req_enqueue(int_req, first_task, item, op_type,
+                target_obj ? H5_DAOS_OP_SCOPE_OBJ : H5_DAOS_OP_SCOPE_FILE,
+                collective, !req, item->open_req, NULL) < 0)
+            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't add request to request queue");
 
-        /* Check for failure */
-        if(int_req->status < 0)
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTOPERATE, NULL, "datatype creation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status));
+        /* Check for external async */
+        if(req) {
+            /* Return int_req as req */
+            *req = int_req;
 
-        /* Close internal request */
-        if(H5_daos_req_free_int(int_req) < 0)
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, NULL, "can't free request");
+            /* Kick task engine */
+            if(H5_daos_progress(NULL, H5_DAOS_PROGRESS_KICK) < 0)
+                D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't progress scheduler");
+        } /* end if */
+        else {
+            /* Block until operation completes */
+            if(H5_daos_progress(int_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't progress scheduler");
+
+            /* Check for failure */
+            if(int_req->status < 0)
+                D_DONE_ERROR(H5E_DATATYPE, H5E_CANTOPERATE, NULL, "datatype creation failed in task \"%s\": %s", int_req->failed_task, H5_daos_err_to_string(int_req->status));
+
+            /* Close internal request */
+            if(H5_daos_req_free_int(int_req) < 0)
+                D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, NULL, "can't free request");
+        } /* end else */
     } /* end if */
 
     /* Cleanup on failure */
@@ -657,6 +689,7 @@ H5_daos_datatype_commit_helper(H5_daos_file_t *file, hid_t type_id,
     if(NULL == (dtype = H5FL_CALLOC(H5_daos_dtype_t)))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate DAOS datatype struct");
     dtype->obj.item.type = H5I_DATATYPE;
+    dtype->obj.item.created = TRUE;
     dtype->obj.item.open_req = req;
     req->rc++;
     dtype->obj.item.file = file;
@@ -1050,7 +1083,7 @@ done:
         /* Add the request to the object's request queue.  This will add the
          * dependency on the group open if necessary. */
         if(H5_daos_req_enqueue(int_req, first_task, item, H5_DAOS_OP_TYPE_READ,
-                H5_DAOS_OP_SCOPE_OBJ, collective, !req, item->open_req) < 0)
+                H5_DAOS_OP_SCOPE_OBJ, collective, !req, item->open_req, NULL) < 0)
             D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't add request to request queue");
 
         /* Check for external async */
@@ -1889,7 +1922,7 @@ done:
         assert(specific_type == H5VL_DATATYPE_FLUSH);
         if(H5_daos_req_enqueue(int_req, first_task, &dtype->obj.item,
                 H5_DAOS_OP_TYPE_WRITE_ORDERED, H5_DAOS_OP_SCOPE_OBJ, FALSE, !req,
-                dtype->obj.item.open_req) < 0)
+                dtype->obj.item.open_req, NULL) < 0)
             D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
         /* Check for external async */
@@ -2063,7 +2096,7 @@ done:
          * dependency on the datatype open if necessary. */
         if(H5_daos_req_enqueue(int_req, first_task, &dtype->obj.item,
                 H5_DAOS_OP_TYPE_CLOSE, H5_DAOS_OP_SCOPE_OBJ, FALSE, !req,
-                dtype->obj.item.open_req) < 0)
+                dtype->obj.item.open_req, NULL) < 0)
             D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't add request to request queue");
         dtype = NULL;
 

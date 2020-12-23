@@ -535,7 +535,7 @@ done:
          * create add to the file pool. */
         if(H5_daos_req_enqueue(int_req, first_task, item, op_type,
                 target_obj ? H5_DAOS_OP_SCOPE_OBJ : H5_DAOS_OP_SCOPE_FILE,
-                collective, !req, item->open_req) < 0)
+                collective, !req, item->open_req, NULL) < 0)
             D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't add request to request queue");
 
         /* Check for external async */
@@ -659,7 +659,7 @@ done:
         /* Add the request to the object's request queue.  This will add the
          * dependency on the group open if necessary. */
         if(H5_daos_req_enqueue(int_req, first_task, item, H5_DAOS_OP_TYPE_READ,
-                H5_DAOS_OP_SCOPE_OBJ, collective, !req, item->open_req) < 0)
+                H5_DAOS_OP_SCOPE_OBJ, collective, !req, item->open_req, NULL) < 0)
             D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't add request to request queue");
 
         /* Check for external async */
@@ -1991,8 +1991,7 @@ done:
  */
 herr_t 
 H5_daos_map_get_val(void *_map, hid_t key_mem_type_id, const void *key,
-    hid_t val_mem_type_id, void *value, hid_t dxpl_id,
-    void H5VL_DAOS_UNUSED **req)
+    hid_t val_mem_type_id, void *value, hid_t dxpl_id, void **req)
 {
     H5_daos_map_rw_ud_t *get_val_udata = NULL;
     H5_daos_tconv_reuse_t reuse = H5_DAOS_TCONV_REUSE_NONE;
@@ -2017,6 +2016,14 @@ H5_daos_map_get_val(void *_map, hid_t key_mem_type_id, const void *key,
     /* Start H5 operation */
     if(NULL == (int_req = H5_daos_req_create(map->obj.item.file, dxpl_id)))
         D_GOTO_ERROR(H5E_MAP, H5E_CANTALLOC, FAIL, "can't create DAOS request");
+
+    /* Wait for the map to open if necessary */
+    if(!map->obj.item.created && map->obj.item.open_req->status != 0) {
+        if(H5_daos_progress(map->obj.item.open_req, H5_DAOS_PROGRESS_WAIT) < 0)
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't progress scheduler");
+        if(map->obj.item.open_req->status != 0)
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, FAIL, "map open failed");
+    } /* end if */
 
     /* Allocate argument struct for key value retrieval task */
     if(NULL == (get_val_udata = (H5_daos_map_rw_ud_t *)DV_calloc(sizeof(H5_daos_map_rw_ud_t))))
@@ -2131,22 +2138,35 @@ done:
         if(ret_value < 0)
             int_req->status = -H5_DAOS_SETUP_ERROR;
 
-        /* Schedule first task */
-        if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
-            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
+        /* Add the request to the map's request queue.  This will add the
+         * dependency on the map open if necessary. */
+        if(H5_daos_req_enqueue(int_req, first_task, &map->obj.item, H5_DAOS_OP_TYPE_READ,
+                H5_DAOS_OP_SCOPE_OBJ, FALSE, !req, map->obj.item.open_req, NULL) < 0)
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
-        /* Block until operation completes */
-        if(H5_daos_progress(int_req, H5_DAOS_PROGRESS_WAIT) < 0)
-            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't progress scheduler");
+        /* Check for external async */
+        if(req) {
+            /* Return int_req as req */
+            *req = int_req;
 
-        /* Check for failure */
-        if(int_req->status < 0)
-            D_DONE_ERROR(H5E_MAP, H5E_CANTOPERATE, FAIL, "map key value read operation failed in task \"%s\": %s",
-                    int_req->failed_task, H5_daos_err_to_string(int_req->status));
+            /* Kick task engine */
+            if(H5_daos_progress(NULL, H5_DAOS_PROGRESS_KICK) < 0)
+                D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't progress scheduler");
+        } /* end if */
+        else {
+            /* Block until operation completes */
+            if(H5_daos_progress(int_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't progress scheduler");
 
-        /* Close internal request */
-        if(H5_daos_req_free_int(int_req) < 0)
-            D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't free request");
+            /* Check for failure */
+            if(int_req->status < 0)
+                D_DONE_ERROR(H5E_MAP, H5E_CANTOPERATE, FAIL, "map key value read operation failed in task \"%s\": %s",
+                        int_req->failed_task, H5_daos_err_to_string(int_req->status));
+
+            /* Close internal request */
+            if(H5_daos_req_free_int(int_req) < 0)
+                D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't free request");
+        } /* end else */
     } /* end if */
 
     /* Cleanup on failure */
@@ -2460,22 +2480,35 @@ done:
         if(ret_value < 0)
             int_req->status = -H5_DAOS_SETUP_ERROR;
 
-        /* Schedule first task */
-        if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
-            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
+        /* Add the request to the map's request queue.  This will add the
+         * dependency on the map open if necessary. */
+        if(H5_daos_req_enqueue(int_req, first_task, &map->obj.item, H5_DAOS_OP_TYPE_WRITE,
+                H5_DAOS_OP_SCOPE_OBJ, FALSE, !req, map->obj.item.open_req, NULL) < 0)
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
-        /* Block until operation completes */
-        if(H5_daos_progress(int_req, H5_DAOS_PROGRESS_WAIT) < 0)
-            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't progress scheduler");
+        /* Check for external async */
+        if(req) {
+            /* Return int_req as req */
+            *req = int_req;
 
-        /* Check for failure */
-        if(int_req->status < 0)
-            D_DONE_ERROR(H5E_MAP, H5E_CANTOPERATE, FAIL, "map key-value write operation failed in task \"%s\": %s",
-                    int_req->failed_task, H5_daos_err_to_string(int_req->status));
+            /* Kick task engine */
+            if(H5_daos_progress(NULL, H5_DAOS_PROGRESS_KICK) < 0)
+                D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't progress scheduler");
+        } /* end if */
+        else {
+            /* Block until operation completes */
+            if(H5_daos_progress(int_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't progress scheduler");
 
-        /* Close internal request */
-        if(H5_daos_req_free_int(int_req) < 0)
-            D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't free request");
+            /* Check for failure */
+            if(int_req->status < 0)
+                D_DONE_ERROR(H5E_MAP, H5E_CANTOPERATE, FAIL, "map key-value write operation failed in task \"%s\": %s",
+                        int_req->failed_task, H5_daos_err_to_string(int_req->status));
+
+            /* Close internal request */
+            if(H5_daos_req_free_int(int_req) < 0)
+                D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't free request");
+        } /* end else */
     } /* end if */
 
     /* Cleanup on failure */
@@ -2651,7 +2684,7 @@ done:
  */
 herr_t 
 H5_daos_map_exists(void *_map, hid_t key_mem_type_id, const void *key,
-    hbool_t *exists, hid_t dxpl_id, void H5VL_DAOS_UNUSED **req)
+    hbool_t *exists, hid_t dxpl_id, void **req)
 {
     H5_daos_map_exists_ud_t *exists_udata = NULL;
     H5_daos_map_t *map = (H5_daos_map_t *)_map;
@@ -2731,6 +2764,8 @@ H5_daos_map_exists(void *_map, hid_t key_mem_type_id, const void *key,
 
 done:
     if(int_req) {
+        assert(map);
+
         /* Create task to finalize H5 operation */
         if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))
             D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
@@ -2748,22 +2783,35 @@ done:
         if(ret_value < 0)
             int_req->status = -H5_DAOS_SETUP_ERROR;
 
-        /* Schedule first task */
-        if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
-            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
+        /* Add the request to the map's request queue.  This will add the
+         * dependency on the map open if necessary. */
+        if(H5_daos_req_enqueue(int_req, first_task, &map->obj.item, H5_DAOS_OP_TYPE_READ,
+                H5_DAOS_OP_SCOPE_OBJ, FALSE, !req, map->obj.item.open_req, NULL) < 0)
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
-        /* Block until operation completes */
-        if(H5_daos_progress(int_req, H5_DAOS_PROGRESS_WAIT) < 0)
-            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't progress scheduler");
+        /* Check for external async */
+        if(req) {
+            /* Return int_req as req */
+            *req = int_req;
 
-        /* Check for failure */
-        if(int_req->status < 0)
-            D_DONE_ERROR(H5E_MAP, H5E_CANTOPERATE, FAIL, "map key exists operation failed in task \"%s\": %s",
-                    int_req->failed_task, H5_daos_err_to_string(int_req->status));
+            /* Kick task engine */
+            if(H5_daos_progress(NULL, H5_DAOS_PROGRESS_KICK) < 0)
+                D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't progress scheduler");
+        } /* end if */
+        else {
+            /* Block until operation completes */
+            if(H5_daos_progress(int_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't progress scheduler");
 
-        /* Close internal request */
-        if(H5_daos_req_free_int(int_req) < 0)
-            D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't free request");
+            /* Check for failure */
+            if(int_req->status < 0)
+                D_DONE_ERROR(H5E_MAP, H5E_CANTOPERATE, FAIL, "map key exists operation failed in task \"%s\": %s",
+                        int_req->failed_task, H5_daos_err_to_string(int_req->status));
+
+            /* Close internal request */
+            if(H5_daos_req_free_int(int_req) < 0)
+                D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't free request");
+        } /* end else */
     } /* end if */
 
     /* Cleanup on failure */
@@ -3026,22 +3074,35 @@ done:
         if(ret_value < 0)
             int_req->status = -H5_DAOS_SETUP_ERROR;
 
-        /* Schedule first task */
-        if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
-            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
+        /* Add the request to the map's request queue.  This will add the
+         * dependency on the map open if necessary. */
+        if(H5_daos_req_enqueue(int_req, first_task, &map->obj.item, H5_DAOS_OP_TYPE_READ,
+                H5_DAOS_OP_SCOPE_OBJ, FALSE, !req, map->obj.item.open_req, NULL) < 0)
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
-        /* Block until operation completes */
-        if(H5_daos_progress(int_req, H5_DAOS_PROGRESS_WAIT) < 0)
-            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't progress scheduler");
+        /* Check for external async */
+        if(req) {
+            /* Return int_req as req */
+            *req = int_req;
 
-        /* Check for failure */
-        if(int_req->status < 0)
-            D_DONE_ERROR(H5E_MAP, H5E_CANTOPERATE, FAIL, "map get operation failed in task \"%s\": %s",
-                    int_req->failed_task, H5_daos_err_to_string(int_req->status));
+            /* Kick task engine */
+            if(H5_daos_progress(NULL, H5_DAOS_PROGRESS_KICK) < 0)
+                D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't progress scheduler");
+        } /* end if */
+        else {
+            /* Block until operation completes */
+            if(H5_daos_progress(int_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't progress scheduler");
 
-        /* Close internal request */
-        if(H5_daos_req_free_int(int_req) < 0)
-            D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't free request");
+            /* Check for failure */
+            if(int_req->status < 0)
+                D_DONE_ERROR(H5E_MAP, H5E_CANTOPERATE, FAIL, "map get operation failed in task \"%s\": %s",
+                        int_req->failed_task, H5_daos_err_to_string(int_req->status));
+
+            /* Close internal request */
+            if(H5_daos_req_free_int(int_req) < 0)
+                D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't free request");
+        } /* end else */
     } /* end if */
 
     if(map_id >= 0) {
@@ -3230,27 +3291,40 @@ done:
         if(ret_value < 0)
             int_req->status = -H5_DAOS_SETUP_ERROR;
 
-        /* Schedule first task */
-        if(first_task && (0 != (ret = tse_task_schedule(first_task, false))))
-            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't schedule initial task for H5 operation: %s", H5_daos_err_to_string(ret));
+        /* Add the request to the map's request queue.  This will add the
+         * dependency on the map open if necessary. */
+        if(H5_daos_req_enqueue(int_req, first_task, item, H5_DAOS_OP_TYPE_WRITE,
+                H5_DAOS_OP_SCOPE_OBJ, FALSE, !req, item->open_req, NULL) < 0)
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
-        /* Block until operation completes */
-        if(H5_daos_progress(int_req, H5_DAOS_PROGRESS_WAIT) < 0)
-            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't progress scheduler");
+        /* Check for external async.  Disabled for iteration for now. */
+        if(req && specific_type != H5VL_MAP_ITER) {
+            /* Return int_req as req */
+            *req = int_req;
 
-        /* Check for failure */
-        if(int_req->status < 0)
-            D_DONE_ERROR(H5E_MAP, H5E_CANTOPERATE, FAIL, "map specific operation failed in task \"%s\": %s",
-                    int_req->failed_task, H5_daos_err_to_string(int_req->status));
+            /* Kick task engine */
+            if(H5_daos_progress(NULL, H5_DAOS_PROGRESS_KICK) < 0)
+                D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't progress scheduler");
+        } /* end if */
+        else {
+            /* Block until operation completes */
+            if(H5_daos_progress(int_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't progress scheduler");
 
-        /* Close internal request */
-        if(H5_daos_req_free_int(int_req) < 0)
-            D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't free request");
+            /* Check for failure */
+            if(int_req->status < 0)
+                D_DONE_ERROR(H5E_MAP, H5E_CANTOPERATE, FAIL, "map specific operation failed in task \"%s\": %s",
+                        int_req->failed_task, H5_daos_err_to_string(int_req->status));
 
-        /* Set return value for map iteration, unless this function failed but
-         * the iteration did not */
-        if(specific_type == H5VL_MAP_ITER && !(ret_value < 0 && iter_ret >= 0))
-            ret_value = iter_ret;
+            /* Close internal request */
+            if(H5_daos_req_free_int(int_req) < 0)
+                D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't free request");
+
+            /* Set return value for map iteration, unless this function failed but
+             * the iteration did not */
+            if(specific_type == H5VL_MAP_ITER && !(ret_value < 0 && iter_ret >= 0))
+                ret_value = iter_ret;
+        } /* end else */
     } /* end if */
 
     if(map_id >= 0) {
@@ -4180,7 +4254,7 @@ done:
          * dependency on the map open if necessary. */
         if(H5_daos_req_enqueue(int_req, first_task, &map->obj.item,
                 H5_DAOS_OP_TYPE_CLOSE, H5_DAOS_OP_SCOPE_OBJ, FALSE, !req,
-                map->obj.item.open_req) < 0)
+                map->obj.item.open_req, NULL) < 0)
             D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't add request to request queue");
         map = NULL;
 

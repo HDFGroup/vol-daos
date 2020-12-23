@@ -190,6 +190,15 @@ asynchronous operations will never complete until waited on, and the wait may
 take a long time, no matter how much time has passed since the asynchronous
 operation was issued.
 
+Each HDF5 operation is split up into multiple internal tasks which may need to
+be executed in a certain order. For example,s a group create needs to create a
+link in the parent group, write the metadata to the new group, and possibly
+adjust the number of links in the parent group and allocate an object ID for the
+new group. The DAOS VOL connector uses the DAOS Thread Scheduling Engine (tse)
+to track dependencies between these internal tasks and make progress on them,
+together with custom code written to make progress on asynchronous MPI
+operations needed for collective parallel operations.
+
 \subsubsection {Consistency semantics}
 
 Similarly to other asynchronous I/O libraries, the application must be careful
@@ -211,18 +220,46 @@ the HDF5 API even if the open operation for the object that that ID refers to
 has not completed. This allows applications to, for example, create a file,
 create a group in the file, create a dataset in the group, write to the dataset,
 and close all IDs, all in a non-blocking manner without waiting (until the
-dataset write buffer needs to be modified or freed). Keep in mind that links are
-not included in this, so you cannot, for example, create a group then create an
-object inside that group using a path that includes the group name, without
-waiting for the first create to complete (or using
-\mintcinline{H5Oflush_async()} or \mintcinline{H5Fflush_async()}, see below).
+dataset write buffer needs to be modified or freed). Until the open operation is
+complete, you can only access the object through its ID, so you cannot, for
+example, create a group then create an object inside that group using a path
+that includes the group name, without waiting for the first create to complete
+(or using \mintcinline{H5Oflush_async()} or \mintcinline{H5Fflush_async()}, see
+below).
 
-Keep in mind that the only difference between the traditional blocking HDF5 API
-calls and the async versions is that the connector waits for that operation to
-complete before returning. The application must still make sure the file is in
-a consistent enough state to make the call before doing so, and must be aware
-that any operations the call does not depend on may still be incomplete after
-returning.
+As an example, this series of calls is legal:
+
+\begin{verbatim}
+group_id = H5Gcreate_async(file_id, "parent", ..., es_id);
+dset_id = H5Dcreate_async(group_id, "dset", ..., es_id);
+H5Dwrite_async(dset_id, ..., es_id);
+…
+H5ESwait(es_id);
+\end{verbatim}
+
+Note that \mintcinline{H5Dcreate_async()} is called before we know
+\mintcinline{H5Gcreate_async()} has completed, as with
+\mintcinline{H5Dwrite_async()} and \mintcinline{H5Dcreate_async()}. However,
+this example is illegal and may result in errors:
+
+\begin{verbatim}
+group_id = H5Gcreate_async(file_id, "parent", ..., es_id);
+dset_id = H5Dcreate_async(file_id, "parent/dset", ..., es_id); //may fail
+\end{verbatim}
+
+The only difference between the traditional blocking HDF5 API calls and the
+async versions is that, in the blocking versions, the connector waits for that
+operation to complete before returning. Therefore, when mixing synchronous and
+asynchronous calls, the application must still obey the above rules even when
+calling a synchronous function - previously called asynchronous functions may
+not be complete.
+
+As an example, this series of calls is illegal and may result in an error:
+
+\begin{verbatim}
+group_id = H5Gcreate_async(file_id, "parent", ..., es_id);
+dset_id = H5Dcreate(file_id, "parent/dset", ...); //may fail
+\end{verbatim}
 
 \subsubsection {Operation ordering}
 
@@ -250,6 +287,20 @@ write buffers around and don't examine the read buffer until it is complete).
 See the Operation Scope section for information on which operations are in scope
 for \mintcinline{H5Oflush_async}.
 
+As an example, here is a way to make the previously illegal example legal while
+remaining fully asynchronous:
+
+\begin{verbatim}
+group_id = H5Gcreate_async(file_id, "parent", ..., es_id);
+H5Fflush_async(file_id, H5F_SCOPE_LOCAL, es_id);
+dset_id = H5Dcreate_async(file_id, "parent/dset", ..., es_id);
+\end{verbatim}
+
+A call to \mintcinline{H5Oflush_async(group_id, es_id)} would not be sufficient
+in this case because the group creation occurs in \mintcinline{file_id}'s scope,
+because \mintcinline{file_id} is what is passed to
+\mintcinline{H5Gcreate_async()}. The flush must be made on the parent object.
+
 Close operations such as \mintcinline{H5Gclose()} or \mintcinline{H5Fclose()}
 will only complete once all previously issued operations on their object, file
 or attribute complete. Therefore, the non-async versions of these operations
@@ -267,14 +318,20 @@ simultaneouly with collective operations.
 
 \subsubsection {Operation Scope}
 
-All operations exist in an operation pool at attribute, object, file, or global
-scope. Operations are generally placed in the operation pool of the parent
-object of the operation. For example, dataset creates are placed in the object
-scoped pool of the parent group, attribute creates are placed in the object
-scoped pool of the parent object, and attribute writes are placed in the
-attribute scoped pool of the attribute. Operations that have multiple parent
-objects are placed in the file pool if the objects are in the same file, and in
-the global pool if they are in different files.
+In order to handle some operations that need to be ordered with respect to all
+other operations within a certain scope, we have introduced the concept of an
+operation pool, which is a container for operations that can be executed
+simultaneously. All operations exist in an operation pool at attribute, object,
+file, or global scope. When the application invokes an HDF5 API routine, this
+creates an operation this is placed in the operation pool of the object passed
+to the API routine. For example, dataset creates are placed in the object scoped
+pool of the parent group passed as the first argument to
+\mintcinline{H5Dcreate()}, attribute creates are placed in the object scoped
+pool of the parent object passed as the first argument to
+\mintcinline{H5Acreate()}, and attribute writes are placed in the attribute
+scoped pool of the attribute. Operations that have multiple parent objects (such
+as \mintcinline{H5Ocopy()}) are placed in the file pool if the objects are in
+the same file, and in the global pool if they are in different files.
 
 All operations placed in a pool will be executed after all previously issued
 operations at a different scope in a location that contains, or is contained in,
@@ -282,9 +339,65 @@ the pool for the original operation. For example, an operation in an attribute's
 pool will execute after all previously issued operations in the pools for the
 attribute's parent object, its file, or the global pool. It is not affected by
 operations in a different object or file. Operations in the global pool will
-execute after all previously issued operations not in the global pool. Keep in
-mind can will serialize operations if, for example, the app switches between
-attribute and object operations (though they will remain asynchronous).
+execute after all previously issued operations not in the global pool.
+
+For the most part, this operation pool scheme is transparent to the application
+and can be ignored. However, for maximum concurrency, it is worth considering
+that certain access patterns will result operations being serialized, so only
+one may execute at a time (though they will remain asynchronous). This will
+happen if, for example, the app alternates between attribute and object
+operations.
+
+\subsubsection {Asynchronous Example Program}
+
+Below is an example of an asynchronous application that writes to a dataset:
+
+\begin{minted}[breaklines=true,fontsize=\small]{hdf5-c-lexer.py:HDF5CLexer -x}
+#include "hdf5.h"
+#include "daos_vol_public.h"
+
+int main(void)
+{
+    hid_t file_id, group_id, dset_id, es_id;
+    ... // Buffers, dataspaces, etc.
+    herr_t status;
+
+    es_id = H5EScreate();      // Create event set for tracking async operations
+
+    file_id = H5Fopen_async("file.h5", H5F_ACC_RDWR, H5P_DEFAULT, es_id);
+    group_id = H5Gopen_async(file_id, "parent", H5P_DEFAULT, es_id);
+                                        // Starts when H5Fopen completes
+    dset_id = H5Dopen_async(group_id, "dataset", H5P_DEFAULT, es_id);
+                                        // Starts when H5Gopen completes
+
+    status = H5Dwrite_async(dset_id, ..., es_id); // Asynchronous, starts when
+                                              // H5Dopen completes, may run
+                                              // concurrently with other
+                                              // H5Dwrite in event set
+    status = H5Dwrite_async(dset_id, ..., es_id); // Asynchronous, starts when
+                                              // H5Dopen completes, may run
+                                              // concurrently with other
+                                              // H5Dwrite in event set
+
+    status = H5Dclose_async(dset_id); // Asynchronous, will complete when both
+                                      // writes above complete
+
+    ...
+    <other user code>
+    ...
+    H5ESwait(es_id); // Wait for operations in event set to complete, buffers
+                     // used for H5Dwrite must not be changed until after wait
+                     // returns
+    ...
+
+    status = H5Gclose(group_id); // Blocking call, will return as soon as all
+                                 // operations on group_id complete
+    status = H5Fclose(file_id);  // Blocking call, will return as soon as all
+                                 // operations on file_id complete
+
+    return 0;
+}
+\end{minted}
 
 \subsection{Building HDF5 DAOS VOL connector applications}
 

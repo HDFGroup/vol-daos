@@ -4649,8 +4649,10 @@ H5_daos_dataset_close_real(H5_daos_dset_t *dset)
                 D_DONE_ERROR(H5E_DATASET, H5E_CANTCLOSEOBJ, FAIL, "can't close dataset DAOS object: %s", H5_daos_err_to_string(ret));
         if(dset->type_id != H5I_INVALID_HID && H5Idec_ref(dset->type_id) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close dataset's datatype");
+#if 0
         if(dset->file_type_id != H5I_INVALID_HID && H5Idec_ref(dset->file_type_id) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close dataset's file datatype");
+#endif
         if(dset->space_id != H5I_INVALID_HID && H5Idec_ref(dset->space_id) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CANTDEC, FAIL, "failed to close dataset's dataspace");
         if(dset->dcpl_id != H5I_INVALID_HID && dset->dcpl_id != H5P_DATASET_CREATE_DEFAULT)

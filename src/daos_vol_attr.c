@@ -4224,8 +4224,10 @@ H5_daos_attribute_close_real(H5_daos_attr_t *attr)
         attr->name = DV_free(attr->name);
         if(attr->type_id != H5I_INVALID_HID && H5Idec_ref(attr->type_id) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CANTDEC, FAIL, "failed to close attribute's datatype");
+#if 0
         if(attr->file_type_id != H5I_INVALID_HID && H5Idec_ref(attr->file_type_id) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CANTDEC, FAIL, "failed to close attribute's file datatype");
+#endif
         if(attr->space_id != H5I_INVALID_HID && H5Idec_ref(attr->space_id) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CANTDEC, FAIL, "failed to close attribute's dataspace");
         if(attr->acpl_id != H5I_INVALID_HID && attr->acpl_id != H5P_ATTRIBUTE_CREATE_DEFAULT)

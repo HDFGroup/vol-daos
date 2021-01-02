@@ -122,10 +122,17 @@ H5_daos_req_cancel(void *_req
     if(!req)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "request object is NULL");
 
-    /* Cancel operation */
-    req->status = H5_DAOS_CANCELED;
+    /* Check if the operation is in progress. If it is, we can't cancel it */
+    if(!req->in_progress) {
+        /* Cancel operation */
+        req->status = H5_DAOS_CANCELED;
 #if H5VL_VERSION >= 2
-    *status = H5_DAOS_REQ_STATUS_OUT_CANCELED;
+        *status = H5_DAOS_REQ_STATUS_OUT_CANCELED;
+#endif
+    } /* end if */
+#if H5VL_VERSION >= 2
+    else
+        *status = H5_DAOS_REQ_STATUS_OUT_IN_PROGRESS;
 #endif
 
 done:
@@ -174,9 +181,13 @@ done:
  *-------------------------------------------------------------------------
  */
 H5_daos_req_t *
-H5_daos_req_create(H5_daos_file_t *file, hid_t dxpl_id)
+H5_daos_req_create(H5_daos_file_t *file, const char *op_name,
+    H5_daos_req_t *prereq_req1, H5_daos_req_t *prereq_req2,
+    H5_daos_req_t *parent_req, hid_t dxpl_id)
 {
     H5_daos_req_t *ret_value = NULL;
+
+    assert(!(!prereq_req1 && prereq_req2));
 
     if(NULL == (ret_value = (H5_daos_req_t *)DV_malloc(sizeof(H5_daos_req_t))))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate buffer for request");
@@ -192,12 +203,19 @@ H5_daos_req_create(H5_daos_file_t *file, hid_t dxpl_id)
         } /* end if */
     ret_value->finalize_task = NULL;
     ret_value->dep_task = NULL;
+    ret_value->prereq_req1 = prereq_req1;
+    ret_value->prereq_req2 = prereq_req2;
+    ret_value->parent_req = parent_req;
+    if(parent_req)
+        parent_req->rc++;
     ret_value->notify_cb = NULL;
     if(ret_value->file)
         ret_value->file->item.rc++;
     ret_value->rc = 1;
     ret_value->status = -H5_DAOS_INCOMPLETE;
     ret_value->failed_task = "default (probably operation setup)";
+    ret_value->op_name = op_name;
+    ret_value->in_progress = FALSE;
 
 done:
     D_FUNC_LEAVE;
@@ -224,22 +242,21 @@ H5_daos_req_free_int(H5_daos_req_t *req)
     assert(req);
 
     if(--req->rc == 0) {
+        /* Close DXPL */
         if(req->dxpl_id >= 0 && req->dxpl_id != H5P_DATASET_XFER_DEFAULT)
-            if(H5Pclose(req->dxpl_id) < 0) {
-                /* If H5Pclose failed we must update the request status, since
-                 * the calling function can't access the request after calling
-                 * this function.  Note this task name isn't very specific.
-                 * This should be ok here since this plist isn't visible to the
-                 * user and this failure shouldn't be caused by user errors,
-                 * only errors in HDF5 and this connector. */
-                if(req->status >= -H5_DAOS_INCOMPLETE) {
-                    req->status = -H5_DAOS_H5_CLOSE_ERROR;
-                    req->failed_task = "request free";
-                } /* end if */
+            if(H5Pclose(req->dxpl_id) < 0)
+                /* No need to update request status since we're freeing it
+                 * anyways */
                 D_DONE_ERROR(H5E_DAOS_ASYNC, H5E_CLOSEERROR, FAIL, "can't close data transfer property list");
-            } /* end if */
+
+        /* Close file */
         if(req->file && H5_daos_file_close_helper(req->file) < 0)
             D_DONE_ERROR(H5E_DAOS_ASYNC, H5E_CLOSEERROR, FAIL, "can't close file");
+
+        /* Close parent request */
+        if(req->parent_req && H5_daos_req_free_int(req->parent_req) < 0)
+            D_DONE_ERROR(H5E_DAOS_ASYNC, H5E_CLOSEERROR, FAIL, "can't close parent request");
+
         DV_free(req);
     } /* end if */
 
@@ -382,8 +399,7 @@ done:
 herr_t
 H5_daos_req_enqueue(H5_daos_req_t *req, tse_task_t *first_task,
     H5_daos_item_t *item, H5_daos_op_pool_type_t op_type,
-    H5_daos_op_pool_scope_t scope, hbool_t collective, hbool_t sync,
-    H5_daos_req_t *dep_req1, H5_daos_req_t *dep_req2)
+    H5_daos_op_pool_scope_t scope, hbool_t collective, hbool_t sync)
 {
     H5_daos_op_pool_t **parent_cur_op_pool[4];
     H5_daos_op_pool_t *tmp_pool;
@@ -402,7 +418,6 @@ H5_daos_req_enqueue(H5_daos_req_t *req, tse_task_t *first_task,
     assert(req);
     assert(op_type >= H5_DAOS_OP_TYPE_READ && op_type <= H5_DAOS_OP_TYPE_NOPOOL);
     assert(scope >= H5_DAOS_OP_SCOPE_ATTR &&  scope <= H5_DAOS_OP_SCOPE_GLOB);
-    assert(!(!dep_req1 && dep_req2));
 
     /* If there's no first task there's nothing to do */
     if(!first_task)
@@ -795,22 +810,22 @@ skip_pool:
         H5_daos_collective_req_tail = req;
     } /* end if */
 
-    /* Add dependencies on dep_reqs if necessary */
-    if(dep_req1) {
-        if(dep_req1->status == -H5_DAOS_INCOMPLETE
-            || dep_req1->status == -H5_DAOS_SHORT_CIRCUIT)
+    /* Add dependencies on prerequisites if necessary */
+    if(req->prereq_req1) {
+        if(req->prereq_req1->status == -H5_DAOS_INCOMPLETE
+            || req->prereq_req1->status == -H5_DAOS_SHORT_CIRCUIT)
             /* Register dependency on dep_req1 */
-            if((ret = tse_task_register_deps(first_task, 1, &dep_req1->finalize_task)) < 0)
+            if((ret = tse_task_register_deps(first_task, 1, &req->prereq_req1->finalize_task)) < 0)
                 D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't register task dependency: %s", H5_daos_err_to_string(ret));
 
-        if(dep_req2 && (dep_req2->status == -H5_DAOS_INCOMPLETE
-                || dep_req2->status == -H5_DAOS_SHORT_CIRCUIT))
+        if(req->prereq_req2 && (req->prereq_req2->status == -H5_DAOS_INCOMPLETE
+                || req->prereq_req2->status == -H5_DAOS_SHORT_CIRCUIT))
             /* Register dependency on dep_req2 */
-            if((ret = tse_task_register_deps(first_task, 1, &dep_req2->finalize_task)) < 0)
+            if((ret = tse_task_register_deps(first_task, 1, &req->prereq_req2->finalize_task)) < 0)
                 D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't register task dependency: %s", H5_daos_err_to_string(ret));
     } /* end if */
     else
-        assert(!dep_req2);
+        assert(!req->prereq_req2);
 
 done:
     /* Schedule first task */

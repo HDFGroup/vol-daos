@@ -313,7 +313,7 @@ do {                                                                           \
 do {                                                                                                  \
     if(H5_daos_task_wait(&(first_task), &(dep_task)) < 0)                                      \
         D_GOTO_ERROR(err_maj, err_min, ret_value, "can't progress scheduler");                        \
-    if(req->status < -H5_DAOS_SHORT_CIRCUIT)                                                          \
+    if(req->status < -H5_DAOS_CANCELED)                                                          \
         D_GOTO_ERROR(err_maj, err_min, ret_value, "asynchronous task failed: %s",                     \
                 H5_daos_err_to_string(req->status));                                                  \
 } while(0)
@@ -384,6 +384,69 @@ do {                                                                  \
     hbool_t _is_collective_md_read = FALSE;                           \
     H5_DAOS_GET_METADATA_IO_MODES(file, apl_id, default_apl_id,       \
             _is_collective_md_read, collective, err_maj, ret_value);  \
+} while(0)
+
+/* Macro to use at the start of a prep callback or a task function with no prep
+ * callback to check for error/cancel/short-circuit in the request and prereq
+ * request and to mark the request as in-progress */
+#define H5_DAOS_PREP_REQ(req, err_maj) \
+do { \
+    if((req)->status < -H5_DAOS_CANCELED) { \
+        assert((req)->status != -H5_DAOS_PRE_ERROR); \
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR); \
+    } /* end if */ \
+    else if((req)->status < -H5_DAOS_INCOMPLETE) \
+        D_GOTO_DONE((req)->status); \
+    else if(!(req)->in_progress) { \
+        (req)->in_progress = TRUE; \
+        if((req)->prereq_req1) { \
+            if((req)->prereq_req1->status == -H5_DAOS_CANCELED) { \
+                (req)->status = -H5_DAOS_CANCELED; \
+                D_GOTO_DONE(-H5_DAOS_CANCELED); \
+            } /* end if */ \
+            else if((req)->prereq_req1->status != 0) { \
+                assert((req)->prereq_req1->status < -H5_DAOS_PRE_ERROR); \
+                D_GOTO_ERROR(err_maj, H5E_BADVALUE, -H5_DAOS_PREREQ_ERROR, "prerequisite operation failed"); \
+            } /* end if */ \
+            if((req)->prereq_req2) { \
+                if((req)->prereq_req2->status == -H5_DAOS_CANCELED) { \
+                    (req)->status = -H5_DAOS_CANCELED; \
+                    D_GOTO_DONE(-H5_DAOS_CANCELED); \
+                } /* end if */ \
+                else if((req)->prereq_req2->status != 0) { \
+                    assert((req)->prereq_req2->status < -H5_DAOS_PRE_ERROR); \
+                    D_GOTO_ERROR(err_maj, H5E_BADVALUE, -H5_DAOS_PREREQ_ERROR, "second prerequisite operation failed"); \
+                } /* end if */ \
+            } /* end if */ \
+        } /* end if */ \
+        else \
+            assert(!(req)->prereq_req2); \
+    } /* end if */ \
+} while(0)
+
+/* Like H5_DAOS_PREP_REQ but asserts req is in progress (for when you know this
+ * is not the first task in the request) */
+#define H5_DAOS_PREP_REQ_PROG(req) \
+do { \
+    if((req)->status < -H5_DAOS_CANCELED) { \
+        assert((req)->status != -H5_DAOS_PRE_ERROR); \
+        D_GOTO_DONE(-H5_DAOS_PRE_ERROR); \
+    } /* end if */ \
+    else if((req)->status < -H5_DAOS_INCOMPLETE) \
+        D_GOTO_DONE((req)->status); \
+    assert((req)->in_progress); \
+} while(0)
+
+/* Like H5_DAOS_PREP_REQ_PROG but does not go to done */
+#define H5_DAOS_PREP_REQ_DONE(req) \
+do { \
+    if((req)->status < -H5_DAOS_CANCELED) { \
+        assert((req)->status != -H5_DAOS_PRE_ERROR); \
+        ret_value = -H5_DAOS_PRE_ERROR; \
+    } /* end if */ \
+    else if((req)->status < -H5_DAOS_INCOMPLETE) \
+        ret_value = (req)->status; \
+    assert((req)->in_progress); \
 } while(0)
 
 
@@ -666,11 +729,16 @@ struct H5_daos_req_t {
     hid_t dxpl_id;
     tse_task_t *finalize_task;
     tse_task_t *dep_task;
+    H5_daos_req_t *prereq_req1;
+    H5_daos_req_t *prereq_req2;
+    H5_daos_req_t *parent_req;
     H5VL_request_notify_t notify_cb;
     void *notify_ctx;
     int rc;
     int status;
-    const char *failed_task; /* Add more error info? DSINC */
+    const char *failed_task;
+    const char *op_name;
+    hbool_t in_progress;
     struct {
         H5_daos_mpi_ibcast_ud_t err_check_ud;
         int coll_status;
@@ -1351,13 +1419,13 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_req_free(void *req);
 
 /* Other request routines */
 H5VL_DAOS_PRIVATE H5_daos_req_t *H5_daos_req_create(H5_daos_file_t *file,
-    hid_t dxpl_id);
+    const char *op_name, H5_daos_req_t *prereq_req1, H5_daos_req_t *prereq_req2,
+    H5_daos_req_t *parent_req, hid_t dxpl_id);
 H5VL_DAOS_PRIVATE herr_t H5_daos_req_free_int(H5_daos_req_t *req);
 H5VL_DAOS_PRIVATE herr_t H5_daos_req_enqueue(H5_daos_req_t *req,
     tse_task_t *first_task, H5_daos_item_t *item,
     H5_daos_op_pool_type_t op_type, H5_daos_op_pool_scope_t scope,
-    hbool_t collective, hbool_t sync, H5_daos_req_t *dep_req1,
-    H5_daos_req_t *dep_req2);
+    hbool_t collective, hbool_t sync);
 H5VL_DAOS_PRIVATE void H5_daos_op_pool_free(H5_daos_op_pool_t *op_pool);
 
 /* Generic asynchronous routines */

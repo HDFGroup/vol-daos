@@ -459,7 +459,8 @@ H5_daos_dataset_create(void *_item,
             collective, H5E_DATASET, NULL);
 
     /* Start H5 operation */
-    if(NULL == (int_req = H5_daos_req_create(item->file, H5I_INVALID_HID)))
+    if(NULL == (int_req = H5_daos_req_create(item->file, "dataset create",
+            item->open_req, NULL, NULL, H5I_INVALID_HID)))
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, NULL, "can't create DAOS request");
 
 #ifdef H5_DAOS_USE_TRANSACTIONS
@@ -543,7 +544,7 @@ done:
          * create add to the file pool. */
         if(H5_daos_req_enqueue(int_req, first_task, item, op_type,
                 target_obj ? H5_DAOS_OP_SCOPE_OBJ : H5_DAOS_OP_SCOPE_FILE,
-                collective, !req, item->open_req, NULL) < 0)
+                collective, !req) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't add request to request queue");
 
         /* Check for external async */
@@ -1716,7 +1717,7 @@ H5_daos_dataset_open(void *_item,
             collective, H5E_DATASET, NULL);
 
     /* Start H5 operation */
-    if(NULL == (int_req = H5_daos_req_create(item->file, dxpl_id)))
+    if(NULL == (int_req = H5_daos_req_create(item->file, "dataset open", item->open_req, NULL, NULL, dxpl_id)))
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, NULL, "can't create DAOS request");
 
 #ifdef H5_DAOS_USE_TRANSACTIONS
@@ -1841,7 +1842,7 @@ done:
         /* Add the request to the object's request queue.  This will add the
          * dependency on the group open if necessary. */
         if(H5_daos_req_enqueue(int_req, first_task, item, H5_DAOS_OP_TYPE_READ,
-                H5_DAOS_OP_SCOPE_OBJ, collective, !req, item->open_req, NULL) < 0)
+                H5_DAOS_OP_SCOPE_OBJ, collective, !req) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't add request to request queue");
 
         /* Check for external async */
@@ -2263,25 +2264,14 @@ H5_daos_chunk_io_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     assert(udata->req);
 
     /* Handle errors */
-    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
-        tse_task_complete(task, -H5_DAOS_PRE_ERROR);
-        udata = NULL;
-        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
-    } /* end if */
-    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT) {
-        tse_task_complete(task, -H5_DAOS_SHORT_CIRCUIT);
-        udata = NULL;
-        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
-    } /* end if */
+    H5_DAOS_PREP_REQ(udata->req, H5E_IO);
 
     assert(udata->dset);
     assert(udata->req->file);
 
     /* Set I/O task arguments */
-    if(NULL == (update_args = daos_task_get_args(task))) {
-        tse_task_complete(task, -H5_DAOS_DAOS_GET_ERROR);
+    if(NULL == (update_args = daos_task_get_args(task)))
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for chunk I/O task");
-    } /* end if */
     update_args->oh = udata->dset->obj.obj_oh;
     update_args->th = udata->req->th;
     update_args->flags = 0;
@@ -2292,6 +2282,9 @@ H5_daos_chunk_io_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     update_args->ioms = NULL;
 
 done:
+    if(ret_value < 0)
+        tse_task_complete(task, ret_value);
+
     D_FUNC_LEAVE;
 } /* end H5_daos_chunk_io_prep_cb() */
 
@@ -2574,16 +2567,7 @@ H5_daos_chunk_io_tconv_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     assert(udata->req->file);
 
     /* Handle errors */
-    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
-        tse_task_complete(task, -H5_DAOS_PRE_ERROR);
-        udata = NULL;
-        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
-    } /* end if */
-    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT) {
-        tse_task_complete(task, -H5_DAOS_SHORT_CIRCUIT);
-        udata = NULL;
-        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
-    } /* end if */
+    H5_DAOS_PREP_REQ(udata->req, H5E_IO);
 
     /* If writing, gather the write buffer data to the type conversion buffer */
     if(udata->tconv.io_type == IO_WRITE) {
@@ -2604,10 +2588,8 @@ H5_daos_chunk_io_tconv_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
             (daos_size_t)udata->tconv.num_elem * (daos_size_t)udata->tconv.file_type_size);
 
     /* Set I/O task arguments */
-    if(NULL == (update_args = daos_task_get_args(task))) {
-        tse_task_complete(task, -H5_DAOS_DAOS_GET_ERROR);
+    if(NULL == (update_args = daos_task_get_args(task)))
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for chunk I/O task");
-    } /* end if */
     update_args->oh = udata->dset->obj.obj_oh;
     update_args->th = udata->req->th;
     update_args->flags = 0;
@@ -2618,6 +2600,9 @@ H5_daos_chunk_io_tconv_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     update_args->ioms = NULL;
 
 done:
+    if(ret_value < 0)
+        tse_task_complete(task, ret_value);
+
     D_FUNC_LEAVE;
 } /* end H5_daos_chunk_io_tconv_prep_cb() */
 
@@ -2741,26 +2726,15 @@ H5_daos_chunk_fill_bkg_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     assert(udata->req->file);
 
     /* Handle errors */
-    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
-        tse_task_complete(task, -H5_DAOS_PRE_ERROR);
-        udata = NULL;
-        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
-    } /* end if */
-    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT) {
-        tse_task_complete(task, -H5_DAOS_SHORT_CIRCUIT);
-        udata = NULL;
-        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
-    } /* end if */
+    H5_DAOS_PREP_REQ(udata->req, H5E_IO);
 
     /* Set sg_iov to point to background buffer */
     daos_iov_set(&udata->sg_iov, udata->tconv.bkg_buf,
             (daos_size_t)udata->tconv.num_elem * (daos_size_t)udata->tconv.file_type_size);
 
     /* Set I/O task arguments */
-    if(NULL == (update_args = daos_task_get_args(task))) {
-        tse_task_complete(task, -H5_DAOS_DAOS_GET_ERROR);
+    if(NULL == (update_args = daos_task_get_args(task)))
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for chunk I/O task");
-    } /* end if */
     update_args->oh = udata->dset->obj.obj_oh;
     update_args->th = udata->req->th;
     update_args->flags = 0;
@@ -2771,6 +2745,9 @@ H5_daos_chunk_fill_bkg_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     update_args->ioms = NULL;
 
 done:
+    if(ret_value < 0)
+        tse_task_complete(task, ret_value);
+
     D_FUNC_LEAVE;
 } /* end H5_daos_chunk_fill_bkg_prep_cb() */
 
@@ -3176,12 +3153,7 @@ H5_daos_dset_io_int_task(tse_task_t *task)
     assert(udata->end_task);
 
     /* Handle errors in previous tasks */
-    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
-        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
-    } /* end if */
-    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT) {
-        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
-    } /* end if */
+    H5_DAOS_PREP_REQ(udata->req, H5E_DATASET);
 
     /* Check if datatype conversion is needed */
     if((need_tconv = H5_daos_need_tconv(udata->dset->file_type_id, udata->mem_type_id)) < 0)
@@ -3254,10 +3226,7 @@ H5_daos_dset_io_int_end_task(tse_task_t *task)
     assert(task == udata->end_task);
 
     /* Handle errors in previous tasks */
-    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT)
-        ret_value = -H5_DAOS_PRE_ERROR;
-    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT)
-        ret_value = -H5_DAOS_SHORT_CIRCUIT;
+    H5_DAOS_PREP_REQ_DONE(udata->req);
 
     /* Free IDs */
     if(H5Tclose(udata->mem_type_id) < 0)
@@ -3495,7 +3464,8 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
         req_dxpl_id = dxpl_id;
 
     /* Start H5 operation. Currently, the DXPL is only copied when datatype conversion is needed. */
-    if(NULL == (int_req = H5_daos_req_create(dset->obj.item.file, req_dxpl_id)))
+    if(NULL == (int_req = H5_daos_req_create(dset->obj.item.file, "dataset read",
+            dset->obj.item.open_req, NULL, NULL, req_dxpl_id)))
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't create DAOS request");
 
     /* Check if we can call the internal routine directly -  the dataset open
@@ -3571,8 +3541,7 @@ done:
         /* Add the request to the object's request queue.  This will add the
          * dependency on the dataset open if necessary. */
         if(H5_daos_req_enqueue(int_req, first_task, &dset->obj.item,
-                H5_DAOS_OP_TYPE_READ, H5_DAOS_OP_SCOPE_OBJ, FALSE, !req,
-                dset->obj.item.open_req, NULL) < 0)
+                H5_DAOS_OP_TYPE_READ, H5_DAOS_OP_SCOPE_OBJ, FALSE, !req) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
         /* Check for external async */
@@ -3826,7 +3795,8 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
         req_dxpl_id = dxpl_id;
 
     /* Start H5 operation. Currently, the DXPL is only copied when datatype conversion is needed. */
-    if(NULL == (int_req = H5_daos_req_create(dset->obj.item.file, req_dxpl_id)))
+    if(NULL == (int_req = H5_daos_req_create(dset->obj.item.file, "dataset write",
+            dset->obj.item.open_req, NULL, NULL, req_dxpl_id)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, FAIL, "can't create DAOS request");
 
     /* Check if we can call the internal routine directly - the dataset open
@@ -3902,8 +3872,7 @@ done:
         /* Add the request to the object's request queue.  This will add the
          * dependency on the dataset open if necessary. */
         if(H5_daos_req_enqueue(int_req, first_task, &dset->obj.item,
-                H5_DAOS_OP_TYPE_WRITE, H5_DAOS_OP_SCOPE_OBJ, FALSE, !req,
-                dset->obj.item.open_req, NULL) < 0)
+                H5_DAOS_OP_TYPE_WRITE, H5_DAOS_OP_SCOPE_OBJ, FALSE, !req) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
         /* Check for external async */
@@ -4083,12 +4052,7 @@ H5_daos_dataset_get_task(tse_task_t *task)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for dataset I/O task");
 
     /* Handle errors in previous tasks */
-    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
-        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
-    } /* end if */
-    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT) {
-        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
-    } /* end if */
+    H5_DAOS_PREP_REQ(udata->req, H5E_DATASET);
 
     /* Verify dataset was successfully opened */
     if(udata->dset->obj.item.open_req->status != 0)
@@ -4178,6 +4142,11 @@ H5_daos_dataset_get(void *_dset, H5VL_dataset_get_t get_type,
                 if(!plist_id)
                     D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "output argument not supplied");
 
+                /* Start H5 operation. Currently, the DXPL is only copied when datatype conversion is needed. */
+                if(NULL == (int_req = H5_daos_req_create(dset->obj.item.file, "get dataset create property list",
+                        dset->obj.item.open_req, NULL, NULL, H5P_DATASET_XFER_DEFAULT)))
+                    D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't create DAOS request");
+
                 /* Allocate future ID and set up async task if necessary */
                 if(!dset->obj.item.created && dset->obj.item.open_req->status != 0) {
 #if H5VL_VERSION >= 2
@@ -4218,6 +4187,11 @@ H5_daos_dataset_get(void *_dset, H5VL_dataset_get_t get_type,
                 if(!plist_id)
                     D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "output argument not supplied");
 
+                /* Start H5 operation. Currently, the DXPL is only copied when datatype conversion is needed. */
+                if(NULL == (int_req = H5_daos_req_create(dset->obj.item.file, "get dataset access property list",
+                        dset->obj.item.open_req, NULL, NULL, H5P_DATASET_XFER_DEFAULT)))
+                    D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't create DAOS request");
+
                 /* Retrieve the dataset's access property list */
                 if((*plist_id = H5Pcopy(dset->dapl_id)) < 0)
                     D_GOTO_ERROR(H5E_DATASET, H5E_CANTGET, FAIL, "can't get dataset access property list");
@@ -4230,6 +4204,11 @@ H5_daos_dataset_get(void *_dset, H5VL_dataset_get_t get_type,
 
                 if(!ret_id)
                     D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "output argument not supplied");
+
+                /* Start H5 operation. Currently, the DXPL is only copied when datatype conversion is needed. */
+                if(NULL == (int_req = H5_daos_req_create(dset->obj.item.file, "get dataset dataspace",
+                        dset->obj.item.open_req, NULL, NULL, H5P_DATASET_XFER_DEFAULT)))
+                    D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't create DAOS request");
 
                 /* Allocate future ID and set up async task if necessary */
                 if(!dset->obj.item.created && dset->obj.item.open_req->status != 0) {
@@ -4274,6 +4253,11 @@ H5_daos_dataset_get(void *_dset, H5VL_dataset_get_t get_type,
                 if(!allocation)
                     D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "output argument not supplied");
 
+                /* Start H5 operation. Currently, the DXPL is only copied when datatype conversion is needed. */
+                if(NULL == (int_req = H5_daos_req_create(dset->obj.item.file, "get dataset dataspace status",
+                        dset->obj.item.open_req, NULL, NULL, H5P_DATASET_XFER_DEFAULT)))
+                    D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't create DAOS request");
+
                 /* Retrieve the dataset's space status */
                 *allocation = H5D_SPACE_STATUS_ALLOCATED;
                 break;
@@ -4284,6 +4268,11 @@ H5_daos_dataset_get(void *_dset, H5VL_dataset_get_t get_type,
 
                 if(!ret_id)
                     D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "output argument not supplied");
+
+                /* Start H5 operation. Currently, the DXPL is only copied when datatype conversion is needed. */
+                if(NULL == (int_req = H5_daos_req_create(dset->obj.item.file, "get dataset datatype",
+                        dset->obj.item.open_req, NULL, NULL, H5P_DATASET_XFER_DEFAULT)))
+                    D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't create DAOS request");
 
                 /* Allocate future ID and set up async task if necessary */
                 if(!dset->obj.item.created && dset->obj.item.open_req->status != 0) {
@@ -4323,6 +4312,11 @@ H5_daos_dataset_get(void *_dset, H5VL_dataset_get_t get_type,
                 if(!storage_size)
                     D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "output argument not supplied");
 
+                /* Start H5 operation. Currently, the DXPL is only copied when datatype conversion is needed. */
+                if(NULL == (int_req = H5_daos_req_create(dset->obj.item.file, "get dataset storage size",
+                        dset->obj.item.open_req, NULL, NULL, H5P_DATASET_XFER_DEFAULT)))
+                    D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't create DAOS request");
+
                 /* Set up async task if necessary */
                 if(!dset->obj.item.created && dset->obj.item.open_req->status != 0) {
                     /* Allocate udata struct */
@@ -4356,9 +4350,7 @@ H5_daos_dataset_get(void *_dset, H5VL_dataset_get_t get_type,
     if(get_udata) {
         tse_task_t *get_task;
 
-        /* Start H5 operation. Currently, the DXPL is only copied when datatype conversion is needed. */
-        if(NULL == (int_req = H5_daos_req_create(dset->obj.item.file, H5P_DATASET_XFER_DEFAULT)))
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't create DAOS request");
+        assert(int_req);
 
         /* Finish filling in task_udata */
         get_udata->req = int_req;
@@ -4405,8 +4397,7 @@ done:
         /* Add the request to the object's request queue.  This will add the
          * dependency on the dataset open if necessary. */
         if(H5_daos_req_enqueue(int_req, first_task, &dset->obj.item,
-                H5_DAOS_OP_TYPE_READ, H5_DAOS_OP_SCOPE_OBJ, FALSE, !req,
-                dset->obj.item.open_req, NULL) < 0)
+                H5_DAOS_OP_TYPE_READ, H5_DAOS_OP_SCOPE_OBJ, FALSE, !req) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
         /* Check for external async */
@@ -4502,7 +4493,8 @@ H5_daos_dataset_specific(void *_item, H5VL_dataset_specific_t specific_type,
                     D_GOTO_ERROR(H5E_DATASET, H5E_BADVALUE, FAIL, "dataset storage layout is not chunked");
 
                 /* Start H5 operation */
-                if(NULL == (int_req = H5_daos_req_create(dset->obj.item.file, H5I_INVALID_HID)))
+                if(NULL == (int_req = H5_daos_req_create(dset->obj.item.file, "set dataset extent",
+                        dset->obj.item.open_req, NULL, NULL, H5I_INVALID_HID)))
                     D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't create DAOS request");
 
 #ifdef H5_DAOS_USE_TRANSACTIONS
@@ -4524,7 +4516,8 @@ H5_daos_dataset_specific(void *_item, H5VL_dataset_specific_t specific_type,
         case H5VL_DATASET_FLUSH:
             {
                 /* Start H5 operation */
-                if(NULL == (int_req = H5_daos_req_create(dset->obj.item.file, H5I_INVALID_HID)))
+                if(NULL == (int_req = H5_daos_req_create(dset->obj.item.file, "dataset flush",
+                        dset->obj.item.open_req, NULL, NULL, H5I_INVALID_HID)))
                     D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't create DAOS request");
 
                 if(H5_daos_dataset_flush(dset, int_req, &first_task, &dep_task) < 0)
@@ -4536,7 +4529,8 @@ H5_daos_dataset_specific(void *_item, H5VL_dataset_specific_t specific_type,
         case H5VL_DATASET_REFRESH:
             {
                 /* Start H5 operation */
-                if(NULL == (int_req = H5_daos_req_create(dset->obj.item.file, H5I_INVALID_HID)))
+                if(NULL == (int_req = H5_daos_req_create(dset->obj.item.file, "dataset refresh",
+                        dset->obj.item.open_req, NULL, NULL, H5I_INVALID_HID)))
                     D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't create DAOS request");
 
 #ifdef H5_DAOS_USE_TRANSACTIONS
@@ -4581,7 +4575,7 @@ done:
         if(H5_daos_req_enqueue(int_req, first_task, &dset->obj.item,
                 specific_type == H5VL_DATASET_SET_EXTENT || specific_type == H5VL_DATASET_FLUSH
                 ? H5_DAOS_OP_TYPE_WRITE_ORDERED : H5_DAOS_OP_TYPE_READ,
-                H5_DAOS_OP_SCOPE_OBJ, must_coll_req, !req, dset->obj.item.open_req, NULL) < 0)
+                H5_DAOS_OP_SCOPE_OBJ, must_coll_req, !req) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
         /* Check for external async */
@@ -4725,7 +4719,7 @@ H5_daos_dataset_close(void *_dset, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
      * hence does not depend on anything).  Also close if it is marked to close
      * nonblocking. */
     if(((dset->obj.item.open_req->status == 0
-            || dset->obj.item.open_req->status < -H5_DAOS_SHORT_CIRCUIT)
+            || dset->obj.item.open_req->status < -H5_DAOS_CANCELED)
             && (!dset->obj.item.cur_op_pool
             || (dset->obj.item.cur_op_pool->type == H5_DAOS_OP_TYPE_EMPTY
             && !dset->obj.item.cur_op_pool->start_task)))
@@ -4737,7 +4731,8 @@ H5_daos_dataset_close(void *_dset, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
         tse_task_t *close_task = NULL;
 
         /* Start H5 operation. Currently, the DXPL is only copied when datatype conversion is needed. */
-        if(NULL == (int_req = H5_daos_req_create(dset->obj.item.file, H5P_DATASET_XFER_DEFAULT)))
+        if(NULL == (int_req = H5_daos_req_create(dset->obj.item.file, "dataset close",
+                dset->obj.item.open_req, NULL, NULL, H5P_DATASET_XFER_DEFAULT)))
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTALLOC, FAIL, "can't create DAOS request");
 
         /* Allocate argument struct */
@@ -4783,8 +4778,7 @@ done:
         /* Add the request to the object's request queue.  This will add the
          * dependency on the dataset open if necessary. */
         if(H5_daos_req_enqueue(int_req, first_task, &dset->obj.item,
-                H5_DAOS_OP_TYPE_CLOSE, H5_DAOS_OP_SCOPE_OBJ, FALSE, !req,
-                dset->obj.item.open_req, NULL) < 0)
+                H5_DAOS_OP_TYPE_CLOSE, H5_DAOS_OP_SCOPE_OBJ, FALSE, !req) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't add request to request queue");
         dset = NULL;
 

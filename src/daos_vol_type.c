@@ -528,7 +528,7 @@ H5_daos_datatype_commit(void *_item,
             collective, H5E_DATATYPE, NULL);
 
     /* Start H5 operation */
-    if(NULL == (int_req = H5_daos_req_create(item->file, H5I_INVALID_HID)))
+    if(NULL == (int_req = H5_daos_req_create(item->file, "datatype commit", item->open_req, NULL, NULL, H5I_INVALID_HID)))
         D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTALLOC, NULL, "can't create DAOS request");
 
 #ifdef H5_DAOS_USE_TRANSACTIONS
@@ -616,7 +616,7 @@ done:
          * create add to the file pool. */
         if(H5_daos_req_enqueue(int_req, first_task, item, op_type,
                 target_obj ? H5_DAOS_OP_SCOPE_OBJ : H5_DAOS_OP_SCOPE_FILE,
-                collective, !req, item->open_req, NULL) < 0)
+                collective, !req) < 0)
             D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't add request to request queue");
 
         /* Check for external async */
@@ -959,7 +959,8 @@ H5_daos_datatype_open(void *_item,
             collective, H5E_DATATYPE, NULL);
 
     /* Start H5 operation */
-    if(NULL == (int_req = H5_daos_req_create(item->file, H5I_INVALID_HID)))
+    if(NULL == (int_req = H5_daos_req_create(item->file, "committed datatype open",
+            item->open_req, NULL, NULL, H5I_INVALID_HID)))
         D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTALLOC, NULL, "can't create DAOS request");
 
 #ifdef H5_DAOS_USE_TRANSACTIONS
@@ -1083,7 +1084,7 @@ done:
         /* Add the request to the object's request queue.  This will add the
          * dependency on the group open if necessary. */
         if(H5_daos_req_enqueue(int_req, first_task, item, H5_DAOS_OP_TYPE_READ,
-                H5_DAOS_OP_SCOPE_OBJ, collective, !req, item->open_req, NULL) < 0)
+                H5_DAOS_OP_SCOPE_OBJ, collective, !req) < 0)
             D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't add request to request queue");
 
         /* Check for external async */
@@ -1891,7 +1892,8 @@ H5_daos_datatype_specific(void *_item, H5VL_datatype_specific_t specific_type,
         case H5VL_DATATYPE_FLUSH:
         {
             /* Start H5 operation */
-            if(NULL == (int_req = H5_daos_req_create(dtype->obj.item.file, H5I_INVALID_HID)))
+            if(NULL == (int_req = H5_daos_req_create(dtype->obj.item.file, "committed datatype flush",
+                    dtype->obj.item.open_req, NULL, NULL, H5I_INVALID_HID)))
                 D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTALLOC, FAIL, "can't create DAOS request");
 
             if(H5_daos_datatype_flush(dtype, int_req, &first_task, &dep_task) < 0)
@@ -1937,8 +1939,7 @@ done:
          * where we implement the barrier semantics for flush). */
         assert(specific_type == H5VL_DATATYPE_FLUSH);
         if(H5_daos_req_enqueue(int_req, first_task, &dtype->obj.item,
-                H5_DAOS_OP_TYPE_WRITE_ORDERED, H5_DAOS_OP_SCOPE_OBJ, FALSE, !req,
-                dtype->obj.item.open_req, NULL) < 0)
+                H5_DAOS_OP_TYPE_WRITE_ORDERED, H5_DAOS_OP_SCOPE_OBJ, FALSE, !req) < 0)
             D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
         /* Check for external async */
@@ -2053,7 +2054,7 @@ H5_daos_datatype_close(void *_dtype, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
      * hence does not depend on anything).  Also close if it is marked to close
      * nonblocking. */
     if(((dtype->obj.item.open_req->status == 0
-            || dtype->obj.item.open_req->status < -H5_DAOS_SHORT_CIRCUIT)
+            || dtype->obj.item.open_req->status < -H5_DAOS_CANCELED)
             && (!dtype->obj.item.cur_op_pool
             || (dtype->obj.item.cur_op_pool->type == H5_DAOS_OP_TYPE_EMPTY
             && !dtype->obj.item.cur_op_pool->start_task)))
@@ -2065,7 +2066,8 @@ H5_daos_datatype_close(void *_dtype, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
         tse_task_t *close_task = NULL;
 
         /* Start H5 operation. Currently, the DXPL is only copied when datatype conversion is needed. */
-        if(NULL == (int_req = H5_daos_req_create(dtype->obj.item.file, H5P_DATASET_XFER_DEFAULT)))
+        if(NULL == (int_req = H5_daos_req_create(dtype->obj.item.file, "committed datatype close",
+                dtype->obj.item.open_req, NULL, NULL, H5P_DATASET_XFER_DEFAULT)))
             D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTALLOC, FAIL, "can't create DAOS request");
 
         /* Allocate argument struct */
@@ -2111,8 +2113,7 @@ done:
         /* Add the request to the object's request queue.  This will add the
          * dependency on the datatype open if necessary. */
         if(H5_daos_req_enqueue(int_req, first_task, &dtype->obj.item,
-                H5_DAOS_OP_TYPE_CLOSE, H5_DAOS_OP_SCOPE_OBJ, FALSE, !req,
-                dtype->obj.item.open_req, NULL) < 0)
+                H5_DAOS_OP_TYPE_CLOSE, H5_DAOS_OP_SCOPE_OBJ, FALSE, !req) < 0)
             D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't add request to request queue");
         dtype = NULL;
 

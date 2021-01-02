@@ -1931,9 +1931,14 @@ done:
         attr_name_buf = DV_free(attr_name_buf);
 
     /* Cleanup on failure */
-    if(ret_value < 0)
+    if(ret_value < 0) {
+        /* Close internal request for target object create */
+        if(int_int_req && H5_daos_req_free_int(int_int_req) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't free request");
+
         if(attr_parent_obj && H5_daos_object_close(&attr_parent_obj->item) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't close attribute's parent object");
+    } /* end if */
 
     D_FUNC_LEAVE;
 } /* end H5_daos_attribute_open_by_idx_helper() */
@@ -4625,7 +4630,7 @@ done:
 
     /* Close internal request for target object open */
     if(int_int_req && H5_daos_req_free_int(int_int_req) < 0)
-        D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, NULL, "can't free request");
+        D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, (-1), "can't free request");
 
     D_FUNC_LEAVE;
 } /* end H5_daos_attribute_get_name() */

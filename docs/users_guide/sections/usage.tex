@@ -64,38 +64,76 @@ CMake-specific options:
   \item \texttt{HDF5\_C\_INCLUDE\_DIR} --- This variable controls the HDF5 include directory used by the VOL connector build process. Used in conjunction with the \texttt{HDF5\_C\_LIBRARY\_hdf5} variable.
 \end{itemize}
 
-\subsection{Writing HDF5 DAOS VOL connector applications}
+\subsection{Using the HDF5 DAOS VOL connector with applications}
 
-There are currently two main ways to tell an existing \acrshort{hdf5} application to use
-the \dvc{}: either \textit{implicitly} by using environment
-variables to tell the \acrshort{hdf5} library to load the connector as a dynamically loaded
-plugin or \textit{explicitly} by making use of \acrshort{hdf5} property lists.
+There are currently three ways to tell an \acrshort{hdf5} application to use
+the \dvc{}: 
 
-\subsubsection{With the DAOS VOL connector as a dynamically-loaded plugin}
-\label{sec:dynamic_plugin}
+\begin{enumerate}
+    \item The \texttt{HDF5\_VOL\_CONNECTOR} environment variable
+    \item \texttt{H5Pset\_vol()}, an \acrshort{hdf5} API call
+    \item \texttt{H5Pset\_fapl\_daos()}, a \dvc{} API call
+\end{enumerate}
 
-\acrshort{hdf5} has the capability to dynamically load and use a \vc{} for running
-applications with. In order to choose a particular \vc{} to use, two
-initial steps must be taken. First, one must help \acrshort{hdf5} locate the \vc{}
-by pointing to the directory which contains the built library. This can be
-accomplished by setting the environment variable \texttt{HDF5\_PLUGIN\_PATH} to
-this directory. Next, \acrshort{hdf5} needs to know the name of which library to use, which
-is configured by setting the environment variable \texttt{HDF5\_VOL\_CONNECTOR}
-to the name of the connector.
+Which option you choose will depend on things like your ability to modify the
+application's source code, whether dynamically loading plugins is an option,
+etc.
 
-In order to use the \dvc{}, the aforementioned environment variables 
-should be set as:
+The environment variable is useful when the application either
+does not need to be modified to use DAOS storage (e.g., the application makes
+no native-specific \acrshort{hdf5} API calls). It is also the easiest to use
+as it requires very little setup and no changes to the application's source
+code. It is probably not going to be suitable, however, if the application
+needs to perform I/O with multiple connectors. For example, reading from DAOS
+and writing to the native \vc{} or a RESTful web service via the REST \vc{}
+would be a problem. In the \acrshort{hdf5} command-line tools, this difficulty
+is solved by using command-line parameters and explicitly specifying a
+connector via \texttt{H5Pset\_vol()}.
 
-\begin{verbatim}
-HDF5_PLUGIN_PATH=/daos/vol/installation/directory/lib
-HDF5_VOL_CONNECTOR=daos
-\end{verbatim}
+\texttt{H5Pset\_vol()} is more complicated to use as it requires modification
+of the application's source code, which may not be possible. It's more flexible,
+though, and allows an application to be configured to use VOL connectors in
+arbitrary ways. Since it's an \acrshort{hdf5} API call, you don't need to
+link to the \dvc{}, which can be loaded as a plugin in the same way as using
+the environment variable, described above.
 
-Having completed this step, \acrshort{hdf5} will be setup to load the \dvc{}
-and use it for running applications, including \acrshort{hdf5}'s own tests.
-No additional modifications will need to be made to the existing \acrshort{hdf5} application.
+\texttt{H5Pset\_fapl\_daos()} will give you more control over how DAOS is
+initialized, but it requires linking to the \dvc{} and modification of the
+application's source code.
 
-\subsubsection{Without the DAOS VOL connector as a dynamically-loaded plugin}
+\subsubsection{Locating and loading HDF5 plugins at runtime}
+
+\acrshort{hdf5} are discovered at runtime by searching in specified
+plugin paths. There is a library default plugin path (usually
+\texttt{/usr/local/hdf5/lib/plugin} on POSIX systems) but this can be
+overridden using the \texttt{HDF5\_PLUGIN\_PATH} environment variable (and/or
+manipulated via the various \acrshort{hdf5} \texttt{H5PL} API calls for more
+complicated situations where the application's source code can be modified).
+
+When the \acrshort{hdf5} library is asked to use a plugin it doesn't
+currently have loaded, it searches the plugin path(s), attempting to load
+any plugins it finds to see if their name or connector value match.
+
+\subsubsection{Using the HDF5\_VOL\_CONNECTOR environment variable}
+
+Set the \texttt{HDF5\_VOL\_CONNECTOR} environment variable to "daos"
+(case-sensitive) and make sure the \dvc{} plugin is discoverable, as
+described above.
+
+\subsubsection{Using H5Pset\_vol()}
+
+The first thing you will have to do is load the \dvc{} plugin via \newline
+\texttt{H5VL\_register\_connector\_by\_(value|name)()}. This will load the
+plugin and assign it a \texttt{hid\_t} connector ID. You then pass this
+ID as the \vc{} ID when you call \texttt{H5Pset\_vol()} on the file access
+property list that will be used to open the file.
+
+The \dvc{} value is currently 4004. This is documented in the connector's
+public header. Note that the connector value is unrelated to the
+\texttt{hid\_t} library ID obtained from the registration API call. They are
+completely unrelated.
+
+\subsubsection{Using H5Pset\_daos\_vol()}
 
 If dynamic loading of the \dvc{} is not used, any \acrshort{hdf5} application
 using the connector must:

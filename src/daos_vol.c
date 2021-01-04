@@ -1557,14 +1557,7 @@ H5_daos_pool_connect_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     assert(udata->puuid);
 
     /* Handle errors */
-    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
-        udata = NULL;
-        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
-    } /* end if */
-    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT) {
-        udata = NULL;
-        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
-    } /* end if */
+    H5_DAOS_PREP_REQ(udata->req, H5E_VOL);
 
     if(uuid_is_null(*udata->puuid))
         D_GOTO_ERROR(H5E_VOL, H5E_BADVALUE, -H5_DAOS_BAD_VALUE, "pool UUID is invalid");
@@ -1757,14 +1750,7 @@ H5_daos_pool_disconnect_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     assert(udata->poh);
 
     /* Handle errors */
-    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
-        udata = NULL;
-        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
-    } /* end if */
-    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT) {
-        udata = NULL;
-        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
-    } /* end if */
+    H5_DAOS_PREP_REQ(udata->req, H5E_VOL);
 
     if(daos_handle_is_inval(*udata->poh))
         D_GOTO_ERROR(H5E_VOL, H5E_BADVALUE, -H5_DAOS_BAD_VALUE, "pool handle is invalid");
@@ -1938,14 +1924,7 @@ H5_daos_pool_query_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     assert(udata->poh);
 
     /* Handle errors */
-    if(udata->generic_ud.req->status < -H5_DAOS_SHORT_CIRCUIT) {
-        udata = NULL;
-        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
-    } /* end if */
-    else if(udata->generic_ud.req->status == -H5_DAOS_SHORT_CIRCUIT) {
-        udata = NULL;
-        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
-    } /* end if */
+    H5_DAOS_PREP_REQ(udata->generic_ud.req, H5E_VOL);
 
     if(daos_handle_is_inval(*udata->poh))
         D_GOTO_ERROR(H5E_VOL, H5E_BADVALUE, -H5_DAOS_BAD_VALUE, "pool handle is invalid");
@@ -2461,16 +2440,7 @@ H5_daos_oidx_generate_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     assert(udata->generic_ud.req);
 
     /* Handle errors */
-    if(udata->generic_ud.req->status < -H5_DAOS_SHORT_CIRCUIT) {
-        tse_task_complete(task, -H5_DAOS_PRE_ERROR);
-        udata = NULL;
-        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
-    } /* end if */
-    else if(udata->generic_ud.req->status == -H5_DAOS_SHORT_CIRCUIT) {
-        tse_task_complete(task, -H5_DAOS_SHORT_CIRCUIT);
-        udata = NULL;
-        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
-    } /* end if */
+    H5_DAOS_PREP_REQ(udata->generic_ud.req, H5E_VOL);
 
     assert(udata->generic_ud.req->file);
     assert(udata->generic_ud.req->file->item.open_req);
@@ -2903,10 +2873,7 @@ H5_daos_oid_encode_task(tse_task_t *task)
     assert(udata->oid_out);
 
     /* Check for previous errors */
-    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT)
-        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
-    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT)
-        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
+    H5_DAOS_PREP_REQ(udata->req, H5E_VOL);
 
     if(H5_daos_oid_encode(udata->oid_out, udata->oidx, udata->obj_type,
             udata->crt_plist_id, udata->oclass_prop_name, udata->req->file) < 0)
@@ -3347,6 +3314,12 @@ done:
         req->dep_task = NULL;
     } /* end if */
 
+    /* Propagate errors to parent request */
+    if(req->parent_req && req->status != 0) {
+        req->parent_req->status = req->status;
+        req->parent_req->failed_task = req->failed_task;
+    } /* end else */
+
     /* Handle errors in this function */
     /* Do not place any code that can issue errors after this block, except for
      * H5_daos_req_free_int, which updates req->status if it sees an error */
@@ -3393,8 +3366,9 @@ H5_daos_h5op_finalize(tse_task_t *task)
 
     /* Check for error */
     if(req->status < -H5_DAOS_SHORT_CIRCUIT) {
-        /* Print error message */
-        D_DONE_ERROR(H5E_IO, H5E_CANTINIT, req->status, "operation failed in task \"%s\": %s", req->failed_task, H5_daos_err_to_string(req->status));
+        /* Print error message (unless the operation was canceled) */
+        if(req->status < -H5_DAOS_CANCELED)
+            D_DONE_ERROR(H5E_IO, H5E_CANTINIT, req->status, "operation \"%s\" failed in task \"%s\": %s", req->op_name, req->failed_task, H5_daos_err_to_string(req->status));
 
         /* Abort transaction if opened */
         if(req->th_open) {
@@ -3519,21 +3493,27 @@ done:
                 req->dep_task = NULL;
             } /* end if */
         } /* end if */
+
+        /* Report failures in this routine */
+        /* Do not place any code that can issue errors after this block, except for
+         * H5_daos_req_free_int, which updates req->status if it sees an error */
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+            req->status = ret_value;
+            req->failed_task = "h5 op finalize";
+        } /* end if */
+
+        /* Propagate errors to parent request */
+        if(req->parent_req && req->status != 0 && !req->th_open) {
+            req->parent_req->status = req->status;
+            req->parent_req->failed_task = req->failed_task;
+        } /* end else */
+
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(req) < 0)
+            D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
     } /* end if */
     else
         assert(ret_value == -H5_DAOS_DAOS_GET_ERROR);
-
-    /* Report failures in this routine */
-    /* Do not place any code that can issue errors after this block, except for
-     * H5_daos_req_free_int, which updates req->status if it sees an error */
-    if(ret_value < -H5_DAOS_SHORT_CIRCUIT && req->status >= -H5_DAOS_SHORT_CIRCUIT) {
-        req->status = ret_value;
-        req->failed_task = "h5 op finalize";
-    } /* end if */
-
-    /* Release our reference to req */
-    if(H5_daos_req_free_int(req) < 0)
-        D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
 
     D_FUNC_LEAVE;
 } /* end H5_daos_h5op_finalize() */
@@ -3566,16 +3546,7 @@ H5_daos_generic_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     assert(udata->req);
 
     /* Handle errors */
-    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
-        tse_task_complete(task, -H5_DAOS_PRE_ERROR);
-        udata = NULL;
-        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
-    } /* end if */
-    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT) {
-        tse_task_complete(task, -H5_DAOS_SHORT_CIRCUIT);
-        udata = NULL;
-        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
-    } /* end if */
+    H5_DAOS_PREP_REQ(udata->req, H5E_VOL);
 
     assert(udata->req->file);
 
@@ -3666,30 +3637,19 @@ H5_daos_md_rw_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
-        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for metadata I/O task");
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for metadata I/O task");
 
     assert(udata->req);
+    assert(udata->obj);
 
     /* Handle errors */
-    if(udata->req->status < -H5_DAOS_SHORT_CIRCUIT) {
-        tse_task_complete(task, -H5_DAOS_PRE_ERROR);
-        udata = NULL;
-        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
-    } /* end if */
-    else if(udata->req->status == -H5_DAOS_SHORT_CIRCUIT) {
-        tse_task_complete(task, -H5_DAOS_SHORT_CIRCUIT);
-        udata = NULL;
-        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
-    } /* end if */
+    H5_DAOS_PREP_REQ(udata->req, H5E_VOL);
 
-    assert(udata->obj);
     assert(udata->obj->item.file);
 
     /* Set update task arguments */
-    if(NULL == (update_args = daos_task_get_args(task))) {
-        tse_task_complete(task, -H5_DAOS_DAOS_GET_ERROR);
+    if(NULL == (update_args = daos_task_get_args(task)))
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for metadata I/O task");
-    } /* end if */
     update_args->oh = udata->obj->obj_oh;
     update_args->th = udata->req->th;
     update_args->flags = udata->flags;
@@ -3699,6 +3659,9 @@ H5_daos_md_rw_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     update_args->sgls = udata->sgl;
 
 done:
+    if(ret_value < 0)
+        tse_task_complete(task, ret_value);
+
     D_FUNC_LEAVE;
 } /* end H5_daos_md_rw_prep_cb() */
 
@@ -3942,28 +3905,20 @@ H5_daos_list_key_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     assert(udata->iter_data->req);
 
     /* Handle errors */
-    if(udata->iter_data->req->status < -H5_DAOS_SHORT_CIRCUIT) {
-        tse_task_complete(task, -H5_DAOS_PRE_ERROR);
-        udata = NULL;
-        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
-    } /* end if */
-    else if(udata->iter_data->req->status == -H5_DAOS_SHORT_CIRCUIT) {
-        tse_task_complete(task, -H5_DAOS_SHORT_CIRCUIT);
-        udata = NULL;
-        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
-    } /* end if */
+    H5_DAOS_PREP_REQ(udata->iter_data->req, H5E_VOL);
 
     assert(udata->target_obj);
     assert(udata->iter_data->req->file);
 
     /* Set oh argument */
-    if(NULL == (list_args = daos_task_get_args(task))) {
-        tse_task_complete(task, -H5_DAOS_DAOS_GET_ERROR);
+    if(NULL == (list_args = daos_task_get_args(task)))
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for key list task");
-    } /* end if */
     list_args->oh = udata->target_obj->obj_oh;
 
 done:
+    if(ret_value < 0)
+        tse_task_complete(task, ret_value);
+
     D_FUNC_LEAVE;
 } /* end H5_daos_list_key_prep_cb() */
 
@@ -4367,28 +4322,20 @@ H5_daos_obj_open_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     assert(udata->generic_ud.req);
 
     /* Handle errors */
-    if(udata->generic_ud.req->status < -H5_DAOS_SHORT_CIRCUIT) {
-        tse_task_complete(task, -H5_DAOS_PRE_ERROR);
-        udata = NULL;
-        D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
-    } /* end if */
-    else if(udata->generic_ud.req->status == -H5_DAOS_SHORT_CIRCUIT) {
-        tse_task_complete(task, -H5_DAOS_SHORT_CIRCUIT);
-        udata = NULL;
-        D_GOTO_DONE(-H5_DAOS_SHORT_CIRCUIT);
-    } /* end if */
+    H5_DAOS_PREP_REQ(udata->generic_ud.req, H5E_VOL);
 
     assert(udata->file);
 
     /* Set container open handle and oid in args */
-    if(NULL == (open_args = daos_task_get_args(task))) {
-        tse_task_complete(task, -H5_DAOS_DAOS_GET_ERROR);
+    if(NULL == (open_args = daos_task_get_args(task)))
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for object open task");
-    } /* end if */
     open_args->coh = udata->file->coh;
     open_args->oid = *udata->oid;
 
 done:
+    if(ret_value < 0)
+        tse_task_complete(task, ret_value);
+
     D_FUNC_LEAVE;
 } /* end H5_daos_obj_open_prep_cb() */
 

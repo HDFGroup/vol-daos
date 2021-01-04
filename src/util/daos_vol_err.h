@@ -50,8 +50,8 @@ extern hid_t dv_async_err_g;
 typedef enum {
     H5_DAOS_INCOMPLETE = 1,       /* Operation has not yet completed (should only be in the item struct) (must be first) */
     H5_DAOS_SHORT_CIRCUIT,        /* Operation completed successfully earlier than expected (but has not finished yet internally) (must be second) */
-    H5_DAOS_PRE_ERROR,            /* A precursor to this task failed (should only be used as the task return value) (must be third) */
-    H5_DAOS_CANCELED,             /* Operation canceled by application */
+    H5_DAOS_CANCELED,             /* Operation canceled by application (must be third) */
+    H5_DAOS_PRE_ERROR,            /* A precursor to this task failed (should only be used as the task return value) (must be fourth) */
     H5_DAOS_PREREQ_ERROR,         /* A prerequisite operation failed */
     H5_DAOS_H5_OPEN_ERROR,        /* Failed to open HDF5 object */
     H5_DAOS_H5_CLOSE_ERROR,       /* Failed to close HDF5 object */

@@ -3793,12 +3793,12 @@ H5_daos_object_close_task(tse_task_t *task)
     /* Probably not necessary here? -NAF */
     H5_DAOS_PREP_REQ(udata->req, H5E_OBJECT);
 
-    /* Call real close function */
-    if(H5_daos_object_close(udata->item) < 0)
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
-
 done:
     if(udata) {
+        /* Always call real close function, even if a previous task failed */
+        if(H5_daos_object_close(udata->item) < 0)
+            D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
+
         /* Handle errors in this function */
         /* Do not place any code that can issue errors after this block, except for
          * H5_daos_req_free_int, which updates req->status if it sees an error */

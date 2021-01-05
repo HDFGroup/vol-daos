@@ -3959,10 +3959,12 @@ H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
                         item->open_req, NULL, NULL, H5I_INVALID_HID)))
                     D_GOTO_ERROR(H5E_ATTR, H5E_CANTALLOC, FAIL, "can't create DAOS request");
 
+                /* Get attribute info and give the comp_cb a reference to req */
                 if(H5_daos_attribute_get_info(_item, loc_params, attr_name, attr_info,
                         NULL, H5_daos_attribute_get_info_comp_cb,
                         int_req, &first_task, &dep_task) < 0)
                     D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute info");
+                int_req->rc++;
 
                 break;
             } /* H5VL_ATTR_GET_INFO */
@@ -4842,6 +4844,23 @@ H5_daos_attribute_get_info_task(tse_task_t *task)
     udata->info_out->data_size = udata->attr->file_type_size * (size_t)dataspace_nelmts;
 
 done:
+    if(udata) {
+        /* Handle errors in this function */
+        /* Do not place any code that can issue errors after this block, except
+         * for H5_daos_req_free_int, which updates req->status if it sees an
+         * error */
+        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+            udata->req->status = ret_value;
+            udata->req->failed_task = "attribute info retrieval task callback";
+        } /* end if */
+
+        /* Release our reference to req */
+        if(H5_daos_req_free_int(udata->req) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+    } /* end if */
+    else
+        assert(ret_value == -H5_DAOS_DAOS_GET_ERROR);
+
     /* Complete this task */
     tse_task_complete(task, ret_value);
 
@@ -4908,7 +4927,7 @@ done:
         DV_free(udata);
     }
     else
-        assert(ret_value >= 0 || ret_value == -H5_DAOS_DAOS_GET_ERROR);
+        assert(ret_value == -H5_DAOS_DAOS_GET_ERROR);
 
     D_FUNC_LEAVE;
 } /* end H5_daos_attribute_get_info_comp_cb() */

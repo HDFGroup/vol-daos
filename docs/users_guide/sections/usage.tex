@@ -75,7 +75,7 @@ the \dvc{}:
     \item \texttt{H5Pset\_fapl\_daos()}, a \dvc{} API call
 \end{enumerate}
 
-Which option you choose will depend on things like your ability to modify the
+Which option to choose will depend on things like the ability to modify the
 application's source code, whether dynamically loading plugins is an option,
 etc.
 
@@ -85,21 +85,20 @@ no native-specific \acrshort{hdf5} API calls). It is also the easiest to use
 as it requires very little setup and no changes to the application's source
 code. It is probably not going to be suitable, however, if the application
 needs to perform I/O with multiple connectors. For example, reading from DAOS
-and writing to the native \vc{} or a RESTful web service via the REST \vc{}
-would be a problem. In the \acrshort{hdf5} command-line tools, this difficulty
-is solved by using command-line parameters and explicitly specifying a
-connector via \texttt{H5Pset\_vol()}.
+and writing to the native \vc{} would be a problem. In the \acrshort{hdf5}
+command-line tools, this difficulty is solved by using command-line parameters
+and explicitly specifying a connector via \texttt{H5Pset\_vol()}.
 
-\texttt{H5Pset\_vol()} is more complicated to use as it requires modification
-of the application's source code, which may not be possible. It's more flexible,
-though, and allows an application to be configured to use VOL connectors in
-arbitrary ways. Since it's an \acrshort{hdf5} API call, you don't need to
+Using \texttt{H5Pset\_vol()} requires modification of the application's
+source code, which may not be possible. It's more flexible,
+however, and allows an application to be configured to use VOL connectors in
+arbitrary ways. Since it's an \acrshort{hdf5} API call, it isn't necessary to
 link to the \dvc{}, which can be loaded as a plugin in the same way as using
 the environment variable, described above.
 
-\texttt{H5Pset\_fapl\_daos()} will give you more control over how DAOS is
-initialized, but it requires linking to the \dvc{} and modification of the
-application's source code.
+\texttt{H5Pset\_fapl\_daos()} will give the application more control over how
+DAOS is initialized, but it requires linking to the \dvc{} and modification of
+the application's source code.
 
 Each of these ways of specifying and loading the \dvc{} is fundamentally
 equivalent in terms of its eventual effects. There's no performance or
@@ -107,7 +106,7 @@ functionality changes between them.
 
 \subsubsection{Locating and loading HDF5 plugins at runtime}
 
-\acrshort{hdf5} are discovered at runtime by searching in specified
+\acrshort{hdf5} plugins are discovered at runtime by searching in specified
 plugin paths. There is a library default plugin path (usually
 \texttt{/usr/local/hdf5/lib/plugin} on POSIX systems) but this can be
 overridden using the \texttt{HDF5\_PLUGIN\_PATH} environment variable (and/or
@@ -126,16 +125,15 @@ described above.
 
 \subsubsection{Using H5Pset\_vol()}
 
-The first thing you will have to do is load the \dvc{} plugin via \newline
+The first thing that must be done is load the \dvc{} plugin via \newline
 \texttt{H5VL\_register\_connector\_by\_(value|name)()}. This will load the
-plugin and assign it a \texttt{hid\_t} connector ID. You then pass this
-ID as the \vc{} ID when you call \texttt{H5Pset\_vol()} on the file access
+plugin and assign it a \texttt{hid\_t} connector ID. This ID is then passed
+as the \vc{} ID when you call \texttt{H5Pset\_vol()} on the file access
 property list that will be used to open the file.
 
 The \dvc{} value is currently 4004. This is documented in the connector's
 public header. Note that the connector value is unrelated to the
-\texttt{hid\_t} library ID obtained from the registration API call. They are
-completely unrelated.
+\texttt{hid\_t} library ID obtained from the registration API call.
 
 \subsubsection{Using H5Pset\_daos\_vol()}
 

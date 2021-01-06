@@ -1415,6 +1415,8 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_req_cancel(void *_req
 , H5_DAOS_REQ_STATUS_OUT_TYPE *status
 #endif
 );
+H5VL_DAOS_PRIVATE herr_t H5_daos_req_specific(void *_req,
+    H5VL_request_specific_t specific_type, va_list arguments);
 H5VL_DAOS_PRIVATE herr_t H5_daos_req_free(void *req);
 
 /* Other request routines */

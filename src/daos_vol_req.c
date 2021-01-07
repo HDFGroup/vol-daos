@@ -141,6 +141,48 @@ done:
 
 
 /*-------------------------------------------------------------------------
+ * Function:    H5_daos_req_specific
+ *
+ * Purpose:     Perform a request specifc operation
+ *
+ * Return:      Success:        0
+ *              Failure:        -1
+ *
+ * Programmer:  Neil Fortner
+ *              January, 2020
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_req_specific(void H5VL_DAOS_UNUSED *_req,
+    H5VL_request_specific_t specific_type, va_list arguments)
+{
+    herr_t ret_value = SUCCEED;    /* Return value */
+
+    switch (specific_type) {
+        /* H5ESget_err_info */
+        case H5VL_REQUEST_GET_ERR_STACK:
+        {
+            hid_t *err_stack_id = va_arg(arguments, hid_t *);
+
+            /* We don't currently track per-operation error stacks.  Just return
+             * H5I_INVALID_HID */
+            *err_stack_id = H5I_INVALID_HID;
+
+            break;
+        } /* H5VL_REQUEST_GET_ERR_STACK */
+
+        /* Unsupported */
+        default:
+            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported request specific operation");
+    } /* end switch */
+
+done:
+    D_FUNC_LEAVE_API;
+} /* end H5_daos_req_specific() */
+
+
+/*-------------------------------------------------------------------------
  * Function:    H5_daos_req_free
  *
  * Purpose:     Decrement the reference count on the request and free it

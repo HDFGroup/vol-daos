@@ -244,7 +244,7 @@ static const H5VL_class_t H5_daos_g = {
         H5_daos_req_wait,                    /* Connector Request wait */
         H5_daos_req_notify,                  /* Connector Request notify */
         H5_daos_req_cancel,                  /* Connector Request cancel */
-        NULL,                                /* Connector Request specific */
+        H5_daos_req_specific,                /* Connector Request specific */
         NULL,                                /* Connector Request optional */
         H5_daos_req_free                     /* Connector Request free */
     },

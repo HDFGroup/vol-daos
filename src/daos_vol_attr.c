@@ -6592,6 +6592,7 @@ static int
 H5_daos_attribute_iterate_finish(tse_task_t *task)
 {
     H5_daos_attr_iterate_ud_t *udata;
+    int ret;
     int ret_value = 0;
 
     /* Get private data */
@@ -6615,10 +6616,13 @@ H5_daos_attribute_iterate_finish(tse_task_t *task)
         *udata->iter_data.op_ret_p = udata->iter_data.op_ret;
 
     /* Close object.  Use nonblocking close so it doesn't deadlock */
-    udata->attr_container_obj->item.nonblocking_close = TRUE;
-    if(udata->iter_data.iter_root_obj >= 0 && H5Idec_ref(udata->iter_data.iter_root_obj) < 0)
-        D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object ID");
-    udata->attr_container_obj->item.nonblocking_close = FALSE;
+    if(udata->iter_data.iter_root_obj >= 0) {
+        udata->attr_container_obj->item.nonblocking_close = TRUE;
+        if((ret = H5Idec_ref(udata->iter_data.iter_root_obj)) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object ID");
+        if(ret)
+            udata->attr_container_obj->item.nonblocking_close = FALSE;
+    } /* end if */
     if(H5_daos_object_close(&udata->attr_container_obj->item) < 0)
         D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
 

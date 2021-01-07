@@ -3942,6 +3942,7 @@ H5_daos_list_key_finish(tse_task_t *task)
 {
     H5_daos_iter_ud_t *udata;
     H5_daos_req_t *req = NULL;
+    int ret;
     int ret_value = 0;
 
     /* Get private data */
@@ -3971,9 +3972,10 @@ H5_daos_list_key_finish(tse_task_t *task)
         /* Decrement reference count on root obj id.  Use nonblocking close so
          * it doesn't deadlock */
         udata->target_obj->item.nonblocking_close = TRUE;
-        if(H5Idec_ref(udata->iter_data->iter_root_obj) < 0)
+        if((ret = H5Idec_ref(udata->iter_data->iter_root_obj)) < 0)
             D_DONE_ERROR(H5E_LINK, H5E_CANTDEC, -H5_DAOS_H5_CLOSE_ERROR, "can't decrement reference count on iteration base object");
-        udata->target_obj->item.nonblocking_close = FALSE;
+        if(ret)
+            udata->target_obj->item.nonblocking_close = FALSE;
         udata->iter_data->iter_root_obj = H5I_INVALID_HID;
 
         /* Set *op_ret_p if present */
@@ -4266,9 +4268,10 @@ done:
              * so it doesn't deadlock */
             if(iter_udata->base_iter) {
                 iter_udata->target_obj->item.nonblocking_close = TRUE;
-                if(H5Idec_ref(iter_data->iter_root_obj) < 0)
+                if((ret = H5Idec_ref(iter_data->iter_root_obj)) < 0)
                     D_DONE_ERROR(H5E_VOL, H5E_CANTDEC, -H5_DAOS_H5_CLOSE_ERROR, "can't decrement reference count on iteration base object");
-                iter_udata->target_obj->item.nonblocking_close = FALSE;
+                if(ret)
+                    iter_udata->target_obj->item.nonblocking_close = FALSE;
             } /* end if */
 
             /* Free key buffer */

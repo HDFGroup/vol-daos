@@ -3495,9 +3495,10 @@ done:
 
     if(target_grp_id >= 0) {
         target_grp->obj.item.nonblocking_close = TRUE;
-        if(H5Idec_ref(target_grp_id) < 0)
+        if((ret = H5Idec_ref(target_grp_id)) < 0)
             D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group ID");
-        target_grp->obj.item.nonblocking_close = FALSE;
+        if(ret)
+            target_grp->obj.item.nonblocking_close = FALSE;
         target_grp_id = -1;
         target_grp = NULL;
     } /* end if */
@@ -5343,6 +5344,7 @@ H5_daos_link_ibco_end_task(tse_task_t *task)
 {
     H5_daos_link_ibco_ud_t *udata = NULL;
     H5_daos_req_t *req = NULL;
+    int ret;
     int ret_value = 0;
 
     /* Get private data */
@@ -5393,9 +5395,10 @@ H5_daos_link_ibco_end_task(tse_task_t *task)
         /* Decrement reference count on root obj id.  Use nonblocking close so
          * it doesn't deadlock */
         udata->target_grp->obj.item.nonblocking_close = TRUE;
-        if(H5Idec_ref(udata->iter_data->iter_root_obj) < 0)
+        if((ret = H5Idec_ref(udata->iter_data->iter_root_obj)) < 0)
             D_GOTO_ERROR(H5E_LINK, H5E_CANTDEC, -H5_DAOS_H5_CLOSE_ERROR, "can't decrement reference count on iteration base object");
-        udata->target_grp->obj.item.nonblocking_close = FALSE;
+        if(ret)
+            udata->target_grp->obj.item.nonblocking_close = FALSE;
         udata->iter_data->iter_root_obj = H5I_INVALID_HID;
 
         /* Set *op_ret_p if present */
@@ -6160,9 +6163,10 @@ done:
         } /* end if */
 
         target_grp->obj.item.nonblocking_close = TRUE;
-        if(H5Idec_ref(iter_data->iter_root_obj) < 0)
+        if((ret = H5Idec_ref(iter_data->iter_root_obj)) < 0)
             D_DONE_ERROR(H5E_LINK, H5E_CANTDEC, -H5_DAOS_H5_CLOSE_ERROR, "can't decrement reference count on iteration base object");
-        target_grp->obj.item.nonblocking_close = FALSE;
+        if(ret)
+            target_grp->obj.item.nonblocking_close = FALSE;
     } /* end if */
 
     D_FUNC_LEAVE;
@@ -8541,10 +8545,13 @@ done:
     /* Clean up */
     if(gnbn_udata) {
         assert(ret_value < 0);
-        target_grp->obj.item.nonblocking_close = TRUE;
-        if(gnbn_udata->target_grp_id >= 0 && H5Idec_ref(gnbn_udata->target_grp_id) < 0)
-            D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group ID");
-        target_grp->obj.item.nonblocking_close = FALSE;
+        if(gnbn_udata->target_grp_id >= 0) {
+            target_grp->obj.item.nonblocking_close = TRUE;
+            if((ret = H5Idec_ref(gnbn_udata->target_grp_id)) < 0)
+                D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group ID");
+            if(ret)
+                target_grp->obj.item.nonblocking_close = FALSE;
+        } /* end if */
         gnbn_udata = DV_free(gnbn_udata);
     } /* end if */
 

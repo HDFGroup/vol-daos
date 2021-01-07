@@ -160,15 +160,6 @@ H5_daos_req_specific(void H5VL_DAOS_UNUSED *_req,
     herr_t ret_value = SUCCEED;    /* Return value */
 
     switch (specific_type) {
-        /* Wait for all requests */
-        case H5VL_REQUEST_WAITALL:
-        {
-            if(H5_daos_progress(NULL, H5_DAOS_PROGRESS_WAIT) < 0)
-                D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't progress scheduler");
-
-            break;
-        } /* H5VL_REQUEST_WAITALL */
-
         /* H5ESget_err_info */
         case H5VL_REQUEST_GET_ERR_STACK:
         {
@@ -182,8 +173,6 @@ H5_daos_req_specific(void H5VL_DAOS_UNUSED *_req,
         } /* H5VL_REQUEST_GET_ERR_STACK */
 
         /* Unsupported */
-        case H5VL_REQUEST_WAITANY:
-        case H5VL_REQUEST_WAITSOME:
         default:
             D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported request specific operation");
     } /* end switch */

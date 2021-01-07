@@ -4270,11 +4270,14 @@ H5_daos_object_visit_task(tse_task_t *task)
 done:
     if(udata) {
         /* Close object ID since the iterate task should own it now */
-        udata->target_obj->item.nonblocking_close = TRUE;
-        if(udata->target_obj_id >= 0 && H5Idec_ref(udata->target_obj_id) < 0)
-            D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object ID");
-        udata->target_obj->item.nonblocking_close = FALSE;
-        udata->target_obj_id = H5I_INVALID_HID;
+        if(udata->target_obj_id >= 0) {
+            udata->target_obj->item.nonblocking_close = TRUE;
+            if((ret = H5Idec_ref(udata->target_obj_id)) < 0)
+                D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object ID");
+            if(ret)
+                udata->target_obj->item.nonblocking_close = FALSE;
+            udata->target_obj_id = H5I_INVALID_HID;
+        } /* end if */
     } /* end if */
 
     /* Schedule first task */

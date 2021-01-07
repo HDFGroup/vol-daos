@@ -3147,9 +3147,10 @@ done:
 
     if(map_id >= 0) {
         map->obj.item.nonblocking_close = TRUE;
-        if(H5Idec_ref(map_id) < 0)
+        if((ret = H5Idec_ref(map_id)) < 0)
             D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't close map ID");
-        map->obj.item.nonblocking_close = FALSE;
+        if(ret)
+            map->obj.item.nonblocking_close = FALSE;
         map_id = H5I_INVALID_HID;
     } /* end if */
 
@@ -3374,9 +3375,10 @@ done:
 
     if(map_id >= 0) {
         map->obj.item.nonblocking_close = TRUE;
-        if(H5Idec_ref(map_id) < 0)
+        if((ret = H5Idec_ref(map_id)) < 0)
             D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, FAIL, "can't close map ID");
-        map->obj.item.nonblocking_close = FALSE;
+        if(ret)
+            map->obj.item.nonblocking_close = FALSE;
         map_id = -1;
         map = NULL;
     } /* end if */

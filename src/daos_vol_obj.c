@@ -2055,6 +2055,7 @@ H5_daos_object_copy_single_attribute(H5_daos_obj_t *src_obj,
 {
     H5_daos_object_copy_single_attribute_ud_t *attr_copy_ud = NULL;
     H5VL_loc_params_t sub_loc_params;
+    H5_daos_req_t *int_int_req = NULL;
     int ret;
     herr_t ret_value = SUCCEED;
 
@@ -2073,9 +2074,35 @@ H5_daos_object_copy_single_attribute(H5_daos_obj_t *src_obj,
     sub_loc_params.obj_type = src_obj->item.type;
     sub_loc_params.type = H5VL_OBJECT_BY_SELF;
 
+    /* Start internal H5 operation for target attribute open.  This will
+     * not be visible to the API, will not be added to an operation
+     * pool, and will be integrated into this function's task chain. */
+    if(NULL == (int_int_req = H5_daos_req_create(src_obj->item.file, "source attribute open within object copy",
+            NULL, NULL, req, H5I_INVALID_HID)))
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTALLOC, FAIL, "can't create DAOS request");
+
     if(NULL == (attr_copy_ud->src_attr = H5_daos_attribute_open_helper((H5_daos_item_t *)src_obj, &sub_loc_params,
-            attr_name, H5P_ATTRIBUTE_ACCESS_DEFAULT, FALSE, req, first_task, dep_task)))
+            attr_name, H5P_ATTRIBUTE_ACCESS_DEFAULT, FALSE, int_int_req, first_task, dep_task)))
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, FAIL, "failed to open attribute");
+
+    /* Create task to finalize internal operation */
+    if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_int_req, &int_int_req->finalize_task)))
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to finalize internal operation: %s", H5_daos_err_to_string(ret));
+
+    /* Register dependency (if any) */
+    if(*dep_task && 0 != (ret = tse_task_register_deps(int_int_req->finalize_task, 1, dep_task)))
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize internal operation: %s", H5_daos_err_to_string(ret));
+
+    /* Schedule finalize task (or save it to be scheduled later),
+     * give it ownership of int_int_req, and update task pointers */
+    if(*first_task) {
+        if(0 != (ret = tse_task_schedule(int_int_req->finalize_task, false)))
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+    } /* end if */
+    else
+        *first_task = int_int_req->finalize_task;
+    *dep_task = int_int_req->finalize_task;
+    int_int_req = NULL;
 
     if(0 != (ret = tse_task_create(H5_daos_object_copy_single_attribute_task,
             &H5_daos_glob_sched_g, attr_copy_ud, &attr_copy_ud->copy_task)))
@@ -2102,6 +2129,10 @@ H5_daos_object_copy_single_attribute(H5_daos_obj_t *src_obj,
 
 done:
     if(ret_value < 0) {
+        /* Close internal request for target object open */
+        if(int_int_req && H5_daos_req_free_int(int_int_req) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, FAIL, "can't free request");
+
         DV_free(attr_copy_ud);
     }
 
@@ -2131,6 +2162,7 @@ H5_daos_object_copy_single_attribute_task(tse_task_t *task)
     tse_task_t *free_task = NULL;
     tse_task_t *first_task = NULL;
     tse_task_t *dep_task = NULL;
+    H5_daos_req_t *int_int_req = NULL;
     int ret;
     int ret_value = 0;
 
@@ -2150,6 +2182,13 @@ H5_daos_object_copy_single_attribute_task(tse_task_t *task)
     /* Check for previous errors */
     H5_DAOS_PREP_REQ_PROG(req);
 
+    /* Start internal H5 operation for target attribute open.  This will
+     * not be visible to the API, will not be added to an operation
+     * pool, and will be integrated into this function's task chain. */
+    if(NULL == (int_int_req = H5_daos_req_create(udata->target_obj->item.file, "destination attribute create within object copy",
+            NULL, NULL, req, H5I_INVALID_HID)))
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't create DAOS request");
+
     /* Create task for creating new attribute now that the
      * source attribute should be valid.
      */
@@ -2158,8 +2197,27 @@ H5_daos_object_copy_single_attribute_task(tse_task_t *task)
     if(NULL == (udata->new_attr = H5_daos_attribute_create_helper(&udata->target_obj->item,
             &sub_loc_params, udata->src_attr->type_id, udata->src_attr->space_id,
             udata->src_attr->acpl_id, H5P_ATTRIBUTE_ACCESS_DEFAULT, udata->src_attr->name,
-            FALSE, req, &first_task, &dep_task)))
+            FALSE, int_int_req, &first_task, &dep_task)))
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTCOPY, -H5_DAOS_H5_COPY_ERROR, "failed to create new attribute");
+
+    /* Create task to finalize internal operation */
+    if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_int_req, &int_int_req->finalize_task)))
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, ret, "can't create task to finalize internal operation: %s", H5_daos_err_to_string(ret));
+
+    /* Register dependency (if any) */
+    if(dep_task && 0 != (ret = tse_task_register_deps(int_int_req->finalize_task, 1, &dep_task)))
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, ret, "can't create dependencies for task to finalize internal operation: %s", H5_daos_err_to_string(ret));
+
+    /* Schedule finalize task (or save it to be scheduled later),
+     * give it ownership of int_int_req, and update task pointers */
+    if(first_task) {
+        if(0 != (ret = tse_task_schedule(int_int_req->finalize_task, false)))
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, ret, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+    } /* end if */
+    else
+        first_task = int_int_req->finalize_task;
+    dep_task = int_int_req->finalize_task;
+    int_int_req = NULL;
 
 done:
     if(udata) {
@@ -2204,6 +2262,10 @@ done:
     /* Schedule first task */
     if(first_task && 0 != (ret = tse_task_schedule(first_task, false)))
         D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, ret, "can't schedule task to copy attribute: %s", H5_daos_err_to_string(ret));
+
+    /* Close internal request for target object open */
+    if(int_int_req && H5_daos_req_free_int(int_int_req) < 0)
+        D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
 
     D_FUNC_LEAVE;
 } /* end H5_daos_object_copy_single_attribute_task() */

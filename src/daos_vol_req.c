@@ -155,11 +155,16 @@ done:
  */
 herr_t
 H5_daos_req_specific(void H5VL_DAOS_UNUSED *_req,
-    H5VL_request_specific_t specific_type, va_list arguments)
+    H5VL_request_specific_t specific_type, va_list
+#if H5VL_VERSION < 2
+H5VL_DAOS_UNUSED
+#endif
+arguments)
 {
     herr_t ret_value = SUCCEED;    /* Return value */
 
     switch (specific_type) {
+#if H5VL_VERSION >= 2
         /* H5ESget_err_info */
         case H5VL_REQUEST_GET_ERR_STACK:
         {
@@ -171,7 +176,7 @@ H5_daos_req_specific(void H5VL_DAOS_UNUSED *_req,
 
             break;
         } /* H5VL_REQUEST_GET_ERR_STACK */
-
+#endif
         /* Unsupported */
         default:
             D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported request specific operation");

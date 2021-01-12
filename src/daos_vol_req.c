@@ -529,7 +529,7 @@ H5_daos_req_enqueue(H5_daos_req_t *req, tse_task_t *first_task,
 
         /* Determine if we need to allocate and/or initialize a new pool */
         if(!*parent_cur_op_pool[0]) {
-            /* No pool present at this level, check for sync executiong,
+            /* No pool present at this level, check for sync execution,
              * otherwise must create a new pool */
             if(sync)
                 might_skip_pool = TRUE;
@@ -629,11 +629,6 @@ H5_daos_req_enqueue(H5_daos_req_t *req, tse_task_t *first_task,
             /* Initialize ref count */
             tmp_pool->rc = 1;
 
-            /* Create start task */
-            if(0 != (ret = tse_task_create(H5_daos_op_pool_start_task, &H5_daos_glob_sched_g, tmp_pool, &tmp_pool->start_task)))
-                D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't create start task for operation pool: %s", H5_daos_err_to_string(ret));
-            must_schedule_start_task = TRUE;
-
             /* Handle previous pool */
             if(*parent_cur_op_pool[0]) {
                 assert((*parent_cur_op_pool[0])->type != H5_DAOS_OP_TYPE_EMPTY);
@@ -651,6 +646,11 @@ H5_daos_req_enqueue(H5_daos_req_t *req, tse_task_t *first_task,
                         if(0 != (ret = tse_task_schedule((*parent_cur_op_pool[0])->dep_task, false)))
                             D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't schedule final dependency task for operation pool: %s", H5_daos_err_to_string(ret));
                     } /* end if */
+
+                    /* Create start task */
+                    if(0 != (ret = tse_task_create(H5_daos_op_pool_start_task, &H5_daos_glob_sched_g, tmp_pool, &tmp_pool->start_task)))
+                        D_GOTO_ERROR(H5E_DAOS_ASYNC, H5E_CANTINIT, FAIL, "can't create start task for operation pool: %s", H5_daos_err_to_string(ret));
+                    must_schedule_start_task = TRUE;
 
                     /* Create dependency on previous pool dep task */
                     if((ret = tse_task_register_deps(tmp_pool->start_task, 1, &(*parent_cur_op_pool[0])->dep_task)) < 0)

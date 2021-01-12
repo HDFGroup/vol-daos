@@ -6550,7 +6550,7 @@ H5_daos_attribute_iterate_op_task(tse_task_t *task)
     /* Check for previous errors */
     if(udata->iter_data->op_ret < 0)
         D_GOTO_DONE(-H5_DAOS_PRE_ERROR);
-    H5_DAOS_PREP_REQ_DONE(udata->get_info_ud.req);
+    H5_DAOS_PREP_REQ_PROG(udata->get_info_ud.req);
 
     /* Determine if short-circuit success was returned in previous tasks */
     if(udata->iter_data->op_ret > 0)
@@ -6918,7 +6918,7 @@ H5_daos_attr_gnbi_alloc_task(tse_task_t *task)
                 "can't get private data for attribute get name by index task");
 
     /* Handle errors in previous tasks */
-    H5_DAOS_PREP_REQ_DONE(udata->req);
+    H5_DAOS_PREP_REQ(udata->req, H5E_ATTR);
 
     /* Check if we need to issue another get operation */
     if(*udata->attr_name_size > udata->cur_attr_name_size - 1) {
@@ -7277,7 +7277,7 @@ H5_daos_attribute_gnbno_no_attrs_check_task(tse_task_t *task)
                 "can't get private data for attribute count check task");
 
     /* Handle errors in previous tasks */
-    H5_DAOS_PREP_REQ_DONE(udata->req);
+    H5_DAOS_PREP_REQ(udata->req, H5E_ATTR);
 
     /* Ensure the index is within range */
     if(udata->idx >= (uint64_t)udata->obj_nattrs)
@@ -7436,7 +7436,7 @@ H5_daos_attribute_get_name_by_crt_order_prep_cb(tse_task_t *task, void H5VL_DAOS
     assert(udata->u.by_crt_order_data.md_rw_cb_ud.req);
 
     /* Handle errors */
-    H5_DAOS_PREP_REQ_DONE(udata->u.by_crt_order_data.md_rw_cb_ud.req);
+    H5_DAOS_PREP_REQ(udata->u.by_crt_order_data.md_rw_cb_ud.req, H5E_ATTR);
 
     assert(udata->u.by_crt_order_data.md_rw_cb_ud.obj);
     assert(udata->u.by_crt_order_data.md_rw_cb_ud.req->file);

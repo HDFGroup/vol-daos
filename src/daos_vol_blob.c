@@ -40,6 +40,8 @@ H5_daos_blob_io_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     int *udata = NULL;
     int ret_value = 0;
 
+    assert(H5_daos_task_list_g);
+
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for blob I/O task");
@@ -48,6 +50,10 @@ H5_daos_blob_io_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     *udata = task->dt_result;
 
 done:
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
     D_FUNC_LEAVE;
 }
 
@@ -76,10 +82,11 @@ H5_daos_blob_put(void *_file, const void *buf, size_t size, void *blob_id,
     daos_sg_list_t sgl;
     daos_iov_t sg_iov;
     int task_result = 0;
-    int ret;
     herr_t ret_value = SUCCEED;         /* Return value */
 
     assert(H5_DAOS_BLOB_ID_SIZE == sizeof(blob_uuid));
+
+    H5_daos_inc_api_cnt();
 
     /* Check parameters */
     if(!buf && size > 0)
@@ -117,26 +124,20 @@ H5_daos_blob_put(void *_file, const void *buf, size_t size, void *blob_id,
 
         /* Create task for blob write */
         assert(!dep_task);
-        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_UPDATE, &H5_daos_glob_sched_g, 0, NULL, &update_task)))
-            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create task to write blob: %s", H5_daos_err_to_string(ret));
-
-        /* Set callback functions for blob write */
-        if(0 != (ret = tse_task_register_cbs(update_task, NULL, NULL, 0, H5_daos_blob_io_comp_cb, NULL, 0)))
-            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't register callbacks for task to write blob: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_daos_task(DAOS_OPC_OBJ_UPDATE, 0, NULL, NULL, H5_daos_blob_io_comp_cb,
+                &task_result, &update_task) < 0)
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create task to write blob");
 
         /* Set update task arguments */
         if(NULL == (update_args = daos_task_get_args(update_task)))
             D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't get arguments for blob write task");
+        memset(update_args, 0, sizeof(*update_args));
         update_args->oh = file->glob_md_oh;
         update_args->th = DAOS_TX_NONE;
-        update_args->flags = 0;
         update_args->dkey = &dkey;
         update_args->nr = 1u;
         update_args->iods = &iod;
         update_args->sgls = &sgl;
-
-        /* Set private data for blob read */
-        (void)tse_task_set_priv(update_task, &task_result);
 
         assert(!first_task);
         first_task = update_task;
@@ -184,8 +185,9 @@ H5_daos_blob_get(void *_file, const void *blob_id, void *buf, size_t size,
     daos_sg_list_t sgl;
     daos_iov_t sg_iov;
     int task_result = 0;
-    int ret;
     herr_t ret_value = SUCCEED;         /* Return value */
+
+    H5_daos_inc_api_cnt();
 
     /* Check parameters */
     if(!buf)
@@ -217,26 +219,20 @@ H5_daos_blob_get(void *_file, const void *blob_id, void *buf, size_t size,
 
         /* Create task for blob read */
         assert(!dep_task);
-        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &H5_daos_glob_sched_g, 0, NULL, &fetch_task)))
-            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create task to read blob: %s", H5_daos_err_to_string(ret));
-
-        /* Set callback functions for blob read */
-        if(0 != (ret = tse_task_register_cbs(fetch_task, NULL, NULL, 0, H5_daos_blob_io_comp_cb, NULL, 0)))
-            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't register callbacks for task to read blob: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_daos_task(DAOS_OPC_OBJ_FETCH, 0, NULL, NULL, H5_daos_blob_io_comp_cb,
+                &task_result, &fetch_task) < 0)
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create task to read blob");
 
         /* Set fetch task arguments */
         if(NULL == (fetch_args = daos_task_get_args(fetch_task)))
             D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't get arguments for blob read task");
+        memset(fetch_args, 0, sizeof(*fetch_args));
         fetch_args->oh = file->glob_md_oh;
         fetch_args->th = DAOS_TX_NONE;
-        fetch_args->flags = 0;
         fetch_args->dkey = &dkey;
         fetch_args->nr = 1u;
         fetch_args->iods = &iod;
         fetch_args->sgls = &sgl;
-
-        /* Set private data for blob read */
-        (void)tse_task_set_priv(fetch_task, &task_result);
 
         assert(!first_task);
         first_task = fetch_task;
@@ -277,6 +273,8 @@ H5_daos_blob_specific(void *_file, void *blob_id,
     H5_daos_file_t *file = (H5_daos_file_t *)_file;
     int ret;
     herr_t ret_value = SUCCEED;         /* Return value */
+
+    H5_daos_inc_api_cnt();
 
     /* Check parameters */
     if(!blob_id)

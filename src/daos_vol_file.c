@@ -266,9 +266,9 @@ H5_daos_tx_open_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     /* Set arguments for transaction open */
     if(NULL == (tx_open_args = daos_task_get_args(task)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for transaction open task");
+    memset(tx_open_args, 0, sizeof(*tx_open_args));
     tx_open_args->coh = udata->req->file->coh;
     tx_open_args->th = &udata->req->th;
-    tx_open_args->flags = 0;
 
 done:
     if(ret_value < 0)
@@ -456,12 +456,9 @@ H5_daos_handles_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
                 udata->count = udata->buffer_len;
 
                 /* Create task for second bcast */
-                if(0 !=  (ret = tse_task_create(H5_daos_mpi_ibcast_task, &H5_daos_glob_sched_g, udata, &bcast_task)))
-                    D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't create task for second global handles broadcast: %s", H5_daos_err_to_string(ret));
-
-                /* Set callback functions for second bcast */
-                if(0 != (ret = tse_task_register_cbs(bcast_task, NULL, NULL, 0, H5_daos_handles_bcast_comp_cb, NULL, 0)))
-                    D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't register callbacks for second global handles broadcast: %s", H5_daos_err_to_string(ret));
+                if(H5_daos_create_task(H5_daos_mpi_ibcast_task, 0, NULL, NULL, H5_daos_handles_bcast_comp_cb,
+                        udata, &bcast_task) < 0)
+                    D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't create task for second global handles broadcast");
 
                 /* Schedule second bcast and transfer ownership of udata */
                 if(0 != (ret = tse_task_schedule(bcast_task, false)))
@@ -504,12 +501,9 @@ H5_daos_handles_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
                 udata->count = udata->buffer_len;
 
                 /* Create task for second bcast */
-                if(0 !=  (ret = tse_task_create(H5_daos_mpi_ibcast_task, &H5_daos_glob_sched_g, udata, &bcast_task)))
-                    D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't create task for second global handles broadcast: %s", H5_daos_err_to_string(ret));
-
-                /* Set callback functions for second bcast */
-                if(0 != (ret = tse_task_register_cbs(bcast_task, NULL, NULL, 0, H5_daos_handles_bcast_comp_cb, NULL, 0)))
-                    D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, ret, "can't register callbacks for second global handles broadcast: %s", H5_daos_err_to_string(ret));
+                if(H5_daos_create_task(H5_daos_mpi_ibcast_task, 0, NULL, NULL, H5_daos_handles_bcast_comp_cb,
+                        udata, &bcast_task) < 0)
+                    D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't create task for second global handles broadcast");
 
                 /* Schedule second bcast and transfer ownership of udata */
                 if(0 != (ret = tse_task_schedule(bcast_task, false)))
@@ -557,6 +551,10 @@ done:
         /* Release our reference to req */
         if(H5_daos_req_free_int(udata->req) < 0)
             D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+        /* Return task to task list */
+        if(H5_daos_task_list_put(H5_daos_task_list_g, udata->bcast_metatask) < 0)
+            D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
 
         /* Complete bcast metatask */
         tse_task_complete(udata->bcast_metatask, ret_value);
@@ -664,6 +662,10 @@ done:
     if(H5_daos_req_free_int(udata->req) < 0)
         D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
 
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
     /* Complete this task */
     tse_task_complete(task, ret_value);
 
@@ -713,15 +715,9 @@ H5_daos_file_handles_bcast(H5_daos_file_t *file, H5_daos_req_t *req,
         tse_task_t *get_handles_task;
 
         /* Create task to get global container handle and global container pool handle */
-        if(0 != (ret = tse_task_create(H5_daos_get_container_handles_task, &H5_daos_glob_sched_g, bcast_udata, &get_handles_task)))
-            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create task to get global container handles: %s", H5_daos_err_to_string(ret));
-
-        /* Register dependency for task */
-        if(*dep_task && 0 != (ret = tse_task_register_deps(get_handles_task, 1, dep_task)))
-            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create dependencies for task to get global container handles: %s", H5_daos_err_to_string(ret));
-
-        /* Set private data for task to get global container handle */
-        (void)tse_task_set_priv(get_handles_task, bcast_udata);
+        if(H5_daos_create_task(H5_daos_get_container_handles_task, *dep_task ? 1 : 0,
+                *dep_task ? dep_task : NULL, NULL, NULL, bcast_udata, &get_handles_task) < 0)
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create task to get global container handles");
 
         /* Schedule task to get global handles (or save it to be
          * scheduled later) and give it a reference to req.  Do not transfer
@@ -802,6 +798,8 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
 
     H5daos_compile_assert(H5_DAOS_ENCODED_OID_SIZE
             == H5_DAOS_ENCODED_UINT64_T_SIZE + H5_DAOS_ENCODED_UINT64_T_SIZE);
+
+    H5_daos_inc_api_cnt();
 
     if(!name)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "file name is NULL");
@@ -945,11 +943,9 @@ done:
         assert(file);
 
         /* Create task to finalize H5 operation */
-        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))
-            D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
-        /* Register dependency (if any) */
-        else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
-            D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(H5_daos_h5op_finalize, dep_task ? 1 : 0, dep_task ? &dep_task : NULL,
+                NULL, NULL, int_req, &int_req->finalize_task) < 0)
+            D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation");
         /* Schedule finalize task */
         else if(0 != (ret = tse_task_schedule(int_req->finalize_task, false)))
             D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
@@ -1174,17 +1170,9 @@ H5_daos_duns_create_path(H5_daos_cont_op_info_t *create_udata,
     assert(dep_task);
 
     /* Create task for DUNS path create */
-    if(0 != (ret = tse_task_create(H5_daos_duns_create_path_task, &H5_daos_glob_sched_g, create_udata, &create_task)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create task to create DUNS path: %s", H5_daos_err_to_string(ret));
-
-    /* Register dependency on dep_task if present */
-    if(*dep_task && 0 != (ret = tse_task_register_deps(create_task, 1, dep_task)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't register dependencies for DUNS path creation task: %s", H5_daos_err_to_string(ret));
-
-    /* Set callback functions for DUNS path create task */
-    if(prep_cb || comp_cb)
-        if(0 != (ret = tse_task_register_cbs(create_task, prep_cb, NULL, 0, comp_cb, NULL, 0)))
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't register callbacks for DUNS path creation task: %s", H5_daos_err_to_string(ret));
+    if(H5_daos_create_task(H5_daos_duns_create_path_task, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+            prep_cb, comp_cb, create_udata, &create_task) < 0)
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create task to create DUNS path");
 
     /* Schedule DUNS path create task (or save it to be scheduled later) and
      * give it a reference to req */
@@ -1332,6 +1320,10 @@ done:
         DV_free(udata);
     } /* end if */
 
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
     D_FUNC_LEAVE;
 } /* end H5_daos_duns_create_path_comp_cb() */
 
@@ -1370,8 +1362,8 @@ H5_daos_cont_create_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     /* Set daos_cont_create task args */
     if(NULL == (create_args = daos_task_get_args(task)))
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for container create task");
+    memset(create_args, 0, sizeof(*create_args));
     create_args->poh = *udata->poh;
-    create_args->prop = NULL;
     /* TODO that cast can be removed once DAOS task struct is fixed */
     uuid_copy((unsigned char *)create_args->uuid, udata->req->file->uuid);
 
@@ -1530,6 +1522,8 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     int ret;
     void *ret_value = NULL;
 
+    H5_daos_inc_api_cnt();
+
     if(!name)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "file name is NULL");
 
@@ -1635,11 +1629,9 @@ done:
         assert(file);
 
         /* Create task to finalize H5 operation */
-        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))
-            D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
-        /* Register dependency (if any) */
-        else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
-            D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(H5_daos_h5op_finalize, dep_task ? 1 : 0, dep_task ? &dep_task : NULL,
+                NULL, NULL, int_req, &int_req->finalize_task) < 0)
+            D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation");
         /* Schedule finalize task */
         else if(0 != (ret = tse_task_schedule(int_req->finalize_task, false)))
             D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
@@ -1886,17 +1878,9 @@ H5_daos_duns_resolve_path(H5_daos_cont_op_info_t *resolve_udata,
     assert(dep_task);
 
     /* Create task for resolving DUNS path */
-    if(0 != (ret = tse_task_create(H5_daos_duns_resolve_path_task, &H5_daos_glob_sched_g, resolve_udata, &resolve_task)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create task to resolve DUNS path: %s", H5_daos_err_to_string(ret));
-
-    /* Register dependency on dep_task if present */
-    if(*dep_task && 0 != (ret = tse_task_register_deps(resolve_task, 1, dep_task)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't register dependencies for DUNS path resolve task: %s", H5_daos_err_to_string(ret));
-
-    /* Set callback functions for DUNS path resolve task */
-    if(prep_cb || comp_cb)
-        if(0 != (ret = tse_task_register_cbs(resolve_task, prep_cb, NULL, 0, comp_cb, NULL, 0)))
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't register callbacks for DUNS path resolve task: %s", H5_daos_err_to_string(ret));
+    if(H5_daos_create_task(H5_daos_duns_resolve_path_task, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+            prep_cb, comp_cb, resolve_udata, &resolve_task) < 0)
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create task to resolve DUNS path");
 
     /* Schedule DUNS path resolve task (or save it to be scheduled later) and
      * give it a reference to req */
@@ -1920,12 +1904,9 @@ H5_daos_duns_resolve_path(H5_daos_cont_op_info_t *resolve_udata,
          * need to be created to destroy an existing DUNS path during
          * file creates with H5F_ACC_TRUNC access.
          */
-        if(0 != (ret = tse_task_create(H5_daos_metatask_autocomplete, &H5_daos_glob_sched_g, NULL, &resolve_udata->cont_op_metatask)))
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create meta task for DUNS path resolve: %s", H5_daos_err_to_string(ret));
-
-        /* Register dependency on DUNS path resolve task for metatask */
-        if(0 != (ret = tse_task_register_deps(resolve_udata->cont_op_metatask, 1, &resolve_task)))
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, ret, "can't create dependencies for DUNS path resolve metatask: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(H5_daos_metatask_autocomplete, 1, &resolve_task,
+                NULL, NULL, NULL, &resolve_udata->cont_op_metatask) < 0)
+            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create meta task for DUNS path resolve");
 
         /* Schedule meta task */
         assert(*first_task);
@@ -2084,6 +2065,10 @@ done:
             D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
     } /* end if */
 
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
     D_FUNC_LEAVE;
 } /* end H5_daos_duns_resolve_path_comp_cb() */
 
@@ -2126,12 +2111,12 @@ H5_daos_cont_open_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     /* Set daos_cont_open task args */
     if(NULL == (open_args = daos_task_get_args(task)))
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for container open task");
+    memset(open_args, 0, sizeof(*open_args));
     open_args->poh = *udata->poh;
     /* TODO that cast can be removed once DAOS task struct is fixed */
     uuid_copy((unsigned char *)open_args->uuid, udata->req->file->uuid);
     open_args->flags = udata->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO;
     open_args->coh = &udata->req->file->coh;
-    open_args->info = NULL;
 
 done:
     if(ret_value < 0)
@@ -2219,6 +2204,8 @@ H5_daos_file_get(void *_item, H5VL_file_get_t get_type, hid_t H5VL_DAOS_UNUSED d
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_file_t *file = NULL;
     herr_t          ret_value = SUCCEED;
+
+    H5_daos_inc_api_cnt();
 
     if(!_item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
@@ -2430,6 +2417,8 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
     int ret;
     herr_t ret_value = SUCCEED;    /* Return value */
 
+    H5_daos_inc_api_cnt();
+
     if(item) {
         file = ((H5_daos_item_t *)item)->file;
         H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
@@ -2599,11 +2588,9 @@ done:
         H5_daos_op_pool_scope_t op_scope;
 
         /* Create task to finalize H5 operation */
-        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))
-            D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
-        /* Register dependency (if any) */
-        else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
-            D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(H5_daos_h5op_finalize, dep_task ? 1 : 0, dep_task ? &dep_task : NULL,
+                NULL, NULL, int_req, &int_req->finalize_task) < 0)
+            D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation");
         /* Schedule finalize task */
         else if(0 != (ret = tse_task_schedule(int_req->finalize_task, false)))
             D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
@@ -2811,6 +2798,10 @@ done:
         if(H5_daos_req_free_int(udata->req) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
 
+        /* Return task to task list */
+        if(H5_daos_task_list_put(H5_daos_task_list_g, udata->bcast_metatask) < 0)
+            D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
         /* Complete bcast metatask */
         tse_task_complete(udata->bcast_metatask, ret_value);
 
@@ -2902,17 +2893,9 @@ H5_daos_duns_destroy_path(H5_daos_cont_op_info_t *destroy_udata,
     assert(dep_task);
 
     /* Create task for DUNS path/container destroy */
-    if(0 != (ret = tse_task_create(H5_daos_duns_destroy_path_task, &H5_daos_glob_sched_g, destroy_udata, &destroy_task)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create task to destroy DUNS path: %s", H5_daos_err_to_string(ret));
-
-    /* Register dependency on dep_task if present */
-    if(*dep_task && 0 != (ret = tse_task_register_deps(destroy_task, 1, dep_task)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't register dependencies for DUNS path destroy task: %s", H5_daos_err_to_string(ret));
-
-    /* Set callback functions for DUNS path destroy task */
-    if(prep_cb || comp_cb)
-        if(0 != (ret = tse_task_register_cbs(destroy_task, prep_cb, NULL, 0, comp_cb, NULL, 0)))
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't register callbacks for DUNS path destroy task: %s", H5_daos_err_to_string(ret));
+    if(H5_daos_create_task(H5_daos_duns_destroy_path_task, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+            prep_cb, comp_cb, destroy_udata, &destroy_task) < 0)
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create task to destroy DUNS path");
 
     /* Schedule DUNS path/container destroy task (or save it to be scheduled later)
      * and give it a reference to req */
@@ -3026,6 +3009,10 @@ done:
             *udata->u.cont_delete_info.delete_status = (ret_value == 0) ? SUCCEED : FAIL;
     } /* end if */
 
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
     D_FUNC_LEAVE;
 } /* end H5_daos_duns_destroy_path_comp_cb() */
 
@@ -3063,6 +3050,7 @@ H5_daos_cont_destroy_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     /* Set daos_cont_destroy task args */
     if(NULL == (destroy_args = daos_task_get_args(task)))
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for container destroy task");
+    memset(destroy_args, 0, sizeof(*destroy_args));
     destroy_args->poh = *udata->poh;
     destroy_args->force = 1;
     if(udata->op_type == H5_DAOS_CONT_DESTROY)
@@ -3319,6 +3307,8 @@ H5_daos_file_close(void *_file, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
     int ret;
     herr_t ret_value = SUCCEED;
 
+    H5_daos_inc_api_cnt();
+
     if(!_file)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "file object is NULL");
     if(H5I_FILE != file->item.type)
@@ -3329,13 +3319,9 @@ H5_daos_file_close(void *_file, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, FAIL, "can't create DAOS request");
 
     /* Create task for barrier (or just close if there is only one process) */
-    if(0 != (ret = tse_task_create(file->num_procs > 1 ? H5_daos_mpi_ibarrier_task : H5_daos_metatask_autocomplete,
-            &H5_daos_glob_sched_g, int_req, &barrier_task)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create MPI barrier task: %s", H5_daos_err_to_string(ret));
-
-    /* Set callback functions for barrier (comp_cb will close the file) */
-    if(0 != (ret = tse_task_register_cbs(barrier_task, NULL, NULL, 0, H5_daos_file_close_barrier_comp_cb, NULL, 0)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't register callbacks for MPI barrier: %s", H5_daos_err_to_string(ret));
+    if(H5_daos_create_task(file->num_procs > 1 ? H5_daos_mpi_ibarrier_task : H5_daos_metatask_autocomplete,
+            0, NULL, NULL, H5_daos_file_close_barrier_comp_cb, int_req, &barrier_task) < 0)
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create MPI barrier task");
 
     /* Save task to be scheduled later and give it a reference to req */
     assert(!first_task);
@@ -3348,11 +3334,9 @@ H5_daos_file_close(void *_file, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
 done:
     if(int_req) {
         /* Create task to finalize H5 operation */
-        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))
-            D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
-        /* Register dependencies (if any) */
-        else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
-            D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(H5_daos_h5op_finalize, dep_task ? 1 : 0, dep_task ? &dep_task : NULL,
+                NULL, NULL, int_req, &int_req->finalize_task) < 0)
+            D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation");
         /* Schedule finalize task */
         else if(0 != (ret = tse_task_schedule(int_req->finalize_task, false)))
             D_DONE_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
@@ -3418,15 +3402,15 @@ H5_daos_file_flush(H5_daos_file_t *file, H5_daos_req_t H5VL_DAOS_UNUSED *req,
     tse_task_t **first_task, tse_task_t **dep_task)
 {
     tse_task_t *barrier_task = NULL;
-    int ret;
     herr_t ret_value = SUCCEED;    /* Return value */
 
     assert(file);
 
     /* Create task that does nothing but complete itself.  Only necessary
      * because we can't enqueue a request that has no tasks */
-    if(0 != (ret = tse_task_create(H5_daos_metatask_autocomplete, &H5_daos_glob_sched_g, NULL, &barrier_task)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create barrier task for file flush: %s", H5_daos_err_to_string(ret));
+    if(H5_daos_create_task(H5_daos_metatask_autocomplete, 0, NULL,
+            NULL, NULL, NULL, &barrier_task) < 0)
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create barrier task for file flush");
 
     /* Schedule barrier task (or save it to be scheduled later)  */
     assert(!*first_task);

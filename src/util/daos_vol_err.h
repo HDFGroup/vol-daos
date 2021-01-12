@@ -70,6 +70,7 @@ typedef enum {
     H5_DAOS_REMOTE_ERROR,         /* An operation failed on another process */
     H5_DAOS_MPI_ERROR,            /* MPI operation failed */
     H5_DAOS_DAOS_GET_ERROR,       /* Can't get data from DAOS */
+    H5_DAOS_TASK_LIST_ERROR,      /* Task list operation failed */
     H5_DAOS_ALLOC_ERROR,          /* Memory allocation failed */
     H5_DAOS_FREE_ERROR,           /* Failed to free memory */
     H5_DAOS_CPL_CACHE_ERROR,      /* Failed to fill creation property list cache */
@@ -301,6 +302,12 @@ do {                                                                            
  */
 #define D_FUNC_LEAVE_API                                                           \
 do {                                                                               \
+    /* If at the top level of connector callbacks, make                            \
+     * all "unsafe" task list tasks available.                                     \
+     */                                                                            \
+    H5_daos_dec_api_cnt();                                                         \
+    if(H5_daos_api_count == 0)                                                     \
+        H5_daos_task_list_safe(H5_daos_task_list_g);                               \
     PRINT_ERROR_STACK;                                                             \
     return ret_value;                                                              \
 } while(0)

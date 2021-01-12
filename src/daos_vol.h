@@ -36,6 +36,9 @@
 /* Hash table */
 #include "util/daos_vol_hash_table.h"
 
+/* Task list */
+#include "util/daos_vol_task_list.h"
+
 /* For DAOS compatibility */
 typedef d_iov_t daos_iov_t;
 typedef d_sg_list_t daos_sg_list_t;
@@ -1022,6 +1025,9 @@ extern H5_daos_op_pool_t *H5_daos_glob_cur_op_pool_g;
 /* Global variable for HDF5 property list cache */
 extern H5VL_DAOS_PRIVATE H5_daos_plist_cache_t *H5_daos_plist_cache_g;
 
+/* Global variable for DAOS task list */
+extern H5VL_DAOS_PRIVATE H5_daos_task_list_t *H5_daos_task_list_g;
+
 /* DAOS task and MPI request for current in-flight MPI operation.  Only allow
  * one at a time for now since:
  * - All MPI operations must be in the same order across all ranks, therefore
@@ -1035,6 +1041,14 @@ extern MPI_Request H5_daos_mpi_req_g;
 /* Last collective request scheduled.  As described above, only one collective
  * operation can be in flight at any one time. */
 extern struct H5_daos_req_t *H5_daos_collective_req_tail;
+
+/* Counter to keep track of the level of recursion with
+ * regards to top-level connector callback routines.
+ * It should be incremented upon entering any top-level
+ * connector callback routine (marked by the presence
+ * of D_FUNC_LEAVE_API) and decremented upon leaving
+ * that routine. */
+extern int H5_daos_api_count;
 
 /* Constant Keys */
 extern H5VL_DAOS_PRIVATE const char H5_daos_int_md_key_g[];
@@ -1088,9 +1102,6 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_pool_connect(uuid_t *pool_uuid, char *pool_grp,
     d_rank_list_t *svcl, unsigned int flags, daos_handle_t *poh_out, daos_pool_info_t *pool_info_out,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE herr_t H5_daos_pool_disconnect(daos_handle_t *poh,
-    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
-H5VL_DAOS_PRIVATE herr_t H5_daos_pool_query(daos_handle_t *poh,
-    daos_pool_info_t *pool_info, d_rank_list_t *tgts, daos_prop_t *prop,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE herr_t H5_daos_set_oclass_from_oid(hid_t plist_id,
     daos_obj_id_t oid);
@@ -1432,6 +1443,12 @@ H5VL_DAOS_PRIVATE void H5_daos_op_pool_free(H5_daos_op_pool_t *op_pool);
 
 /* Generic asynchronous routines */
 H5VL_DAOS_PRIVATE herr_t H5_daos_progress(H5_daos_req_t *req, uint64_t timeout);
+H5VL_DAOS_PRIVATE herr_t H5_daos_create_task(tse_task_func_t task_func, unsigned num_deps,
+    tse_task_t *dep_tasks[], tse_task_cb_t task_prep_cb, tse_task_cb_t task_comp_cb,
+    void *task_priv, tse_task_t **taskp);
+H5VL_DAOS_PRIVATE herr_t H5_daos_create_daos_task(daos_opc_t daos_opc, unsigned num_deps,
+    tse_task_t *dep_tasks[], tse_task_cb_t task_prep_cb, tse_task_cb_t task_comp_cb,
+    void *task_priv, tse_task_t **taskp);
 H5VL_DAOS_PRIVATE herr_t H5_daos_task_wait(tse_task_t **first_task,
     tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE int H5_daos_list_key_start(H5_daos_iter_ud_t *iter_udata,
@@ -1466,6 +1483,25 @@ H5VL_DAOS_PRIVATE int H5_daos_md_update_comp_cb(tse_task_t *task, void *args);
 #ifdef DV_PLUGIN_DEBUG
 herr_t H5_daos_dump_obj_keys(daos_handle_t obj);
 #endif
+
+/* Routines to increment and decrement the counter keeping
+ * track of the level of recursion with regards to top-level
+ * connector callback routines. The counter should be
+ * incremented at the very beginning of every top-level
+ * connector callback, before anything else occurs. It
+ * should be decremented before leaving that callback,
+ * after everything else has occurred.
+ */
+static inline void
+H5_daos_inc_api_cnt()
+{
+     H5_daos_api_count++;
+}
+static inline void
+H5_daos_dec_api_cnt()
+{
+    H5_daos_api_count--;
+}
 
 /* Routine for setting const IOVEC */
 static inline void

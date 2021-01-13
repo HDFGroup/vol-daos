@@ -256,6 +256,7 @@ typedef struct H5_daos_link_delete_corder_ud_t {
     H5_daos_req_t *req;
     H5_daos_group_t *target_grp;
     const H5VL_loc_params_t *loc_params;
+    const char *target_link_name;
     daos_key_t dkey;
     daos_key_t akeys[2];
     uint64_t delete_idx;
@@ -426,8 +427,8 @@ static int H5_daos_link_delete_prep_cb(tse_task_t *task, void *args);
 static int H5_daos_link_delete_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_link_delete_corder_pretask(tse_task_t *task);
 static herr_t H5_daos_link_delete_corder(H5_daos_group_t *target_grp,
-    const H5VL_loc_params_t *loc_params, H5_daos_req_t *req,
-    tse_task_t **first_task, tse_task_t **dep_task);
+    const H5VL_loc_params_t *loc_params, const char *target_link_name,
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 static herr_t H5_daos_link_delete_corder_name_cb(hid_t group, const char *name, const H5L_info2_t *info, void *op_data);
 static int H5_daos_link_delete_corder_unl_prep_cb(tse_task_t *task, void *args);
 static int H5_daos_link_delete_corder_prep_cb(tse_task_t *task, void *args);
@@ -6240,6 +6241,10 @@ H5_daos_link_delete(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
         delete_udata->path_buf = NULL;
 
         if(H5VL_OBJECT_BY_NAME == loc_params->type) {
+            /* Clear name pointer in loc params in udata, since we do not own
+             * this buffer.  Async tasks will use target_link_name instead. */
+            delete_udata->loc_params.loc_data.loc_by_name.name = NULL;
+
             /* Traverse the path */
             if(NULL == (delete_udata->target_obj = H5_daos_group_traverse(item, loc_params->loc_data.loc_by_name.name,
                     H5P_LINK_CREATE_DEFAULT, req, collective, &delete_udata->path_buf, &delete_udata->target_link_name,
@@ -6250,6 +6255,10 @@ H5_daos_link_delete(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
             H5VL_loc_params_t sub_loc_params;
 
             assert(H5VL_OBJECT_BY_IDX == loc_params->type);
+
+            /* Clear name pointer in loc params in udata, since we do not own
+             * this buffer.  Async tasks will use target_link_name instead. */
+            delete_udata->loc_params.loc_data.loc_by_idx.name = NULL;
 
             /* Start internal H5 operation for target object open.  This will
              * not be visible to the API, will not be added to an operation
@@ -6449,7 +6458,7 @@ H5_daos_link_delete_corder_pretask(tse_task_t *task)
     /* Remove the link from the group's creation order index if creation order is tracked */
     if(((H5_daos_group_t *)udata->target_obj)->gcpl_cache.track_corder)
         if(H5_daos_link_delete_corder((H5_daos_group_t *)udata->target_obj, &udata->loc_params,
-                udata->req, &first_task, &dep_task) < 0)
+                udata->target_link_name, udata->req, &first_task, &dep_task) < 0)
             D_GOTO_ERROR(H5E_LINK, H5E_CANTREMOVE, -H5_DAOS_SETUP_ERROR, "failed to remove link from creation order index");
 
 done:
@@ -6629,7 +6638,7 @@ done:
  */
 static herr_t
 H5_daos_link_delete_corder(H5_daos_group_t *target_grp, const H5VL_loc_params_t *loc_params,
-    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
+    const char *target_link_name, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_link_delete_corder_ud_t *corder_delete_ud = NULL;
     tse_task_t *update_task = NULL;
@@ -6651,6 +6660,7 @@ H5_daos_link_delete_corder(H5_daos_group_t *target_grp, const H5VL_loc_params_t 
     corder_delete_ud->req = req;
     corder_delete_ud->target_grp = target_grp;
     corder_delete_ud->loc_params = loc_params;
+    corder_delete_ud->target_link_name = target_link_name;
     corder_delete_ud->delete_idx = 0;
     corder_delete_ud->grp_nlinks = 0;
     corder_delete_ud->index_data.sgls = NULL;
@@ -6698,7 +6708,7 @@ H5_daos_link_delete_corder(H5_daos_group_t *target_grp, const H5VL_loc_params_t 
         target_grp->obj.item.rc++;
 
         /* Initialize iteration data */
-        corder_delete_ud->name_order_iter_cb_ud.target_link_name = loc_params->loc_data.loc_by_name.name;
+        corder_delete_ud->name_order_iter_cb_ud.target_link_name = corder_delete_ud->target_link_name;
         corder_delete_ud->name_order_iter_cb_ud.link_idx_out = &corder_delete_ud->delete_idx;
         H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_LINK, H5_INDEX_CRT_ORDER, H5_ITER_INC,
                 FALSE, NULL, target_grp_id, &corder_delete_ud->name_order_iter_cb_ud, NULL, req);

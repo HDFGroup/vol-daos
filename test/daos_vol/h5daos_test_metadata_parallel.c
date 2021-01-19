@@ -1515,20 +1515,26 @@ test_group(hid_t loc_id)
         goto error;
     }
 
-    if(gid)
-        free(gid);
-
     if(hand.isAsync && H5ESclose(estack) < 0) {
         H5_FAILED(); AT();
         printf("failed to close event set\n");
         goto error;
     }
 
+    if(gid)
+        free(gid);
+
+    if(exists_arr)
+        free(exists_arr);
+
     return 0;
 
 error:
     if(gid)
         free(gid);
+
+    if(exists_arr)
+        free(exists_arr);
 
     if(hand.isAsync && H5ESclose(estack) < 0) {
         H5_FAILED(); AT();

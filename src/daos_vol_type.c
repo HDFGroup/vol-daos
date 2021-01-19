@@ -509,6 +509,8 @@ H5_daos_datatype_commit(void *_item,
     int ret;
     void *ret_value = NULL;
 
+    H5_daos_inc_api_cnt();
+
     if(!_item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "datatype parent object is NULL");
     if(!loc_params)
@@ -580,11 +582,9 @@ done:
             D_DONE_ERROR(H5E_DATATYPE, H5E_CANTFREE, NULL, "can't free path buffer");
 
         /* Create task to finalize H5 operation */
-        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
-        /* Register dependencies (if any) */
-        else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(H5_daos_h5op_finalize, dep_task ? 1 : 0, dep_task ? &dep_task : NULL,
+                NULL, NULL, int_req, &int_req->finalize_task) < 0)
+            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation");
         /* Schedule finalize task */
         else if(0 != (ret = tse_task_schedule(int_req->finalize_task, false)))
             D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
@@ -791,16 +791,10 @@ H5_daos_datatype_commit_helper(H5_daos_file_t *file, hid_t type_id,
         update_cb_ud->md_rw_cb_ud.task_name = "datatype metadata write";
 
         /* Create task for datatype metadata write */
-        assert(dep_task);
-        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_UPDATE, &H5_daos_glob_sched_g, 1, dep_task, &update_task)))
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't create task to write datatype medadata: %s", H5_daos_err_to_string(ret));
-
-        /* Set callback functions for datatype metadata write */
-        if(0 != (ret = tse_task_register_cbs(update_task, H5_daos_md_rw_prep_cb, NULL, 0, H5_daos_md_update_comp_cb, NULL, 0)))
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't register callbacks for task to write datatype medadata: %s", H5_daos_err_to_string(ret));
-
-        /* Set private data for datatype metadata write */
-        (void)tse_task_set_priv(update_task, update_cb_ud);
+        assert(*dep_task);
+        if(H5_daos_create_daos_task(DAOS_OPC_OBJ_UPDATE, 1, dep_task, H5_daos_md_rw_prep_cb,
+                H5_daos_md_update_comp_cb, update_cb_ud, &update_task) < 0)
+            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't create task to write datatype metadata");
 
         /* Schedule datatype metadata write task and give it a reference to req
          * and the datatype */
@@ -868,11 +862,9 @@ H5_daos_datatype_commit_helper(H5_daos_file_t *file, hid_t type_id,
 
 done:
     /* Create metatask to use for dependencies on this datatype create */
-    if(0 != (ret = tse_task_create(H5_daos_metatask_autocomplete, &H5_daos_glob_sched_g, NULL, &datatype_metatask)))
-        D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't create meta task for datatype create: %s", H5_daos_err_to_string(ret));
-    /* Register dependencies (if any) */
-    else if(finalize_ndeps > 0 && 0 != (ret = tse_task_register_deps(datatype_metatask, finalize_ndeps, finalize_deps)))
-        D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't create dependencies for datatype meta task: %s", H5_daos_err_to_string(ret));
+    if(H5_daos_create_task(H5_daos_metatask_autocomplete, (finalize_ndeps > 0) ? finalize_ndeps : 0,
+            (finalize_ndeps > 0) ? finalize_deps : NULL, NULL, NULL, NULL, &datatype_metatask) < 0)
+        D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't create meta task for datatype create");
     /* Schedule datatype metatask (or save it to be scheduled later) */
     else {
         if(*first_task) {
@@ -943,6 +935,8 @@ H5_daos_datatype_open(void *_item,
     char *path_buf = NULL;
     int ret;
     void *ret_value = NULL;
+
+    H5_daos_inc_api_cnt();
 
     if(!_item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "datatype parent object is NULL");
@@ -1065,11 +1059,9 @@ done:
             D_DONE_ERROR(H5E_DATATYPE, H5E_CANTFREE, NULL, "can't free path buffer");
 
         /* Create task to finalize H5 operation */
-        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
-        /* Register dependency (if any) */
-        else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(H5_daos_h5op_finalize, dep_task ? 1 : 0, dep_task ? &dep_task : NULL,
+                NULL, NULL, int_req, &int_req->finalize_task) < 0)
+            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation");
         /* Schedule finalize task */
         else if(0 != (ret = tse_task_schedule(int_req->finalize_task, false)))
             D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
@@ -1255,20 +1247,14 @@ H5_daos_datatype_open_helper(H5_daos_file_t *file, hid_t tapl_id, hbool_t collec
          * completed when the read is finished by H5_daos_tinfo_read_comp_cb.
          * We can't use fetch_task since it may not be completed by the first
          * fetch. */
-        if(0 != (ret = tse_task_create(NULL, &H5_daos_glob_sched_g, NULL, &fetch_udata->fetch_metatask)))
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't create meta task for datatype metadata read: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(NULL, 0, NULL, NULL, NULL, NULL, &fetch_udata->fetch_metatask) < 0)
+            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't create meta task for datatype metadata read");
 
         /* Create task for datatype metadata read */
         assert(*dep_task);
-        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &H5_daos_glob_sched_g, 1, dep_task, &fetch_task)))
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't create task to read datatype medadata: %s", H5_daos_err_to_string(ret));
-
-        /* Set callback functions for datatype metadata read */
-        if(0 != (ret = tse_task_register_cbs(fetch_task, H5_daos_md_rw_prep_cb, NULL, 0, H5_daos_tinfo_read_comp_cb, NULL, 0)))
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't register callbacks for task to read datatype medadata: %s", H5_daos_err_to_string(ret));
-
-        /* Set private data for datatype metadata write */
-        (void)tse_task_set_priv(fetch_task, fetch_udata);
+        if(H5_daos_create_daos_task(DAOS_OPC_OBJ_FETCH, 1, dep_task, H5_daos_md_rw_prep_cb,
+                H5_daos_tinfo_read_comp_cb, fetch_udata, &fetch_task) < 0)
+            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't create task to read datatype metadata");
 
         /* Schedule meta task */
         if(0 != (ret = tse_task_schedule(fetch_udata->fetch_metatask, false)))
@@ -1371,12 +1357,9 @@ H5_daos_datatype_open_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *arg
             udata->bcast_udata.count = udata->bcast_udata.buffer_len;
 
             /* Create task for second bcast */
-            if(0 !=  (ret = tse_task_create(H5_daos_mpi_ibcast_task, &H5_daos_glob_sched_g, udata, &bcast_task)))
-                D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, ret, "can't create task for second datatype info broadcast: %s", H5_daos_err_to_string(ret));
-
-            /* Set callback functions for second bcast */
-            if(0 != (ret = tse_task_register_cbs(bcast_task, NULL, NULL, 0, H5_daos_datatype_open_bcast_comp_cb, NULL, 0)))
-                D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, ret, "can't register callbacks for second datatype info broadcast: %s", H5_daos_err_to_string(ret));
+            if(H5_daos_create_task(H5_daos_mpi_ibcast_task, 0, NULL, NULL, H5_daos_datatype_open_bcast_comp_cb,
+                    udata, &bcast_task) < 0)
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't create task for second datatype info broadcast");
 
             /* Schedule second bcast and transfer ownership of udata */
             if(0 != (ret = tse_task_schedule(bcast_task, false)))
@@ -1404,6 +1387,10 @@ done:
         /* Release our reference to req */
         if(H5_daos_req_free_int(udata->bcast_udata.req) < 0)
             D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+        /* Return task to task list */
+        if(H5_daos_task_list_put(H5_daos_task_list_g, udata->bcast_udata.bcast_metatask) < 0)
+            D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
 
         /* Complete bcast metatask */
         tse_task_complete(udata->bcast_udata.bcast_metatask, ret_value);
@@ -1495,12 +1482,9 @@ H5_daos_datatype_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args
             udata->bcast_udata.count = (int)tinfo_len;
 
             /* Create task for second bcast */
-            if(0 !=  (ret = tse_task_create(H5_daos_mpi_ibcast_task, &H5_daos_glob_sched_g, udata, &bcast_task)))
-                D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, ret, "can't create task for second datatype info broadcast: %s", H5_daos_err_to_string(ret));
-
-            /* Set callback functions for second bcast */
-            if(0 != (ret = tse_task_register_cbs(bcast_task, NULL, NULL, 0, H5_daos_datatype_open_recv_comp_cb, NULL, 0)))
-                D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, ret, "can't register callbacks for second datatype info broadcast: %s", H5_daos_err_to_string(ret));
+            if(H5_daos_create_task(H5_daos_mpi_ibcast_task, 0, NULL, NULL, H5_daos_datatype_open_recv_comp_cb,
+                    udata, &bcast_task) < 0)
+                D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't create task for second datatype info broadcast");
 
             /* Schedule second bcast and transfer ownership of udata */
             if(0 != (ret = tse_task_schedule(bcast_task, false)))
@@ -1540,6 +1524,10 @@ done:
         /* Release our reference to req */
         if(H5_daos_req_free_int(udata->bcast_udata.req) < 0)
             D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+        /* Return task to task list */
+        if(H5_daos_task_list_put(H5_daos_task_list_g, udata->bcast_udata.bcast_metatask) < 0)
+            D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
 
         /* Complete bcast metatask */
         tse_task_complete(udata->bcast_udata.bcast_metatask, ret_value);
@@ -1622,6 +1610,8 @@ H5_daos_tinfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     int ret;
     int ret_value = 0;
 
+    assert(H5_daos_task_list_g);
+
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for datatype info read task");
@@ -1680,15 +1670,9 @@ H5_daos_tinfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         p += udata->md_rw_cb_ud.iod[1].iod_size;
 
         /* Create task for reissued datatype metadata read */
-        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &H5_daos_glob_sched_g, 0, NULL, &fetch_task)))
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, ret, "can't create task to read datatype medadata: %s", H5_daos_err_to_string(ret));
-
-        /* Set callback functions for datatype metadata read */
-        if(0 != (ret = tse_task_register_cbs(fetch_task, H5_daos_md_rw_prep_cb, NULL, 0, H5_daos_tinfo_read_comp_cb, NULL, 0)))
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, ret, "can't register callbacks for task to read datatype medadata: %s", H5_daos_err_to_string(ret));
-
-        /* Set private data for datatype metadata read */
-        (void)tse_task_set_priv(fetch_task, udata);
+        if(H5_daos_create_daos_task(DAOS_OPC_OBJ_FETCH, 0, NULL, H5_daos_md_rw_prep_cb,
+                H5_daos_tinfo_read_comp_cb, udata, &fetch_task) < 0)
+            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't create task to read datatype metadata");
 
         /* Schedule datatype metadata read task and give it a reference to req
          * and the datatype */
@@ -1736,6 +1720,10 @@ H5_daos_tinfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     } /* end else */
 
 done:
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
     /* Clean up if this is the last fetch task */
     if(udata) {
         /* Close datatype */
@@ -1763,6 +1751,10 @@ done:
         /* Release our reference to req */
         if(H5_daos_req_free_int(udata->md_rw_cb_ud.req) < 0)
             D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+        /* Return task to task list */
+        if(H5_daos_task_list_put(H5_daos_task_list_g, udata->fetch_metatask) < 0)
+            D_DONE_ERROR(H5E_DATATYPE, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
 
         /* Complete fetch metatask */
         tse_task_complete(udata->fetch_metatask, ret_value);
@@ -1799,6 +1791,8 @@ H5_daos_datatype_get(void *_dtype, H5VL_datatype_get_t get_type,
 {
     H5_daos_dtype_t *dtype = (H5_daos_dtype_t *)_dtype;
     herr_t       ret_value = SUCCEED;    /* Return value */
+
+    H5_daos_inc_api_cnt();
 
     if(!_dtype)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
@@ -1881,6 +1875,8 @@ H5_daos_datatype_specific(void *_item, H5VL_datatype_specific_t specific_type,
     int ret;
     herr_t           ret_value = SUCCEED;
 
+    H5_daos_inc_api_cnt();
+
     if(!_item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
     if(H5I_DATATYPE != dtype->obj.item.type)
@@ -1916,11 +1912,9 @@ H5_daos_datatype_specific(void *_item, H5VL_datatype_specific_t specific_type,
 done:
     if(int_req) {
         /* Create task to finalize H5 operation */
-        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
-        /* Register dependency (if any) */
-        else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(H5_daos_h5op_finalize, dep_task ? 1 : 0, dep_task ? &dep_task : NULL,
+                NULL, NULL, int_req, &int_req->finalize_task) < 0)
+            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation");
         /* Schedule finalize task */
         else if(0 != (ret = tse_task_schedule(int_req->finalize_task, false)))
             D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
@@ -2044,6 +2038,8 @@ H5_daos_datatype_close(void *_dtype, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
     int ret;
     herr_t ret_value = SUCCEED;
 
+    H5_daos_inc_api_cnt();
+
     if(!_dtype)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "datatype object is NULL");
 
@@ -2077,8 +2073,9 @@ H5_daos_datatype_close(void *_dtype, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
         task_ud->item = &dtype->obj.item;
 
         /* Create task to close datatype */
-        if(0 != (ret = tse_task_create(H5_daos_object_close_task, &H5_daos_glob_sched_g, task_ud, &close_task)))
-            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't create task to close datatype: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(H5_daos_object_close_task, 0, NULL, NULL, NULL,
+                task_ud, &close_task) < 0)
+            D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't create task to close datatype");
 
         /* Save task to be scheduled later and give it a reference to req and
          * dtype */
@@ -2094,11 +2091,9 @@ H5_daos_datatype_close(void *_dtype, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
 done:
     if(int_req) {
         /* Create task to finalize H5 operation */
-        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
-        /* Register dependencies (if any) */
-        else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
-            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(H5_daos_h5op_finalize, dep_task ? 1 : 0, dep_task ? &dep_task : NULL,
+                NULL, NULL, int_req, &int_req->finalize_task) < 0)
+            D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation");
         /* Schedule finalize task */
         else if(0 != (ret = tse_task_schedule(int_req->finalize_task, false)))
             D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
@@ -2170,15 +2165,15 @@ H5_daos_datatype_flush(H5_daos_dtype_t *dtype, H5_daos_req_t H5VL_DAOS_UNUSED *r
     tse_task_t **first_task, tse_task_t **dep_task)
 {
     tse_task_t *barrier_task = NULL;
-    int ret;
     herr_t ret_value = SUCCEED;
 
     assert(dtype);
 
     /* Create task that does nothing but complete itself.  Only necessary
      * because we can't enqueue a request that has no tasks */
-    if(0 != (ret = tse_task_create(H5_daos_metatask_autocomplete, &H5_daos_glob_sched_g, NULL, &barrier_task)))
-        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't create barrier task for datatype flush: %s", H5_daos_err_to_string(ret));
+    if(H5_daos_create_task(H5_daos_metatask_autocomplete, 0, NULL, NULL, NULL,
+            NULL, &barrier_task) < 0)
+        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't create barrier task for datatype flush");
 
     /* Schedule barrier task (or save it to be scheduled later)  */
     assert(!*first_task);

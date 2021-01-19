@@ -374,15 +374,9 @@ H5_daos_map_create(void *_item,
 
         /* Create task for map metadata write */
         assert(dep_task);
-        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_UPDATE, &H5_daos_glob_sched_g, 1, &dep_task, &update_task)))
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create task to write map medadata: %s", H5_daos_err_to_string(ret));
-
-        /* Set callback functions for map metadata write */
-        if(0 != (ret = tse_task_register_cbs(update_task, H5_daos_md_rw_prep_cb, NULL, 0, H5_daos_md_update_comp_cb, NULL, 0)))
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't register callbacks for task to write map medadata: %s", H5_daos_err_to_string(ret));
-
-        /* Set private data for map metadata write */
-        (void)tse_task_set_priv(update_task, update_cb_ud);
+        if(H5_daos_create_daos_task(DAOS_OPC_OBJ_UPDATE, 1, &dep_task, H5_daos_md_rw_prep_cb,
+                H5_daos_md_update_comp_cb, update_cb_ud, &update_task) < 0)
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create task to write map metadata");
 
         /* Schedule map metadata write task and give it a reference to req and
          * the map */
@@ -471,11 +465,9 @@ done:
                 tse_task_t *metatask = NULL;
 
                 /* Create metatask for coordination */
-                if(0 != (ret = tse_task_create(H5_daos_metatask_autocomplete, &H5_daos_glob_sched_g, NULL, &metatask)))
-                    D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create metatask for map create: %s", H5_daos_err_to_string(ret));
-                /* Register dependency (if any) */
-                else if(finalize_ndeps > 0 && 0 != (ret = tse_task_register_deps(metatask, finalize_ndeps, finalize_deps)))
-                    D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create dependencies for metatask for map create: %s", H5_daos_err_to_string(ret));
+                if(H5_daos_create_task(H5_daos_metatask_autocomplete, (finalize_ndeps > 0) ? finalize_ndeps : 0,
+                        (finalize_ndeps > 0) ? finalize_deps : NULL, NULL, NULL, NULL, &metatask) < 0)
+                    D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create metatask for map create");
                 /* Schedule metatask */
                 else if(0 != (ret = tse_task_schedule(metatask, false)))
                     D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't schedule metatask for map create: %s", H5_daos_err_to_string(ret));
@@ -500,11 +492,9 @@ done:
         } /* end if */
 
         /* Create task to finalize H5 operation */
-        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))
-            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
-        /* Register dependencies (if any) */
-        else if(finalize_ndeps > 0 && 0 != (ret = tse_task_register_deps(int_req->finalize_task, finalize_ndeps, finalize_deps)))
-            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(H5_daos_h5op_finalize, (finalize_ndeps > 0) ? finalize_ndeps : 0,
+                (finalize_ndeps > 0) ? finalize_deps : NULL, NULL, NULL, int_req, &int_req->finalize_task) < 0)
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation");
         /* Schedule finalize task */
         else if(0 != (ret = tse_task_schedule(int_req->finalize_task, false)))
             D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
@@ -642,11 +632,9 @@ H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params,
 done:
     if(int_req) {
         /* Create task to finalize H5 operation */
-        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))
-            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
-        /* Register dependency (if any) */
-        else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
-            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(H5_daos_h5op_finalize, dep_task ? 1 : 0, dep_task ? &dep_task : NULL,
+                NULL, NULL, int_req, &int_req->finalize_task) < 0)
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation");
         /* Schedule finalize task */
         else if(0 != (ret = tse_task_schedule(int_req->finalize_task, false)))
             D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
@@ -849,24 +837,14 @@ H5_daos_map_open_helper(H5_daos_file_t *file, hid_t mapl_id, hbool_t collective,
          * completed when the read is finished by H5_daos_minfo_read_comp_cb.
          * We can't use fetch_task since it may not be completed by the first
          * fetch. */
-        if(0 != (ret = tse_task_create(NULL, &H5_daos_glob_sched_g, NULL, &fetch_udata->fetch_metatask)))
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create meta task for map metadata read: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(NULL, 0, NULL, NULL, NULL, NULL, &fetch_udata->fetch_metatask) < 0)
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create meta task for map metadata read");
 
         /* Create task for map metadata read */
-        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &H5_daos_glob_sched_g, 0, NULL, &fetch_task)))
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create task to read map medadata: %s", H5_daos_err_to_string(ret));
-
-        /* Register dependency for task */
         assert(*dep_task);
-        if(0 != (ret = tse_task_register_deps(fetch_task, 1, dep_task)))
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create dependencies for map metadata read: %s", H5_daos_err_to_string(ret));
-
-        /* Set callback functions for map metadata read */
-        if(0 != (ret = tse_task_register_cbs(fetch_task, H5_daos_md_rw_prep_cb, NULL, 0, H5_daos_minfo_read_comp_cb, NULL, 0)))
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't register callbacks for task to read map medadata: %s", H5_daos_err_to_string(ret));
-
-        /* Set private data for map metadata read */
-        (void)tse_task_set_priv(fetch_task, fetch_udata);
+        if(H5_daos_create_daos_task(DAOS_OPC_OBJ_FETCH, 1, dep_task, H5_daos_md_rw_prep_cb,
+                H5_daos_minfo_read_comp_cb, fetch_udata, &fetch_task) < 0)
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create task to read map metadata");
 
         /* Schedule meta task */
         if(0 != (ret = tse_task_schedule(fetch_udata->fetch_metatask, false)))
@@ -1105,12 +1083,9 @@ H5_daos_map_open_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
             udata->bcast_udata.count = udata->bcast_udata.buffer_len;
 
             /* Create task for second bcast */
-            if(0 !=  (ret = tse_task_create(H5_daos_mpi_ibcast_task, &H5_daos_glob_sched_g, udata, &bcast_task)))
-                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't create task for second map info broadcast: %s", H5_daos_err_to_string(ret));
-
-            /* Set callback functions for second bcast */
-            if(0 != (ret = tse_task_register_cbs(bcast_task, NULL, NULL, 0, H5_daos_map_open_bcast_comp_cb, NULL, 0)))
-                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't register callbacks for second map info broadcast: %s", H5_daos_err_to_string(ret));
+            if(H5_daos_create_task(H5_daos_mpi_ibcast_task, 0, NULL, NULL, H5_daos_map_open_bcast_comp_cb,
+                    udata, &bcast_task) < 0)
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't create task for second map info broadcast");
 
             /* Schedule second bcast and transfer ownership of udata */
             if(0 != (ret = tse_task_schedule(bcast_task, false)))
@@ -1138,6 +1113,10 @@ done:
         /* Release our reference to req */
         if(H5_daos_req_free_int(udata->bcast_udata.req) < 0)
             D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+        /* Return task to task list */
+        if(H5_daos_task_list_put(H5_daos_task_list_g, udata->bcast_udata.bcast_metatask) < 0)
+            D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
 
         /* Complete bcast metatask */
         tse_task_complete(udata->bcast_udata.bcast_metatask, ret_value);
@@ -1231,12 +1210,9 @@ H5_daos_map_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
             udata->bcast_udata.count = (int)minfo_len;
 
             /* Create task for second bcast */
-            if(0 !=  (ret = tse_task_create(H5_daos_mpi_ibcast_task, &H5_daos_glob_sched_g, udata, &bcast_task)))
-                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't create task for second map info broadcast: %s", H5_daos_err_to_string(ret));
-
-            /* Set callback functions for second bcast */
-            if(0 != (ret = tse_task_register_cbs(bcast_task, NULL, NULL, 0, H5_daos_map_open_recv_comp_cb, NULL, 0)))
-                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't register callbacks for second map info broadcast: %s", H5_daos_err_to_string(ret));
+            if(H5_daos_create_task(H5_daos_mpi_ibcast_task, 0, NULL, NULL, H5_daos_map_open_recv_comp_cb,
+                    udata, &bcast_task) < 0)
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't create task for second map info broadcast");
 
             /* Schedule second bcast and transfer ownership of udata */
             if(0 != (ret = tse_task_schedule(bcast_task, false)))
@@ -1276,6 +1252,10 @@ done:
         /* Release our reference to req */
         if(H5_daos_req_free_int(udata->bcast_udata.req) < 0)
             D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+        /* Return task to task list */
+        if(H5_daos_task_list_put(H5_daos_task_list_g, udata->bcast_udata.bcast_metatask) < 0)
+            D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
 
         /* Complete bcast metatask */
         tse_task_complete(udata->bcast_udata.bcast_metatask, ret_value);
@@ -1403,6 +1383,8 @@ H5_daos_minfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     int ret;
     int ret_value = 0;
 
+    assert(H5_daos_task_list_g);
+
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for map info read task");
@@ -1465,15 +1447,9 @@ H5_daos_minfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         udata->md_rw_cb_ud.sgl[2].sg_nr_out = 0;
 
         /* Create task for reissued map metadata read */
-        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &H5_daos_glob_sched_g, 0, NULL, &fetch_task)))
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't create task to read map medadata: %s", H5_daos_err_to_string(ret));
-
-        /* Set callback functions for map metadata read */
-        if(0 != (ret = tse_task_register_cbs(fetch_task, H5_daos_md_rw_prep_cb, NULL, 0, H5_daos_minfo_read_comp_cb, NULL, 0)))
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't register callbacks for task to read map medadata: %s", H5_daos_err_to_string(ret));
-
-        /* Set private data for map metadata read */
-        (void)tse_task_set_priv(fetch_task, udata);
+        if(H5_daos_create_daos_task(DAOS_OPC_OBJ_FETCH, 0, NULL, H5_daos_md_rw_prep_cb,
+                H5_daos_minfo_read_comp_cb, udata, &fetch_task) < 0)
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't create task to read map metadata");
 
         /* Schedule map metadata read task and give it a reference to req
          * and the map */
@@ -1529,6 +1505,10 @@ H5_daos_minfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     } /* end else */
 
 done:
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
     /* Clean up if this is the last fetch task */
     if(udata) {
         /* Close map */
@@ -1556,6 +1536,10 @@ done:
         /* Release our reference to req */
         if(H5_daos_req_free_int(udata->md_rw_cb_ud.req) < 0)
             D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+        /* Return task to task list */
+        if(H5_daos_task_list_put(H5_daos_task_list_g, udata->fetch_metatask) < 0)
+            D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
 
         /* Complete fetch metatask */
         tse_task_complete(udata->fetch_metatask, ret_value);
@@ -2100,17 +2084,9 @@ H5_daos_map_get_val(void *_map, hid_t key_mem_type_id, const void *key,
 
     /* Create task to read map key value */
     assert(!dep_task);
-    if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &H5_daos_glob_sched_g,
-            0, NULL, &get_val_task)))
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create task to read map key value: %s", H5_daos_err_to_string(ret));
-
-    /* Set callback functions for map key value read */
-    if(0 != (ret = tse_task_register_cbs(get_val_task, H5_daos_md_rw_prep_cb, NULL, 0,
-            H5_daos_map_get_val_comp_cb, NULL, 0)))
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't register callbacks for task to read map key value: %s", H5_daos_err_to_string(ret));
-
-    /* Set private data for map key value read */
-    (void)tse_task_set_priv(get_val_task, get_val_udata);
+    if(H5_daos_create_daos_task(DAOS_OPC_OBJ_FETCH, 0, NULL, H5_daos_md_rw_prep_cb,
+            H5_daos_map_get_val_comp_cb, get_val_udata, &get_val_task) < 0)
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create task to read map key value");
 
     /* Save map key value read task to be scheduled later and give
      * it a reference to req and the map object */
@@ -2125,11 +2101,9 @@ H5_daos_map_get_val(void *_map, hid_t key_mem_type_id, const void *key,
 done:
     if(int_req) {
         /* Create task to finalize H5 operation */
-        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))
-            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
-        /* Register dependency (if any) */
-        else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
-            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(H5_daos_h5op_finalize, dep_task ? 1 : 0, dep_task ? &dep_task : NULL,
+                NULL, NULL, int_req, &int_req->finalize_task) < 0)
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation");
         /* Schedule finalize task */
         else if(0 != (ret = tse_task_schedule(int_req->finalize_task, false)))
             D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
@@ -2210,6 +2184,8 @@ H5_daos_map_get_val_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     H5_daos_map_rw_ud_t *udata;
     int ret_value = 0;
 
+    assert(H5_daos_task_list_g);
+
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for I/O task");
@@ -2248,6 +2224,10 @@ H5_daos_map_get_val_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     } /* end else */
 
 done:
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
     /* Clean up */
     if(udata) {
         /* Close map */
@@ -2406,17 +2386,9 @@ H5_daos_map_put(void *_map, hid_t key_mem_type_id, const void *key,
 
             /* Create task to read data from map to background buffer */
             assert(!dep_task);
-            if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &H5_daos_glob_sched_g,
-                    0, NULL, &bkg_buf_fill_task)))
-                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create task to read data from map to background buffer: %s", H5_daos_err_to_string(ret));
-
-            /* Set callback functions for background buffer data read */
-            if(0 != (ret = tse_task_register_cbs(bkg_buf_fill_task, H5_daos_md_rw_prep_cb, NULL, 0,
-                    H5_daos_map_put_fill_comp_cb, NULL, 0)))
-                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't register callbacks for task to read data from map to background buffer: %s", H5_daos_err_to_string(ret));
-
-            /* Set private data for background buffer data read */
-            (void)tse_task_set_priv(bkg_buf_fill_task, write_udata);
+            if(H5_daos_create_daos_task(DAOS_OPC_OBJ_FETCH, 0, NULL, H5_daos_md_rw_prep_cb,
+                    H5_daos_map_put_fill_comp_cb, write_udata, &bkg_buf_fill_task) < 0)
+                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create task to read data from map to background buffer");
 
             /* Save background buffer data read task to be scheduled later and give
              * it a reference to req and the map object */
@@ -2447,17 +2419,9 @@ H5_daos_map_put(void *_map, hid_t key_mem_type_id, const void *key,
     write_udata->md_rw_cb_ud.task_name = "map key-value write";
 
     /* Create task to write key-value pair to map */
-    if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_UPDATE, &H5_daos_glob_sched_g,
-            dep_task ? 1 : 0, dep_task ? &dep_task : NULL, &write_task)))
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create task to write key-value pair to map: %s", H5_daos_err_to_string(ret));
-
-    /* Set callback functions for map key-value write */
-    if(0 != (ret = tse_task_register_cbs(write_task, H5_daos_md_rw_prep_cb, NULL, 0,
-            H5_daos_map_put_comp_cb, NULL, 0)))
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't register callbacks for task to write key-value pair to map: %s", H5_daos_err_to_string(ret));
-
-    /* Set private data for map key-value write */
-    (void)tse_task_set_priv(write_task, write_udata);
+    if(H5_daos_create_daos_task(DAOS_OPC_OBJ_UPDATE, dep_task ? 1 : 0, dep_task ? &dep_task : NULL,
+            H5_daos_md_rw_prep_cb, H5_daos_map_put_comp_cb, write_udata, &write_task) < 0)
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create task to write key-value pair to map");
 
     /* Save map key-value write task to be scheduled later and give
      * it a reference to req and the map object */
@@ -2476,11 +2440,9 @@ H5_daos_map_put(void *_map, hid_t key_mem_type_id, const void *key,
 done:
     if(int_req) {
         /* Create task to finalize H5 operation */
-        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))
-            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
-        /* Register dependency (if any) */
-        else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
-            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(H5_daos_h5op_finalize, dep_task ? 1 : 0, dep_task ? &dep_task : NULL,
+                NULL, NULL, int_req, &int_req->finalize_task) < 0)
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation");
         /* Schedule finalize task */
         else if(0 != (ret = tse_task_schedule(int_req->finalize_task, false)))
             D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
@@ -2562,6 +2524,8 @@ H5_daos_map_put_fill_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     H5_daos_map_rw_ud_t *udata;
     int ret_value = 0;
 
+    assert(H5_daos_task_list_g);
+
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for I/O task");
@@ -2599,6 +2563,10 @@ H5_daos_map_put_fill_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     } /* end else */
 
 done:
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
     /* Clean up */
     if(udata) {
         /* Close map */
@@ -2644,6 +2612,8 @@ H5_daos_map_put_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     H5_daos_map_rw_ud_t *udata;
     int ret_value = 0;
 
+    assert(H5_daos_task_list_g);
+
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for I/O task");
@@ -2655,6 +2625,10 @@ H5_daos_map_put_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     if(udata->md_rw_cb_ud.obj &&
             H5_daos_map_close_real((H5_daos_map_t *)udata->md_rw_cb_ud.obj) < 0)
         D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close map");
+
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
 
     /* Handle errors in update task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if
@@ -2761,17 +2735,9 @@ H5_daos_map_exists(void *_map, hid_t key_mem_type_id, const void *key,
     exists_udata->md_rw_cb_ud.task_name = "map key existence check";
 
     /* Create task to read map metadata size */
-    if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &H5_daos_glob_sched_g,
-            0, NULL, &map_exists_task)))
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create task to read map metadata size: %s", H5_daos_err_to_string(ret));
-
-    /* Set callback functions for map metadata size read */
-    if(0 != (ret = tse_task_register_cbs(map_exists_task, H5_daos_map_exists_prep_cb, NULL, 0,
-            H5_daos_map_exists_comp_cb, NULL, 0)))
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't register callbacks for task to read map metadata size: %s", H5_daos_err_to_string(ret));
-
-    /* Set private data for map metadata size read */
-    (void)tse_task_set_priv(map_exists_task, exists_udata);
+    if(H5_daos_create_daos_task(DAOS_OPC_OBJ_FETCH, 0, NULL, H5_daos_map_exists_prep_cb,
+            H5_daos_map_exists_comp_cb, exists_udata, &map_exists_task) < 0)
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create task to read map metadata size");
 
     /* Save map metadata size read task to be scheduled later and give
      * it a reference to req and the map object */
@@ -2788,11 +2754,9 @@ done:
         assert(map);
 
         /* Create task to finalize H5 operation */
-        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))
-            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
-        /* Register dependency (if any) */
-        else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
-            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(H5_daos_h5op_finalize, dep_task ? 1 : 0, dep_task ? &dep_task : NULL,
+                NULL, NULL, int_req, &int_req->finalize_task) < 0)
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation");
         /* Schedule finalize task */
         else if(0 != (ret = tse_task_schedule(int_req->finalize_task, false)))
             D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
@@ -2879,13 +2843,13 @@ H5_daos_map_exists_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     /* Set fetch task arguments */
     if(NULL == (rw_args = daos_task_get_args(task)))
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for metadata I/O task");
+    memset(rw_args, 0, sizeof(*rw_args));
     rw_args->oh = udata->md_rw_cb_ud.obj->obj_oh;
     rw_args->th = udata->md_rw_cb_ud.req->th;
     rw_args->flags = udata->md_rw_cb_ud.flags;
     rw_args->dkey = &udata->md_rw_cb_ud.dkey;
     rw_args->nr = udata->md_rw_cb_ud.nr;
     rw_args->iods = udata->md_rw_cb_ud.iod;
-    rw_args->sgls = NULL;
 
 done:
     if(ret_value < 0)
@@ -2913,6 +2877,8 @@ H5_daos_map_exists_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     H5_daos_map_exists_ud_t *udata;
     int ret_value = 0;
 
+    assert(H5_daos_task_list_g);
+
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for metadata I/O task");
@@ -2935,6 +2901,10 @@ H5_daos_map_exists_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     } /* end if */
 
 done:
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
     /* Clean up */
     if(udata) {
         /* Close map */
@@ -3114,11 +3084,9 @@ H5_daos_map_get(void *_map, H5VL_map_get_t get_type,
 done:
     if(int_req) {
         /* Create task to finalize H5 operation */
-        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))
-            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
-        /* Register dependency (if any) */
-        else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
-            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(H5_daos_h5op_finalize, dep_task ? 1 : 0, dep_task ? &dep_task : NULL,
+                NULL, NULL, int_req, &int_req->finalize_task) < 0)
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation");
         /* Schedule finalize task */
         else if(0 != (ret = tse_task_schedule(int_req->finalize_task, false)))
             D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
@@ -3288,12 +3256,9 @@ H5_daos_map_specific(void *_item, const H5VL_loc_params_t *loc_params,
                         D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, FAIL, "can't open map for operation");
 
                     /* Create task to finalize internal operation */
-                    if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_int_req, &int_int_req->finalize_task)))
-                        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create task to finalize internal operation: %s", H5_daos_err_to_string(ret));
-
-                    /* Register dependency (if any) */
-                    if(dep_task && 0 != (ret = tse_task_register_deps(int_int_req->finalize_task, 1, &dep_task)))
-                        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize internal operation: %s", H5_daos_err_to_string(ret));
+                    if(H5_daos_create_task(H5_daos_h5op_finalize, dep_task ? 1 : 0, dep_task ? &dep_task : NULL,
+                            NULL, NULL, int_int_req, &int_int_req->finalize_task) < 0)
+                        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create task to finalize internal operation");
 
                     /* Schedule finalize task (or save it to be scheduled later),
                      * give it ownership of int_int_req, and update task pointers */
@@ -3380,11 +3345,9 @@ H5_daos_map_specific(void *_item, const H5VL_loc_params_t *loc_params,
 done:
     if(int_req) {
         /* Create task to finalize H5 operation */
-        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))
-            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
-        /* Register dependency (if any) */
-        else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
-            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(H5_daos_h5op_finalize, dep_task ? 1 : 0, dep_task ? &dep_task : NULL,
+                NULL, NULL, int_req, &int_req->finalize_task) < 0)
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation");
         /* Schedule finalize task */
         else if(0 != (ret = tse_task_schedule(int_req->finalize_task, false)))
             D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
@@ -3543,6 +3506,8 @@ H5_daos_map_iterate_list_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     int ret;
     int ret_value = 0;
 
+    assert(H5_daos_task_list_g);
+
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for operation finalize task");
@@ -3620,28 +3585,20 @@ H5_daos_map_iterate_list_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
                     iter_op_udata->iod.iod_size = DAOS_REC_ANY;
 
                     /* Create task to query record in dkey */
-                    if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &H5_daos_glob_sched_g,
-                            dep_task ? 1 : 0, dep_task ? &dep_task : NULL, &query_task)))
-                        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't create task to check for value in map: %s", H5_daos_err_to_string(ret));
-
-                    /* Set callback functions for task to query record in dkey */
-                    if(0 != (ret = tse_task_register_cbs(query_task, H5_daos_generic_prep_cb, NULL, 0,
-                            H5_daos_map_iterate_query_comp_cb, NULL, 0)))
-                        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't register callbacks for task to check for value in map: %s", H5_daos_err_to_string(ret));
-
-                    /* Set private data for task to query record in dkey */
-                    (void)tse_task_set_priv(query_task, iter_op_udata);
+                    if(H5_daos_create_daos_task(DAOS_OPC_OBJ_FETCH, dep_task ? 1 : 0, dep_task ? &dep_task : NULL,
+                            H5_daos_generic_prep_cb, H5_daos_map_iterate_query_comp_cb, iter_op_udata, &query_task) < 0)
+                        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't create task to check for value in map");
 
                     /* Set fetch task arguments */
                     if(NULL == (rw_args = daos_task_get_args(query_task)))
                         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for metadata I/O task");
+                    memset(rw_args, 0, sizeof(*rw_args));
                     rw_args->oh = map->obj.obj_oh;
                     rw_args->th = DAOS_TX_NONE;
                     rw_args->flags = 0;
                     rw_args->dkey = &iter_op_udata->dkey;
                     rw_args->nr = 1u;
                     rw_args->iods = &iter_op_udata->iod;
-                    rw_args->sgls = NULL;
 
                     /* Schedule record query task (or save it to be scheduled later) */
                     if(first_task) {
@@ -3657,12 +3614,9 @@ H5_daos_map_iterate_list_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
                 iter_op_udata->key_len = udata->kds[i].kd_key_len;
 
                 /* Create task for iter op */
-                if(0 != (ret = tse_task_create(H5_daos_map_iterate_op_task, &H5_daos_glob_sched_g, iter_op_udata, &iter_op_udata->op_task)))
-                    D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't create task for iteration op: %s", H5_daos_err_to_string(ret));
-
-                /* Register task dependency */
-                if(dep_task && 0 != (ret = tse_task_register_deps(iter_op_udata->op_task, 1, &dep_task)))
-                    D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't create dependencies for iteration op task: %s", H5_daos_err_to_string(ret));
+                if(H5_daos_create_task(H5_daos_map_iterate_op_task, dep_task ? 1 : 0, dep_task ? &dep_task : NULL,
+                        NULL, NULL, iter_op_udata, &iter_op_udata->op_task) < 0)
+                    D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't create task for iteration op");
 
                 /* Schedule iter op (or save it to be scheduled later) and
                  * transfer ownership of iter_op_udata */
@@ -3709,6 +3663,10 @@ done:
     if(first_task && 0 != (ret = tse_task_schedule(first_task, false)))
         D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't schedule initial task for map iteration dkey list comp cb: %s", H5_daos_err_to_string(ret));
 
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
     /* Clean up on error */
     if(ret_value < 0) {
         if(iter_op_udata) {
@@ -3753,6 +3711,8 @@ H5_daos_map_iterate_query_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     H5_daos_map_iter_op_ud_t *udata;
     int ret_value = 0;
 
+    assert(H5_daos_task_list_g);
+
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for map iteration record query task");
@@ -3770,6 +3730,10 @@ H5_daos_map_iterate_query_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     } /* end if */
 
 done:
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
     D_FUNC_LEAVE;
 } /* end H5_daos_map_iterate_query_comp_cb() */
 
@@ -3866,13 +3830,10 @@ done:
         assert(udata);
 
         /* Schedule task to complete this task and free udata */
-        if(0 != (ret = tse_task_create(H5_daos_map_iter_op_end, &H5_daos_glob_sched_g, udata, &op_end_task)))
-            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't create task to finish iteration op: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(H5_daos_map_iter_op_end, 1, &dep_task, NULL, NULL,
+                udata, &op_end_task) < 0)
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't create task to finish iteration op");
         else {
-            /* Register dependency for task */
-            if(0 != (ret = tse_task_register_deps(op_end_task, 1, &dep_task)))
-                D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, ret, "can't create dependencies for iteration op end task: %s", H5_daos_err_to_string(ret));
-
             /* Schedule map iter op end task and give it ownership of udata */
             assert(first_task);
             if(0 != (ret = tse_task_schedule(op_end_task, false)))
@@ -3905,6 +3866,10 @@ done:
         /* Replace char */
         if(udata->char_replace_loc)
             *udata->char_replace_loc = udata->char_replace_char;
+
+        /* Return task to task list */
+        if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+            D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
 
         /* Complete this task */
         tse_task_complete(task, ret_value);
@@ -3964,6 +3929,10 @@ H5_daos_map_iter_op_end(tse_task_t *task)
         } /* end if */
     } /* end if */
 
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, udata->op_task) < 0)
+        D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
     /* Complete op task */
     tse_task_complete(udata->op_task, 0);
 
@@ -3973,6 +3942,10 @@ H5_daos_map_iter_op_end(tse_task_t *task)
     DV_free(udata);
 
 done:
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
     /* Complete this task */
     tse_task_complete(task, ret_value);
 
@@ -4018,6 +3991,8 @@ H5_daos_map_delete_key(H5_daos_map_t *map, hid_t key_mem_type_id, const void *ke
         D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, FAIL, "no write intent on file");
 
     if(!collective || (map->obj.item.file->my_rank == 0)) {
+        daos_opc_t daos_op;
+
         /* Allocate argument struct for deletion task */
         if(NULL == (delete_udata = (H5_daos_map_delete_key_ud_t *)DV_calloc(sizeof(H5_daos_map_delete_key_ud_t))))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate buffer for map key deletion task callback arguments");
@@ -4044,24 +4019,17 @@ H5_daos_map_delete_key(H5_daos_map_t *map, hid_t key_mem_type_id, const void *ke
             delete_udata->shared_dkey = TRUE;
 
             /* Create task to remove akey */
-            if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_PUNCH_AKEYS, &H5_daos_glob_sched_g,
-                    *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &delete_task)))
-                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create task to delete map key: %s", H5_daos_err_to_string(ret));
+            daos_op = DAOS_OPC_OBJ_PUNCH_AKEYS;
         } /* end if */
         else {
             /* Create task to remove dkey */
-            if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_PUNCH_DKEYS, &H5_daos_glob_sched_g,
-                    *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &delete_task)))
-                D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create task to delete map key: %s", H5_daos_err_to_string(ret));
+            daos_op = DAOS_OPC_OBJ_PUNCH_DKEYS;
         } /* end else */
 
-        /* Set callback functions for task to delete map akey */
-        if(0 != (ret = tse_task_register_cbs(delete_task, H5_daos_map_delete_key_prep_cb, NULL, 0,
-                H5_daos_map_delete_key_comp_cb, NULL, 0)))
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't register callbacks for map key deletion task: %s", H5_daos_err_to_string(ret));
-
-        /* Set private data for map key deletion task */
-        (void)tse_task_set_priv(delete_task, delete_udata);
+        if(H5_daos_create_daos_task(daos_op, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+                H5_daos_map_delete_key_prep_cb, H5_daos_map_delete_key_comp_cb, delete_udata,
+                &delete_task) < 0)
+            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create task to delete map key");
 
         /* Schedule task to delete map key (or save it to be scheduled later)
          * and give it a reference to req.
@@ -4124,6 +4092,7 @@ H5_daos_map_delete_key_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     /* Set deletion task arguments */
     if(NULL == (punch_args = daos_task_get_args(task)))
         D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for attribute deletion task");
+    memset(punch_args, 0, sizeof(*punch_args));
     punch_args->oh = udata->map->obj.obj_oh;
     punch_args->th = DAOS_TX_NONE;
     punch_args->dkey = &udata->dkey;
@@ -4158,6 +4127,8 @@ H5_daos_map_delete_key_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     H5_daos_map_delete_key_ud_t *udata;
     int ret_value = 0;
 
+    assert(H5_daos_task_list_g);
+
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for map key deletion task");
@@ -4172,6 +4143,10 @@ H5_daos_map_delete_key_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     } /* end if */
 
 done:
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
     if(udata) {
         if(udata->map && H5_daos_map_close_real(udata->map) < 0)
             D_DONE_ERROR(H5E_MAP, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close map");
@@ -4314,8 +4289,9 @@ H5_daos_map_close(void *_map, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
         task_ud->item = &map->obj.item;
 
         /* Create task to close map */
-        if(0 != (ret = tse_task_create(H5_daos_object_close_task, &H5_daos_glob_sched_g, task_ud, &close_task)))
-            D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create task to close map: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(H5_daos_object_close_task, 0, NULL, NULL, NULL,
+                task_ud, &close_task) < 0)
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create task to close map");
 
         /* Save task to be scheduled later and give it a reference to req and
          * map */
@@ -4331,11 +4307,9 @@ H5_daos_map_close(void *_map, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
 done:
     if(int_req) {
         /* Create task to finalize H5 operation */
-        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))
-            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
-        /* Register dependencies (if any) */
-        else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
-            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(H5_daos_h5op_finalize, dep_task ? 1 : 0, dep_task ? &dep_task : NULL,
+                NULL, NULL, int_req, &int_req->finalize_task) < 0)
+            D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation");
         /* Schedule finalize task */
         else if(0 != (ret = tse_task_schedule(int_req->finalize_task, false)))
             D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
@@ -4408,15 +4382,15 @@ H5_daos_map_flush(H5_daos_map_t *map, H5_daos_req_t H5VL_DAOS_UNUSED *req,
     tse_task_t **first_task, tse_task_t **dep_task)
 {
     tse_task_t *barrier_task = NULL;
-    int ret;
     herr_t ret_value = SUCCEED;    /* Return value */
 
     assert(map);
 
     /* Create task that does nothing but complete itself.  Only necessary
      * because we can't enqueue a request that has no tasks */
-    if(0 != (ret = tse_task_create(H5_daos_metatask_autocomplete, &H5_daos_glob_sched_g, NULL, &barrier_task)))
-        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create barrier task for group flush: %s", H5_daos_err_to_string(ret));
+    if(H5_daos_create_task(H5_daos_metatask_autocomplete, 0, NULL, NULL, NULL,
+            NULL, &barrier_task) < 0)
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create barrier task for group flush");
 
     /* Schedule barrier task (or save it to be scheduled later)  */
     assert(!*first_task);

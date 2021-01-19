@@ -35,6 +35,8 @@ H5daos_get_poh(hid_t file_id, daos_handle_t *poh)
     H5_daos_file_t *file = NULL;
     herr_t ret_value = SUCCEED;
 
+    H5_daos_inc_api_cnt();
+
     if(file_id < 0)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "file ID is invalid");
     if(!poh)
@@ -67,6 +69,8 @@ H5daos_get_pool_uuid(hid_t file_id, uuid_t *pool_uuid)
     H5_daos_file_t *file = NULL;
     herr_t ret_value = SUCCEED;
 
+    H5_daos_inc_api_cnt();
+
     if(file_id < 0)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "file ID is invalid");
     if(!pool_uuid)
@@ -98,6 +102,8 @@ herr_t
 H5daos_get_global_svcl(d_rank_list_t *svcl)
 {
     herr_t ret_value = SUCCEED;
+
+    H5_daos_inc_api_cnt();
 
     if(!svcl)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "svcl pointer is NULL");

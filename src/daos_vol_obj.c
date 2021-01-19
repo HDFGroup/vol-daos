@@ -304,6 +304,8 @@ H5_daos_object_open(void *_item, const H5VL_loc_params_t *loc_params,
     int ret;
     void *ret_value = &tmp_obj; /* Initialize to non-NULL; NULL is used for error checking */
 
+    H5_daos_inc_api_cnt();
+
     if(!_item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "parent object is NULL");
     if(!loc_params)
@@ -343,11 +345,9 @@ H5_daos_object_open(void *_item, const H5VL_loc_params_t *loc_params,
 done:
     if(int_req) {
         /* Create task to finalize H5 operation */
-        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))
-            D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
-        /* Register dependency (if any) */
-        else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
-            D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, NULL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(H5_daos_h5op_finalize, dep_task ? 1 : 0, dep_task ? &dep_task : NULL,
+                NULL, NULL, int_req, &int_req->finalize_task) < 0)
+            D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation");
         /* Schedule finalize task */
         else if(0 != (ret = tse_task_schedule(int_req->finalize_task, false)))
             D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, NULL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
@@ -522,12 +522,9 @@ H5_daos_object_open_helper(H5_daos_item_t *item, const H5VL_loc_params_t *loc_pa
         } /* end switch */
 
         /* Create task for object open */
-        if(0 != (ret = tse_task_create(H5_daos_object_open_task, &H5_daos_glob_sched_g, open_udata, &open_task)))
-            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to open object: %s", H5_daos_err_to_string(ret));
-
-        /* Register dependency on dep_task if present */
-        if(*dep_task && 0 != (ret = tse_task_register_deps(open_task, 1, dep_task)))
-            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create dependencies for object open task: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(H5_daos_object_open_task, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+                NULL, NULL, open_udata, &open_task) < 0)
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to open object");
 
         /* Schedule object open task (or save it to be scheduled later) and give it
          * a reference to req */
@@ -545,12 +542,9 @@ H5_daos_object_open_helper(H5_daos_item_t *item, const H5VL_loc_params_t *loc_pa
          * is necessary because the object open task will generate another async
          * task for actually opening the object once it has figured out the type
          * of the object. */
-        if(0 != (ret = tse_task_create(H5_daos_metatask_autocomplete, &H5_daos_glob_sched_g, NULL, &open_udata->open_metatask)))
-            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create meta task for object open: %s", H5_daos_err_to_string(ret));
-
-        /* Register dependency on object open task for metatask */
-        if(0 != (ret = tse_task_register_deps(open_udata->open_metatask, 1, &open_task)))
-            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create dependencies for object open metatask: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(H5_daos_metatask_autocomplete, 1, &open_task,
+                NULL, NULL, NULL, &open_udata->open_metatask) < 0)
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create meta task for object open");
 
         /* Schedule meta task */
         assert(*first_task);
@@ -729,6 +723,10 @@ done:
                 udata->req->failed_task = "object open";
             } /* end if */
 
+            /* Return task to task list */
+            if(H5_daos_task_list_put(H5_daos_task_list_g, udata->open_metatask) < 0)
+                D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
             /* Complete metatask */
             tse_task_complete(udata->open_metatask, ret_value);
         } /* end if */
@@ -742,6 +740,10 @@ done:
     } /* end if */
     else
         assert(ret_value == -H5_DAOS_DAOS_GET_ERROR);
+
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
 
     /* Complete this task */
     tse_task_complete(task, ret_value);
@@ -918,12 +920,9 @@ H5_daos_object_get_oid_by_idx(H5_daos_obj_t *loc_obj, const H5VL_loc_params_t *l
         D_GOTO_ERROR(H5E_OBJECT, H5E_CANTOPENOBJ, FAIL, "can't open group containing target object");
 
     /* Create task to finalize internal operation */
-    if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_int_req, &int_int_req->finalize_task)))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to finalize internal operation: %s", H5_daos_err_to_string(ret));
-
-    /* Register dependency (if any) */
-    if(*dep_task && 0 != (ret = tse_task_register_deps(int_int_req->finalize_task, 1, dep_task)))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize internal operation: %s", H5_daos_err_to_string(ret));
+    if(H5_daos_create_task(H5_daos_h5op_finalize, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+            NULL, NULL, int_int_req, &int_int_req->finalize_task) < 0)
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to finalize internal operation");
 
     /* Schedule finalize task (or save it to be scheduled later),
      * give it ownership of int_int_req, and update task pointers */
@@ -944,13 +943,9 @@ H5_daos_object_get_oid_by_idx(H5_daos_obj_t *loc_obj, const H5VL_loc_params_t *l
         D_GOTO_ERROR(H5E_OBJECT, H5E_CANTGET, FAIL, "can't get link name");
 
     /* Create task to follow link once link name is valid */
-    if(0 != (ret = tse_task_create(H5_daos_object_gobi_follow_task, &H5_daos_glob_sched_g,
-            get_oid_udata, &link_follow_task)))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create link follow task for OID retrieval: %s", H5_daos_err_to_string(ret));
-
-    /* Register dependency on previous tasks for link follow task */
-    if(*dep_task && 0 != (ret = tse_task_register_deps(link_follow_task, 1, dep_task)))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create dependencies for OID retrieval's link follow task: %s", H5_daos_err_to_string(ret));
+    if(H5_daos_create_task(H5_daos_object_gobi_follow_task, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+            NULL, NULL, get_oid_udata, &link_follow_task) < 0)
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create link follow task for OID retrieval");
 
     /* Schedule link follow task */
     if(*first_task) {
@@ -966,13 +961,9 @@ H5_daos_object_get_oid_by_idx(H5_daos_obj_t *loc_obj, const H5VL_loc_params_t *l
     /* Create metatask for OID retrieval task to free data after retrieval is finished. This
      * task will be completed when the actual asynchronous OID retrieval is finished.
      */
-    if(0 != (ret = tse_task_create(H5_daos_object_get_oid_by_idx_finish, &H5_daos_glob_sched_g,
-            get_oid_udata, &get_oid_udata->oid_retrieval_metatask)))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create metatask for OID retrieval: %s", H5_daos_err_to_string(ret));
-
-    /* Register dependency on OID retrieval link follow task for metatask */
-    if(*dep_task && 0 != (ret = tse_task_register_deps(get_oid_udata->oid_retrieval_metatask, 1, dep_task)))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create dependencies for OID retrieval task: %s", H5_daos_err_to_string(ret));
+    if(H5_daos_create_task(H5_daos_object_get_oid_by_idx_finish, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+            NULL, NULL, get_oid_udata, &get_oid_udata->oid_retrieval_metatask) < 0)
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create metatask for OID retrieval");
 
     /* Schedule meta task */
     if(*first_task) {
@@ -1071,6 +1062,10 @@ done:
     else
         assert(ret_value == -H5_DAOS_DAOS_GET_ERROR);
 
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
     /* Complete this task */
     tse_task_complete(task, ret_value);
 
@@ -1125,6 +1120,10 @@ H5_daos_object_get_oid_by_idx_finish(tse_task_t *task)
     DV_free(udata);
 
 done:
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
     /* Complete this task */
     tse_task_complete(task, ret_value);
 
@@ -1206,17 +1205,10 @@ H5_daos_object_oid_bcast(H5_daos_file_t *file, daos_obj_id_t *oid,
     oid_bcast_udata->oid = oid;
 
     /* Create task for broadcast */
-    if(0 != (ret = tse_task_create(H5_daos_mpi_ibcast_task, &H5_daos_glob_sched_g, oid_bcast_udata, &bcast_task)))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to broadcast OID: %s", H5_daos_err_to_string(ret));
-
-    /* Register dependency on dep_task if present */
-    if(*dep_task && 0 != (ret = tse_task_register_deps(bcast_task, 1, dep_task)))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create dependencies for OID broadcast task: %s", H5_daos_err_to_string(ret));
-
-    /* Set callback functions for OID bcast */
-    if(0 != (ret = tse_task_register_cbs(bcast_task, (file->my_rank == 0) ? H5_daos_object_oid_bcast_prep_cb : NULL,
-            NULL, 0, H5_daos_object_oid_bcast_comp_cb, NULL, 0)))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't register callbacks for OID broadcast task: %s", H5_daos_err_to_string(ret));
+    if(H5_daos_create_task(H5_daos_mpi_ibcast_task, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+            (file->my_rank == 0) ? H5_daos_object_oid_bcast_prep_cb : NULL, H5_daos_object_oid_bcast_comp_cb,
+            oid_bcast_udata, &bcast_task) < 0)
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to broadcast OID");
 
     /* Schedule OID broadcast task (or save it to be scheduled later) and give it
      * a reference to req */
@@ -1396,6 +1388,8 @@ H5_daos_object_copy(void *src_loc_obj, const H5VL_loc_params_t *src_loc_params,
     int ret;
     herr_t ret_value = SUCCEED;
 
+    H5_daos_inc_api_cnt();
+
     if(!src_loc_obj)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "source location object is NULL");
     if(!src_loc_params)
@@ -1478,11 +1472,9 @@ done:
                 D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't perform collective error check");
 
         /* Create task to finalize H5 operation */
-        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))
-            D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
-        /* Register dependencies (if any) */
-        else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
-            D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(H5_daos_h5op_finalize, dep_task ? 1 : 0, dep_task ? &dep_task : NULL,
+                NULL, NULL, int_req, &int_req->finalize_task) < 0)
+            D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation");
         /* Schedule finalize task */
         else if(0 != (ret = tse_task_schedule(int_req->finalize_task, false)))
             D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
@@ -1622,12 +1614,9 @@ H5_daos_object_copy_helper(void *src_loc_obj, const H5VL_loc_params_t *src_loc_p
         D_GOTO_ERROR(H5E_OBJECT, H5E_CANTOPENOBJ, FAIL, "failed to open source object");
 
     /* Create task to finalize internal operation */
-    if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_int_req, &int_int_req->finalize_task)))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to finalize internal operation: %s", H5_daos_err_to_string(ret));
-
-    /* Register dependency (if any) */
-    if(*dep_task && 0 != (ret = tse_task_register_deps(int_int_req->finalize_task, 1, dep_task)))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize internal operation: %s", H5_daos_err_to_string(ret));
+    if(H5_daos_create_task(H5_daos_h5op_finalize, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+            NULL, NULL, int_int_req, &int_int_req->finalize_task) < 0)
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to finalize internal operation");
 
     /* Schedule finalize task (or save it to be scheduled later),
      * give it ownership of int_int_req, and update task pointers */
@@ -1654,12 +1643,9 @@ H5_daos_object_copy_helper(void *src_loc_obj, const H5VL_loc_params_t *src_loc_p
         D_GOTO_ERROR(H5E_OBJECT, H5E_BADVALUE, FAIL, "can't copy new object with same name as destination group");
 
     /* Create task for object copy */
-    if(0 != (ret = tse_task_create(H5_daos_object_copy_task, &H5_daos_glob_sched_g, obj_copy_udata, &copy_task)))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to copy object: %s", H5_daos_err_to_string(ret));
-
-    /* Register dependency on dep_task if present */
-    if(*dep_task && 0 != (ret = tse_task_register_deps(copy_task, 1, dep_task)))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create dependencies for object copy task: %s", H5_daos_err_to_string(ret));
+    if(H5_daos_create_task(H5_daos_object_copy_task, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+            NULL, NULL, obj_copy_udata, &copy_task) < 0)
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to copy object");
 
     /* Schedule object copy task (or save it to be scheduled later) and give it
      * a reference to req */
@@ -1679,12 +1665,9 @@ H5_daos_object_copy_helper(void *src_loc_obj, const H5VL_loc_params_t *src_loc_p
      * task once the type of the source object is determined. That task might
      * also generate new async tasks depending on the object copy options used.
      */
-    if(0 != (ret = tse_task_create(H5_daos_metatask_autocomplete, &H5_daos_glob_sched_g, NULL, &obj_copy_udata->obj_copy_metatask)))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create meta task for object copy: %s", H5_daos_err_to_string(ret));
-
-    /* Register dependency on object copy task for metatask */
-    if(0 != (ret = tse_task_register_deps(obj_copy_udata->obj_copy_metatask, 1, &copy_task)))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create dependencies for object copy metatask: %s", H5_daos_err_to_string(ret));
+    if(H5_daos_create_task(H5_daos_metatask_autocomplete, 1, &copy_task,
+            NULL, NULL, NULL, &obj_copy_udata->obj_copy_metatask) < 0)
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create meta task for object copy");
 
     /* Schedule meta task */
     assert(*first_task);
@@ -1821,6 +1804,10 @@ done:
         udata->req->failed_task = "object copy task";
     } /* end if */
 
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
     /* Complete this task */
     tse_task_complete(task, ret_value);
 
@@ -1852,13 +1839,9 @@ H5_daos_object_copy_free_copy_udata(H5_daos_object_copy_ud_t *copy_udata,
     assert(dep_task);
 
     /* Create task for freeing udata */
-    if(0 != (ret = tse_task_create(H5_daos_object_copy_free_copy_udata_task, &H5_daos_glob_sched_g,
-            copy_udata, &free_task)))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to free object copying udata: %s", H5_daos_err_to_string(ret));
-
-    /* Register dependency on dep_task if present */
-    if(*dep_task && 0 != (ret = tse_task_register_deps(free_task, 1, dep_task)))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't register dependencies for task to free object copying udata: %s", H5_daos_err_to_string(ret));
+    if(H5_daos_create_task(H5_daos_object_copy_free_copy_udata_task, *dep_task ? 1 : 0,
+            *dep_task ? dep_task : NULL, NULL, NULL, copy_udata, &free_task) < 0)
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to free object copying udata");
 
     /* Schedule object copying udata free task (or save it to be scheduled later) and
      * give it a reference to req */
@@ -1937,6 +1920,10 @@ H5_daos_object_copy_free_copy_udata_task(tse_task_t *task)
     DV_free(udata);
 
 done:
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
     /* Complete this task */
     tse_task_complete(task, ret_value);
 
@@ -2086,12 +2073,9 @@ H5_daos_object_copy_single_attribute(H5_daos_obj_t *src_obj,
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, FAIL, "failed to open attribute");
 
     /* Create task to finalize internal operation */
-    if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_int_req, &int_int_req->finalize_task)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to finalize internal operation: %s", H5_daos_err_to_string(ret));
-
-    /* Register dependency (if any) */
-    if(*dep_task && 0 != (ret = tse_task_register_deps(int_int_req->finalize_task, 1, dep_task)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize internal operation: %s", H5_daos_err_to_string(ret));
+    if(H5_daos_create_task(H5_daos_h5op_finalize, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+            NULL, NULL, int_int_req, &int_int_req->finalize_task) < 0)
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to finalize internal operation");
 
     /* Schedule finalize task (or save it to be scheduled later),
      * give it ownership of int_int_req, and update task pointers */
@@ -2104,13 +2088,9 @@ H5_daos_object_copy_single_attribute(H5_daos_obj_t *src_obj,
     *dep_task = int_int_req->finalize_task;
     int_int_req = NULL;
 
-    if(0 != (ret = tse_task_create(H5_daos_object_copy_single_attribute_task,
-            &H5_daos_glob_sched_g, attr_copy_ud, &attr_copy_ud->copy_task)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to copy attribute: %s", H5_daos_err_to_string(ret));
-
-    /* Register dependency on dep_task if present */
-    if(*dep_task && 0 != (ret = tse_task_register_deps(attr_copy_ud->copy_task, 1, dep_task)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create dependencies for attribute copy task: %s", H5_daos_err_to_string(ret));
+    if(H5_daos_create_task(H5_daos_object_copy_single_attribute_task, *dep_task ? 1 : 0,
+            *dep_task ? dep_task : NULL, NULL, NULL, attr_copy_ud, &attr_copy_ud->copy_task) < 0)
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to copy attribute");
 
     /* Schedule attribute copy task (or save it to be scheduled later) and
      * give it a reference to req */
@@ -2201,12 +2181,9 @@ H5_daos_object_copy_single_attribute_task(tse_task_t *task)
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTCOPY, -H5_DAOS_H5_COPY_ERROR, "failed to create new attribute");
 
     /* Create task to finalize internal operation */
-    if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_int_req, &int_int_req->finalize_task)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, ret, "can't create task to finalize internal operation: %s", H5_daos_err_to_string(ret));
-
-    /* Register dependency (if any) */
-    if(dep_task && 0 != (ret = tse_task_register_deps(int_int_req->finalize_task, 1, &dep_task)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, ret, "can't create dependencies for task to finalize internal operation: %s", H5_daos_err_to_string(ret));
+    if(H5_daos_create_task(H5_daos_h5op_finalize, dep_task ? 1 : 0, dep_task ? &dep_task : NULL,
+            NULL, NULL, int_int_req, &int_int_req->finalize_task) < 0)
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't create task to finalize internal operation");
 
     /* Schedule finalize task (or save it to be scheduled later),
      * give it ownership of int_int_req, and update task pointers */
@@ -2222,20 +2199,19 @@ H5_daos_object_copy_single_attribute_task(tse_task_t *task)
 done:
     if(udata) {
         /* Create task to free attribute copying udata after copying is finished */
-        if(0 != (ret = tse_task_create(H5_daos_object_copy_single_attribute_free_udata_task,
-                &H5_daos_glob_sched_g, udata, &free_task))) {
+        if(H5_daos_create_task(H5_daos_object_copy_single_attribute_free_udata_task, dep_task ? 1 : 0,
+                dep_task ? &dep_task : NULL, NULL, NULL, udata, &free_task) < 0) {
             tse_task_complete(task, ret_value);
-            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't create task to free attribute copying data: %s", H5_daos_err_to_string(ret));
-        } /* end if */
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't create task to free attribute copying data");
+        }
         else {
-            /* Register dependency on dep_task if present */
-            if(dep_task && 0 != (ret = tse_task_register_deps(free_task, 1, &dep_task)))
-                D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't create dependencies for attribute copying data free task: %s", H5_daos_err_to_string(ret));
-
             /* Schedule attribute copying data free task (or save it to be scheduled
              * later) and transfer ownership reference of udata */
             if(first_task) {
                 if(0 != (ret = tse_task_schedule(free_task, false))) {
+                    /* Return task to task list */
+                    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+                        D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
                     tse_task_complete(task, ret_value);
                     D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't schedule task to free attribute copying data: %s", H5_daos_err_to_string(ret));
                 } /* end if */
@@ -2323,6 +2299,10 @@ H5_daos_object_copy_single_attribute_free_udata_task(tse_task_t *task)
     if(H5_daos_req_free_int(udata->req) < 0)
         D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
 
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, udata->copy_task) < 0)
+        D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
     /* Complete copy task */
     tse_task_complete(udata->copy_task, ret_value);
 
@@ -2330,6 +2310,10 @@ H5_daos_object_copy_single_attribute_free_udata_task(tse_task_t *task)
     DV_free(udata);
 
 done:
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
     /* Complete this task */
     tse_task_complete(task, ret_value);
 
@@ -2467,12 +2451,9 @@ static H5_daos_group_t *H5_daos_group_copy_helper(H5_daos_group_t *src_grp,
         D_GOTO_ERROR(H5E_SYM, H5E_CANTCOPY, NULL, "can't create new group");
 
     /* Create task to finalize internal operation */
-    if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_int_req, &int_int_req->finalize_task)))
-        D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't create task to finalize internal operation: %s", H5_daos_err_to_string(ret));
-
-    /* Register dependency (if any) */
-    if(*dep_task && 0 != (ret = tse_task_register_deps(int_int_req->finalize_task, 1, dep_task)))
-        D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't create dependencies for task to finalize internal operation: %s", H5_daos_err_to_string(ret));
+    if(H5_daos_create_task(H5_daos_h5op_finalize, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+            NULL, NULL, int_int_req, &int_int_req->finalize_task) < 0)
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTINIT, NULL, "can't create task to finalize internal operation");
 
     /* Schedule finalize task (or save it to be scheduled later),
      * give it ownership of int_int_req, and update task pointers */
@@ -2712,12 +2693,9 @@ H5_daos_datatype_copy(H5_daos_object_copy_ud_t *obj_copy_udata,
         D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTCOPY, FAIL, "can't commit new datatype");
 
     /* Create task to finalize internal operation */
-    if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_int_req, &int_int_req->finalize_task)))
-        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't create task to finalize internal operation: %s", H5_daos_err_to_string(ret));
-
-    /* Register dependency (if any) */
-    if(*dep_task && 0 != (ret = tse_task_register_deps(int_int_req->finalize_task, 1, dep_task)))
-        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize internal operation: %s", H5_daos_err_to_string(ret));
+    if(H5_daos_create_task(H5_daos_h5op_finalize, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+            NULL, NULL, int_int_req, &int_int_req->finalize_task) < 0)
+        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't create task to finalize internal operation");
 
     /* Schedule finalize task (or save it to be scheduled later),
      * give it ownership of int_int_req, and update task pointers */
@@ -2802,12 +2780,9 @@ H5_daos_dataset_copy(H5_daos_object_copy_ud_t *obj_copy_udata,
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, FAIL, "can't create new dataset");
 
     /* Create task to finalize internal operation */
-    if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_int_req, &int_int_req->finalize_task)))
-        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create task to finalize internal operation: %s", H5_daos_err_to_string(ret));
-
-    /* Register dependency (if any) */
-    if(*dep_task && 0 != (ret = tse_task_register_deps(int_int_req->finalize_task, 1, dep_task)))
-        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize internal operation: %s", H5_daos_err_to_string(ret));
+    if(H5_daos_create_task(H5_daos_h5op_finalize, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+            NULL, NULL, int_int_req, &int_int_req->finalize_task) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create task to finalize internal operation");
 
     /* Schedule finalize task (or save it to be scheduled later),
      * give it ownership of int_int_req, and update task pointers */
@@ -2879,12 +2854,9 @@ H5_daos_dataset_copy_data(H5_daos_dset_t *src_dset, H5_daos_dset_t *dst_dset,
     copy_ud->data_buf = NULL;
 
     /* Create task for dataset data copy */
-    if(0 != (ret = tse_task_create(H5_daos_dataset_copy_data_task, &H5_daos_glob_sched_g, copy_ud, &copy_ud->data_copy_task)))
-        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create task to copy dataset data: %s", H5_daos_err_to_string(ret));
-
-    /* Register dependency on dep_task if present */
-    if(*dep_task && 0 != (ret = tse_task_register_deps(copy_ud->data_copy_task, 1, dep_task)))
-        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create dependencies for dataset data copy task: %s", H5_daos_err_to_string(ret));
+    if(H5_daos_create_task(H5_daos_dataset_copy_data_task, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+            NULL, NULL, copy_ud, &copy_ud->data_copy_task) < 0)
+        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create task to copy dataset data");
 
     /* Schedule dataset data copy task (or save it to be scheduled later) and give it
      * a reference to req */
@@ -2936,6 +2908,9 @@ H5_daos_dataset_copy_data_task(tse_task_t *task)
 
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task))) {
+        /* Return task to task list */
+        if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+            D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
         tse_task_complete(task, -H5_DAOS_DAOS_GET_ERROR);
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for dataset data copy task");
     } /* end if */
@@ -2985,14 +2960,10 @@ done:
         assert(udata);
 
         /* Schedule task to finish this operation */
-        if(0 != (ret = tse_task_create(H5_daos_dset_copy_data_end_task,
-                &H5_daos_glob_sched_g, udata, &end_task)))
-            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, ret, "can't create task to finish data copy: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(H5_daos_dset_copy_data_end_task, 1, &dep_task,
+                NULL, NULL, udata, &end_task) < 0)
+            D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't create task to finish data copy");
         else {
-            /* Register dependency for task */
-            if(0 != (ret = tse_task_register_deps(end_task, 1, &dep_task)))
-                D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, ret, "can't create dependencies for data copy end task: %s", H5_daos_err_to_string(ret));
-
             /* Schedule end task and give it ownership of udata */
             assert(first_task);
             req->rc++;
@@ -3029,6 +3000,9 @@ done:
     /* Complete task if we still own udata */
     if(udata) {
         assert(ret_value < 0);
+        /* Return task to task list */
+        if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+            D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
         tse_task_complete(task, ret_value);
     } /* end if */
 
@@ -3090,6 +3064,10 @@ H5_daos_dset_copy_data_end_task(tse_task_t *task)
     if(udata->data_buf)
         DV_free(udata->data_buf);
 
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, udata->data_copy_task) < 0)
+        D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
     /* Complete data copy task */
     tse_task_complete(udata->data_copy_task, ret_value);
 
@@ -3097,6 +3075,10 @@ H5_daos_dset_copy_data_end_task(tse_task_t *task)
     DV_free(udata);
 
 done:
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
     /* Complete this task */
     tse_task_complete(task, ret_value);
 
@@ -3130,6 +3112,8 @@ H5_daos_object_get(void *_item, const H5VL_loc_params_t *loc_params,
     tse_task_t     *dep_task = NULL;
     int             ret;
     herr_t          ret_value = SUCCEED;
+
+    H5_daos_inc_api_cnt();
 
     if(!_item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
@@ -3252,12 +3236,9 @@ H5_daos_object_get(void *_item, const H5VL_loc_params_t *loc_params,
                         D_GOTO_ERROR(H5E_OBJECT, H5E_CANTOPENOBJ, FAIL, "can't open object");
 
                     /* Create task to finalize internal operation */
-                    if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_int_req, &int_int_req->finalize_task)))
-                        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to finalize internal operation: %s", H5_daos_err_to_string(ret));
-
-                    /* Register dependency (if any) */
-                    if(dep_task && 0 != (ret = tse_task_register_deps(int_int_req->finalize_task, 1, &dep_task)))
-                        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize internal operation: %s", H5_daos_err_to_string(ret));
+                    if(H5_daos_create_task(H5_daos_h5op_finalize, dep_task ? 1 : 0, dep_task ? &dep_task : NULL,
+                            NULL, NULL, int_int_req, &int_int_req->finalize_task) < 0)
+                        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to finalize internal operation");
 
                     /* Schedule finalize task (or save it to be scheduled later),
                      * give it ownership of int_int_req, and update task pointers */
@@ -3290,11 +3271,9 @@ H5_daos_object_get(void *_item, const H5VL_loc_params_t *loc_params,
 done:
     if(int_req) {
         /* Create task to finalize H5 operation */
-        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))
-            D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
-        /* Register dependency (if any) */
-        else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
-            D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(H5_daos_h5op_finalize, dep_task ? 1 : 0, dep_task ? &dep_task : NULL,
+                NULL, NULL, int_req, &int_req->finalize_task) < 0)
+            D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation");
         /* Schedule finalize task */
         else if(0 != (ret = tse_task_schedule(int_req->finalize_task, false)))
             D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
@@ -3411,6 +3390,10 @@ done:
         udata = DV_free(udata);
     } /* end if */
 
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
     tse_task_complete(task, ret_value);
 
     D_FUNC_LEAVE;
@@ -3455,6 +3438,8 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
     hid_t lapl_id;
     int ret;
     herr_t ret_value = SUCCEED;
+
+    H5_daos_inc_api_cnt();
 
     if(!_item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
@@ -3530,12 +3515,9 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
                 D_GOTO_ERROR(H5E_OBJECT, H5E_CANTOPENOBJ, FAIL, "can't open target object");
 
             /* Create task to finalize internal operation */
-            if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_int_req, &int_int_req->finalize_task)))
-                D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to finalize internal operation: %s", H5_daos_err_to_string(ret));
-
-            /* Register dependency (if any) */
-            if(dep_task && 0 != (ret = tse_task_register_deps(int_int_req->finalize_task, 1, &dep_task)))
-                D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize internal operation: %s", H5_daos_err_to_string(ret));
+            if(H5_daos_create_task(H5_daos_h5op_finalize, dep_task ? 1 : 0, dep_task ? &dep_task : NULL,
+                    NULL, NULL, int_int_req, &int_int_req->finalize_task) < 0)
+                D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to finalize internal operation");
 
             /* Schedule finalize task (or save it to be scheduled later),
              * give it ownership of int_int_req, and update task pointers */
@@ -3627,12 +3609,9 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
             lookup_udata->token = token;
 
             /* Create task to finish this operation */
-            if(0 != (ret = tse_task_create(H5_daos_object_lookup_task, &H5_daos_glob_sched_g, lookup_udata, &lookup_task)))
-                D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to look up object token: %s", H5_daos_err_to_string(ret));
-
-            /* Register dependency on dep_task if present */
-            if(dep_task && 0 != (ret = tse_task_register_deps(lookup_task, 1, &dep_task)))
-                D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create dependencies for task to look up object token: %s", H5_daos_err_to_string(ret));
+            if(H5_daos_create_task(H5_daos_object_lookup_task, dep_task ? 1 : 0, dep_task ? &dep_task : NULL,
+                    NULL, NULL, lookup_udata, &lookup_task) < 0)
+                D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to look up object token");
 
             /* Schedule operator callback function task (or save it to be scheduled
              * later) and give it a reference to req and udata. */
@@ -3761,11 +3740,9 @@ done:
                 D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't perform collective error check");
 
         /* Create task to finalize H5 operation */
-        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))
-            D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
-        /* Register dependency (if any) */
-        else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
-            D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(H5_daos_h5op_finalize, dep_task ? 1 : 0, dep_task ? &dep_task : NULL,
+                NULL, NULL, int_req, &int_req->finalize_task) < 0)
+            D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation");
         /* Schedule finalize task */
         else if(0 != (ret = tse_task_schedule(int_req->finalize_task, false)))
             D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
@@ -3878,6 +3855,10 @@ done:
     } /* end if */
     else
         assert(ret_value == -H5_DAOS_DAOS_GET_ERROR);
+
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
 
     /* Complete this task */
     tse_task_complete(task, ret_value);
@@ -4042,12 +4023,9 @@ H5_daos_object_exists(H5_daos_group_t *target_grp, const char *link_name,
     *oid_ptr = &exists_udata->oid;
 
     /* Create task to set oexists_ret based on whether link resolves */
-    if(0 != (ret = tse_task_create(H5_daos_object_exists_finish, &H5_daos_glob_sched_g, exists_udata, &oexists_finish_task)))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to check if object exists: %s", H5_daos_err_to_string(ret));
-
-    /* Register dependency on link follow task for object existence check task */
-    if(*dep_task && 0 != (ret = tse_task_register_deps(oexists_finish_task, 1, dep_task)))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create dependencies for task to check if object exists: %s", H5_daos_err_to_string(ret));
+    if(H5_daos_create_task(H5_daos_object_exists_finish, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+            NULL, NULL, exists_udata, &oexists_finish_task) < 0)
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to check if object exists");
 
     /* Schedule object existence check task */
     if(*first_task) {
@@ -4122,6 +4100,10 @@ done:
     else
         assert(ret_value == -H5_DAOS_DAOS_GET_ERROR);
 
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
     /* Complete this task */
     tse_task_complete(task, ret_value);
 
@@ -4182,12 +4164,9 @@ H5_daos_object_visit(H5_daos_obj_t ***target_obj_prev_out, H5_daos_obj_t *target
         D_GOTO_ERROR(H5E_OBJECT, H5E_CANTGET, FAIL, "can't get info for object");
 
     /* Create task to visit the specified target object first */
-    if(0 != (ret = tse_task_create(H5_daos_object_visit_task, &H5_daos_glob_sched_g, visit_udata, &visit_task)))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to call operator callback function: %s", H5_daos_err_to_string(ret));
-
-    /* Register dependency on dep_task if present */
-    if(*dep_task && 0 != (ret = tse_task_register_deps(visit_task, 1, dep_task)))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create dependencies for operator callback function task: %s", H5_daos_err_to_string(ret));
+    if(H5_daos_create_task(H5_daos_object_visit_task, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+            NULL, NULL, visit_udata, &visit_task) < 0)
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to call operator callback function");
 
     /* Schedule operator callback function task (or save it to be scheduled
      * later).  It will share references to req and target_obj with all objects
@@ -4205,12 +4184,9 @@ H5_daos_object_visit(H5_daos_obj_t ***target_obj_prev_out, H5_daos_obj_t *target
      * when the actual asynchronous object visiting is finished. This metatask
      * is necessary because the initial visit task may generate other async
      * tasks for visiting the submembers of a group object. */
-    if(0 != (ret = tse_task_create(H5_daos_object_visit_finish, &H5_daos_glob_sched_g, visit_udata, &visit_udata->visit_metatask)))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create meta task for object visiting: %s", H5_daos_err_to_string(ret));
-
-    /* Register dependency on object visiting task for metatask */
-    if(*dep_task && 0 != (ret = tse_task_register_deps(visit_udata->visit_metatask, 1, dep_task)))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create dependencies for object visiting metatask: %s", H5_daos_err_to_string(ret));
+    if(H5_daos_create_task(H5_daos_object_visit_finish, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+            NULL, NULL, visit_udata, &visit_udata->visit_metatask) < 0)
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create meta task for object visiting");
 
     /* Schedule meta task */
     if(*first_task) {
@@ -4358,6 +4334,10 @@ done:
     else
         assert(ret_value == -H5_DAOS_DAOS_GET_ERROR);
 
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
     /* Complete this task */
     tse_task_complete(task, ret_value);
 
@@ -4425,12 +4405,9 @@ H5_daos_object_visit_link_iter_cb(hid_t group, const char *name, const H5L_info2
             D_GOTO_ERROR(H5E_OBJECT, H5E_CANTOPENOBJ, H5_ITER_ERROR, "can't open object");
 
         /* Create task to finalize internal operation */
-        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_int_req, &int_int_req->finalize_task)))
-            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, H5_ITER_ERROR, "can't create task to finalize internal operation: %s", H5_daos_err_to_string(ret));
-
-        /* Register dependency (if any) */
-        if(*dep_task && 0 != (ret = tse_task_register_deps(int_int_req->finalize_task, 1, dep_task)))
-            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, H5_ITER_ERROR, "can't create dependencies for task to finalize internal operation: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(H5_daos_h5op_finalize, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+                NULL, NULL, int_int_req, &int_int_req->finalize_task) < 0)
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, H5_ITER_ERROR, "can't create task to finalize internal operation");
 
         /* Schedule finalize task (or save it to be scheduled later),
          * give it ownership of int_int_req, and update task pointers */
@@ -4511,12 +4488,9 @@ H5_daos_object_visit_soft(H5_daos_group_t *target_grp, const char *link_name,
     *oid_ptr = &soft_visit_udata->oid;
 
     /* Create task for checking if the link resolves */
-    if(0 != (ret = tse_task_create(H5_daos_object_visit_soft_task, &H5_daos_glob_sched_g, soft_visit_udata, &check_task)))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to check if object exists: %s", H5_daos_err_to_string(ret));
-
-    /* Register dependency on dep_task if present */
-    if(*dep_task && 0 != (ret = tse_task_register_deps(check_task, 1, dep_task)))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create dependencies for task to check if object exists: %s", H5_daos_err_to_string(ret));
+    if(H5_daos_create_task(H5_daos_object_visit_soft_task, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+            NULL, NULL, soft_visit_udata, &check_task) < 0)
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to check if object exists");
 
     /* Schedule object existence check task (or save it to be scheduled later) and
      * give it a reference to req */
@@ -4535,12 +4509,9 @@ H5_daos_object_visit_soft(H5_daos_group_t *target_grp, const char *link_name,
      * is necessary because the object existence check task will generate other
      * async tasks for actually opening and visiting the object if the soft link
      * resolves. */
-    if(0 != (ret = tse_task_create(H5_daos_metatask_autocomplete, &H5_daos_glob_sched_g, NULL, &soft_visit_udata->visit_metatask)))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create metatask for object visit: %s", H5_daos_err_to_string(ret));
-
-    /* Register dependency on object open task for metatask */
-    if(0 != (ret = tse_task_register_deps(soft_visit_udata->visit_metatask, 1, &check_task)))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create dependencies for object visit metatask: %s", H5_daos_err_to_string(ret));
+    if(H5_daos_create_task(H5_daos_metatask_autocomplete, 1, &check_task,
+            NULL, NULL, NULL, &soft_visit_udata->visit_metatask) < 0)
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create meta task for object copy");
 
     /* Schedule meta task */
     assert(*first_task);
@@ -4634,12 +4605,9 @@ H5_daos_object_visit_soft_task(tse_task_t *task)
         } /* end switch */
 
         /* Create task to finalize internal operation */
-        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_int_req, &int_int_req->finalize_task)))
-            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't create task to finalize internal operation: %s", H5_daos_err_to_string(ret));
-
-        /* Register dependency (if any) */
-        if(dep_task && 0 != (ret = tse_task_register_deps(int_int_req->finalize_task, 1, &dep_task)))
-            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't create dependencies for task to finalize internal operation: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(H5_daos_h5op_finalize, dep_task ? 1 : 0, dep_task ? &dep_task : NULL,
+                NULL, NULL, int_int_req, &int_int_req->finalize_task) < 0)
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't create task to finalize internal operation");
 
         /* Schedule finalize task (or save it to be scheduled later),
          * give it ownership of int_int_req, and update task pointers */
@@ -4701,6 +4669,10 @@ done:
     }
     else
         assert(ret_value == -H5_DAOS_DAOS_GET_ERROR);
+
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
 
     /* Complete this task */
     tse_task_complete(task, ret_value);
@@ -4766,6 +4738,10 @@ H5_daos_object_visit_finish(tse_task_t *task)
     DV_free(udata);
 
 done:
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
     /* Complete this task */
     tse_task_complete(task, ret_value);
 
@@ -4833,12 +4809,9 @@ H5_daos_object_get_info(H5_daos_obj_t ***target_obj_prev_out,
     get_info_udata->info_out = obj_info_out;
 
     /* Create task for retrieving object info */
-    if(0 != (ret = tse_task_create(H5_daos_object_get_info_task, &H5_daos_glob_sched_g, get_info_udata, &get_info_udata->get_info_task)))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to get object info: %s", H5_daos_err_to_string(ret));
-
-    /* Register dependency on dep_task if present */
-    if(*dep_task && 0 != (ret = tse_task_register_deps(get_info_udata->get_info_task, 1, dep_task)))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't register dependencies for object info retrieval task: %s", H5_daos_err_to_string(ret));
+    if(H5_daos_create_task(H5_daos_object_get_info_task, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+            NULL, NULL, get_info_udata, &get_info_udata->get_info_task) < 0)
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to get object info");
 
     /* Schedule object info retrieval task (or save it to be scheduled later) and
      * give it a reference to req */
@@ -4966,15 +4939,12 @@ done:
     if(udata) {
         tse_task_t *end_task;
         /* Schedule task to complete this task and free path buf */
-        if(0 != (ret = tse_task_create(H5_daos_object_get_info_end, &H5_daos_glob_sched_g, udata, &end_task))) {
+        if(H5_daos_create_task(H5_daos_object_get_info_end, dep_task ? 1 : 0, dep_task ? &dep_task : NULL,
+                NULL, NULL, udata, &end_task) < 0) {
             tse_task_complete(task, ret_value);
-            D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't create task to finish getting object info: %s", H5_daos_err_to_string(ret));
-        } /* end if */
+            D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't create task to finish getting object info");
+        }
         else {
-            /* Register dependency for task */
-            if(dep_task && 0 != (ret = tse_task_register_deps(end_task, 1, &dep_task)))
-                D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't create dependencies for object get info end task: %s", H5_daos_err_to_string(ret));
-
             /* Schedule end task and give it ownership of udata, while
              * keeping a reference to req for ourselves */
             req->rc++;
@@ -5001,6 +4971,10 @@ done:
             D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
 
         udata = DV_free(udata);
+
+        /* Return task to task list */
+        if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+            D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
 
         tse_task_complete(task, ret_value);
     } /* end if */
@@ -5068,6 +5042,10 @@ H5_daos_object_get_info_end(tse_task_t *task)
     if(H5_daos_req_free_int(udata->req) < 0)
         D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
 
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, udata->get_info_task) < 0)
+        D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
     /* Complete get info task */
     tse_task_complete(udata->get_info_task, ret_value);
 
@@ -5075,6 +5053,10 @@ H5_daos_object_get_info_end(tse_task_t *task)
     DV_free(udata);
 
 done:
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
     /* Complete this task */
     tse_task_complete(task, ret_value);
 
@@ -5144,17 +5126,10 @@ H5_daos_object_get_num_attrs(H5_daos_obj_t *target_obj, hsize_t *num_attrs,
         get_num_attr_udata->md_rw_cb_ud.task_name = "attribute count retrieval task";
 
         /* Create task to fetch object's current number of attributes counter */
-        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &H5_daos_glob_sched_g,
-                *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &get_num_attrs_task)))
-            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to get number of attributes attached to object: %s", H5_daos_err_to_string(ret));
-
-        /* Set callback functions for task to read number of attributes */
-        if(0 != (ret = tse_task_register_cbs(get_num_attrs_task, H5_daos_get_num_attrs_prep_cb,
-                NULL, 0, H5_daos_get_num_attrs_comp_cb, NULL, 0)))
-            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't register callbacks for attribute count read task: %s", H5_daos_err_to_string(ret));
-
-        /* Set private data for attribute count read task */
-        (void)tse_task_set_priv(get_num_attrs_task, get_num_attr_udata);
+        if(H5_daos_create_daos_task(DAOS_OPC_OBJ_FETCH, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+                H5_daos_get_num_attrs_prep_cb, H5_daos_get_num_attrs_comp_cb,
+                get_num_attr_udata, &get_num_attrs_task) < 0)
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to get number of attributes attached to object");
 
         /* Schedule task to read number of attributes attached to object (or save
          * it to be scheduled later) and give it a reference to req.
@@ -5228,6 +5203,7 @@ H5_daos_get_num_attrs_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     /* Set update task arguments */
     if(NULL == (fetch_args = daos_task_get_args(task)))
         D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for metadata I/O task");
+    memset(fetch_args, 0, sizeof(*fetch_args));
     fetch_args->oh = udata->md_rw_cb_ud.obj->obj_oh;
     fetch_args->th = DAOS_TX_NONE;
     fetch_args->flags = udata->md_rw_cb_ud.flags;
@@ -5263,6 +5239,8 @@ H5_daos_get_num_attrs_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     H5_daos_object_get_num_attrs_ud_t *udata;
     int ret_value = 0;
 
+    assert(H5_daos_task_list_g);
+
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for attribute count fetch task");
@@ -5294,6 +5272,10 @@ H5_daos_get_num_attrs_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     } /* end else */
 
 done:
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
     if(udata) {
         if(udata->md_rw_cb_ud.obj && H5_daos_object_close(&udata->md_rw_cb_ud.obj->item) < 0)
             D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
@@ -5387,18 +5369,11 @@ H5_daos_object_update_num_attrs_key(H5_daos_obj_t *target_obj, hsize_t *new_natt
     update_udata->update_ud.task_name = "object attribute number tracking akey update";
 
     /* Create task for akey update */
-    if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_UPDATE, &H5_daos_glob_sched_g, *dep_task ? 1 : 0,
-            *dep_task ? dep_task : NULL, &update_task)))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to update object's attribute number tracking akey: %s", H5_daos_err_to_string(ret));
-
-    /* Set callback functions for akey update task*/
-    if(0 != (ret = tse_task_register_cbs(update_task,
-            prep_cb ? prep_cb : H5_daos_object_update_num_attrs_key_prep_cb, NULL, 0,
-            comp_cb ? comp_cb : H5_daos_object_update_num_attrs_key_comp_cb, NULL, 0)))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't register callbacks for akey update task: %s", H5_daos_err_to_string(ret));
-
-    /* Set private data for akey update task */
-    (void)tse_task_set_priv(update_task, update_udata);
+    if(H5_daos_create_daos_task(DAOS_OPC_OBJ_UPDATE, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+            prep_cb ? prep_cb : H5_daos_object_update_num_attrs_key_prep_cb,
+            comp_cb ? comp_cb : H5_daos_object_update_num_attrs_key_comp_cb,
+            update_udata, &update_task) < 0)
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to update object's number of attributes");
 
     /* Schedule akey update task (or save it to be scheduled later) */
     if(*first_task) {
@@ -5456,6 +5431,7 @@ H5_daos_object_update_num_attrs_key_prep_cb(tse_task_t *task, void H5VL_DAOS_UNU
     /* Set update task arguments */
     if(NULL == (update_args = daos_task_get_args(task)))
         D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for metadata I/O task");
+    memset(update_args, 0, sizeof(*update_args));
     update_args->oh = udata->update_ud.obj->obj_oh;
     update_args->th = DAOS_TX_NONE;
     update_args->flags = udata->update_ud.flags;
@@ -5463,7 +5439,6 @@ H5_daos_object_update_num_attrs_key_prep_cb(tse_task_t *task, void H5VL_DAOS_UNU
     update_args->nr = 1;
     update_args->iods = udata->update_ud.iod;
     update_args->sgls = udata->update_ud.sgl;
-    update_args->ioms = NULL;
 
 done:
     if(ret_value < 0)
@@ -5491,6 +5466,8 @@ H5_daos_object_update_num_attrs_key_comp_cb(tse_task_t *task, void H5VL_DAOS_UNU
     H5_daos_object_update_num_attrs_key_ud_t *udata;
     int ret_value = 0;
 
+    assert(H5_daos_task_list_g);
+
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for object attribute number tracking akey update task");
@@ -5505,6 +5482,10 @@ H5_daos_object_update_num_attrs_key_comp_cb(tse_task_t *task, void H5VL_DAOS_UNU
     } /* end if */
 
 done:
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
     if(udata) {
         if(udata->update_ud.obj && H5_daos_object_close(&udata->update_ud.obj->item) < 0)
             D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
@@ -5568,6 +5549,7 @@ H5_daos_obj_read_rc_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     /* Set update task arguments */
     if(NULL == (rw_args = daos_task_get_args(task)))
         D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for object ref count read task");
+    memset(rw_args, 0, sizeof(*rw_args));
     rw_args->oh = (*udata->obj_p)->obj_oh;
     rw_args->th = udata->req->th;
     rw_args->flags = 0;
@@ -5623,6 +5605,8 @@ H5_daos_obj_read_rc_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     uint8_t *p;
     int ret_value = 0;
 
+    assert(H5_daos_task_list_g);
+
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for metadata I/O task");
@@ -5657,6 +5641,10 @@ H5_daos_obj_read_rc_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     } /* end if */
 
 done:
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
     /* Clean up */
     if(udata) {
         /* Close object if a direct pointer was provided */
@@ -5729,15 +5717,9 @@ H5_daos_obj_read_rc(H5_daos_obj_t **obj_p, H5_daos_obj_t *obj, uint64_t *rc,
     fetch_udata->rc_uint = rc_uint;
 
     /* Create task for rc fetch */
-    if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &H5_daos_glob_sched_g, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &fetch_task)))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't create task to read object ref count: %s", H5_daos_err_to_string(ret));
-
-    /* Set callback functions for rc fetch */
-    if(0 != (ret = tse_task_register_cbs(fetch_task, H5_daos_obj_read_rc_prep_cb, NULL, 0, H5_daos_obj_read_rc_comp_cb, NULL, 0)))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't register callbacks for task to read object ref count: %s", H5_daos_err_to_string(ret));
-
-    /* Set private data for rc fetch */
-    (void)tse_task_set_priv(fetch_task, fetch_udata);
+    if(H5_daos_create_daos_task(DAOS_OPC_OBJ_FETCH, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+            H5_daos_obj_read_rc_prep_cb, H5_daos_obj_read_rc_comp_cb, fetch_udata, &fetch_task) < 0)
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't create task to read object ref count");
 
     /* Schedule fetch task (or save it to be scheduled later) and give it a
      * reference to req and udata */
@@ -5814,25 +5796,16 @@ H5_daos_obj_write_rc_task(tse_task_t *task)
         daos_obj_punch_t *punch_args;
 
         /* Create task for object punch */
-        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_PUNCH, &H5_daos_glob_sched_g, 0, NULL, &punch_task)))
-            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't create task to delete object: %s", H5_daos_err_to_string(ret));
-
-        /* Set callback functions for object punch */
-        if(0 != (ret = tse_task_register_cbs(punch_task, NULL, NULL, 0, H5_daos_obj_write_rc_comp_cb, NULL, 0)))
-            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't register callbacks for task to delete object: %s", H5_daos_err_to_string(ret));
-
-        /* Set private data for object punch */
-        (void)tse_task_set_priv(punch_task, udata);
+        if(H5_daos_create_daos_task(DAOS_OPC_OBJ_PUNCH, 0, NULL, NULL, H5_daos_obj_write_rc_comp_cb,
+                udata, &punch_task) < 0)
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't create task to delete object");
 
         /* Set punch task arguments */
         if(NULL == (punch_args = daos_task_get_args(punch_task)))
             D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for object ref count write task");
+        memset(punch_args, 0, sizeof(*punch_args));
         punch_args->oh = (*udata->obj_p)->obj_oh;
         punch_args->th = udata->req->th;
-        punch_args->flags = 0;
-        punch_args->dkey = NULL;
-        punch_args->akeys = NULL;
-        punch_args->akey_nr = 0;
 
         udata->task_name = "object punch due to ref count dropping to 0";
 
@@ -5851,22 +5824,16 @@ H5_daos_obj_write_rc_task(tse_task_t *task)
         UINT64ENCODE(p, new_rc);
 
         /* Create task for rc update */
-        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_UPDATE, &H5_daos_glob_sched_g, 0, NULL, &update_task)))
-            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't create task to write object ref count: %s", H5_daos_err_to_string(ret));
-
-        /* Set callback functions for rc update */
-        if(0 != (ret = tse_task_register_cbs(update_task, NULL, NULL, 0, H5_daos_obj_write_rc_comp_cb, NULL, 0)))
-            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't register callbacks for task to write object ref count: %s", H5_daos_err_to_string(ret));
-
-        /* Set private data for rc fetch */
-        (void)tse_task_set_priv(update_task, udata);
+        if(H5_daos_create_daos_task(DAOS_OPC_OBJ_UPDATE, 0, NULL, NULL, H5_daos_obj_write_rc_comp_cb,
+                udata, &update_task) < 0)
+            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't create task to write object ref count");
 
         /* Set update task arguments */
         if(NULL == (rw_args = daos_task_get_args(update_task)))
             D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for object ref count write task");
+        memset(rw_args, 0, sizeof(*rw_args));
         rw_args->oh = (*udata->obj_p)->obj_oh;
         rw_args->th = udata->req->th;
-        rw_args->flags = 0;
 
         /* Set up dkey */
         daos_const_iov_set((d_const_iov_t *)&udata->dkey, H5_daos_int_md_key_g, H5_daos_int_md_key_size_g);
@@ -5925,6 +5892,10 @@ done:
         if(H5_daos_req_free_int(udata->req) < 0)
             D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
 
+        /* Return task to task list */
+        if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+            D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
         tse_task_complete(task, ret_value);
         udata = DV_free(udata);
     } /* end if */
@@ -5953,6 +5924,8 @@ H5_daos_obj_write_rc_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     H5_daos_obj_rw_rc_ud_t *udata;
     int ret_value = 0;
 
+    assert(H5_daos_task_list_g);
+
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for metadata I/O task");
@@ -5967,6 +5940,10 @@ H5_daos_obj_write_rc_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     } /* end if */
 
 done:
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
     /* Clean up */
     if(udata) {
         /* Close object if a direct pointer was provided */
@@ -5986,8 +5963,12 @@ done:
             D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
 
         /* Complete op task */
-        if(udata->op_task)
+        if(udata->op_task) {
+            /* Return task to task list */
+            if(H5_daos_task_list_put(H5_daos_task_list_g, udata->op_task) < 0)
+                D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
             tse_task_complete(udata->op_task, ret_value);
+        }
 
         /* Free udata */
         udata = DV_free(udata);
@@ -6047,12 +6028,9 @@ H5_daos_obj_write_rc(H5_daos_obj_t **obj_p, H5_daos_obj_t *obj, uint64_t *rc,
     task_udata->adjust = adjust;
 
     /* Create task to finish this operation */
-    if(0 !=  (ret = tse_task_create(H5_daos_obj_write_rc_task, &H5_daos_glob_sched_g, task_udata, &task_udata->op_task)))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't create task for object write ref count: %s", H5_daos_err_to_string(ret));
-
-    /* Register task dependency */
-    if(*dep_task && 0 != (ret = tse_task_register_deps(task_udata->op_task, 1, dep_task)))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't create dependencies for object write ref count task: %s", H5_daos_err_to_string(ret));
+    if(H5_daos_create_task(H5_daos_obj_write_rc_task, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+            NULL, NULL, task_udata, &task_udata->op_task) < 0)
+        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't create task for object write ref count");
 
     /* Schedule task (or save it to be scheduled later) and give it a
      * reference to req and udata */

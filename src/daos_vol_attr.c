@@ -434,6 +434,7 @@ H5_daos_attribute_md_rw_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     /* Set task arguments */
     if(NULL == (op_args = daos_task_get_args(task)))
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for attribute metadata I/O task");
+    memset(op_args, 0, sizeof(*op_args));
     op_args->oh = udata->md_rw_cb_ud.obj->obj_oh;
     op_args->th = DAOS_TX_NONE;
     op_args->flags = udata->md_rw_cb_ud.flags;
@@ -476,6 +477,8 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params,
     hbool_t collective;
     int ret;
     void *ret_value = NULL;
+
+    H5_daos_inc_api_cnt();
 
     if(!_item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "attribute parent object is NULL");
@@ -522,11 +525,9 @@ done:
         H5_daos_op_pool_type_t op_type;
 
         /* Create task to finalize H5 operation */
-        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))
-            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
-        /* Register dependencies (if any) */
-        else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
-            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(H5_daos_h5op_finalize, dep_task ? 1 : 0, dep_task ? &dep_task : NULL,
+                NULL, NULL, int_req, &int_req->finalize_task) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation");
         /* Schedule finalize task */
         else if(0 != (ret = tse_task_schedule(int_req->finalize_task, false)))
             D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
@@ -673,12 +674,9 @@ H5_daos_attribute_create_helper(H5_daos_item_t *item, const H5VL_loc_params_t *l
             D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, NULL, "can't open parent object for attribute");
 
         /* Create task to finalize internal operation */
-        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_int_req, &int_int_req->finalize_task)))
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't create task to finalize internal operation: %s", H5_daos_err_to_string(ret));
-
-        /* Register dependency (if any) */
-        if(*dep_task && 0 != (ret = tse_task_register_deps(int_int_req->finalize_task, 1, dep_task)))
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't create dependencies for task to finalize internal operation: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(H5_daos_h5op_finalize, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+                NULL, NULL, int_int_req, &int_int_req->finalize_task) < 0)
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't create task to finalize internal operation");
 
         /* Schedule finalize task (or save it to be scheduled later),
          * give it ownership of int_int_req, and update task pointers */
@@ -836,17 +834,10 @@ H5_daos_attribute_create_helper(H5_daos_item_t *item, const H5VL_loc_params_t *l
             create_ud->md_rw_cb_ud.flags = DAOS_COND_PER_AKEY;
 
         /* Create task for attribute metadata write */
-        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_UPDATE, &H5_daos_glob_sched_g,
-                *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &update_task)))
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't create task to write attribute medadata: %s", H5_daos_err_to_string(ret));
-
-        /* Set callback functions for attribute metadata write */
-        if(0 != (ret = tse_task_register_cbs(update_task, H5_daos_attribute_create_helper_prep_cb, NULL, 0,
-                H5_daos_attribute_create_helper_comp_cb, NULL, 0)))
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't register callbacks for task to write attribute medadata: %s", H5_daos_err_to_string(ret));
-
-        /* Set private data for attribute metadata write */
-        (void)tse_task_set_priv(update_task, create_ud);
+        if(H5_daos_create_daos_task(DAOS_OPC_OBJ_UPDATE, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+                H5_daos_attribute_create_helper_prep_cb, H5_daos_attribute_create_helper_comp_cb,
+                create_ud, &update_task) < 0)
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't create task to write attribute metadata");
 
         /* Schedule attribute metadata write task (or save it to be scheduled later)
          * and give it a reference to req and the attribute */
@@ -902,14 +893,10 @@ done:
             close_task_ud->item = &attr->item;
 
             /* Create task to close attribute */
-            if(0 != (ret = tse_task_create(H5_daos_object_close_task, &H5_daos_glob_sched_g, close_task_ud, &close_task))) {
+            if(H5_daos_create_task(H5_daos_object_close_task, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+                    NULL, NULL, close_task_ud, &close_task) < 0) {
                 close_task_ud = DV_free(close_task_ud);
-                D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't create task to close attribute: %s", H5_daos_err_to_string(ret));
-            } /* end if */
-            /* Register dependencies (if any) */
-            else if(*dep_task && 0 != (ret = tse_task_register_deps(close_task, 1, dep_task))) {
-                close_task_ud = DV_free(close_task_ud);
-                D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't create dependencies for task to close attribute: %s", H5_daos_err_to_string(ret));
+                D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't create task to close attribute");
             } /* end if */
             else {
                 /* Save task to be scheduled later and give it a reference to req and
@@ -987,6 +974,7 @@ H5_daos_attribute_create_helper_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED 
     /* Set update task arguments */
     if(NULL == (update_args = daos_task_get_args(task)))
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for metadata I/O task");
+    memset(update_args, 0, sizeof(*update_args));
     update_args->oh = udata->attr->parent->obj_oh;
     update_args->th = udata->md_rw_cb_ud.req->th;
     update_args->flags = udata->md_rw_cb_ud.flags;
@@ -1022,6 +1010,8 @@ H5_daos_attribute_create_helper_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED 
     unsigned i;
     int ret_value = 0;
 
+    assert(H5_daos_task_list_g);
+
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for metadata I/O task");
@@ -1038,6 +1028,10 @@ H5_daos_attribute_create_helper_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED 
     /* Close attribute  */
     if(H5_daos_attribute_close_real(udata->attr) < 0)
         D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close attribute");
+
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
 
     /* Handle errors in this function */
     /* Do not place any code that can issue errors after this block, except for
@@ -1146,17 +1140,10 @@ H5_daos_attribute_create_get_crt_order_info(H5_daos_attr_create_ud_t *create_ud,
     create_ud->md_rw_cb_ud.free_sg_iov[4] = FALSE;
 
     /* Create task for attribute creation order metadata fetch */
-    if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &H5_daos_glob_sched_g,
-            *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &fetch_task)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to fetch attribute creation order metadata: %s", H5_daos_err_to_string(ret));
-
-    /* Set callback functions for attribute creation order metadata fetch */
-    if(0 != (ret = tse_task_register_cbs(fetch_task, H5_daos_attribute_create_get_crt_order_info_prep_cb, NULL, 0,
-            H5_daos_attribute_create_get_crt_order_info_comp_cb, NULL, 0)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't register callbacks for task to fetch attribute creation order medadata: %s", H5_daos_err_to_string(ret));
-
-    /* Set private data for attribute creation order metadata fetch */
-    (void)tse_task_set_priv(fetch_task, create_ud);
+    if(H5_daos_create_daos_task(DAOS_OPC_OBJ_FETCH, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+            H5_daos_attribute_create_get_crt_order_info_prep_cb, H5_daos_attribute_create_get_crt_order_info_comp_cb,
+            create_ud, &fetch_task) < 0)
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to fetch attribute creation order metadata");
 
     /* Schedule attribute creation order metadata fetch task (or save it to be scheduled later)
      * and give it a reference to req and the attribute */
@@ -1214,6 +1201,7 @@ H5_daos_attribute_create_get_crt_order_info_prep_cb(tse_task_t *task,
         /* Set update task arguments */
         if(NULL == (update_args = daos_task_get_args(task)))
             D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for metadata I/O task");
+        memset(update_args, 0, sizeof(*update_args));
         update_args->oh = udata->attr->parent->obj_oh;
         update_args->th = DAOS_TX_NONE;
         update_args->flags = udata->md_rw_cb_ud.flags;
@@ -1253,6 +1241,8 @@ H5_daos_attribute_create_get_crt_order_info_comp_cb(tse_task_t *task,
 {
     H5_daos_attr_create_ud_t *udata;
     int ret_value = 0;
+
+    assert(H5_daos_task_list_g);
 
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
@@ -1394,6 +1384,10 @@ H5_daos_attribute_create_get_crt_order_info_comp_cb(tse_task_t *task,
     } /* end else */
 
 done:
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
     if(udata) {
         if(udata->attr && H5_daos_attribute_close_real(udata->attr) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close attribute");
@@ -1445,6 +1439,8 @@ H5_daos_attribute_open(void *_item, const H5VL_loc_params_t *loc_params,
     int ret;
     void *ret_value = NULL;
 
+    H5_daos_inc_api_cnt();
+
     if(!_item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "attribute parent object is NULL");
     if(!loc_params)
@@ -1475,11 +1471,9 @@ H5_daos_attribute_open(void *_item, const H5VL_loc_params_t *loc_params,
 done:
     if(int_req) {
         /* Create task to finalize H5 operation */
-        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))
-            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
-        /* Register dependencies (if any) */
-        else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
-            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(H5_daos_h5op_finalize, dep_task ? 1 : 0, dep_task ? &dep_task : NULL,
+                NULL, NULL, int_req, &int_req->finalize_task) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation");
         /* Schedule finalize task */
         else if(0 != (ret = tse_task_schedule(int_req->finalize_task, false)))
             D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
@@ -1633,12 +1627,9 @@ H5_daos_attribute_open_helper(H5_daos_item_t *item, const H5VL_loc_params_t *loc
                 D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, NULL, "can't open parent object for attribute");
 
             /* Create task to finalize internal operation */
-            if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_int_req, &int_int_req->finalize_task)))
-                D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't create task to finalize internal operation: %s", H5_daos_err_to_string(ret));
-
-            /* Register dependency (if any) */
-            if(*dep_task && 0 != (ret = tse_task_register_deps(int_int_req->finalize_task, 1, dep_task)))
-                D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't create dependencies for task to finalize internal operation: %s", H5_daos_err_to_string(ret));
+            if(H5_daos_create_task(H5_daos_h5op_finalize, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+                    NULL, NULL, int_int_req, &int_int_req->finalize_task) < 0)
+                D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't create task to finalize internal operation");
 
             /* Schedule finalize task (or save it to be scheduled later),
              * give it ownership of int_int_req, and update task pointers */
@@ -1756,21 +1747,13 @@ H5_daos_attribute_open_helper(H5_daos_item_t *item, const H5VL_loc_params_t *loc
          * completed when the read is finished by H5_daos_ainfo_read_comp_cb.
          * We can't use fetch_task since it may not be completed by the first
          * fetch. */
-        if(0 != (ret = tse_task_create(NULL, &H5_daos_glob_sched_g, NULL, &open_udata->fetch_metatask)))
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't create meta task for attribute metadata read: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(NULL, 0, NULL, NULL, NULL, NULL, &open_udata->fetch_metatask) < 0)
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't create meta task for attribute metadata read");
 
         /* Create task for attribute metadata read */
-        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &H5_daos_glob_sched_g, *dep_task ? 1 : 0,
-                *dep_task ? dep_task : NULL, &fetch_task)))
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't create task to read attribute metadata: %s", H5_daos_err_to_string(ret));
-
-        /* Set callback functions for attribute metadata read */
-        if(0 != (ret = tse_task_register_cbs(fetch_task, H5_daos_attribute_md_rw_prep_cb, NULL, 0,
-                H5_daos_ainfo_read_comp_cb, NULL, 0)))
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't register callbacks for task to read attribute metadata: %s", H5_daos_err_to_string(ret));
-
-        /* Set private data for attribute metadata read */
-        (void)tse_task_set_priv(fetch_task, open_udata);
+        if(H5_daos_create_daos_task(DAOS_OPC_OBJ_FETCH, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+                H5_daos_attribute_md_rw_prep_cb, H5_daos_ainfo_read_comp_cb, open_udata, &fetch_task) < 0)
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, NULL, "can't create task to read attribute metadata");
 
         /* Schedule meta task */
         if(0 != (ret = tse_task_schedule(open_udata->fetch_metatask, false)))
@@ -1892,12 +1875,9 @@ H5_daos_attribute_open_by_idx_helper(H5_daos_obj_t *target_obj, const H5VL_loc_p
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, FAIL, "can't open attribute's parent object");
 
     /* Create task to finalize internal operation */
-    if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_int_req, &int_int_req->finalize_task)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to finalize internal operation: %s", H5_daos_err_to_string(ret));
-
-    /* Register dependency (if any) */
-    if(*dep_task && 0 != (ret = tse_task_register_deps(int_int_req->finalize_task, 1, dep_task)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize internal operation: %s", H5_daos_err_to_string(ret));
+    if(H5_daos_create_task(H5_daos_h5op_finalize, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+            NULL, NULL, int_int_req, &int_int_req->finalize_task) < 0)
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to finalize internal operation");
 
     /* Schedule finalize task (or save it to be scheduled later),
      * give it ownership of int_int_req, and update task pointers */
@@ -1993,12 +1973,9 @@ H5_daos_attribute_open_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *ar
             udata->bcast_ud.count = udata->bcast_ud.buffer_len;
 
             /* Create task for second bcast */
-            if(0 !=  (ret = tse_task_create(H5_daos_mpi_ibcast_task, &H5_daos_glob_sched_g, udata, &bcast_task)))
-                D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, ret, "can't create task for second attribute info broadcast: %s", H5_daos_err_to_string(ret));
-
-            /* Set callback functions for second bcast */
-            if(0 != (ret = tse_task_register_cbs(bcast_task, NULL, NULL, 0, H5_daos_attribute_open_bcast_comp_cb, NULL, 0)))
-                D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, ret, "can't register callbacks for second attribute info broadcast: %s", H5_daos_err_to_string(ret));
+            if(H5_daos_create_task(H5_daos_mpi_ibcast_task, 0, NULL,
+                    NULL, H5_daos_attribute_open_bcast_comp_cb, udata, &bcast_task) < 0)
+                D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't create task second attribute info broadcast");
 
             /* Schedule second bcast and transfer ownership of udata */
             if(0 != (ret = tse_task_schedule(bcast_task, false)))
@@ -2026,6 +2003,10 @@ done:
         /* Release our reference to req */
         if(H5_daos_req_free_int(udata->bcast_ud.req) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+        /* Return task to task list */
+        if(H5_daos_task_list_put(H5_daos_task_list_g, udata->bcast_ud.bcast_metatask) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
 
         /* Complete bcast metatask */
         tse_task_complete(udata->bcast_ud.bcast_metatask, ret_value);
@@ -2115,12 +2096,9 @@ H5_daos_attribute_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *arg
             udata->bcast_ud.count = (int)ainfo_len;
 
             /* Create task for second bcast */
-            if(0 != (ret = tse_task_create(H5_daos_mpi_ibcast_task, &H5_daos_glob_sched_g, udata, &bcast_task)))
-                D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, ret, "can't create task for second attribute info broadcast: %s", H5_daos_err_to_string(ret));
-
-            /* Set callback functions for second bcast */
-            if(0 != (ret = tse_task_register_cbs(bcast_task, NULL, NULL, 0, H5_daos_attribute_open_recv_comp_cb, NULL, 0)))
-                D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, ret, "can't register callbacks for second attribute info broadcast: %s", H5_daos_err_to_string(ret));
+            if(H5_daos_create_task(H5_daos_mpi_ibcast_task, 0, NULL,
+                    NULL, H5_daos_attribute_open_recv_comp_cb, udata, &bcast_task) < 0)
+                D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't create task second attribute info broadcast");
 
             /* Schedule second bcast and transfer ownership of udata */
             if(0 != (ret = tse_task_schedule(bcast_task, false)))
@@ -2153,6 +2131,10 @@ done:
         /* Release our reference to req */
         if(H5_daos_req_free_int(udata->bcast_ud.req) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+        /* Return task to task list */
+        if(H5_daos_task_list_put(H5_daos_task_list_g, udata->bcast_ud.bcast_metatask) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
 
         /* Complete bcast metatask */
         tse_task_complete(udata->bcast_ud.bcast_metatask, ret_value);
@@ -2245,6 +2227,8 @@ H5_daos_ainfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     int ret;
     int ret_value = 0;
 
+    assert(H5_daos_task_list_g);
+
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for attribute info read task");
@@ -2306,16 +2290,9 @@ H5_daos_ainfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         udata->md_rw_cb_ud.sgl[2].sg_nr_out = 0;
 
         /* Create task for reissued attribute metadata read */
-        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &H5_daos_glob_sched_g, 0, NULL, &fetch_task)))
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, ret, "can't create task to read attribute medadata: %s", H5_daos_err_to_string(ret));
-
-        /* Set callback functions for attribute metadata read */
-        if(0 != (ret = tse_task_register_cbs(fetch_task, H5_daos_attribute_md_rw_prep_cb, NULL, 0,
-                H5_daos_ainfo_read_comp_cb, NULL, 0)))
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, ret, "can't register callbacks for task to read attribute medadata: %s", H5_daos_err_to_string(ret));
-
-        /* Set private data for attribute metadata read */
-        (void)tse_task_set_priv(fetch_task, udata);
+        if(H5_daos_create_daos_task(DAOS_OPC_OBJ_FETCH, 0, NULL, H5_daos_attribute_md_rw_prep_cb,
+                H5_daos_ainfo_read_comp_cb, udata, &fetch_task) < 0)
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't create task to read attribute metadata");
 
         /* Schedule reissued attribute metadata read task */
         if(0 != (ret = tse_task_schedule(fetch_task, false)))
@@ -2361,6 +2338,10 @@ H5_daos_ainfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     } /* end else */
 
 done:
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
     /* Clean up if this is the last fetch task */
     if(udata) {
         /* Close attribute  */
@@ -2388,6 +2369,10 @@ done:
         /* Release our reference to req */
         if(H5_daos_req_free_int(udata->md_rw_cb_ud.req) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+        /* Return task to task list */
+        if(H5_daos_task_list_put(H5_daos_task_list_g, udata->fetch_metatask) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
 
         /* Complete fetch metatask */
         tse_task_complete(udata->fetch_metatask, ret_value);
@@ -2478,6 +2463,10 @@ done:
         assert(!first_task);
     } /* end else */
 
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
     /* Complete this task */
     tse_task_complete(task, ret_value);
 
@@ -2540,7 +2529,12 @@ H5_daos_attr_io_int_end_task(tse_task_t *task)
     if(udata->reuse != H5_DAOS_TCONV_REUSE_BKG)
         DV_free(udata->bkg_buf);
     DV_free(udata);
+
 done:
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
     /* Complete this task */
     tse_task_complete(task, ret_value);
 
@@ -2747,16 +2741,9 @@ H5_daos_attribute_read_int(H5_daos_attr_t *attr, hid_t mem_type_id,
             udata->md_rw_cb_ud.task_name = "attribute read";
 
             /* Create task for attribute read */
-            if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &H5_daos_glob_sched_g, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &fetch_task)))
-                D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to read attribute: %s", H5_daos_err_to_string(ret));
-
-            /* Set callback functions for attribute read */
-            if(0 != (ret = tse_task_register_cbs(fetch_task, H5_daos_md_rw_prep_cb, NULL, 0,
-                    H5_daos_attribute_read_comp_cb, NULL, 0)))
-                D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't register callbacks for task to read attribute: %s", H5_daos_err_to_string(ret));
-
-            /* Set private data for attribute read */
-            (void)tse_task_set_priv(fetch_task, udata);
+            if(H5_daos_create_daos_task(DAOS_OPC_OBJ_FETCH, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+                    H5_daos_md_rw_prep_cb, H5_daos_attribute_read_comp_cb, udata, &fetch_task) < 0)
+                D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to read attribute");
 
             /* Schedule attribute read task or save it to be scheduled later.
              * References to attr and req are already held by udata. */
@@ -2773,10 +2760,10 @@ H5_daos_attribute_read_int(H5_daos_attr_t *attr, hid_t mem_type_id,
          * create task to perform type conversion and free udata
          * after conversion buffer has been broadcasted. This task
          * will be scheduled after the broadcast task. */
-        if(collective && (attr->item.file->num_procs > 1) && need_tconv) 
-            if(0 != (ret = tse_task_create(H5_daos_attr_read_tconv, &H5_daos_glob_sched_g,
-                    udata, &tconv_task)))
-                D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to perform type conversion: %s", H5_daos_err_to_string(ret));
+        if(collective && (attr->item.file->num_procs > 1) && need_tconv)
+            if(H5_daos_create_task(H5_daos_attr_read_tconv, 0, NULL,
+                    NULL, NULL, udata, &tconv_task) < 0)
+                D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to perform type conversion");
 
         udata = NULL;
     } /* end if */
@@ -2865,6 +2852,8 @@ H5_daos_attribute_read(void *_attr, hid_t mem_type_id, void *buf,
     int ret;
     herr_t ret_value = SUCCEED;
 
+    H5_daos_inc_api_cnt();
+
     if(!_attr)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "attribute object is NULL");
     if(!buf)
@@ -2930,12 +2919,14 @@ H5_daos_attribute_read(void *_attr, hid_t mem_type_id, void *buf,
 
         /* Create end task for reading data (will be scheduled by internal task)
          */
-        if(0 != (ret = tse_task_create(H5_daos_attr_io_int_end_task, &H5_daos_glob_sched_g, attr_read_udata, &attr_read_udata->end_task)))
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create end task for attribute I/O operation: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(H5_daos_attr_io_int_end_task, 0, NULL, NULL, NULL,
+                attr_read_udata, &attr_read_udata->end_task) < 0)
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create end task for attribute I/O operation");
 
         /* Create task to read attribute */
-        if(0 != (ret = tse_task_create(H5_daos_attr_io_int_task, &H5_daos_glob_sched_g, attr_read_udata, &io_task)))
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to perform I/O operation: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(H5_daos_attr_io_int_task, 0, NULL, NULL, NULL,
+                attr_read_udata, &io_task) < 0)
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create end task for attribute I/O operation");
 
         /* Save task to be scheduled later */
         assert(!first_task);
@@ -2947,11 +2938,9 @@ H5_daos_attribute_read(void *_attr, hid_t mem_type_id, void *buf,
 done:
     if(int_req) {
         /* Create task to finalize H5 operation */
-        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))
-            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
-        /* Register dependency (if any) */
-        else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
-            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(H5_daos_h5op_finalize, dep_task ? 1 : 0, dep_task ? &dep_task : NULL,
+                NULL, NULL, int_req, &int_req->finalize_task) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation");
         /* Schedule finalize task */
         else if(0 != (ret = tse_task_schedule(int_req->finalize_task, false)))
             D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
@@ -3036,6 +3025,8 @@ H5_daos_attribute_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     H5_daos_attr_io_ud_t *udata;
     int ret_value = 0;
 
+    assert(H5_daos_task_list_g);
+
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for attribute I/O task");
@@ -3086,6 +3077,10 @@ H5_daos_attribute_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     } /* end else */
 
 done:
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
     if(udata) {
         /* Close attribute if there's no end task */
         if(!udata->end_task && H5_daos_attribute_close_real(udata->attr) < 0)
@@ -3163,6 +3158,10 @@ H5_daos_attribute_read_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *ar
     if(H5_daos_req_free_int(udata->req) < 0)
         D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
 
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, udata->bcast_metatask) < 0)
+        D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
     /* Complete bcast metatask */
     tse_task_complete(udata->bcast_metatask, ret_value);
 
@@ -3238,6 +3237,10 @@ done:
             DV_free(udata);
         } /* end if */
     } /* end if */
+
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
 
     /* Complete this task */
     tse_task_complete(task, ret_value);
@@ -3404,16 +3407,9 @@ H5_daos_attribute_write_int(H5_daos_attr_t *attr, hid_t mem_type_id,
                     (daos_size_t)(attr_nelmts * (uint64_t)file_type_size));
 
             /* Create task for reading to background buffer */
-            if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &H5_daos_glob_sched_g, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &bkg_fill_task)))
-                D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to read attribute: %s", H5_daos_err_to_string(ret));
-
-            /* Set callback functions for background buffer read */
-            if(0 != (ret = tse_task_register_cbs(bkg_fill_task, H5_daos_md_rw_prep_cb, NULL, 0,
-                    H5_daos_attribute_read_bkg_comp_cb, NULL, 0)))
-                D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't register callbacks for task to read background buffer for attribute write: %s", H5_daos_err_to_string(ret));
-
-            /* Set private data for background buffer read */
-            (void)tse_task_set_priv(bkg_fill_task, udata);
+            if(H5_daos_create_daos_task(DAOS_OPC_OBJ_FETCH, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+                    H5_daos_md_rw_prep_cb, H5_daos_attribute_read_bkg_comp_cb, udata, &bkg_fill_task) < 0)
+                D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to read attribute");
 
             /* Schedule background buffer read task or save it to be scheduled
              * later.  References to attr and req are already held by udata. */
@@ -3449,17 +3445,10 @@ H5_daos_attribute_write_int(H5_daos_attr_t *attr, hid_t mem_type_id,
 
     assert(udata->md_rw_cb_ud.sg_iov[0].iov_buf);
 
-    /* Create task for attribute read */
-    if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_UPDATE, &H5_daos_glob_sched_g, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &update_task)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to write attribute: %s", H5_daos_err_to_string(ret));
-
-    /* Set callback functions for attribute write */
-    if(0 != (ret = tse_task_register_cbs(update_task, H5_daos_md_rw_prep_cb, NULL, 0,
-            H5_daos_attribute_write_comp_cb, NULL, 0)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't register callbacks for task to write attribute: %s", H5_daos_err_to_string(ret));
-
-    /* Set private data for attribute write */
-    (void)tse_task_set_priv(update_task, udata);
+    /* Create task for attribute write */
+    if(H5_daos_create_daos_task(DAOS_OPC_OBJ_UPDATE, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+            H5_daos_md_rw_prep_cb, H5_daos_attribute_write_comp_cb, udata, &update_task) < 0)
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to write attribute");
 
     /* Schedule attribute write task or save it to be scheduled later.
      * References to attr and req are already held by udata. */
@@ -3526,6 +3515,8 @@ H5_daos_attribute_write(void *_attr, hid_t mem_type_id, const void *buf,
     hid_t req_dxpl_id;
     int ret;
     herr_t ret_value = SUCCEED;
+
+    H5_daos_inc_api_cnt();
 
     if(!_attr)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "attribute object is NULL");
@@ -3596,12 +3587,14 @@ H5_daos_attribute_write(void *_attr, hid_t mem_type_id, const void *buf,
 
         /* Create end task for writing data (will be scheduled by internal task)
          */
-        if(0 != (ret = tse_task_create(H5_daos_attr_io_int_end_task, &H5_daos_glob_sched_g, attr_write_udata, &attr_write_udata->end_task)))
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create end task for attribute I/O operation: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(H5_daos_attr_io_int_end_task, 0, NULL, NULL, NULL,
+                attr_write_udata, &attr_write_udata->end_task) < 0)
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create end task for attribute I/O operation");
 
         /* Create task to write attribute */
-        if(0 != (ret = tse_task_create(H5_daos_attr_io_int_task, &H5_daos_glob_sched_g, attr_write_udata, &io_task)))
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to perform I/O operation: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(H5_daos_attr_io_int_task, 0, NULL, NULL, NULL,
+                attr_write_udata, &io_task) < 0)
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create end task for attribute I/O operation");
 
         /* Save task to be scheduled later */
         assert(!first_task);
@@ -3618,11 +3611,9 @@ done:
                 D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't perform collective error check");
 
         /* Create task to finalize H5 operation */
-        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))
-            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
-        /* Register dependency (if any) */
-        else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
-            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(H5_daos_h5op_finalize, dep_task ? 1 : 0, dep_task ? &dep_task : NULL,
+                NULL, NULL, int_req, &int_req->finalize_task) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation");
         /* Schedule finalize task */
         else if(0 != (ret = tse_task_schedule(int_req->finalize_task, false)))
             D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
@@ -3707,6 +3698,8 @@ H5_daos_attribute_read_bkg_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args
     H5_daos_attr_io_ud_t *udata;
     int ret_value = 0;
 
+    assert(H5_daos_task_list_g);
+
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for attribute I/O task");
@@ -3740,6 +3733,10 @@ H5_daos_attribute_read_bkg_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args
     } /* end if */
 
 done:
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
     /* Handle errors in this function */
     /* Do not place any code that can issue errors after this block, except for
      * H5_daos_req_free_int, which updates req->status if it sees an error */
@@ -3769,6 +3766,8 @@ H5_daos_attribute_write_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     H5_daos_attr_io_ud_t *udata;
     int ret_value = 0;
 
+    assert(H5_daos_task_list_g);
+
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for attribute I/O task");
@@ -3788,7 +3787,11 @@ H5_daos_attribute_write_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     /* Close attribute if there's no end task */
     if(!udata->end_task && H5_daos_attribute_close_real(udata->attr) < 0)
-            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close attribute");
+        D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close attribute");
+
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
 
     /* Handle errors in this function */
     /* Do not place any code that can issue errors after this block, except for
@@ -3839,6 +3842,8 @@ H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
     tse_task_t *dep_task = NULL;
     int ret;
     herr_t ret_value = SUCCEED;    /* Return value */
+
+    H5_daos_inc_api_cnt();
 
     if(!item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
@@ -3978,11 +3983,9 @@ done:
         assert(item);
 
         /* Create task to finalize H5 operation */
-        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))
-            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
-        /* Register dependency (if any) */
-        else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
-            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(H5_daos_h5op_finalize, dep_task ? 1 : 0, dep_task ? &dep_task : NULL,
+                NULL, NULL, int_req, &int_req->finalize_task) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation");
         /* Schedule finalize task */
         else if(0 != (ret = tse_task_schedule(int_req->finalize_task, false)))
             D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
@@ -4063,6 +4066,8 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
     int ret;
     herr_t ret_value = SUCCEED;    /* Return value */
 
+    H5_daos_inc_api_cnt();
+
     if(!_item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
     if(!loc_params)
@@ -4136,12 +4141,9 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
             D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, FAIL, "can't open object for attribute");
 
         /* Create task to finalize internal operation */
-        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_int_req, &int_int_req->finalize_task)))
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to finalize internal operation: %s", H5_daos_err_to_string(ret));
-
-        /* Register dependency (if any) */
-        if(dep_task && 0 != (ret = tse_task_register_deps(int_int_req->finalize_task, 1, &dep_task)))
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize internal operation: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(H5_daos_h5op_finalize, dep_task ? 1 : 0, dep_task ? &dep_task : NULL,
+                NULL, NULL, int_int_req, &int_int_req->finalize_task) < 0)
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to finalize internal operation");
 
         /* Schedule finalize task (or save it to be scheduled later),
          * give it ownership of int_int_req, and update task pointers */
@@ -4270,11 +4272,9 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
 done:
     if(int_req) {
         /* Create task to finalize H5 operation */
-        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))
-            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
-        /* Register dependency (if any) */
-        else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
-            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(H5_daos_h5op_finalize, dep_task ? 1 : 0, dep_task ? &dep_task : NULL,
+                NULL, NULL, int_req, &int_req->finalize_task) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation");
         /* Schedule finalize task */
         else if(0 != (ret = tse_task_schedule(int_req->finalize_task, false)))
             D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
@@ -4409,6 +4409,8 @@ H5_daos_attribute_close(void *_attr, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
     int ret;
     herr_t ret_value = SUCCEED;
 
+    H5_daos_inc_api_cnt();
+
     if(!_attr)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "attribute object is NULL");
 
@@ -4442,8 +4444,9 @@ H5_daos_attribute_close(void *_attr, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
         task_ud->item = &attr->item;
 
         /* Create task to close attribute */
-        if(0 != (ret = tse_task_create(H5_daos_object_close_task, &H5_daos_glob_sched_g, task_ud, &close_task)))
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to close attribute: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(H5_daos_object_close_task, 0, NULL, NULL, NULL,
+                task_ud, &close_task) < 0)
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to close attribute");
 
         /* Save task to be scheduled later and give it a reference to req and
          * attr */
@@ -4459,11 +4462,9 @@ H5_daos_attribute_close(void *_attr, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
 done:
     if(int_req) {
         /* Create task to finalize H5 operation */
-        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_req, &int_req->finalize_task)))
-            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
-        /* Register dependencies (if any) */
-        else if(dep_task && 0 != (ret = tse_task_register_deps(int_req->finalize_task, 1, &dep_task)))
-            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(H5_daos_h5op_finalize, dep_task ? 1 : 0, dep_task ? &dep_task : NULL,
+                NULL, NULL, int_req, &int_req->finalize_task) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation");
         /* Schedule finalize task */
         else if(0 != (ret = tse_task_schedule(int_req->finalize_task, false)))
             D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
@@ -4591,12 +4592,9 @@ H5_daos_attribute_get_name(H5_daos_obj_t *target_obj, const H5VL_loc_params_t *l
                 D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, (-1), "can't open attribute's parent object");
 
             /* Create task to finalize internal operation */
-            if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_int_req, &int_int_req->finalize_task)))
-                D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, (-1), "can't create task to finalize internal operation: %s", H5_daos_err_to_string(ret));
-
-            /* Register dependency (if any) */
-            if(*dep_task && 0 != (ret = tse_task_register_deps(int_int_req->finalize_task, 1, dep_task)))
-                D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, (-1), "can't create dependencies for task to finalize internal operation: %s", H5_daos_err_to_string(ret));
+            if(H5_daos_create_task(H5_daos_h5op_finalize, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+                    NULL, NULL, int_int_req, &int_int_req->finalize_task) < 0)
+                D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, (-1), "can't create task to finalize internal operation");
 
             /* Schedule finalize task (or save it to be scheduled later),
              * give it ownership of int_int_req, and update task pointers */
@@ -4703,12 +4701,9 @@ H5_daos_attribute_get_info(H5_daos_item_t *item, const H5VL_loc_params_t *loc_pa
                 D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, FAIL, "can't open target attribute");
 
             /* Create task to finalize internal operation */
-            if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_int_req, &int_int_req->finalize_task)))
-                D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to finalize internal operation: %s", H5_daos_err_to_string(ret));
-
-            /* Register dependency (if any) */
-            if(*dep_task && 0 != (ret = tse_task_register_deps(int_int_req->finalize_task, 1, dep_task)))
-                D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize internal operation: %s", H5_daos_err_to_string(ret));
+            if(H5_daos_create_task(H5_daos_h5op_finalize, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+                    NULL, NULL, int_int_req, &int_int_req->finalize_task) < 0)
+                D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to finalize internal operation");
 
             /* Schedule finalize task (or save it to be scheduled later),
              * give it ownership of int_int_req, and update task pointers */
@@ -4774,17 +4769,9 @@ H5_daos_attribute_get_info_inplace(H5_daos_attr_get_info_ud_t *get_info_udata,
     assert(dep_task);
 
     /* Create task for retrieving attribute info */
-    if(0 != (ret = tse_task_create(H5_daos_attribute_get_info_task, &H5_daos_glob_sched_g, get_info_udata, &get_info_task)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to get attribute info: %s", H5_daos_err_to_string(ret));
-
-    /* Register dependency on dep_task if present */
-    if(*dep_task && 0 != (ret = tse_task_register_deps(get_info_task, 1, dep_task)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't register dependencies for attribute info retrieval task: %s", H5_daos_err_to_string(ret));
-
-    /* Set callback functions */
-    if(prep_cb || comp_cb)
-        if(0 != (ret = tse_task_register_cbs(get_info_task, prep_cb, NULL, 0, comp_cb, NULL, 0)))
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't register callbacks for attribute info retrieval task: %s", H5_daos_err_to_string(ret));
+    if(H5_daos_create_task(H5_daos_attribute_get_info_task, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+            prep_cb, comp_cb, get_info_udata, &get_info_task) < 0)
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to get attribute info");
 
     /* Schedule attribute info retrieval task (or save it to be scheduled later) and
      * give it a reference to req */
@@ -4803,12 +4790,9 @@ H5_daos_attribute_get_info_inplace(H5_daos_attr_get_info_ud_t *get_info_udata,
      * task for retrieving the attribute creation order value from the attribute's
      * parent object.
      */
-    if(0 != (ret = tse_task_create(H5_daos_metatask_autocomplete, &H5_daos_glob_sched_g, NULL, &get_info_udata->get_info_metatask)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create meta task for attribute info retrieval: %s", H5_daos_err_to_string(ret));
-
-    /* Register dependency on attribute info retrieval task for metatask */
-    if(0 != (ret = tse_task_register_deps(get_info_udata->get_info_metatask, 1, &get_info_task)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create dependencies for attribute info retrieval metatask: %s", H5_daos_err_to_string(ret));
+    if(H5_daos_create_task(H5_daos_metatask_autocomplete, 1, &get_info_task,
+            NULL, NULL, NULL, &get_info_udata->get_info_metatask) < 0)
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create meta task for attribute info retrieval");
 
     /* Schedule meta task */
     assert(*first_task);
@@ -4892,6 +4876,10 @@ done:
     } /* end if */
     else
         assert(ret_value == -H5_DAOS_DAOS_GET_ERROR);
+
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
 
     /* Complete this task */
     tse_task_complete(task, ret_value);
@@ -5039,17 +5027,9 @@ H5_daos_attribute_delete(H5_daos_obj_t *attr_container_obj, const H5VL_loc_param
         } /* end if */
 
         /* Create task to punch akeys - DSINC - currently no support for deleting vlen data akeys */
-        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_PUNCH_AKEYS, &H5_daos_glob_sched_g,
-                *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &delete_task)))
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to delete attribute: %s", H5_daos_err_to_string(ret));
-
-        /* Set callback functions for task to delete attribute */
-        if(0 != (ret = tse_task_register_cbs(delete_task, H5_daos_attribute_delete_prep_cb, NULL, 0,
-                H5_daos_attribute_delete_comp_cb, NULL, 0)))
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't register callbacks for attribute deletion task: %s", H5_daos_err_to_string(ret));
-
-        /* Set private data for attribute deletion task */
-        (void)tse_task_set_priv(delete_task, delete_udata);
+        if(H5_daos_create_daos_task(DAOS_OPC_OBJ_PUNCH_AKEYS, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+                H5_daos_attribute_delete_prep_cb, H5_daos_attribute_delete_comp_cb, delete_udata, &delete_task) < 0)
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to delete attribute");
 
         /* Schedule task to delete attribute attached to object (or save
          * it to be scheduled later) and give it a reference to req.
@@ -5121,11 +5101,11 @@ H5_daos_attribute_delete_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     /* Set deletion task arguments */
     if(NULL == (punch_args = daos_task_get_args(task)))
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for attribute deletion task");
+    memset(punch_args, 0, sizeof(*punch_args));
     punch_args->oh = udata->attr_parent_obj->obj_oh;
     punch_args->th = DAOS_TX_NONE;
     punch_args->dkey = &udata->dkey;
     punch_args->akeys = udata->akeys;
-    punch_args->flags = 0;
     punch_args->akey_nr = H5_DAOS_ATTR_NUM_AKEYS;
 
 done:
@@ -5154,6 +5134,8 @@ H5_daos_attribute_delete_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     H5_daos_attr_delete_ud_t *udata;
     int ret_value = 0;
 
+    assert(H5_daos_task_list_g);
+
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for attribute deletion task");
@@ -5168,6 +5150,10 @@ H5_daos_attribute_delete_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     } /* end if */
 
 done:
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
     if(udata) {
         if(udata->attr_parent_obj && H5_daos_object_close(&udata->attr_parent_obj->item) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
@@ -5626,16 +5612,9 @@ H5_daos_attribute_exists(H5_daos_obj_t *attr_container_obj, const char *attr_nam
         } /* end if */
 
         /* Create task for fetch */
-        if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &H5_daos_glob_sched_g,
-                *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &fetch_task)))
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create attribute exists task: %s", H5_daos_err_to_string(ret));
-
-        /* Set callback functions for fetch */
-        if(0 != (ret = tse_task_register_cbs(fetch_task, H5_daos_attr_exists_prep_cb, NULL, 0, H5_daos_attr_exists_comp_cb, NULL, 0)))
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't register callbacks for attribute exists task: %s", H5_daos_err_to_string(ret));
-
-        /* Set private data for fetch */
-        (void)tse_task_set_priv(fetch_task, attr_exists_ud);
+        if(H5_daos_create_daos_task(DAOS_OPC_OBJ_FETCH, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+                H5_daos_attr_exists_prep_cb, H5_daos_attr_exists_comp_cb, attr_exists_ud, &fetch_task) < 0)
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create attribute exists task");
 
         /* Schedule fetch task (or save it to be scheduled later) and give it a
          * reference to req and udata (transfer ownership of attr_container_obj) */
@@ -5723,13 +5702,12 @@ H5_daos_attr_exists_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     /* Set update task arguments */
     if(NULL == (rw_args = daos_task_get_args(task)))
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for attribute exists task");
+    memset(rw_args, 0, sizeof(*rw_args));
     rw_args->oh = udata->bcast_ud.obj->obj_oh;
     rw_args->th = udata->bcast_ud.req->th;
-    rw_args->flags = 0;
     rw_args->dkey = &udata->dkey;
     rw_args->nr = (uint32_t)udata->nr + (udata->bcast_ud.obj->ocpl_cache.track_acorder ? 1 : 0);
     rw_args->iods = udata->iod;
-    rw_args->sgls = NULL;
 
 done:
     if(ret_value < 0)
@@ -5755,6 +5733,8 @@ H5_daos_attr_exists_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
     H5_daos_attr_exists_ud_t *udata;
     int ret_value = 0;
+
+    assert(H5_daos_task_list_g);
 
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
@@ -5805,6 +5785,10 @@ H5_daos_attr_exists_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     } /* end if */
 
 done:
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
     /* Clean up */
     if(udata) {
         /* Release our reference to object */
@@ -5920,6 +5904,10 @@ done:
         if(H5_daos_req_free_int(udata->bcast_ud.req) < 0)
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
 
+        /* Return task to task list */
+        if(H5_daos_task_list_put(H5_daos_task_list_g, udata->bcast_ud.bcast_metatask) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
         /* Complete bcast metatask */
         tse_task_complete(udata->bcast_ud.bcast_metatask, ret_value);
 
@@ -5995,12 +5983,9 @@ H5_daos_attribute_iterate(H5_daos_obj_t *attr_container_obj, H5_daos_iter_data_t
      * is necessary because the initial iteration task will generate other async
      * tasks for retrieving an attribute's info and making the user-supplied operator
      * function callback. */
-    if(0 != (ret = tse_task_create(H5_daos_attribute_iterate_finish, &H5_daos_glob_sched_g, iterate_udata, &iterate_udata->iterate_metatask)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create meta task for attribute iteration: %s", H5_daos_err_to_string(ret));
-
-    /* Register dependency on attribute iteration task for metatask */
-    if(*dep_task && 0 != (ret = tse_task_register_deps(iterate_udata->iterate_metatask, 1, dep_task)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create dependencies for attribute iteration metatask: %s", H5_daos_err_to_string(ret));
+    if(H5_daos_create_task(H5_daos_attribute_iterate_finish, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+            NULL, NULL, iterate_udata, &iterate_udata->iterate_metatask) < 0)
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create meta task for attribute iteration");
 
     /* Schedule meta task */
     if(*first_task) {
@@ -6091,16 +6076,10 @@ H5_daos_attribute_iterate_by_name_order(H5_daos_attr_iterate_ud_t *iterate_udata
     iterate_udata->u.name_order_data.md_rw_cb_ud.task_name = "attribute iterate";
 
     /* Create task for initial daos_obj_list_akey operation */
-    if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_LIST_AKEY, &H5_daos_glob_sched_g, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL, &list_akey_task)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to list object's attribute akeys: %s", H5_daos_err_to_string(ret));
-
-    /* Set callback functions for object akey list operation */
-    if(0 != (ret = tse_task_register_cbs(list_akey_task, H5_daos_attribute_iterate_by_name_prep_cb, NULL, 0,
-            H5_daos_attribute_iterate_by_name_comp_cb, NULL, 0)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't register callbacks for task to list object's attribute akeys: %s", H5_daos_err_to_string(ret));
-
-    /* Set private data for object akey list operation */
-    (void)tse_task_set_priv(list_akey_task, iterate_udata);
+    if(H5_daos_create_daos_task(DAOS_OPC_OBJ_LIST_AKEY, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+            H5_daos_attribute_iterate_by_name_prep_cb, H5_daos_attribute_iterate_by_name_comp_cb,
+            iterate_udata, &list_akey_task) < 0)
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to list object's attribute akeys");
 
     /* Schedule object akey list task (or save it to be scheduled later). */
     if(*first_task) {
@@ -6171,21 +6150,15 @@ H5_daos_attribute_iterate_by_name_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSE
     /* Set list task arguments */
     if(NULL == (list_args = daos_task_get_args(task)))
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for object akey list task");
+    memset(list_args, 0, sizeof(*list_args));
     list_args->oh = udata->u.name_order_data.md_rw_cb_ud.obj->obj_oh;
     list_args->th = DAOS_TX_NONE;
     list_args->dkey = &udata->u.name_order_data.md_rw_cb_ud.dkey;
-    list_args->akey = NULL;
     list_args->nr = &udata->u.name_order_data.akey_nr;
     list_args->kds = udata->u.name_order_data.kds;
     list_args->sgl = udata->u.name_order_data.md_rw_cb_ud.sgl;
-    list_args->size = NULL;
     list_args->type = DAOS_IOD_NONE;
-    list_args->recxs = NULL;
-    list_args->eprs = NULL;
-    list_args->anchor = NULL;
-    list_args->dkey_anchor = NULL;
     list_args->akey_anchor = &udata->u.name_order_data.anchor;
-    list_args->versions = NULL;
     list_args->incr_order = udata->iter_data.iter_order == H5_ITER_INC || udata->iter_data.iter_order == H5_ITER_NATIVE;
 
 done:
@@ -6217,6 +6190,8 @@ H5_daos_attribute_iterate_by_name_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSE
     tse_task_t *dep_task = NULL;
     int ret;
     int ret_value = 0;
+
+    assert(H5_daos_task_list_g);
 
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
@@ -6316,6 +6291,11 @@ H5_daos_attribute_iterate_by_name_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSE
                 if(0 != (ret = tse_task_reinit(task)))
                     D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't re-initialize task to list object's attribute akeys: %s", H5_daos_err_to_string(ret));
             } /* end if */
+            else {
+                /* Return task to task list */
+                if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+                    D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+            }
         } /* end else */
     } /* end else */
 
@@ -6462,12 +6442,9 @@ H5_daos_attribute_get_iter_op_task(H5_daos_attr_iterate_ud_t *iterate_udata, con
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, FAIL, "can't open target attribute");
 
     /* Create task to finalize internal operation */
-    if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_int_req, &int_int_req->finalize_task)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to finalize internal operation: %s", H5_daos_err_to_string(ret));
-
-    /* Register dependency (if any) */
-    if(*dep_task && 0 != (ret = tse_task_register_deps(int_int_req->finalize_task, 1, dep_task)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize internal operation: %s", H5_daos_err_to_string(ret));
+    if(H5_daos_create_task(H5_daos_h5op_finalize, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+            NULL, NULL, int_int_req, &int_int_req->finalize_task) < 0)
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to finalize internal operation");
 
     /* Schedule finalize task (or save it to be scheduled later),
      * give it ownership of int_int_req, and update task pointers */
@@ -6486,12 +6463,9 @@ H5_daos_attribute_get_iter_op_task(H5_daos_attr_iterate_ud_t *iterate_udata, con
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute info");
 
     /* Create task to call user-supplied operator callback */
-    if(0 != (ret = tse_task_create(H5_daos_attribute_iterate_op_task, &H5_daos_glob_sched_g, op_udata, &iter_op_task)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to call operator callback function: %s", H5_daos_err_to_string(ret));
-
-    /* Register dependency on dep_task if present */
-    if(*dep_task && 0 != (ret = tse_task_register_deps(iter_op_task, 1, dep_task)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create dependencies for operator callback function task: %s", H5_daos_err_to_string(ret));
+    if(H5_daos_create_task(H5_daos_attribute_iterate_op_task, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+            NULL, NULL, op_udata, &iter_op_task) < 0)
+        D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to call operator callback function");
 
     /* Schedule operator callback function task (or save it to be scheduled later) and
      * give it a reference to req */
@@ -6589,16 +6563,14 @@ done:
         /* Create metatask to complete this task after dep_task if necessary */
         if(dep_task) {
             /* Create metatask */
-            if(0 != (ret = tse_task_create(H5_daos_metatask_autocomp_other,
-                    &H5_daos_glob_sched_g, task, &metatask))) {
-                D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, ret, "can't create metatask for attribute iter op task: %s", H5_daos_err_to_string(ret));
+            if(H5_daos_create_task(H5_daos_metatask_autocomp_other, 1, &dep_task,
+                    NULL, NULL, task, &metatask) < 0) {
+                D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't create metatask for attribute iter op task");
+                if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+                    D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
                 tse_task_complete(task, ret_value);
-            } /* end if */
+            }
             else {
-                /* Register task dependency */
-                if(0 != (ret = tse_task_register_deps(metatask, 1, &dep_task)))
-                    D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, ret, "can't create dependencies for attribute iter op metatask: %s", H5_daos_err_to_string(ret));
-
                 /* Schedule metatask */
                 assert(first_task);
                 if(0 != (ret = tse_task_schedule(metatask, false)))
@@ -6633,8 +6605,12 @@ done:
         assert(ret_value == -H5_DAOS_DAOS_GET_ERROR);
 
     /* Complete task if necessary */
-    if(!metatask)
+    if(!metatask) {
+        /* Return task to task list */
+        if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
         tse_task_complete(task, ret_value);
+    }
 
     D_FUNC_LEAVE;
 } /* end H5_daos_attribute_iterate_op_task() */
@@ -6709,6 +6685,10 @@ H5_daos_attribute_iterate_finish(tse_task_t *task)
     DV_free(udata);
 
 done:
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
     /* Complete this task */
     tse_task_complete(task, ret_value);
 
@@ -6787,12 +6767,9 @@ H5_daos_attribute_rename(H5_daos_obj_t *attr_container_obj, const char *cur_attr
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTOPENOBJ, FAIL, "can't open attribute");
 
     /* Create task to finalize internal operation */
-    if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_int_req, &int_int_req->finalize_task)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to finalize internal operation: %s", H5_daos_err_to_string(ret));
-
-    /* Register dependency (if any) */
-    if(*dep_task && 0 != (ret = tse_task_register_deps(int_int_req->finalize_task, 1, dep_task)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize internal operation: %s", H5_daos_err_to_string(ret));
+    if(H5_daos_create_task(H5_daos_h5op_finalize, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+            NULL, NULL, int_int_req, &int_int_req->finalize_task) < 0)
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to finalize internal operation");
 
     /* Schedule finalize task (or save it to be scheduled later),
      * give it ownership of int_int_req, and update task pointers */
@@ -6822,12 +6799,9 @@ H5_daos_attribute_rename(H5_daos_obj_t *attr_container_obj, const char *cur_attr
             D_GOTO_ERROR(H5E_ATTR, H5E_CANTCREATE, FAIL, "can't create new attribute");
 
         /* Create task to finalize internal operation */
-        if(0 != (ret = tse_task_create(H5_daos_h5op_finalize, &H5_daos_glob_sched_g, int_int_req, &int_int_req->finalize_task)))
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to finalize internal operation: %s", H5_daos_err_to_string(ret));
-
-        /* Register dependency (if any) */
-        if(*dep_task && 0 != (ret = tse_task_register_deps(int_int_req->finalize_task, 1, dep_task)))
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create dependencies for task to finalize internal operation: %s", H5_daos_err_to_string(ret));
+        if(H5_daos_create_task(H5_daos_h5op_finalize, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+                NULL, NULL, int_int_req, &int_int_req->finalize_task) < 0)
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to finalize internal operation");
 
         /* Schedule finalize task (or save it to be scheduled later),
          * give it ownership of int_int_req, and update task pointers */
@@ -6965,8 +6939,16 @@ done:
             D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
 
         /* Complete main task if different from this task */
-        if(udata->gnbi_task != task)
+        if(udata->gnbi_task != task) {
+            /* Return task to task list */
+            if(H5_daos_task_list_put(H5_daos_task_list_g, udata->gnbi_task) < 0)
+                D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
             tse_task_complete(udata->gnbi_task, ret_value);
+        }
+
+        /* Return task to task list */
+        if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+            D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
 
         /* Complete this task */
         tse_task_complete(task, ret_value);
@@ -7033,12 +7015,9 @@ H5_daos_attribute_get_name_by_idx_alloc(H5_daos_obj_t *target_obj,
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get link name by index");
 
     /* Create task to finish this operation */
-    if(0 !=  (ret = tse_task_create(H5_daos_attr_gnbi_alloc_task, &H5_daos_glob_sched_g, gnbi_udata, &gnbi_udata->gnbi_task)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task for attribute get name by index: %s", H5_daos_err_to_string(ret));
-
-    /* Register task dependency */
-    if(*dep_task && 0 != (ret = tse_task_register_deps(gnbi_udata->gnbi_task, 1, dep_task)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create dependencies for attribute get name by index task: %s", H5_daos_err_to_string(ret));
+    if(H5_daos_create_task(H5_daos_attr_gnbi_alloc_task, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+            NULL, NULL, gnbi_udata, &gnbi_udata->gnbi_task) < 0)
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task for attribute get name by index");
 
     /* Schedule gnbi task (or save it to be scheduled later) and give it a
      * reference to the group, req and udata */
@@ -7169,13 +7148,9 @@ H5_daos_attribute_get_name_by_name_order(H5_daos_attr_get_name_by_idx_ud_t *get_
     /* Create task to check that requested index value is within range
      * of the number of attributes attached to the object.
      */
-    if(0 != (ret = tse_task_create(H5_daos_attribute_gnbno_no_attrs_check_task,
-            &H5_daos_glob_sched_g, get_name_udata, &no_attrs_check_task)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to check for no attributes on object: %s", H5_daos_err_to_string(ret));
-
-    /* Register dependency on dep_task if present */
-    if(*dep_task && 0 != (ret = tse_task_register_deps(no_attrs_check_task, 1, dep_task)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't register dependencies for attribute count check task: %s", H5_daos_err_to_string(ret));
+    if(H5_daos_create_task(H5_daos_attribute_gnbno_no_attrs_check_task, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+            NULL, NULL, get_name_udata, &no_attrs_check_task) < 0)
+        D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to check for no attributes on object");
 
     /* Schedule attribute count check task (or save it to be scheduled later) and
      * give it a reference to req */
@@ -7301,6 +7276,10 @@ done:
     else
         assert(ret_value == -H5_DAOS_DAOS_GET_ERROR);
 
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
     /* Complete this task */
     tse_task_complete(task, ret_value);
 
@@ -7378,17 +7357,10 @@ H5_daos_attribute_get_name_by_crt_order(H5_daos_attr_get_name_by_idx_ud_t *get_n
     get_name_udata->u.by_crt_order_data.md_rw_cb_ud.task_name = "attribute name retrieval";
 
     /* Create task to fetch attribute's name */
-    if(0 != (ret = daos_task_create(DAOS_OPC_OBJ_FETCH, &H5_daos_glob_sched_g, *dep_task ? 1 : 0,
-            *dep_task ? dep_task : NULL, &fetch_task)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to retrieve attribute's name: %s", H5_daos_err_to_string(ret));
-
-    /* Set callback functions for attribute name fetch */
-    if(0 != (ret = tse_task_register_cbs(fetch_task, H5_daos_attribute_get_name_by_crt_order_prep_cb, NULL, 0,
-            H5_daos_attribute_get_name_by_crt_order_comp_cb, NULL, 0)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't register callbacks for task to retrieve attribute's name: %s", H5_daos_err_to_string(ret));
-
-    /* Set private data for attribute name fetch */
-    (void)tse_task_set_priv(fetch_task, get_name_udata);
+    if(H5_daos_create_daos_task(DAOS_OPC_OBJ_FETCH, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+            H5_daos_attribute_get_name_by_crt_order_prep_cb, H5_daos_attribute_get_name_by_crt_order_comp_cb,
+            get_name_udata, &fetch_task) < 0)
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to retrieve attribute's name");
 
     /* Schedule attribute name fetch task (or save it to be scheduled later) and give it
      * a reference to req */
@@ -7458,6 +7430,7 @@ H5_daos_attribute_get_name_by_crt_order_prep_cb(tse_task_t *task, void H5VL_DAOS
     /* Set fetch task arguments */
     if(NULL == (fetch_args = daos_task_get_args(task)))
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for attribute name fetch task");
+    memset(fetch_args, 0, sizeof(*fetch_args));
     fetch_args->oh = udata->u.by_crt_order_data.md_rw_cb_ud.obj->obj_oh;
     fetch_args->th = DAOS_TX_NONE;
     fetch_args->flags = udata->u.by_crt_order_data.md_rw_cb_ud.flags;
@@ -7492,6 +7465,8 @@ H5_daos_attribute_get_name_by_crt_order_comp_cb(tse_task_t *task, void H5VL_DAOS
     H5_daos_attr_get_name_by_idx_ud_t *udata;
     int ret_value = 0;
 
+    assert(H5_daos_task_list_g);
+
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for attribute name fetch task");
@@ -7519,6 +7494,10 @@ H5_daos_attribute_get_name_by_crt_order_comp_cb(tse_task_t *task, void H5VL_DAOS
     } /* end else */
 
 done:
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
     D_FUNC_LEAVE;
 } /* end H5_daos_attribute_get_name_by_crt_order_comp_cb() */
 
@@ -7547,13 +7526,9 @@ H5_daos_attribute_get_name_by_idx_free_udata(H5_daos_attr_get_name_by_idx_ud_t *
     assert(dep_task);
 
     /* Create task for freeing udata */
-    if(0 != (ret = tse_task_create(H5_daos_attribute_get_name_by_idx_free_udata_task, &H5_daos_glob_sched_g,
-            udata, &free_task)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to free attribute name retrieval udata: %s", H5_daos_err_to_string(ret));
-
-    /* Register dependency on dep_task if present */
-    if(*dep_task && 0 != (ret = tse_task_register_deps(free_task, 1, dep_task)))
-        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't register dependencies for task to free attribute name retrieval udata: %s", H5_daos_err_to_string(ret));
+    if(H5_daos_create_task(H5_daos_attribute_get_name_by_idx_free_udata_task, *dep_task ? 1 : 0,
+            *dep_task ? dep_task : NULL, NULL, NULL, udata, &free_task) < 0)
+        D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to free attribute name retrieval udata");
 
     /* Schedule attribute name retrieval udata free task (or save it to be scheduled later) and
      * give it a reference to req and target_obj */
@@ -7619,6 +7594,10 @@ done:
     }
     else
         assert(ret_value == -H5_DAOS_DAOS_GET_ERROR);
+
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
 
     /* Complete this task */
     tse_task_complete(task, ret_value);

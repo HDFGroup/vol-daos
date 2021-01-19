@@ -65,6 +65,7 @@ typedef struct {
     hbool_t testMapOnly;
     hbool_t isAsync;
     hbool_t useWait;
+    hbool_t trackOrder;
     hbool_t noGroupMember;
     hbool_t noWriteReadData;
     hbool_t noMapEntry;
@@ -214,7 +215,7 @@ hid_t map_vl_key_dtype_id, map_vl_value_dtype_id;
 static void
 usage(void)
 {
-    printf("    [-h] [-a] [-A] [-b] [-c] [-d] [-D] [-e] [-f] [-F] [-g] [-G] [-i] [-I] [-j] [-l] [-m] [-M] [-n] [-o] [-r] [-s] [-t] [-T] [-u] [-z]\n\n"); 
+    printf("    [-h] [-a] [-A] [-b] [-c] [-d] [-D] [-e] [-f] [-F] [-g] [-G] [-i] [-I] [-j] [-k] [-l] [-m] [-M] [-n] [-o] [-r] [-s] [-t] [-T] [-u] [-z]\n\n"); 
 
     printf("    [-h]: this help page\n");
     printf("    [-a]: indicate to run collective metadata I/O (H5MPIIO as the backend)\n");
@@ -231,6 +232,7 @@ usage(void)
     printf("    [-i]: the number of trees (iterations) for object operations\n");
     printf("    [-I]: the number of objects (groups, datasets, attributes, and maps) per tree node\n");
     printf("    [-j]: the number of subgroups in the group objects\n");
+    printf("    [-k]: track the creation order for the parent group where all objects are created under\n");
     printf("    [-l]: the layout of datasets (contiguous is the default), e.g. chunked or compact\n");
     printf("    [-m]: the datatype for map object\n");
     printf("    [-M]: Run the test for map object only\n");
@@ -282,6 +284,7 @@ parse_command_line(int argc, char *argv[])
     hand.noMapEntry = FALSE;
     hand.isAsync = FALSE;
     hand.useWait = FALSE;
+    hand.trackOrder = FALSE;
     hand.dset_dtype = strdup("int");
     hand.map_dtype = strdup("int");
     hand.dset_layout = strdup("contiguous");
@@ -427,6 +430,12 @@ parse_command_line(int argc, char *argv[])
                     hand.numbOfNestedGroups = atoi(optarg);
                 } else
                     printf("optarg is null\n");
+                break;
+            case 'k':
+                /* Flag to indicate tracking the creation order for the parent group where all objects are created under */
+                if(MAINPROCESS)
+                    fprintf(stdout, "track the creation order for the parent group:		TRUE\n");
+                hand.trackOrder = TRUE;
                 break;
             case 'l':
                 /* Dataset layout */
@@ -1067,12 +1076,12 @@ static int create_ids()
         goto error;
     }
 
-    /* Need a command-line option to enable and disable creation order tracking */
-    /*if(H5Pset_link_creation_order(gcpl_id, H5P_CRT_ORDER_TRACKED | H5P_CRT_ORDER_INDEXED) < 0) {
+    /* Enable the creation order tracking for the unique group under which objects are tested */
+    if(hand.trackOrder && H5Pset_link_creation_order(gcpl_id, H5P_CRT_ORDER_TRACKED | H5P_CRT_ORDER_INDEXED) < 0) {
         H5_FAILED(); AT();
         printf("    couldn't set creation order for group creation property list\n");
         goto error;
-    }*/
+    }
 
     /* The group access property list for create the tree nodes, which are supposed to be created collective.
      * This is a simple way to avoid creating the tree structure independently. */
@@ -1123,13 +1132,19 @@ test_group(hid_t loc_id)
     hsize_t op_data;
     int i, j;
     double start, end, time;
-    hid_t estack;
+    hid_t estack = H5I_INVALID_HID;
     size_t num_in_progress = 0;
     hbool_t op_failed = FALSE;
 
     if(hand.isAsync && (estack = H5EScreate()) < 0) {
         H5_FAILED(); AT();
         printf("failed to create event set\n");
+        goto error;
+    }
+
+    if (MPI_SUCCESS != MPI_Barrier(MPI_COMM_WORLD)) {
+        H5_FAILED(); AT();
+        printf("MPI_Barrier failed\n");
         goto error;
     }
 
@@ -1210,6 +1225,12 @@ test_group(hid_t loc_id)
     time = end - start;
     op_time[GROUP_CREATE_NUM][tree_order] += time;
 
+    if (MPI_SUCCESS != MPI_Barrier(MPI_COMM_WORLD)) {
+        H5_FAILED(); AT();
+        printf("MPI_Barrier failed\n");
+        goto error;
+    }
+
     /* Group close */
     start = MPI_Wtime();
     for (i = 0; i < hand.numbOfObjs; i++) {
@@ -1243,6 +1264,12 @@ test_group(hid_t loc_id)
     if (hand.isAsync && H5Oflush_async(loc_id, estack) < 0) {
 	H5_FAILED(); AT();
 	printf("failed to flush group object\n");
+        goto error;
+    }
+
+    if (MPI_SUCCESS != MPI_Barrier(MPI_COMM_WORLD)) {
+        H5_FAILED(); AT();
+        printf("MPI_Barrier failed\n");
         goto error;
     }
 
@@ -1286,6 +1313,12 @@ test_group(hid_t loc_id)
     time = end - start;
     op_time[GROUP_OPEN_NUM][tree_order] += time;
 
+    if (MPI_SUCCESS != MPI_Barrier(MPI_COMM_WORLD)) {
+        H5_FAILED(); AT();
+        printf("MPI_Barrier failed\n");
+        goto error;
+    }
+
     /* Group info */
     start = MPI_Wtime();
     for (i = 0; i < hand.numbOfObjs; i++) {
@@ -1316,6 +1349,12 @@ test_group(hid_t loc_id)
     time = end - start;
     op_time[GROUP_INFO_NUM][tree_order] += time;
 
+    if (MPI_SUCCESS != MPI_Barrier(MPI_COMM_WORLD)) {
+        H5_FAILED(); AT();
+        printf("MPI_Barrier failed\n");
+        goto error;
+    }
+
     /* Group close */
     for (i = 0; i < hand.numbOfObjs; i++) {
         if(hand.isAsync) {
@@ -1341,6 +1380,12 @@ test_group(hid_t loc_id)
         }
     }
 
+    if (MPI_SUCCESS != MPI_Barrier(MPI_COMM_WORLD)) {
+        H5_FAILED(); AT();
+        printf("MPI_Barrier failed\n");
+        goto error;
+    }
+
     /* Link traversal */
     {
         op_data = 0;
@@ -1359,6 +1404,12 @@ test_group(hid_t loc_id)
 #ifdef DEBUG
         printf("Link iterate time: %lf, mpi_rank=%d\n", time, mpi_rank);
 #endif
+    }
+
+    if (MPI_SUCCESS != MPI_Barrier(MPI_COMM_WORLD)) {
+        H5_FAILED(); AT();
+        printf("MPI_Barrier failed\n");
+        goto error;
     }
 
     /* Allocate array of existence results */
@@ -1420,7 +1471,12 @@ test_group(hid_t loc_id)
             }
     }
 
-#ifdef TMP
+    if (MPI_SUCCESS != MPI_Barrier(MPI_COMM_WORLD)) {
+        H5_FAILED(); AT();
+        printf("MPI_Barrier failed\n");
+        goto error;
+    }
+
     /* Group removal */
     start = MPI_Wtime();
     for (i = 0; i < hand.numbOfObjs; i++) {
@@ -1452,7 +1508,12 @@ test_group(hid_t loc_id)
     end = MPI_Wtime();
     time = end - start;
     op_time[GROUP_REMOVE_NUM][tree_order] += time;
-#endif
+
+    if (MPI_SUCCESS != MPI_Barrier(MPI_COMM_WORLD)) {
+        H5_FAILED(); AT();
+        printf("MPI_Barrier failed\n");
+        goto error;
+    }
 
     if(gid)
         free(gid);
@@ -1486,13 +1547,19 @@ test_dataset(hid_t loc_id)
     H5O_info2_t obj_info;
     int i;
     double start, end, time;
-    hid_t estack;
+    hid_t estack = H5I_INVALID_HID;
     size_t num_in_progress = 0;
     hbool_t op_failed = FALSE;
 
     if(hand.isAsync && (estack = H5EScreate()) < 0) {
         H5_FAILED(); AT();
         printf("failed to create event set\n");
+        goto error;
+    }
+
+    if (MPI_SUCCESS != MPI_Barrier(MPI_COMM_WORLD)) {
+        H5_FAILED(); AT();
+        printf("MPI_Barrier failed\n");
         goto error;
     }
 
@@ -1538,6 +1605,12 @@ test_dataset(hid_t loc_id)
     time = end - start;
     op_time[DSET_CREATE_NUM][tree_order] += time;
     op_time[DSET_CREATEWRITECLOSE_NUM][tree_order] += time;
+
+    if (MPI_SUCCESS != MPI_Barrier(MPI_COMM_WORLD)) {
+        H5_FAILED(); AT();
+        printf("MPI_Barrier failed\n");
+        goto error;
+    }
 
     /* Dataset write */
     if(!hand.noWriteReadData) {
@@ -1646,6 +1719,12 @@ test_dataset(hid_t loc_id)
         op_time[DSET_CREATEWRITECLOSE_NUM][tree_order] += time;
     }
 
+    if (MPI_SUCCESS != MPI_Barrier(MPI_COMM_WORLD)) {
+        H5_FAILED(); AT();
+        printf("MPI_Barrier failed\n");
+        goto error;
+    }
+
     /* Dataset close */
     start = MPI_Wtime();
     for (i = 0; i < hand.numbOfObjs; i++) {
@@ -1680,6 +1759,12 @@ test_dataset(hid_t loc_id)
     if (hand.isAsync && H5Oflush_async(loc_id, estack) < 0) {
 	H5_FAILED(); AT();
 	printf("failed to flush dataset object\n");
+        goto error;
+    }
+
+    if (MPI_SUCCESS != MPI_Barrier(MPI_COMM_WORLD)) {
+        H5_FAILED(); AT();
+        printf("MPI_Barrier failed\n");
         goto error;
     }
 
@@ -1723,6 +1808,12 @@ test_dataset(hid_t loc_id)
     time = end - start;
     op_time[DSET_OPEN_NUM][tree_order] += time;
     op_time[DSET_OPENREADCLOSE_NUM][tree_order] += time;
+
+    if (MPI_SUCCESS != MPI_Barrier(MPI_COMM_WORLD)) {
+        H5_FAILED(); AT();
+        printf("MPI_Barrier failed\n");
+        goto error;
+    }
 
     /* Dataset read */
     if(!hand.noWriteReadData) {
@@ -1831,7 +1922,12 @@ test_dataset(hid_t loc_id)
     op_time[DSET_READ_NUM][tree_order] += time;
     op_time[DSET_OPENREADCLOSE_NUM][tree_order] += time;
 
-#ifndef TMP
+    if (MPI_SUCCESS != MPI_Barrier(MPI_COMM_WORLD)) {
+        H5_FAILED(); AT();
+        printf("MPI_Barrier failed\n");
+        goto error;
+    }
+
     /* Dataset info - no async function available */
     start = MPI_Wtime();
     for (i = 0; i < hand.numbOfObjs; i++) {
@@ -1845,7 +1941,12 @@ test_dataset(hid_t loc_id)
     end = MPI_Wtime();
     time = end - start;
     op_time[DSET_INFO_NUM][tree_order] += time;
-#endif
+
+    if (MPI_SUCCESS != MPI_Barrier(MPI_COMM_WORLD)) {
+        H5_FAILED(); AT();
+        printf("MPI_Barrier failed\n");
+        goto error;
+    }
 
     /* Dataset close */
     start = MPI_Wtime();
@@ -1877,7 +1978,12 @@ test_dataset(hid_t loc_id)
     time = end - start;
     op_time[DSET_OPENREADCLOSE_NUM][tree_order] += time;
 
-#ifdef TMP
+    if (MPI_SUCCESS != MPI_Barrier(MPI_COMM_WORLD)) {
+        H5_FAILED(); AT();
+        printf("MPI_Barrier failed\n");
+        goto error;
+    }
+
     /* Dataset removal */
     start = MPI_Wtime();
     for (i = 0; i < hand.numbOfObjs; i++) {
@@ -1909,7 +2015,12 @@ test_dataset(hid_t loc_id)
     end = MPI_Wtime();
     time = end - start;
     op_time[DSET_REMOVE_NUM][tree_order] += time;
-#endif /*TMP*/
+
+    if (MPI_SUCCESS != MPI_Barrier(MPI_COMM_WORLD)) {
+        H5_FAILED(); AT();
+        printf("MPI_Barrier failed\n");
+        goto error;
+    }
 
     if(dset_id)
         free(dset_id);
@@ -2241,17 +2352,23 @@ error:
 static int
 test_map(hid_t loc_id)
 {
-    hid_t *map_id;
+    hid_t *map_id = NULL;
     char  map_name[NAME_LENGTH];
     int i, j;
     double start, end, time;
-    hid_t estack;
+    hid_t estack = H5I_INVALID_HID;
     size_t num_in_progress = 0;
     hbool_t op_failed = FALSE;
 
     if(hand.isAsync && (estack = H5EScreate()) < 0) {
         H5_FAILED(); AT();
         printf("failed to create event set\n");
+        goto error;
+    }
+
+    if (MPI_SUCCESS != MPI_Barrier(MPI_COMM_WORLD)) {
+        H5_FAILED(); AT();
+        printf("MPI_Barrier failed\n");
         goto error;
     }
 
@@ -2320,6 +2437,12 @@ test_map(hid_t loc_id)
     time = end - start;
     op_time[MAP_CREATE_NUM][tree_order] += time;
 
+    if (MPI_SUCCESS != MPI_Barrier(MPI_COMM_WORLD)) {
+        H5_FAILED(); AT();
+        printf("MPI_Barrier failed\n");
+        goto error;
+    }
+
     /* Map put */
     start = MPI_Wtime();
     for (i = 0; i < hand.numbOfObjs; i++) {
@@ -2362,6 +2485,12 @@ test_map(hid_t loc_id)
     time = end - start;
     op_time[MAP_PUT_NUM][tree_order] += time;
 
+    if (MPI_SUCCESS != MPI_Barrier(MPI_COMM_WORLD)) {
+        H5_FAILED(); AT();
+        printf("MPI_Barrier failed\n");
+        goto error;
+    }
+
     /* Map close */
     start = MPI_Wtime();
     for (i = 0; i < hand.numbOfObjs; i++) {
@@ -2398,6 +2527,12 @@ test_map(hid_t loc_id)
         goto error;
     }
 
+    if (MPI_SUCCESS != MPI_Barrier(MPI_COMM_WORLD)) {
+        H5_FAILED(); AT();
+        printf("MPI_Barrier failed\n");
+        goto error;
+    }
+
     /* Map open */
     start = MPI_Wtime();
     for (i = 0; i < hand.numbOfObjs; i++) {
@@ -2408,6 +2543,14 @@ test_map(hid_t loc_id)
                 printf("failed to open map object\n");
                 goto error;
             }
+
+            if(hand.useWait) {
+                if(H5ESwait(estack, UINT64_MAX, &num_in_progress, &op_failed) < 0 || op_failed || num_in_progress) {
+                    H5_FAILED(); AT();
+                    printf("failed to wait for map creation\n");
+                    goto error;
+                }
+            }
         } else {
             if((map_id[i] = H5Mopen(loc_id, map_name, H5P_DEFAULT)) < 0) {
                 H5_FAILED(); AT();
@@ -2417,7 +2560,7 @@ test_map(hid_t loc_id)
         }
     }
 
-    if(hand.isAsync) {
+    if(hand.isAsync && !hand.useWait) {
         if(H5ESwait(estack, UINT64_MAX, &num_in_progress, &op_failed) < 0 || op_failed || num_in_progress) {
             H5_FAILED(); AT();
             printf("failed to wait for map open\n");
@@ -2428,6 +2571,12 @@ test_map(hid_t loc_id)
     end = MPI_Wtime();
     time = end - start;
     op_time[MAP_OPEN_NUM][tree_order] += time;
+
+    if (MPI_SUCCESS != MPI_Barrier(MPI_COMM_WORLD)) {
+        H5_FAILED(); AT();
+        printf("MPI_Barrier failed\n");
+        goto error;
+    }
 
     /* Map get */
     start = MPI_Wtime();
@@ -2471,6 +2620,12 @@ test_map(hid_t loc_id)
     time = end - start;
     op_time[MAP_GET_NUM][tree_order] += time;
 
+    if (MPI_SUCCESS != MPI_Barrier(MPI_COMM_WORLD)) {
+        H5_FAILED(); AT();
+        printf("MPI_Barrier failed\n");
+        goto error;
+    }
+
     /* Map close */
     start = MPI_Wtime();
     for (i = 0; i < hand.numbOfObjs; i++) {
@@ -2497,7 +2652,12 @@ test_map(hid_t loc_id)
         }
     }
 
-#ifdef TMP
+    if (MPI_SUCCESS != MPI_Barrier(MPI_COMM_WORLD)) {
+        H5_FAILED(); AT();
+        printf("MPI_Barrier failed\n");
+        goto error;
+    }
+
     /* Map Removal */
     start = MPI_Wtime();
     for (i = 0; i < hand.numbOfObjs; i++) {
@@ -2525,7 +2685,12 @@ test_map(hid_t loc_id)
     end = MPI_Wtime();
     time = end - start;
     op_time[MAP_REMOVE_NUM][tree_order] += time;
-#endif
+
+    if (MPI_SUCCESS != MPI_Barrier(MPI_COMM_WORLD)) {
+        H5_FAILED(); AT();
+        printf("MPI_Barrier failed\n");
+        goto error;
+    }
 
     if(map_id)
         free(map_id);

@@ -728,8 +728,11 @@ H5_daos_dataset_create_helper(H5_daos_file_t *file, hid_t type_id, hid_t space_i
             } while(i > 0);
 
             /* Make sure we aren't trying to set chunking on a default DCPL */
-            if((dset->dcpl_id == H5P_DATASET_CREATE_DEFAULT) && (dset->dcpl_id = H5Pcopy(dcpl_id)) < 0)
-                D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, NULL, "failed to copy dcpl");
+            if(default_dcpl) {
+                if((dset->dcpl_id = H5Pcopy(dcpl_id)) < 0)
+                    D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, NULL, "failed to copy dcpl");
+                default_dcpl = FALSE;
+            } /* end if */
 
             /* Set chunk info in DCPL cache and DCPL */
             dset->dcpl_cache.layout = H5D_CHUNKED;

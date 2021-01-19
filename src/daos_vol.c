@@ -1282,8 +1282,10 @@ H5_daos_term(void)
         H5_daos_op_pool_free(H5_daos_glob_cur_op_pool_g);
 
     /* Free global DAOS task list */
-    if(H5_daos_task_list_g)
+    if(H5_daos_task_list_g) {
         H5_daos_task_list_free(H5_daos_task_list_g);
+        H5_daos_task_list_g = NULL;
+    }
 
     /* Close global scheduler */
     if(H5_daos_progress(NULL, H5_DAOS_PROGRESS_WAIT) < 0)

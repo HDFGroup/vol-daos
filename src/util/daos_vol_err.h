@@ -306,7 +306,7 @@ do {                                                                            
      * all "unsafe" task list tasks available.                                     \
      */                                                                            \
     H5_daos_dec_api_cnt();                                                         \
-    if(H5_daos_api_count == 0)                                                     \
+    if((H5_daos_api_count == 0) && H5_daos_task_list_g)                            \
         H5_daos_task_list_safe(H5_daos_task_list_g);                               \
     PRINT_ERROR_STACK;                                                             \
     return ret_value;                                                              \

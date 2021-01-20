@@ -28,7 +28,7 @@ typedef struct H5_daos_task_list_t {
 
 /* Creates a task list */
 herr_t
-H5_daos_task_list_create(tse_sched_t *sched, H5_daos_task_list_t **task_list);
+H5_daos_task_list_create(H5_daos_task_list_t **task_list);
 
 /* Frees a task list */
 void

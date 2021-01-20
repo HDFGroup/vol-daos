@@ -465,7 +465,7 @@ done:
                 tse_task_t *metatask = NULL;
 
                 /* Create metatask for coordination */
-                if(H5_daos_create_task(H5_daos_metatask_autocomplete, (finalize_ndeps > 0) ? finalize_ndeps : 0,
+                if(H5_daos_create_task(H5_daos_metatask_autocomplete, (finalize_ndeps > 0) ? (unsigned)finalize_ndeps : 0,
                         (finalize_ndeps > 0) ? finalize_deps : NULL, NULL, NULL, NULL, &metatask) < 0)
                     D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create metatask for map create");
                 /* Schedule metatask */
@@ -492,7 +492,7 @@ done:
         } /* end if */
 
         /* Create task to finalize H5 operation */
-        if(H5_daos_create_task(H5_daos_h5op_finalize, (finalize_ndeps > 0) ? finalize_ndeps : 0,
+        if(H5_daos_create_task(H5_daos_h5op_finalize, (finalize_ndeps > 0) ? (unsigned)finalize_ndeps : 0,
                 (finalize_ndeps > 0) ? finalize_deps : NULL, NULL, NULL, int_req, &int_req->finalize_task) < 0)
             D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't create task to finalize H5 operation");
         /* Schedule finalize task */
@@ -4378,8 +4378,8 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_map_flush(H5_daos_map_t *map, H5_daos_req_t H5VL_DAOS_UNUSED *req,
-    tse_task_t **first_task, tse_task_t **dep_task)
+H5_daos_map_flush(H5_daos_map_t H5VL_DAOS_UNUSED *map,
+    H5_daos_req_t H5VL_DAOS_UNUSED *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     tse_task_t *barrier_task = NULL;
     herr_t ret_value = SUCCEED;    /* Return value */

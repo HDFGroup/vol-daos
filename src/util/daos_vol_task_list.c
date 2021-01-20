@@ -56,12 +56,11 @@
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_task_list_create(tse_sched_t *sched, H5_daos_task_list_t **task_list)
+H5_daos_task_list_create(H5_daos_task_list_t **task_list)
 {
     H5_daos_task_list_t *list = NULL;
     herr_t ret_value = SUCCEED;
 
-    assert(sched);
     assert(task_list);
 
     if(NULL == (list = DV_malloc(sizeof(H5_daos_task_list_t))))

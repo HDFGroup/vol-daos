@@ -3398,8 +3398,8 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_file_flush(H5_daos_file_t *file, H5_daos_req_t H5VL_DAOS_UNUSED *req,
-    tse_task_t **first_task, tse_task_t **dep_task)
+H5_daos_file_flush(H5_daos_file_t H5VL_DAOS_UNUSED *file,
+    H5_daos_req_t H5VL_DAOS_UNUSED *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     tse_task_t *barrier_task = NULL;
     herr_t ret_value = SUCCEED;    /* Return value */

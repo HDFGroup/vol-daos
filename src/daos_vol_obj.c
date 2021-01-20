@@ -227,7 +227,7 @@ static herr_t H5_daos_object_copy_helper(void *src_loc_obj, const H5VL_loc_param
     tse_task_t **first_task, tse_task_t **dep_task);
 static int H5_daos_object_copy_task(tse_task_t *task);
 static herr_t H5_daos_object_copy_free_copy_udata(H5_daos_object_copy_ud_t *copy_udata,
-    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
+    tse_task_t **first_task, tse_task_t **dep_task);
 static int H5_daos_object_copy_free_copy_udata_task(tse_task_t *task);
 static herr_t H5_daos_object_copy_attributes(H5_daos_obj_t *src_obj, H5_daos_obj_t *dst_obj,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
@@ -1551,7 +1551,7 @@ done:
  */
 static herr_t
 H5_daos_object_copy_helper(void *src_loc_obj, const H5VL_loc_params_t *src_loc_params,
-    const char *src_name, void *dst_loc_obj, const H5VL_loc_params_t *dst_loc_params,
+    const char *src_name, void *dst_loc_obj, const H5VL_loc_params_t H5VL_DAOS_UNUSED *dst_loc_params,
     const char *dst_name, unsigned obj_copy_options, hid_t lcpl_id,
     H5_DAOS_ATTR_EXISTS_OUT_TYPE **link_exists_p, H5_daos_req_t *req,
     tse_task_t **first_task, tse_task_t **dep_task)
@@ -1677,7 +1677,7 @@ H5_daos_object_copy_helper(void *src_loc_obj, const H5VL_loc_params_t *src_loc_p
     *dep_task = obj_copy_udata->obj_copy_metatask;
 
     /* Create final task to free object copy udata after copying has finished */
-    if(H5_daos_object_copy_free_copy_udata(obj_copy_udata, req, first_task, dep_task) < 0)
+    if(H5_daos_object_copy_free_copy_udata(obj_copy_udata, first_task, dep_task) < 0)
         D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to free object copying data");
 
     /* Relinquish control of the object copy udata to task */
@@ -1827,14 +1827,13 @@ done:
  */
 static herr_t
 H5_daos_object_copy_free_copy_udata(H5_daos_object_copy_ud_t *copy_udata,
-    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
+    tse_task_t **first_task, tse_task_t **dep_task)
 {
     tse_task_t *free_task;
     int ret;
     herr_t ret_value = SUCCEED;
 
     assert(copy_udata);
-    assert(req);
     assert(first_task);
     assert(dep_task);
 

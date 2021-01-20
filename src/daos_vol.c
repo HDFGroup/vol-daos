@@ -1237,7 +1237,7 @@ H5_daos_init(hid_t H5VL_DAOS_UNUSED vipl_id)
         D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create global task scheduler: %s", H5_daos_err_to_string(ret));
 
     /* Create global DAOS task list */
-    if(H5_daos_task_list_create(&H5_daos_glob_sched_g, &H5_daos_task_list_g) < 0)
+    if(H5_daos_task_list_create(&H5_daos_task_list_g) < 0)
         D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create DAOS task list");
 
     /* Setup HDF5 default property list cache */
@@ -4703,7 +4703,7 @@ H5_daos_create_task(tse_task_func_t task_func, unsigned num_deps, tse_task_t *de
     assert(*taskp);
 
     /* Register task dependency */
-    if(num_deps && 0 != (ret = tse_task_register_deps(*taskp, num_deps, dep_tasks)))
+    if(num_deps && 0 != (ret = tse_task_register_deps(*taskp, (int)num_deps, dep_tasks)))
         D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't register task dependencies: %s", H5_daos_err_to_string(ret));
 
     if(task_prep_cb || task_comp_cb)
@@ -4745,7 +4745,7 @@ H5_daos_create_daos_task(daos_opc_t daos_opc, unsigned num_deps, tse_task_t *dep
         if(0 != (ret = daos_task_reset(*taskp, daos_opc)))
             D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't reset DAOS task: %s", H5_daos_err_to_string(ret));
 
-        if(num_deps && 0 != (ret = tse_task_register_deps(*taskp, num_deps, dep_tasks)))
+        if(num_deps && 0 != (ret = tse_task_register_deps(*taskp, (int)num_deps, dep_tasks)))
             D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't register task dependencies: %s", H5_daos_err_to_string(ret));
     }
     else {

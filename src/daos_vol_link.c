@@ -2169,7 +2169,7 @@ H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
                 } /* end else */
 
                 /* Create task to write link */
-                if(H5_daos_create_task(H5_daos_link_create_task, (ndeps > 0) ? ndeps : 0,
+                if(H5_daos_create_task(H5_daos_link_create_task, (ndeps > 0) ? (unsigned)ndeps : 0,
                         (ndeps > 0) ? dep_tasks : NULL, NULL, NULL, create_udata, &create_task) < 0)
                     D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create task for link create");
 
@@ -2240,7 +2240,7 @@ done:
         assert(int_req);
 
         /* Create task to free udata */
-        if(H5_daos_create_task(H5_daos_link_create_end_task, (ndeps > 0) ? ndeps : 0,
+        if(H5_daos_create_task(H5_daos_link_create_end_task, (ndeps > 0) ? (unsigned)ndeps : 0,
                 (ndeps > 0) ? dep_tasks : NULL, NULL, NULL, create_udata, &end_task) < 0)
             D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create end task for link create");
         else {
@@ -2275,7 +2275,7 @@ done:
             tse_task_t *metatask = NULL;
 
             /* Create metatask for coordination */
-            if(H5_daos_create_task(H5_daos_metatask_autocomplete, (ndeps > 0) ? ndeps : 0,
+            if(H5_daos_create_task(H5_daos_metatask_autocomplete, (ndeps > 0) ? (unsigned)ndeps : 0,
                     (ndeps > 0) ? dep_tasks : NULL, NULL, NULL, NULL, &metatask) < 0)
                 D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create metatask for link create");
             /* Schedule metatask */
@@ -2291,8 +2291,8 @@ done:
         } /* end if */
 
         /* Create task to finalize H5 operation */
-        if(H5_daos_create_task(H5_daos_h5op_finalize, (ndeps > 0) ? ndeps : 0, (ndeps > 0) ? dep_tasks : NULL,
-                NULL, NULL, int_req, &int_req->finalize_task) < 0)
+        if(H5_daos_create_task(H5_daos_h5op_finalize, (ndeps > 0) ? (unsigned)ndeps : 0,
+                (ndeps > 0) ? dep_tasks : NULL, NULL, NULL, int_req, &int_req->finalize_task) < 0)
             D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create task to finalize H5 operation");
         /* Schedule finalize task */
         else if(0 != (ret = tse_task_schedule(int_req->finalize_task, false)))
@@ -2483,7 +2483,7 @@ done:
         tse_task_t *end_task = NULL;
 
         /* Create task to finalize copy task */
-        if(H5_daos_create_task(H5_daos_link_copy_move_end_task, (ndeps > 0) ? ndeps : 0,
+        if(H5_daos_create_task(H5_daos_link_copy_move_end_task, (ndeps > 0) ? (unsigned)ndeps : 0,
                 (ndeps > 0) ? dep_tasks : NULL, NULL, NULL, udata, &end_task) < 0) {
             D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't create task for link copy/move end");
             tse_task_complete(task, ret_value);

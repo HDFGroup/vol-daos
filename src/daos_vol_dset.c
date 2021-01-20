@@ -1016,7 +1016,7 @@ H5_daos_dataset_create_helper(H5_daos_file_t *file, hid_t type_id, hid_t space_i
 
 done:
     /* Create metatask to use for dependencies on this dataset create */
-    if(H5_daos_create_task(H5_daos_metatask_autocomplete, (finalize_ndeps > 0) ? finalize_ndeps : 0,
+    if(H5_daos_create_task(H5_daos_metatask_autocomplete, (finalize_ndeps > 0) ? (unsigned)finalize_ndeps : 0,
             (finalize_ndeps > 0) ? finalize_deps : NULL, NULL, NULL, NULL, &dataset_metatask) < 0)
         D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't create meta task for dataset create");
     /* Schedule dataset metatask (or save it to be scheduled later) */
@@ -4845,8 +4845,8 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_dataset_flush(H5_daos_dset_t *dset, H5_daos_req_t H5VL_DAOS_UNUSED *req,
-    tse_task_t **first_task, tse_task_t **dep_task)
+H5_daos_dataset_flush(H5_daos_dset_t H5VL_DAOS_UNUSED *dset,
+    H5_daos_req_t H5VL_DAOS_UNUSED *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     tse_task_t *barrier_task = NULL;
     herr_t ret_value = SUCCEED;

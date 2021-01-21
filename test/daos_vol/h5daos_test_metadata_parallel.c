@@ -53,6 +53,7 @@ typedef struct {
     int attr_dim;
     int numbOfMapEntries;
     int numbOfNestedGroups;
+    int waitInterval;
     hbool_t uniqueGroupPerRank;
     hbool_t runMPIIO;
     hbool_t testAllObjects;
@@ -215,7 +216,7 @@ hid_t map_vl_key_dtype_id, map_vl_value_dtype_id;
 static void
 usage(void)
 {
-    printf("    [-h] [-a] [-A] [-b] [-c] [-d] [-D] [-e] [-f] [-F] [-g] [-G] [-i] [-I] [-j] [-k] [-l] [-m] [-M] [-n] [-o] [-r] [-s] [-t] [-T] [-u] [-z]\n\n"); 
+    printf("    [-h] [-a] [-A] [-b] [-c] [-d] [-D] [-e] [-f] [-F] [-g] [-G] [-i] [-I] [-j] [-k] [-l] [-m] [-M] [-n] [-o] [-p] [-r] [-s] [-t] [-T] [-u] [-w] [-z]\n\n"); 
 
     printf("    [-h]: this help page\n");
     printf("    [-a]: indicate to run collective metadata I/O (H5MPIIO as the backend)\n");
@@ -239,6 +240,7 @@ usage(void)
     printf("    [-n]: the number of iterations for file operations\n");
     printf("    [-o]: File name (add the prefix 'daos:' for H5MPIIO)\n");
     printf("    [-O]: Run the test for HDF5's H5O API only\n");
+    printf("    [-p]: the wait interval for async I/O during the loop \n");
     printf("    [-r]: No write or read the datasets\n");
     printf("    [-s]: No entry for maps\n");
     printf("    [-t]: No member in groups\n");
@@ -269,6 +271,7 @@ parse_command_line(int argc, char *argv[])
     hand.attr_dim = 16;
     hand.numbOfNestedGroups = 16;
     hand.numbOfFiles = 16;
+    hand.waitInterval = 20;
     hand.uniqueGroupPerRank = FALSE;
     hand.runMPIIO = FALSE;
     hand.testAllObjects = TRUE;
@@ -290,7 +293,7 @@ parse_command_line(int argc, char *argv[])
     hand.dset_layout = strdup("contiguous");
     hand.fileName = strdup(FILENAME);
 
-    while((opt = getopt(argc, argv, "aAb:c:d:De:f:Fg:Ghi:I:j:l:m:Mn:o:OrstTuUwz:")) != -1) {
+    while((opt = getopt(argc, argv, "aAb:c:d:De:f:Fg:Ghi:I:j:l:m:Mn:o:Op:rstTuUwz:")) != -1) {
         switch(opt) {
             case 'a':
                 /* Flag to indicate to use collective metadata I/O (H5MPIIO as the backend) */
@@ -493,6 +496,15 @@ parse_command_line(int argc, char *argv[])
                 hand.testObjectOnly = TRUE;
                 hand.testAllObjects = FALSE;
                 break;
+            case 'p':
+                /* The wait interval for async I/O */
+                if(optarg) {
+                    if(MAINPROCESS)
+                        fprintf(stdout, "wait interval for async I/O: 				%s\n", optarg);
+                    hand.waitInterval = atoi(optarg);
+                } else
+                    printf("optarg is null\n");
+                break;
             case 'r':
                 /* No write or read the datasets */
                 if(MAINPROCESS)
@@ -554,7 +566,7 @@ parse_command_line(int argc, char *argv[])
         }
     }
 
-    if (hand.numbOfTrees < 1 || hand.depthOfTree < 0 || hand.numbOfBranches < 1 || hand.numbOfObjs < 0 || hand.numbOfFiles < 0) { 
+    if (hand.numbOfTrees < 1 || hand.depthOfTree < 0 || hand.numbOfBranches < 1 || hand.numbOfObjs < 0 || hand.numbOfFiles < 0 || hand.waitInterval < 1) { 
         H5_FAILED(); AT();
         printf("invalid command-line option value \n");
         goto error;
@@ -1162,7 +1174,7 @@ test_group(hid_t loc_id)
                 goto error;
             }
 
-            if(hand.useWait) {
+            if(hand.useWait && (i % hand.waitInterval == 0)) {
                 if(H5ESwait(estack, UINT64_MAX, &num_in_progress, &op_failed) < 0 || op_failed || num_in_progress) {
                     H5_FAILED(); AT();
                     printf("failed to wait for group creation\n");
@@ -1213,7 +1225,7 @@ test_group(hid_t loc_id)
         }
     }
 
-    if(hand.isAsync && !hand.useWait) {
+    if(hand.isAsync) {
         if(H5ESwait(estack, UINT64_MAX, &num_in_progress, &op_failed) < 0 || op_failed || num_in_progress) {
             H5_FAILED(); AT();
             printf("failed to wait for group creation\n");
@@ -1285,7 +1297,7 @@ test_group(hid_t loc_id)
                 goto error;
             }
 
-            if(hand.useWait) {
+            if(hand.useWait && (i % hand.waitInterval == 0)) {
                 if(H5ESwait(estack, UINT64_MAX, &num_in_progress, &op_failed) < 0 || op_failed || num_in_progress) {
                     H5_FAILED(); AT();
                     printf("failed to wait for group creation\n");
@@ -1301,7 +1313,7 @@ test_group(hid_t loc_id)
         }
     }
 
-    if(hand.isAsync && !hand.useWait) {
+    if(hand.isAsync) {
         if(H5ESwait(estack, UINT64_MAX, &num_in_progress, &op_failed) < 0 || op_failed || num_in_progress) {
             H5_FAILED(); AT();
             printf("failed to wait for group open\n");
@@ -1583,7 +1595,7 @@ test_dataset(hid_t loc_id)
                 goto error;
             }
 
-            if(hand.useWait) {
+            if(hand.useWait && (i % hand.waitInterval == 0)) {
                 if(H5ESwait(estack, UINT64_MAX, &num_in_progress, &op_failed) < 0 || op_failed || num_in_progress) {
                     H5_FAILED(); AT();
                     printf("failed to wait for dataset creation\n");
@@ -1599,7 +1611,7 @@ test_dataset(hid_t loc_id)
         }
     }
 
-    if(hand.isAsync && !hand.useWait) {
+    if(hand.isAsync) {
         if(H5ESwait(estack, UINT64_MAX, &num_in_progress, &op_failed) < 0 || op_failed || num_in_progress) {
             H5_FAILED(); AT();
             printf("failed to wait for dataset creation\n");
@@ -1786,7 +1798,7 @@ test_dataset(hid_t loc_id)
                 goto error;
             }
 
-            if(hand.useWait) {
+            if(hand.useWait && (i % hand.waitInterval == 0)) {
                 if(H5ESwait(estack, UINT64_MAX, &num_in_progress, &op_failed) < 0 || op_failed || num_in_progress) {
                     H5_FAILED(); AT();
                     printf("failed to wait for group creation\n");
@@ -1802,7 +1814,7 @@ test_dataset(hid_t loc_id)
         }
     }
 
-    if(hand.isAsync && !hand.useWait) {
+    if(hand.isAsync) {
         if(H5ESwait(estack, UINT64_MAX, &num_in_progress, &op_failed) < 0 || op_failed || num_in_progress) {
             H5_FAILED(); AT();
             printf("failed to wait for dataset open\n");
@@ -2392,7 +2404,7 @@ test_map(hid_t loc_id)
                     goto error;
                 }
 
-                if(hand.useWait) {
+                if(hand.useWait && (i % hand.waitInterval == 0)) {
                     if(H5ESwait(estack, UINT64_MAX, &num_in_progress, &op_failed) < 0 || op_failed || num_in_progress) {
                         H5_FAILED(); AT();
                         printf("failed to wait for map creation\n");
@@ -2431,7 +2443,7 @@ test_map(hid_t loc_id)
         }
     }
 
-    if(hand.isAsync && !hand.useWait) {
+    if(hand.isAsync) {
         if(H5ESwait(estack, UINT64_MAX, &num_in_progress, &op_failed) < 0 || op_failed || num_in_progress) {
             H5_FAILED(); AT();
             printf("failed to wait for map create\n");
@@ -2550,7 +2562,7 @@ test_map(hid_t loc_id)
                 goto error;
             }
 
-            if(hand.useWait) {
+            if(hand.useWait && (i % hand.waitInterval == 0)) {
                 if(H5ESwait(estack, UINT64_MAX, &num_in_progress, &op_failed) < 0 || op_failed || num_in_progress) {
                     H5_FAILED(); AT();
                     printf("failed to wait for map creation\n");
@@ -2566,7 +2578,7 @@ test_map(hid_t loc_id)
         }
     }
 
-    if(hand.isAsync && !hand.useWait) {
+    if(hand.isAsync) {
         if(H5ESwait(estack, UINT64_MAX, &num_in_progress, &op_failed) < 0 || op_failed || num_in_progress) {
             H5_FAILED(); AT();
             printf("failed to wait for map open\n");

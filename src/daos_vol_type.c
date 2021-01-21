@@ -502,7 +502,7 @@ H5_daos_datatype_commit(void *_item,
     char *path_buf = NULL;
     const char *target_name = NULL;
     size_t target_name_len = 0;
-    hbool_t collective;
+    hbool_t collective = FALSE;
     H5_daos_req_t *int_req = NULL;
     tse_task_t *first_task = NULL;
     tse_task_t *dep_task = NULL;
@@ -930,7 +930,7 @@ H5_daos_datatype_open(void *_item,
     H5_daos_req_t *int_req = NULL;
     tse_task_t *first_task = NULL;
     tse_task_t *dep_task = NULL;
-    hbool_t collective;
+    hbool_t collective = FALSE;
     hbool_t must_bcast = FALSE;
     char *path_buf = NULL;
     int ret;

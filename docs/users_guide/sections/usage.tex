@@ -11,8 +11,8 @@ This section outlines the unique aspects of writing, building and running
 
 The following is a quick set of instructions for building the \dvc{} connector.
 Note that these instructions are not comprehensive and may be subject to change
-in future releases; please refer to the \dvc{}'s
-\href{https://bitbucket.hdfgroup.org/projects/HDF5VOL/repos/daos-vol/browse/README.md}{README} file for the most up to date instructions.
+in future releases; please refer to the \dvc{}'s README file for the most up to
+date instructions.
 
 The \dvc{} is built using CMake. CMake version 2.8.12.2 or greater is required
 to build the connector itself, but version 3.1 or greater is required to build
@@ -25,7 +25,7 @@ mkdir build
 cd build
 \end{verbatim}
 
-After that, if all of the required components (DAOS, CaRT, MPI and HDF5) are
+After that, if all of the required components (DAOS, MPI and HDF5) are
 located within the system path, building the connector should be as simple as
 running the following two commands to have CMake generate the build files for
 \texttt{make} to use.
@@ -53,11 +53,11 @@ CMake-specific options:
 \begin{itemize}
   \item \texttt{BUILD\_TESTING} --- This variable is used to enable/disable building of the \dvc{}'s tests.
   \item \texttt{BUILD\_EXAMPLES} --- This variable is used to enable/disable building of the DAOS VOL connector's HDF5 examples.
-  \item \texttt{CART\_INCLUDE\_DIR} --- This variable controls the CaRT include directory used by the VOL connector build process. Used in conjunction with the \texttt{CART\_LIBRARY} variable.
-  \item \texttt{CART\_LIBRARY} --- This variable controls the CaRT library used by the VOL connector build process. It should be set to the full path to the CaRT library, including the library's name (e.g., /path/libcart.so). Used in conjunction with the \texttt{CART\_INCLUDE\_DIR} variable.
-  \item \texttt{DAOS\_LIBRARY} --- This variable controls the DAOS library used by the VOL connector build process. It should be set to the full path to the DAOS library, including the library's name (e.g., /path/libdaos.so). Used in conjunction with the \texttt{DAOS\_COMMON\_LIBRARY} and \texttt{DAOS\_INCLUDE\_DIR} variables.
-  \item \texttt{DAOS\_COMMON\_LIBRARY} --- This variable controls the DAOS 'common' library used by the VOL connector build process. It should be set to the full path to the DAOS common library, including the library's name (e.g., /path/libdaos\_common.so). Used in conjunction with the \texttt{DAOS\_LIBRARY} and \texttt{DAOS\_INCLUDE\_DIR} variables.
-  \item \texttt{DAOS\_INCLUDE\_DIR} --- This variable controls the DAOS include directory used by the VOL connector build process. Used in conjunction with the \texttt{DAOS\_LIBRARY} and \texttt{DAOS\_COMMON\_LIBRARY} variables.
+  \item \texttt{DAOS\_LIBRARY} --- This variable controls the DAOS library used by the VOL connector build process. It should be set to the full path to the DAOS library, including the library's name (e.g., /path/libdaos.so).
+  \item \texttt{DAOS\_UNS\_LIBRARY} --- This option controls the DAOS unified namespace library
+  used by the VOL connector build process. It should be set to the full path to
+  the DAOS UNS library, including the library's name (e.g., /path/libduns.so).
+  \item \texttt{DAOS\_INCLUDE\_DIR} --- This variable controls the DAOS include directory used by the VOL connector build process.
   \item \texttt{MPI\_C\_COMPILER} --- This variable controls the MPI C Compiler used by the VOL connector build process. It should be set to the full path to the MPI C Compiler, including the name of the executable.
   \item \texttt{HDF5\_C\_COMPILER\_EXECUTABLE} --- This variable controls the HDF5 compiler wrapper script used by the VOL connector build process. It should be set to the full path to the HDF5 compiler wrapper, including the name of the wrapper script. The following two variables may also need to be set.
   \item \texttt{HDF5\_C\_LIBRARY\_hdf5} --- This variable controls the HDF5 library used by the VOL connector build process. It should be set to the full path to the HDF5 library, including the library's name (e.g., /path/libhdf5.so). Used in conjunction with the \texttt{HDF5\_C\_INCLUDE\_DIR} variable.
@@ -90,9 +90,9 @@ command-line tools, this difficulty is solved by using command-line parameters
 and explicitly specifying a connector via \texttt{H5Pset\_vol()}.
 
 Using \texttt{H5Pset\_vol()} requires modification of the application's
-source code, which may not be possible. It's more flexible,
+source code, which may not be possible. It is more flexible,
 however, and allows an application to be configured to use VOL connectors in
-arbitrary ways. Since it's an \acrshort{hdf5} API call, it isn't necessary to
+arbitrary ways. Since it is an \acrshort{hdf5} API call, it isn't necessary to
 link to the \dvc{}, which can be loaded as a plugin in the same way as using
 the environment variable, described above.
 
@@ -406,25 +406,26 @@ int main(void)
     ... // Buffers, dataspaces, etc.
     herr_t status;
 
-    es_id = H5EScreate();      // Create event set for tracking async operations
+    es_id = H5EScreate(); // Create event set for tracking async operations
 
     file_id = H5Fopen_async("file.h5", H5F_ACC_RDWR, H5P_DEFAULT, es_id);
     group_id = H5Gopen_async(file_id, "parent", H5P_DEFAULT, es_id);
-                                        // Starts when H5Fopen completes
+                          // Starts when H5Fopen completes
     dset_id = H5Dopen_async(group_id, "dataset", H5P_DEFAULT, es_id);
-                                        // Starts when H5Gopen completes
+                          // Starts when H5Gopen completes
 
-    status = H5Dwrite_async(dset_id, ..., es_id); // Asynchronous, starts when
-                                              // H5Dopen completes, may run
-                                              // concurrently with other
-                                              // H5Dwrite in event set
-    status = H5Dwrite_async(dset_id, ..., es_id); // Asynchronous, starts when
-                                              // H5Dopen completes, may run
-                                              // concurrently with other
-                                              // H5Dwrite in event set
+    status = H5Dwrite_async(dset_id, ..., es_id); 
+                          // Asynchronous, starts when H5Dopen completes,
+                          // may run concurrently with other H5Dwrite in
+                          // event set
+    status = H5Dwrite_async(dset_id, ..., es_id);
+                          // Asynchronous, starts when H5Dopen completes,
+                          // may run concurrently with other H5Dwrite in
+                          // event set
 
-    status = H5Dclose_async(dset_id); // Asynchronous, will complete when both
-                                      // writes above complete
+    status = H5Dclose_async(dset_id);
+                          // Asynchronous, will complete when both
+                          // writes above complete
 
     ...
     <other user code>
@@ -469,9 +470,11 @@ If \acrshort{hdf5} was built using autotools, this script will be called \texttt
 may be found in the \texttt{bin} directory of the \acrshort{hdf5} installation. If \acrshort{hdf5}
 was built with CMake, this script will simply be called \texttt{h5cc} and can
 be found in the same location. The above notice about additional library
-linking applies to usage of \texttt{h5cc/h5pcc}. For example:
+linking applies to usage of \texttt{h5cc/h5pcc}\footnote{Note that when HDF5 has been
+compiled with autotools, \texttt{-shlib} option must be passed to use dynamic versions
+of the library, this is not required with CMake}. For example:
 \begin{verbatim}
-h5cc/h5pcc -lhdf5_vol_daos -luuid my_application.c -o my_application
+h5cc/h5pcc -shlib -lhdf5_vol_daos -luuid my_src.c -o my_exe
 \end{verbatim}
 
 \subsection{Running HDF5 DAOS VOL connector applications}
@@ -510,10 +513,12 @@ and \acrshort{daos} pool service rank list should be passed via the call to
 
 \subsubsection{Example Applications}
 
-Some of the example C applications which are included with \acrshort{hdf5} distributions have been adapted to work with the \dvc{} and are included under the top-level \href{https://bitbucket.hdfgroup.org/projects/HDF5VOL/repos/daos-vol/browse/examples}{\texttt{examples}} directory in the \dvc{} source root directory. The built example applications can be run from the \texttt{bin} directory inside the build directory.
+Some of the example C applications which are included with \acrshort{hdf5}
+distributions have been adapted to work with the \dvc{} and are included under
+the top-level \texttt{examples} directory in the \dvc{} source root directory.
+The built example applications can be run from the \texttt{bin} directory inside the build directory.
 
-In addition to these examples, the \href{https://bitbucket.hdfgroup.org/projects/HDF5VOL/
-repos/daos-vol/browse/test}{\texttt{test/vol}} directory contains several test
+In addition to these examples, the \texttt{test/vol} directory contains several test
 files, each containing test functions that are examples of \acrshort{hdf5} applications in
 miniature, focused on a particular behavior. These mini-application tests cover a moderate 
 amount of \acrshort{hdf5}'s public API functionality and should be a good indicator of

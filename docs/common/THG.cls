@@ -69,7 +69,8 @@
 %% ========================================================================
 
 %% Base class
-\LoadClass[11pt, BCOR=0pt, DIV=classic]{scrartcl}
+\LoadClass[11pt]{scrartcl}
+\KOMAoptions{BCOR=0pt, DIV=classic}
 
 %% For headers (recommended instead of fancyhdr)
 \setkomafont{pageheadfoot}{\small}

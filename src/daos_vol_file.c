@@ -2468,7 +2468,9 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
             hid_t file_fapl = va_arg(arguments, hid_t);
             const char *filename = va_arg(arguments, const char *);
             htri_t *ret_is_accessible = va_arg(arguments, htri_t *);
-            struct duns_attr_t duns_attr = {0};
+            struct duns_attr_t duns_attr;
+
+            memset(&duns_attr, 0, sizeof(struct duns_attr_t));
 
             /* Initialize returned value in case we fail */
             *ret_is_accessible = FAIL;

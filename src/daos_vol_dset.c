@@ -428,7 +428,7 @@ H5_daos_dataset_create(void *_item,
     tse_task_t *dep_task = NULL;
     const char *target_name = NULL;
     size_t target_name_len = 0;
-    hbool_t collective;
+    hbool_t collective = FALSE;
     char *path_buf = NULL;
     int ret;
     void *ret_value = NULL;
@@ -1690,7 +1690,7 @@ H5_daos_dataset_open(void *_item,
     H5_daos_req_t *int_req = NULL;
     tse_task_t *first_task = NULL;
     tse_task_t *dep_task = NULL;
-    hbool_t collective;
+    hbool_t collective = FALSE;
     hbool_t must_bcast = FALSE;
     char *path_buf = NULL;
     int ret;

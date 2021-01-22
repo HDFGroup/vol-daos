@@ -608,7 +608,7 @@ H5_daos_set_oclass_from_oid(hid_t plist_id, daos_obj_id_t oid)
 
     /* Get object class id from oid */
     /* Replace with DAOS function once public! DSINC */
-    oc_id = (oid.hi & OID_FMT_CLASS_MASK) >> OID_FMT_CLASS_SHIFT;
+    oc_id = ((oid.hi & OID_FMT_CLASS_MASK) >> OID_FMT_CLASS_SHIFT) & 0xffff;
 
     /* Get object class string */
     if(daos_oclass_id2name(oc_id, oclass_str) < 0)

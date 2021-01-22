@@ -2020,7 +2020,7 @@ H5_daos_link_create(H5VL_link_create_type_t create_type, void *_item,
     H5_daos_req_t *int_int_req = NULL;
     tse_task_t *first_task = NULL;
     tse_task_t *dep_tasks[2] = {NULL, NULL};
-    hbool_t collective;
+    hbool_t collective = FALSE;
     int ndeps = 0;
     int ret;
     herr_t ret_value = SUCCEED;
@@ -2786,7 +2786,7 @@ H5_daos_link_copy(void *src_item, const H5VL_loc_params_t *loc_params1,
     H5_daos_req_t *int_req = NULL;
     tse_task_t *first_task = NULL;
     tse_task_t *dep_task = NULL;
-    hbool_t collective;
+    hbool_t collective = FALSE;
     int ret;
     herr_t ret_value = SUCCEED;
 
@@ -2933,7 +2933,7 @@ H5_daos_link_move(void *src_item, const H5VL_loc_params_t *loc_params1,
     H5_daos_req_t *int_req = NULL;
     tse_task_t *first_task = NULL;
     tse_task_t *dep_task = NULL;
-    hbool_t collective;
+    hbool_t collective = FALSE;
     int ret;
     herr_t ret_value = SUCCEED;
 

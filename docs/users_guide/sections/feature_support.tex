@@ -288,7 +288,8 @@ H5Dget\_space\_async & \\ \hline
 H5Dget\_type & \\ \hline
 H5Dget\_create\_plist & \\ \hline
 H5Dget\_access\_plist & \\ \hline
-H5Dget\_space\_status & Space status is currently always set to \texttt{H5D\_SPACE\_STATUS\_NOT\_ALLOCATED}\\ \hline
+H5Dget\_space\_status & Space status is currently always set to \texttt{H5D\_SPACE\_STATUS\_ALLOCATED}\\ \hline
+H5Dget\_storage\_size & Currently implemented to just return the in-memory size of dataset data. Should not be relied upon as an accurate measurement of the actual storage size required for the dataset data.\\ \hline
 H5Dflush & Blocks until all in-flight async tasks on the dataset are complete\\ \hline
 H5Drefresh & \\ \hline
 
@@ -305,7 +306,7 @@ H5Drefresh & \\ \hline
 % Center just the header row
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
-H5Dget\_storage\_size & \texttt{H5Dget\_storage\_size} is not currently planned to be supported\\ \hline
+& \\ \hline
 
 \end{tabularx}
 
@@ -450,9 +451,9 @@ H5Grefresh & \texttt{H5Grefresh} is currently implemented as a no-op\\ \hline
 \multicolumn{1}{| c |}{\textbf{API call}} & \multicolumn{1}{c |}{\textbf{Notes}} \\ \hline
 
 H5Lcreate\_hard & \\ \hline
-H5Lcreate\_hard\_async & Not currently tested due to a bug in HDF5\\ \hline
+H5Lcreate\_hard\_async & \\ \hline
 H5Lcreate\_soft & \\ \hline
-H5Lcreate\_soft\_async & Currently H5P\_DEFAULT cannot be passed as the lapl\_id due to a bug in HDF5\\ \hline
+H5Lcreate\_soft\_async & \\ \hline
 H5Lexists & \\ \hline
 H5Lexists\_async & \\ \hline
 
@@ -756,18 +757,10 @@ H5Trefresh & \texttt{H5Trefresh} is currently implemented as a no-op\\ \hline
 
 The following sections outline the known current limitations of the \dvc{}.
 
-\subsubsection{Limitations in regards to the HDF5 API}
-
-\begin{itemize}
- \item If an application abnormally exits, the \dvc{} currently leaves the file in an unusable state. Currently, the only way to re-use the same filename after an application interruption is to use a new \acrshort{daos} pool. This issue will be resolved when rollback
-to a previous snapshot is supported.
-\end{itemize}
-
 \subsubsection{Limitations in regards to DAOS}
 
 \begin{itemize}
- \item Following the previous point about application abnormal exits, as \acrshort{daos} does not currently support forced container deletion, trying to overwrite an existing \acrshort{hdf5} file using the \texttt{H5F\_ACC\_TRUNC} flag when the file was left in an unusable state will fail; the error \textit{``can't destroy container: generic I/O error (DER\_IO)''} will be returned.
-\item No support for conditional key insert/remove.
+ \item If an application abnormally exits, the \dvc{} may leave the file in an unusable state. As \acrshort{daos} does not currently support forced container deletion, trying to overwrite an existing \acrshort{hdf5} file using the \texttt{H5F\_ACC\_TRUNC} flag when the file was left in an unusable state will fail; the error \textit{``can't destroy container: generic I/O error (DER\_IO)''} will be returned. Currently, the only way to re-use the same filename after an application interruption is to remove the file stub for the unusable file and then create a new file within a new \acrshort{daos} pool. This issue will be resolved when rollback to a previous snapshot is supported.
 \item There is currently no support for distributed transactions.
 \end{itemize}
 

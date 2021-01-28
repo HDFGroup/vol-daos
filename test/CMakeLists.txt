@@ -185,6 +185,9 @@ add_subdirectory(daos_vol)
 # VOL tests
 #------------------------------------------------------------------------------
 
+# We don't support filters
+set(H5VL_TEST_NO_FILTERS TRUE)
+
 # Disable automatic chunk sizing for VOL tests
 set(DAOS_CLIENT_ENV_VARS
   ${DAOS_CLIENT_ENV_VARS}

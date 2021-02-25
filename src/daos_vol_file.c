@@ -857,12 +857,6 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     if(H5_daos_fill_enc_plist_cache(file, fapl_id) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "failed to fill encoded property list buffer cache");
 
-    /* Generate oid for global metadata object */
-    if(H5_daos_oid_encode(&file->glob_md_oid, H5_DAOS_OIDX_GMD, H5I_GROUP,
-            fcpl_id == H5P_FILE_CREATE_DEFAULT ? H5P_DEFAULT : fcpl_id,
-            H5_DAOS_OBJ_CLASS_NAME, file) < 0)
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTENCODE, NULL, "can't encode global metadata object ID");
-
     /* Start H5 operation */
     if(NULL == (int_req = H5_daos_req_create(file, "file create", NULL, NULL, NULL, H5I_INVALID_HID)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, NULL, "can't create DAOS request");
@@ -886,6 +880,15 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
      */
     if((file->num_procs > 1) && (H5_daos_file_handles_bcast(file, int_req, &first_task, &dep_task) < 0))
         D_GOTO_ERROR(H5E_VOL, H5E_CANTSET, NULL, "can't broadcast DAOS container/pool handles");
+
+    /* Block until operation completes */
+    if(H5_daos_task_wait(&(first_task), &(dep_task)) < 0)
+        D_DONE_ERROR(H5E_VOL, H5E_CANTINIT, NULL, "can't progress scheduler");
+
+    if(H5_daos_oid_encode(&file->glob_md_oid, H5_DAOS_OIDX_GMD, H5I_GROUP,
+            fcpl_id == H5P_FILE_CREATE_DEFAULT ? H5P_DEFAULT : fcpl_id,
+            H5_DAOS_OBJ_CLASS_NAME, file) < 0)
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTENCODE, NULL, "can't encode global metadata object ID");
 
     /* Open global metadata object */
     if(H5_daos_obj_open(file, int_req, &file->glob_md_oid, DAOS_OO_RW, &file->glob_md_oh, "global metadata object open", &first_task, &dep_task) < 0)
@@ -1580,18 +1583,6 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     if(H5_daos_fill_enc_plist_cache(file, fapl_id) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "failed to fill encoded property list buffer cache");
 
-    /* Generate oid for global metadata object */
-    if(H5_daos_oid_encode(&file->glob_md_oid, H5_DAOS_OIDX_GMD, H5I_GROUP,
-            fapl_id == H5P_FILE_ACCESS_DEFAULT ? H5P_DEFAULT : fapl_id,
-            H5_DAOS_ROOT_OPEN_OCLASS_NAME, file) < 0)
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTENCODE, NULL, "can't encode global metadata object ID");
-
-    /* Generate root group oid */
-    if(H5_daos_oid_encode(&root_grp_oid, H5_DAOS_OIDX_ROOT, H5I_GROUP,
-            fapl_id == H5P_FILE_ACCESS_DEFAULT ? H5P_DEFAULT : fapl_id,
-            H5_DAOS_ROOT_OPEN_OCLASS_NAME, file) < 0)
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTENCODE, NULL, "can't encode root group object ID");
-
     /* Start H5 operation */
     if(NULL == (int_req = H5_daos_req_create(file, "file open", NULL, NULL, NULL, H5I_INVALID_HID)))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, NULL, "can't create DAOS request");
@@ -1607,6 +1598,22 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
      */
     if((file->num_procs > 1) && (H5_daos_file_handles_bcast(file, int_req, &first_task, &dep_task) < 0))
         D_GOTO_ERROR(H5E_FILE, H5E_CANTSET, NULL, "can't broadcast DAOS container/pool handles");
+
+    /* Block until operation completes */
+    if(H5_daos_task_wait(&(first_task), &(dep_task)) < 0)
+        D_DONE_ERROR(H5E_VOL, H5E_CANTINIT, NULL, "can't progress scheduler");
+
+    /* Generate oid for global metadata object */
+    if(H5_daos_oid_encode(&file->glob_md_oid, H5_DAOS_OIDX_GMD, H5I_GROUP,
+            fapl_id == H5P_FILE_ACCESS_DEFAULT ? H5P_DEFAULT : fapl_id,
+            H5_DAOS_ROOT_OPEN_OCLASS_NAME, file) < 0)
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTENCODE, NULL, "can't encode global metadata object ID");
+
+    /* Generate root group oid */
+    if(H5_daos_oid_encode(&root_grp_oid, H5_DAOS_OIDX_ROOT, H5I_GROUP,
+            fapl_id == H5P_FILE_ACCESS_DEFAULT ? H5P_DEFAULT : fapl_id,
+            H5_DAOS_ROOT_OPEN_OCLASS_NAME, file) < 0)
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTENCODE, NULL, "can't encode root group object ID");
 
     /* Open global metadata object */
     if(H5_daos_obj_open(file, int_req, &file->glob_md_oid, flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO, &file->glob_md_oh, "global metadata object open", &first_task, &dep_task) < 0)

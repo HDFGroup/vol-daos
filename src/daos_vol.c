@@ -1591,7 +1591,7 @@ H5_daos_pool_connect_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     memset(connect_args, 0, sizeof(*connect_args));
     connect_args->poh = udata->poh;
     connect_args->grp = udata->grp;
-#if !defined(DAOS_API_VERSION_MAJOR) || (defined(DAOS_API_VERSION_MAJOR) && (DAOS_API_VERSION_MAJOR < 1))
+#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
     connect_args->svc = udata->svc;
 #endif
     connect_args->flags = udata->flags;
@@ -2752,7 +2752,12 @@ H5_daos_oid_encode(daos_obj_id_t *oid, uint64_t oidx, H5I_type_t obj_type,
         object_class = (obj_type == H5I_DATASET) ? OC_SX : OC_S1;
 
     /* Generate oid */
-    H5_daos_obj_generate_id(oid, object_feats, object_class);
+#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
+    daos_obj_generate_id(oid, object_feats, object_class);
+#else
+    if (daos_obj_generate_oid(file->coh, oid, object_feats, object_class, 0, 0) != 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTSET, FAIL, "Can't set object class");
+#endif
 
 done:
     D_FUNC_LEAVE;

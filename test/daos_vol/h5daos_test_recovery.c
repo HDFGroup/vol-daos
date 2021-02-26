@@ -113,6 +113,7 @@ static void inject_fault(d_rank_t which_server)
     struct d_tgt_list        targets;
     int			     tgt = -1;
     char                     dmg_cmd[100];
+    char		     pool_string[256];
     int                      rc;
 
     if(MAINPROCESS) {
@@ -132,12 +133,19 @@ static void inject_fault(d_rank_t which_server)
         /* Exclude the server from the pool */
 #if !defined(DAOS_API_VERSION_MAJOR) || (defined(DAOS_API_VERSION_MAJOR) && (DAOS_API_VERSION_MAJOR < 1))
         if(daos_pool_tgt_exclude(pool_uuid, "daos_server", svcl, &targets, NULL) < 0) {
-#else
-        if(daos_pool_tgt_exclude(pool_uuid, "daos_server", &targets, NULL) < 0) {
-#endif
             printf("daos_pool_tgt_exclude failed");
             return;
         }
+#else
+        uuid_unparse(pool_uuid, &pool_string[0]);
+        snprintf(dmg_cmd, sizeof(dmg_cmd),
+                "dmg pool exclude -i --pool=%s --ranks=%d", pool_string, which_server);
+        rc = system(dmg_cmd);
+        if (rc != 0) {
+            printf(" %s failed with rc %#x\n", dmg_cmd, rc);
+            return;
+        }
+#endif
 
         fprintf(stdout, "\n\n\n\n        ========>>> Killed and excluded the server (rank %d)\n\n\n\n", which_server);
     }

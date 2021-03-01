@@ -5426,14 +5426,6 @@ H5_daos_link_ibco_end_task(tse_task_t *task)
         if(udata->iter_data->op_ret_p)
             *udata->iter_data->op_ret_p = udata->iter_data->op_ret;
 
-        /* Free hash table */
-        udata->iter_data->u.link_iter_data.recursive_link_path = DV_free(udata->iter_data->u.link_iter_data.recursive_link_path);
-
-        if(udata->iter_data->u.link_iter_data.visited_link_table) {
-            dv_hash_table_free(udata->iter_data->u.link_iter_data.visited_link_table);
-            udata->iter_data->u.link_iter_data.visited_link_table = NULL;
-        } /* end if */
-
         /* Free iter data */
         udata->iter_data = DV_free(udata->iter_data);
     } /* end if */
@@ -6067,6 +6059,8 @@ H5_daos_link_ibco_helper(H5_daos_group_t *target_grp,
         if(NULL == (ibco_udata->iter_data = (H5_daos_iter_data_t *)DV_malloc(sizeof(H5_daos_iter_data_t))))
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate iteration data");
         memcpy(ibco_udata->iter_data, iter_data, sizeof(*iter_data));
+        if(H5Iinc_ref(ibco_udata->iter_data->iter_root_obj) < 0)
+            D_GOTO_ERROR(H5E_LINK, H5E_CANTINC, -H5_DAOS_SETUP_ERROR, "can't increment reference count on iteration base object");
     } /* end if */
     else
         ibco_udata->iter_data = iter_data;

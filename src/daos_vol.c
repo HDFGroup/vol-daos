@@ -1591,7 +1591,7 @@ H5_daos_pool_connect_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     memset(connect_args, 0, sizeof(*connect_args));
     connect_args->poh = udata->poh;
     connect_args->grp = udata->grp;
-#if !defined(DAOS_API_VERSION_MAJOR) || (defined(DAOS_API_VERSION_MAJOR) && (DAOS_API_VERSION_MAJOR < 1))
+#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
     connect_args->svc = udata->svc;
 #endif
     connect_args->flags = udata->flags;
@@ -2752,7 +2752,12 @@ H5_daos_oid_encode(daos_obj_id_t *oid, uint64_t oidx, H5I_type_t obj_type,
         object_class = (obj_type == H5I_DATASET) ? OC_SX : OC_S1;
 
     /* Generate oid */
-    H5_daos_obj_generate_id(oid, object_feats, object_class);
+#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
+    daos_obj_generate_id(oid, object_feats, object_class);
+#else
+    if (daos_obj_generate_oid(file->coh, oid, object_feats, object_class, 0, 0) != 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTSET, FAIL, "Can't set object class");
+#endif
 
 done:
     D_FUNC_LEAVE;
@@ -2839,12 +2844,11 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_oid_generate(daos_obj_id_t *oid, H5I_type_t obj_type,
-    hid_t crt_plist_id, H5_daos_file_t *file, hbool_t collective,
+H5_daos_oid_generate(daos_obj_id_t *oid, hbool_t oidx_set, uint64_t oidx, H5I_type_t obj_type,
+    hid_t crt_plist_id, const char *oclass_prop_name, H5_daos_file_t *file, hbool_t collective,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_oid_encode_ud_t *encode_udata = NULL;
-    tse_task_t *dep_task_orig;
     tse_task_t *encode_task = NULL;
     int ret;
     herr_t ret_value = SUCCEED;
@@ -2854,63 +2858,50 @@ H5_daos_oid_generate(daos_obj_id_t *oid, H5I_type_t obj_type,
     assert(first_task);
     assert(dep_task);
 
-    /* Track originally passed in dep task */
-    dep_task_orig = *dep_task;
-
     /* Set up user data for OID encoding */
     if(NULL == (encode_udata = (H5_daos_oid_encode_ud_t *)DV_malloc(sizeof(H5_daos_oid_encode_ud_t))))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "failed to allocate buffer for OID encoding user data");
     encode_udata->req = req;
     encode_udata->oid_out = oid;
 
-    /* Generate oidx */
-    if(H5_daos_oidx_generate(&encode_udata->oidx, file, collective, req, first_task, dep_task) < 0)
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTALLOC, FAIL, "can't generate object index");
-
-    /* If OIDX generation created tasks, the following OID encoding must also
-     * create tasks to depend on those tasks. Otherwise, the encoding proceeds
-     * synchronously.
-     */
-    if(dep_task_orig == *dep_task) {
-        /* Encode oid */
-        if(H5_daos_oid_encode(encode_udata->oid_out, encode_udata->oidx, obj_type,
-                crt_plist_id, H5_DAOS_OBJ_CLASS_NAME, file) < 0)
-            D_GOTO_ERROR(H5E_VOL, H5E_CANTENCODE, FAIL, "can't encode object ID");
+    if (oidx_set) {
+        encode_udata->oidx = oidx;
+    } else {
+        /* Generate oidx */
+        if(H5_daos_oidx_generate(&encode_udata->oidx, file, collective, req, first_task, dep_task) < 0)
+	    D_GOTO_ERROR(H5E_VOL, H5E_CANTALLOC, FAIL, "can't generate object index");
     }
-    else {
-        /* Create asynchronous task for OID encoding */
 
-        encode_udata->file = file;
-        encode_udata->obj_type = obj_type;
-        encode_udata->crt_plist_id = crt_plist_id;
-        encode_udata->oclass_prop_name = H5_DAOS_OBJ_CLASS_NAME;
+    /* Create asynchronous task for OID encoding */
+    encode_udata->file = file;
+    encode_udata->obj_type = obj_type;
+    encode_udata->crt_plist_id = crt_plist_id;
+    encode_udata->oclass_prop_name = oclass_prop_name;
 
-        /* Create task to encode OID */
-        if(H5_daos_create_task(H5_daos_oid_encode_task, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
-                NULL, NULL, encode_udata, &encode_task) < 0)
-            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create task to encode OID");
+    /* Create task to encode OID */
+    if(H5_daos_create_task(H5_daos_oid_encode_task, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+            NULL, NULL, encode_udata, &encode_task) < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't create task to encode OID");
 
-        /* Schedule OID encoding task (or save it to be scheduled later) and give it
-         * a reference to req */
-        if(*first_task) {
-            if(0 != (ret = tse_task_schedule(encode_task, false)))
-                D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't schedule task to encode OID: %s", H5_daos_err_to_string(ret));
-        }
-        else
-            *first_task = encode_task;
-        req->rc++;
-        file->item.rc++;
-
-        /* Relinquish control of the OID encoding udata to the
-         * task's completion callback */
-        encode_udata = NULL;
-
-        if(H5P_DEFAULT != crt_plist_id)
-            if(H5Iinc_ref(crt_plist_id) < 0)
-                D_GOTO_ERROR(H5E_PLIST, H5E_CANTINC, FAIL, "can't increment ref. count on creation plist");
-
-        *dep_task = encode_task;
+    /* Schedule OID encoding task (or save it to be scheduled later) and give it
+     * a reference to req */
+    if(*first_task) {
+        if(0 != (ret = tse_task_schedule(encode_task, false)))
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't schedule task to encode OID: %s", H5_daos_err_to_string(ret));
     }
+    else
+        *first_task = encode_task;
+    req->rc++;
+    file->item.rc++;
+
+    /* Relinquish control of the OID encoding udata to the task's completion callback */
+    encode_udata = NULL;
+
+    if(H5P_DEFAULT != crt_plist_id)
+        if(H5Iinc_ref(crt_plist_id) < 0)
+            D_GOTO_ERROR(H5E_PLIST, H5E_CANTINC, FAIL, "can't increment ref. count on creation plist");
+
+    *dep_task = encode_task;
 
 done:
     encode_udata = DV_free(encode_udata);

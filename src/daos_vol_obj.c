@@ -605,8 +605,12 @@ H5_daos_object_open_by_oid(H5_daos_obj_t **obj_out, H5_daos_file_t *file,
         if(apl_id == H5P_LINK_ACCESS_DEFAULT)
             apl_id = H5P_GROUP_ACCESS_DEFAULT;
 
-        if(NULL == (obj = (H5_daos_obj_t *)H5_daos_group_open_helper(file,
-                apl_id, collective, req, first_task, dep_task)))
+        /* Allocate the group object that is returned to the user */
+        if(NULL == (obj = H5FL_CALLOC(H5_daos_group_t)))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_H5_OPEN_ERROR, "can't allocate DAOS group struct");
+
+        if(H5_daos_group_open_helper(file, (H5_daos_group_t *)obj,
+                apl_id, collective, req, first_task, dep_task) < 0)
             D_GOTO_ERROR(H5E_OBJECT, H5E_CANTOPENOBJ, -H5_DAOS_H5_OPEN_ERROR, "can't open group");
     } /* end if */
     else if(obj_type == H5I_DATASET) {
@@ -4580,8 +4584,11 @@ H5_daos_object_visit_soft_task(tse_task_t *task)
         switch(obj_type) {
             case H5I_FILE:
             case H5I_GROUP:
-                if(NULL == (target_obj = (H5_daos_obj_t *)H5_daos_group_open_helper(udata->req->file,
-                        H5P_GROUP_ACCESS_DEFAULT, TRUE, int_int_req, &first_task, &dep_task)))
+                /* Allocate the group object that is returned to the user */
+                if(NULL == (target_obj = H5FL_CALLOC(H5_daos_group_t)))
+                    D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate DAOS group struct");
+                if(H5_daos_group_open_helper(udata->req->file,(H5_daos_group_t *)target_obj,
+                        H5P_GROUP_ACCESS_DEFAULT, TRUE, int_int_req, &first_task, &dep_task) < 0)
                     D_GOTO_ERROR(H5E_OBJECT, H5E_CANTOPENOBJ, -H5_DAOS_H5_OPEN_ERROR, "can't open group");
                 break;
             case H5I_DATASET:

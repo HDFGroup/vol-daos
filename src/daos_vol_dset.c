@@ -742,8 +742,8 @@ H5_daos_dataset_create_helper(H5_daos_file_t *file, hid_t type_id, hid_t space_i
     } /* end if */
 
     /* Generate dataset oid */
-    if(H5_daos_oid_generate(&dset->obj.oid, H5I_DATASET,
-            (default_dcpl ? H5P_DEFAULT : dset->dcpl_id),
+    if(H5_daos_oid_generate(&dset->obj.oid, FALSE, 0, H5I_DATASET,
+            (default_dcpl ? H5P_DEFAULT : dset->dcpl_id), H5_DAOS_OBJ_CLASS_NAME,
             file, collective, req, first_task, dep_task) < 0)
         D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, NULL, "can't generate object id");
 

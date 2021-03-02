@@ -46,8 +46,6 @@ typedef d_sg_list_t daos_sg_list_t;
 # define daos_iov_set d_iov_set
 # define DAOS_OF_AKEY_HASHED 0
 # define DAOS_OF_DKEY_HASHED 0
-# define H5_daos_obj_generate_id(oid, ofeats, cid) \
-    daos_obj_generate_id(oid, ofeats, cid, 0)
 
 /* For HDF5 compatibility */
 #ifndef H5E_ID
@@ -1111,8 +1109,8 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_oidx_generate(uint64_t *oidx,
 H5VL_DAOS_PRIVATE herr_t H5_daos_oid_encode(daos_obj_id_t *oid, uint64_t oidx,
     H5I_type_t obj_type, hid_t crt_plist_id, const char *oclass_prop_name,
     H5_daos_file_t *file);
-H5VL_DAOS_PRIVATE herr_t H5_daos_oid_generate(daos_obj_id_t *oid,
-    H5I_type_t obj_type, hid_t crt_plist_id, H5_daos_file_t *file,
+H5VL_DAOS_PRIVATE herr_t H5_daos_oid_generate(daos_obj_id_t *oid, hbool_t oidx_set, uint64_t oidx,
+    H5I_type_t obj_type, hid_t crt_plist_id, const char *oclass_prop_name, H5_daos_file_t *file,
     hbool_t collective, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE herr_t H5_daos_oid_to_token(daos_obj_id_t oid, H5O_token_t *obj_token);
 H5VL_DAOS_PRIVATE herr_t H5_daos_token_to_oid(const H5O_token_t *obj_token, daos_obj_id_t *oid);
@@ -1218,8 +1216,8 @@ H5VL_DAOS_PRIVATE H5_daos_obj_t *H5_daos_group_traverse(H5_daos_item_t *item,
 H5VL_DAOS_PRIVATE void *H5_daos_group_create_helper(H5_daos_file_t *file, hbool_t is_root,
     hid_t gcpl_id, hid_t gapl_id, H5_daos_group_t *parent_grp, const char *name, size_t name_len,
     hbool_t collective, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
-H5VL_DAOS_PRIVATE H5_daos_group_t *H5_daos_group_open_helper(
-    H5_daos_file_t *file, hid_t gapl_id, hbool_t collective, H5_daos_req_t *req,
+H5VL_DAOS_PRIVATE int H5_daos_group_open_helper(
+    H5_daos_file_t *file, H5_daos_group_t *grp, hid_t gapl_id, hbool_t collective, H5_daos_req_t *req,
     tse_task_t **first_task, tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE H5_daos_group_t *H5_daos_group_open_int(H5_daos_item_t *item,
     const H5VL_loc_params_t *loc_params, const char *name, hid_t gapl_id,

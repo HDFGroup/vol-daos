@@ -700,8 +700,8 @@ H5_daos_datatype_commit_helper(H5_daos_file_t *file, hid_t type_id,
     dtype->tapl_id = H5P_DATATYPE_ACCESS_DEFAULT;
 
     /* Generate datatype oid */
-    if(H5_daos_oid_generate(&dtype->obj.oid, H5I_DATATYPE,
-            (default_tcpl ? H5P_DEFAULT : tcpl_id),
+    if(H5_daos_oid_generate(&dtype->obj.oid, FALSE, 0, H5I_DATATYPE,
+            (default_tcpl ? H5P_DEFAULT : tcpl_id), H5_DAOS_OBJ_CLASS_NAME,
             file, collective, req, first_task, dep_task) < 0)
         D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, NULL, "can't generate object id");
 

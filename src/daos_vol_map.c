@@ -260,8 +260,8 @@ H5_daos_map_create(void *_item,
     } /* end if */
 
     /* Generate map oid */
-    if(H5_daos_oid_generate(&map->obj.oid, H5I_MAP,
-            (default_mcpl ? H5P_DEFAULT : mcpl_id),
+    if(H5_daos_oid_generate(&map->obj.oid, FALSE, 0, H5I_MAP,
+            (default_mcpl ? H5P_DEFAULT : mcpl_id), H5_DAOS_OBJ_CLASS_NAME,
             item->file, collective, int_req, &first_task, &dep_task) < 0)
         D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, NULL, "can't generate object id");
 

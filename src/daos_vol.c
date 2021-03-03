@@ -2753,7 +2753,7 @@ H5_daos_oid_encode(daos_obj_id_t *oid, uint64_t oidx, H5I_type_t obj_type,
 
     /* Generate oid */
 #if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
-    daos_obj_generate_id(oid, object_feats, object_class);
+    daos_obj_generate_id(oid, object_feats, object_class, 0);
 #else
     if (daos_obj_generate_oid(file->coh, oid, object_feats, object_class, 0, 0) != 0)
         D_GOTO_ERROR(H5E_VOL, H5E_CANTSET, FAIL, "Can't set object class");

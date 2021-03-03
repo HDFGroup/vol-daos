@@ -237,9 +237,9 @@ set(HDF5_VOL_DAOS_PKG_DEPENDENCIES ${HDF5_VOL_DAOS_PKG_DEPENDENCIES} PARENT_SCOP
 # HDF5 DAOS private library dependencies
 foreach(exported_lib ${HDF5_VOL_DAOS_EXPORTED_LIBS})
   if(lower_cmake_build_type MATCHES "debug")
-    get_target_property(HDF5_VOL_DAOS_LIBRARY ${exported_lib} DEBUG_OUTPUT_NAME)
+    get_target_property(HDF5_VOL_DAOS_LIBRARY ${exported_lib} OUTPUT_NAME_DEBUG)
   else()
-    get_target_property(HDF5_VOL_DAOS_LIBRARY ${exported_lib} RELEASE_OUTPUT_NAME)
+    get_target_property(HDF5_VOL_DAOS_LIBRARY ${exported_lib} OUTPUT_NAME_RELEASE)
   endif()
   set(HDF5_VOL_DAOS_LIBRARIES "${HDF5_VOL_DAOS_LIBRARIES} -l${HDF5_VOL_DAOS_LIBRARY}")
 endforeach()

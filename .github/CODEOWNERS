@@ -1,0 +1,9 @@
+# These owners will be the default owners for everything in
+# the repo. Unless a later match takes precedence,
+*       @soumagne @jhendersonHDF
+
+# Order is important; the last matching pattern takes the most
+# precedence. When someone opens a pull request that only
+# modifies these files, only these owners and not the global
+# owner(s) will be requested for a review.
+/src/ @fortnern @jhendersonHDF @soumagne

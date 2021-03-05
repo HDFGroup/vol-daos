@@ -247,7 +247,7 @@ usage(void)
     printf("    [-T]: Run the test for named datatype object only\n");
     printf("    [-u]: unique group per rank where objects will be located under.  Option -a shouldn't be set at the same time.\n");
     printf("	      It'll use independent metadata I/O.  If not set, collective I/O will be used\n");
-    printf("    [-U]: use Async I/O, otherwise use sync I/O\n");
+    printf("    [-U]: use Async I/O, otherwise use sync I/O if not specified. It should be used with -u only, not with -a.\n");
     printf("	[-w]: put an H5ESwait call after the operations to make async function behave similar to sync function.\n");
     printf("    [-z]: the number of levels (depth) for the tree (the tree root is at level 0) \n");
     printf("\n");
@@ -575,6 +575,12 @@ parse_command_line(int argc, char *argv[])
     if (hand.runMPIIO && hand.uniqueGroupPerRank) {
         H5_FAILED(); AT();
         printf("invalid command-line option value: unique group can't be enable for running H5MPIIO\n");
+        goto error;
+    }
+
+    if (hand.isAsync && !hand.uniqueGroupPerRank) {
+        H5_FAILED(); AT();
+        printf("invalid command-line option value: Async functions must be used with unique group per rank\n");
         goto error;
     }
 

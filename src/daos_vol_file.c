@@ -92,6 +92,8 @@ static herr_t H5_daos_cont_open(H5_daos_file_t *file, unsigned flags,
 static herr_t H5_daos_get_cont_open_task(H5_daos_cont_op_info_t *cont_op_info,
     tse_task_cb_t prep_cb, tse_task_cb_t comp_cb, H5_daos_req_t *req,
     tse_task_t **first_task, tse_task_t **dep_task);
+static herr_t H5_daos_get_cont_query_task(tse_task_cb_t prep_cb, tse_task_cb_t comp_cb,
+    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 static herr_t H5_daos_duns_resolve_path(H5_daos_cont_op_info_t *resolve_udata,
     tse_task_cb_t prep_cb, tse_task_cb_t comp_cb,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
@@ -99,6 +101,8 @@ static int H5_daos_duns_resolve_path_task(tse_task_t *task);
 static int H5_daos_duns_resolve_path_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_cont_open_prep_cb(tse_task_t *task, void *args);
 static int H5_daos_cont_open_comp_cb(tse_task_t *task, void *args);
+static int H5_daos_cont_query_prep_cb(tse_task_t *task, void *args);
+static int H5_daos_cont_query_comp_cb(tse_task_t *task, void *args);
 static herr_t H5_daos_file_set_pool_uuid(H5_daos_file_t *file, const char *filepath);
 static int H5_daos_handles_bcast_comp_cb(tse_task_t *task, void *args);
 static herr_t H5_daos_file_handles_bcast(H5_daos_file_t *file,
@@ -1300,6 +1304,8 @@ H5_daos_duns_create_path_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         udata->req->failed_task = "DUNS path creation";
     } /* end if */
 
+    uuid_copy(udata->req->file->uuid, udata->duns_attr.da_cuuid);
+
 done:
     /* Free private data if we haven't released ownership */
     if(udata) {
@@ -1741,6 +1747,12 @@ H5_daos_cont_open(H5_daos_file_t *file, unsigned flags,
             H5_daos_cont_open_comp_cb, req, first_task, dep_task) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create task to open container");
 
+    if(!H5_daos_bypass_duns_g) {
+        if(H5_daos_get_cont_query_task(H5_daos_cont_query_prep_cb,
+                H5_daos_cont_query_comp_cb, req, first_task, dep_task) < 0)
+            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create task to query container");
+    }
+
     open_udata = NULL;
 
 #ifdef H5_DAOS_USE_TRANSACTIONS
@@ -1854,6 +1866,162 @@ done:
     D_FUNC_LEAVE;
 } /* end H5_daos_get_cont_open_task() */
 
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_get_cont_query_task
+ *
+ * Purpose:     Creates an asynchronous DAOS task that simply calls
+ *              daos_cont_query.
+ *
+ * Return:      Non-negative on success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_get_cont_query_task(tse_task_cb_t prep_cb, tse_task_cb_t comp_cb, H5_daos_req_t *req,
+    tse_task_t **first_task, tse_task_t **dep_task)
+{
+    tse_task_t *query_task;
+    int ret;
+    herr_t ret_value = SUCCEED;
+
+    assert(req);
+    assert(first_task);
+    assert(dep_task);
+
+    /* Create task for container query */
+    if(H5_daos_create_daos_task(DAOS_OPC_CONT_QUERY, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
+            prep_cb, comp_cb, req, &query_task) < 0)
+        D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create task to query cont prop");
+
+    /* Schedule container query task (or save it to be scheduled later) and give
+     * it a reference to req */
+    if(*first_task) {
+        if(0 != (ret = tse_task_schedule(query_task, false)))
+            D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't schedule task to query container: %s", H5_daos_err_to_string(ret));
+    } /* end if */
+    else
+        *first_task = query_task;
+    req->rc++;
+    *dep_task = query_task;
+
+done:
+    D_FUNC_LEAVE;
+} /* end H5_daos_get_cont_query_task() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_cont_query_prep_cb
+ *
+ * Purpose:     Prepare callback for asynchronous daos_cont_query.
+ *              Currently checks for errors from previous tasks then sets
+ *              arguments for daos_cont_query.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_cont_query_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_req_t *req;
+    daos_cont_query_t *query_args;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (req = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for container query task");
+
+    assert(req);
+    assert(req->file);
+
+    /* Handle errors */
+    H5_DAOS_PREP_REQ(req, H5E_FILE);
+
+    /* Set daos_cont_query task args */
+    if(NULL == (query_args = daos_task_get_args(task)))
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for container query task");
+    memset(query_args, 0, sizeof(*query_args));
+
+    req->file->cont_prop = daos_prop_alloc(1);
+    if (req->file->cont_prop == NULL)
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, -H5_DAOS_DAOS_GET_ERROR, "can't allocate prop");
+
+    req->file->cont_prop->dpp_entries[0].dpe_type = DAOS_PROP_CO_LAYOUT_TYPE;
+    query_args->coh = req->file->coh;
+    query_args->info = NULL;
+    query_args->prop = req->file->cont_prop;
+
+done:
+    if(ret_value < 0)
+        tse_task_complete(task, ret_value);
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_cont_query_prep_cb() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_cont_query_comp_cb
+ *
+ * Purpose:     Completion callback for asynchronous daos_cont_query.
+ *              Currently checks for a failed task then frees private data.
+ *
+ * Return:      Success:        0
+ *              Failure:        Error code
+ *
+ *-------------------------------------------------------------------------
+ */
+static int
+H5_daos_cont_query_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
+{
+    H5_daos_req_t *req;
+    int ret_value = 0;
+
+    /* Get private data */
+    if(NULL == (req = tse_task_get_priv(task)))
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for DAOS container query task");
+
+    assert(req);
+
+    /* Handle errors in daos_cont_query task.  Only record error in req_status
+     * if it does not already contain an error (it could contain an error if
+     * another task this task is not dependent on also failed). */
+    if(task->dt_result < -H5_DAOS_PRE_ERROR
+            && req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+        req->status = task->dt_result;
+        req->failed_task = "DAOS container query";
+    }
+
+    if(task->dt_result == 0) {
+        /** verify Layout property is HDF5 */
+        if(req->file->cont_prop->dpp_entries[0].dpe_val != DAOS_PROP_CO_LAYOUT_HDF5)
+            D_GOTO_ERROR(H5E_FILE, H5E_NOTHDF5, -H5_DAOS_BAD_VALUE, "Not a valid HDF5 DAOS file");
+    }
+
+done:
+    /* Free private data if we haven't released ownership */
+    if (req->file->cont_prop)
+        daos_prop_free(req->file->cont_prop);
+
+    /* Return task to task list */
+    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
+        D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
+
+    /* Handle errors in this function */
+    /* Do not place any code that can issue errors after this block, except for
+     * H5_daos_req_free_int, which updates req->status if it sees an error */
+    if(ret_value < -H5_DAOS_SHORT_CIRCUIT && req->status >= -H5_DAOS_SHORT_CIRCUIT) {
+        req->status = ret_value;
+        req->failed_task = "DAOS container query completion callback";
+    } /* end if */
+
+    /* Release our reference to req */
+    if(H5_daos_req_free_int(req) < 0)
+        D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+    D_FUNC_LEAVE;
+} /* end H5_daos_cont_query_comp_cb() */
 
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_duns_resolve_path
@@ -2016,10 +2184,6 @@ H5_daos_duns_resolve_path_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         } /* end if */
     } /* end if */
     else {
-        /* Verify that this is actually an HDF5 DAOS file */
-        if(udata->duns_attr.da_type != DAOS_PROP_CO_LAYOUT_HDF5)
-            D_GOTO_ERROR(H5E_FILE, H5E_NOTHDF5, -H5_DAOS_BAD_VALUE, "file '%s' is not a valid HDF5 DAOS file", udata->path);
-
         /* Determine if special action is required according to flags specified */
         if(udata->flags & H5F_ACC_EXCL) {
             /* File already exists during exclusive open */

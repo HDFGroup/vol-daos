@@ -110,8 +110,6 @@ static int figure_out_op(const char *);
  */
 static void inject_fault(d_rank_t which_server)
 {
-    struct d_tgt_list        targets;
-    int			     tgt = -1;
     char                     dmg_cmd[100];
     char		     pool_string[256];
     int                      rc;
@@ -125,13 +123,16 @@ static void inject_fault(d_rank_t which_server)
              return;
         }
 
+        /* Exclude the server from the pool */
+#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
+        struct d_tgt_list targets;
+        int tgt = -1;
+
         targets.tl_nr = 1;
         targets.tl_ranks = &which_server;
         tgt = -1;
         targets.tl_tgts = &tgt;
 
-        /* Exclude the server from the pool */
-#if !defined(DAOS_API_VERSION_MAJOR) || (defined(DAOS_API_VERSION_MAJOR) && (DAOS_API_VERSION_MAJOR < 1))
         if(daos_pool_tgt_exclude(pool_uuid, "daos_server", svcl, &targets, NULL) < 0) {
             printf("daos_pool_tgt_exclude failed");
             return;
@@ -1121,7 +1122,6 @@ main( int argc, char** argv )
     char           filename[NAME_LENGTH];
     hid_t          fapl_id = -1, file_id = -1;
     char          *pool_string = NULL;
-    char          *pool_svcl_string = NULL;
     int            nerrors = 0;
 
     MPI_Init(&argc, &argv);
@@ -1196,13 +1196,11 @@ main( int argc, char** argv )
 
     svcl = &glob_svcl;
 
-    pool_svcl_string = getenv("DAOS_SVCL");
-
     if (MAINPROCESS) {
         fprintf(stdout, "Test parameters:\n\n");
         fprintf(stdout, "  - Pool UUID: %s\n", pool_string);
-#if !defined(DAOS_API_VERSION_MAJOR) || (defined(DAOS_API_VERSION_MAJOR) && (DAOS_API_VERSION_MAJOR < 1))
-        fprintf(stdout, "  - POOL SVCL: %s\n", pool_svcl_string);
+#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
+        fprintf(stdout, "  - POOL SVCL: %s\n", getenv("DAOS_SVCL"));
 #endif
         fprintf(stdout, "  - Test File name: %s\n", filename);
         fprintf(stdout, "\n\n");

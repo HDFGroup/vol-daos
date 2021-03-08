@@ -557,6 +557,7 @@ typedef struct H5_daos_file_t {
     H5_daos_item_t item; /* Must be first */
     daos_handle_t coh;
     daos_handle_t container_poh;
+    daos_prop_t *cont_prop;
     char *file_name;
     uuid_t uuid;
     uuid_t puuid;

@@ -610,8 +610,11 @@ H5_daos_object_open_by_oid(H5_daos_obj_t **obj_out, H5_daos_file_t *file,
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_H5_OPEN_ERROR, "can't allocate DAOS group struct");
 
         if(H5_daos_group_open_helper(file, (H5_daos_group_t *)obj,
-                apl_id, collective, req, first_task, dep_task) < 0)
+                apl_id, collective, req, first_task, dep_task) < 0) {
+            /* Assumed here that H5_daos_group_open_helper will free "obj" on failure */
+            obj = NULL;
             D_GOTO_ERROR(H5E_OBJECT, H5E_CANTOPENOBJ, -H5_DAOS_H5_OPEN_ERROR, "can't open group");
+        }
     } /* end if */
     else if(obj_type == H5I_DATASET) {
         if(apl_id == H5P_LINK_ACCESS_DEFAULT)

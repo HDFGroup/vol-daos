@@ -5928,7 +5928,7 @@ H5_daos_link_ibco_task(tse_task_t *task)
              * index_type field in iter_data since the internal functions for
              * iteration by name order don't check this field */
             if(0 != (ret = H5_daos_list_key_init(udata->iter_data, &udata->target_grp->obj,
-                    NULL, DAOS_OPC_OBJ_LIST_DKEY, H5_daos_link_iterate_list_comp_cb, TRUE,
+                    NULL, DAOS_OPC_OBJ_LIST_DKEY, H5_daos_link_iterate_list_comp_cb, FALSE,
                     H5_DAOS_ITER_LEN, H5_DAOS_ITER_SIZE_INIT, &first_task, &dep_task)))
                 D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, ret, "can't fall back to iteration by name order: %s", H5_daos_err_to_string(ret));
 

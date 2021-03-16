@@ -136,19 +136,6 @@ typedef struct H5_daos_object_visit_ud_t {
     hid_t target_obj_id;
 } H5_daos_object_visit_ud_t;
 
-/* Task user data for visiting an object
- * pointed to by a soft link.
- */
-typedef struct H5_daos_object_visit_soft_ud_t {
-    H5_daos_req_t *req;
-    H5_daos_group_t *target_grp;
-    tse_task_t *visit_metatask;
-    H5_daos_iter_data_t *iter_data;
-    const char *link_name;
-    daos_obj_id_t oid;
-    hbool_t link_resolves;
-} H5_daos_object_visit_soft_ud_t;
-
 /* Task user data for retrieving the number of attributes
  * attached to an object
  */
@@ -262,10 +249,6 @@ static int H5_daos_object_exists_finish(tse_task_t *task);
 static int H5_daos_object_visit_task(tse_task_t *task);
 static herr_t H5_daos_object_visit_link_iter_cb(hid_t group, const char *name, const H5L_info2_t *info,
     void *op_data, herr_t *op_ret, tse_task_t **first_task, tse_task_t **dep_task);
-static herr_t H5_daos_object_visit_soft(H5_daos_group_t *target_grp, const char *link_name,
-    H5_daos_iter_data_t *iter_data, H5_daos_req_t *req,
-    tse_task_t **first_task, tse_task_t **dep_task);
-static int H5_daos_object_visit_soft_task(tse_task_t *task);
 static int H5_daos_object_visit_finish(tse_task_t *task);
 static int H5_daos_obj_read_rc_prep_cb(tse_task_t *task, void *args);
 static int H5_daos_obj_read_rc_comp_cb(tse_task_t *task, void *args);
@@ -4380,18 +4363,14 @@ H5_daos_object_visit_link_iter_cb(hid_t group, const char *name, const H5L_info2
     assert(visit_udata);
     assert(H5_DAOS_ITER_TYPE_OBJ == visit_udata->iter_data.iter_type);
 
+    /* H5Ovisit(_by_name) ignores soft links during visiting */
+    if(H5L_TYPE_SOFT == info->type)
+        D_GOTO_DONE(H5_ITER_CONT);
+
     if(NULL == (target_grp = (H5_daos_group_t *) H5VLobject(group)))
         D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, H5_ITER_ERROR, "failed to retrieve VOL object for group ID");
 
-    if(H5L_TYPE_SOFT == info->type) {
-        /* Create task to check that soft link resolves
-         * before opening and visiting the object.
-         */
-        if(H5_daos_object_visit_soft(target_grp, name, &visit_udata->iter_data,
-                visit_udata->req, first_task, dep_task) < 0)
-            D_GOTO_ERROR(H5E_OBJECT, H5E_BADITER, H5_ITER_ERROR, "failed to visit object pointed to by soft link");
-    }
-    else if(H5L_TYPE_HARD == info->type) {
+    if(H5L_TYPE_HARD == info->type) {
         H5VL_loc_params_t loc_params;
         H5_daos_obj_t ***target_obj_p = NULL;
 
@@ -4444,250 +4423,6 @@ done:
 
     D_FUNC_LEAVE;
 } /* end H5_daos_object_visit_link_iter_cb() */
-
-
-/*-------------------------------------------------------------------------
- * Function:    H5_daos_object_visit_soft
- *
- * Purpose:     Helper routine to recursively visit an object according to
- *              a specified soft link name. Creates a task to try to
- *              resolve the soft link before actually visiting the object
- *              pointed to by the link.
- *
- * Return:      Non-negative on success/Negative on failure
- *
- *-------------------------------------------------------------------------
- */
-static herr_t
-H5_daos_object_visit_soft(H5_daos_group_t *target_grp, const char *link_name,
-    H5_daos_iter_data_t *iter_data, H5_daos_req_t *req,
-    tse_task_t **first_task, tse_task_t **dep_task)
-{
-    H5_daos_object_visit_soft_ud_t *soft_visit_udata = NULL;
-    daos_obj_id_t **oid_ptr = NULL;
-    tse_task_t *check_task = NULL;
-    int ret;
-    herr_t ret_value = SUCCEED;
-
-    assert(target_grp);
-    assert(link_name);
-    assert(iter_data);
-    assert(req);
-    assert(first_task);
-    assert(dep_task);
-
-    if(NULL == (soft_visit_udata = (H5_daos_object_visit_soft_ud_t *)DV_malloc(sizeof(H5_daos_object_visit_soft_ud_t))))
-         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate user data struct for object visit task");
-    soft_visit_udata->req = req;
-    soft_visit_udata->target_grp = target_grp;
-    soft_visit_udata->visit_metatask = NULL;
-    soft_visit_udata->link_name = link_name;
-    soft_visit_udata->iter_data = iter_data;
-    soft_visit_udata->link_resolves = FALSE;
-
-    /* Check that the soft link resolves before opening the target object */
-    if(H5_daos_link_follow(target_grp, link_name, strlen(link_name), FALSE,
-            req, &oid_ptr, &soft_visit_udata->link_resolves, first_task, dep_task) < 0)
-        D_GOTO_ERROR(H5E_LINK, H5E_TRAVERSE, FAIL, "can't follow link");
-
-    /* Retarget *oid_ptr so H5_daos_link_follow fills in the oid */
-    *oid_ptr = &soft_visit_udata->oid;
-
-    /* Create task for checking if the link resolves */
-    if(H5_daos_create_task(H5_daos_object_visit_soft_task, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
-            NULL, NULL, soft_visit_udata, &check_task) < 0)
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create task to check if object exists");
-
-    /* Schedule object existence check task (or save it to be scheduled later) and
-     * give it a reference to req */
-    if(*first_task) {
-        if(0 != (ret = tse_task_schedule(check_task, false)))
-            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't schedule task to check if object exists: %s", H5_daos_err_to_string(ret));
-    } /* end if */
-    else
-        *first_task = check_task;
-    req->rc++;
-    target_grp->obj.item.rc++;
-    *dep_task = check_task;
-
-    /* Create metatask for soft link visit. This empty task will be completed
-     * when the actual asynchronous object visit call is finished. This metatask
-     * is necessary because the object existence check task will generate other
-     * async tasks for actually opening and visiting the object if the soft link
-     * resolves. */
-    if(H5_daos_create_task(H5_daos_metatask_autocomplete, 1, &check_task,
-            NULL, NULL, NULL, &soft_visit_udata->visit_metatask) < 0)
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't create meta task for object copy");
-
-    /* Schedule meta task */
-    assert(*first_task);
-    if(0 != (ret = tse_task_schedule(soft_visit_udata->visit_metatask, false)))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't schedule metatask for object visit: %s", H5_daos_err_to_string(ret));
-
-    *dep_task = soft_visit_udata->visit_metatask;
-
-    /* Relinquish control of udata to task's function body */
-    soft_visit_udata = NULL;
-
-done:
-    if(soft_visit_udata) {
-        assert(ret_value < 0);
-        soft_visit_udata = DV_free(soft_visit_udata);
-    }
-
-    D_FUNC_LEAVE;
-} /* end H5_daos_object_visit_soft() */
-
-
-/*-------------------------------------------------------------------------
- * Function:    H5_daos_object_visit_soft_task
- *
- * Purpose:     Asynchronous task to delay visiting of an object pointed to
- *              by a soft link until it is determined that the link
- *              actually resolves to an object.
- *
- * Return:      Non-negative on success/Negative on failure
- *
- *-------------------------------------------------------------------------
- */
-static int
-H5_daos_object_visit_soft_task(tse_task_t *task)
-{
-    H5_daos_object_visit_soft_ud_t *udata;
-    H5_daos_obj_t *target_obj = NULL;
-    tse_task_t *first_task = NULL;
-    tse_task_t *dep_task = NULL;
-    H5_daos_req_t *int_int_req = NULL;
-    int ret;
-    int ret_value = 0;
-
-    /* Get private data */
-    if(NULL == (udata = tse_task_get_priv(task)))
-        D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for object existence check task");
-
-    assert(udata->req);
-    assert(udata->iter_data);
-    assert(udata->visit_metatask);
-
-    /* Check for previous errors */
-    H5_DAOS_PREP_REQ_PROG(udata->req);
-
-    /* If link resolved, open the object and visit it */
-    if(udata->link_resolves) {
-        H5I_type_t obj_type = H5_daos_oid_to_type(udata->oid);
-
-        /* Start internal H5 operation for target object open.  This will
-         * not be visible to the API, will not be added to an operation
-         * pool, and will be integrated into this function's task chain. */
-        if(NULL == (int_int_req = H5_daos_req_create(udata->req->file, "target object open within object visit soft link",
-                NULL, NULL, udata->req, H5I_INVALID_HID)))
-            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't create DAOS request");
-
-        /* Open object according to object type */
-        switch(obj_type) {
-            case H5I_FILE:
-            case H5I_GROUP:
-                /* Allocate the group object that is returned to the user */
-                if(NULL == (target_obj = H5FL_CALLOC(H5_daos_group_t)))
-                    D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate DAOS group struct");
-                if(H5_daos_group_open_helper(udata->req->file,(H5_daos_group_t *)target_obj,
-                        H5P_GROUP_ACCESS_DEFAULT, TRUE, int_int_req, &first_task, &dep_task) < 0)
-                    D_GOTO_ERROR(H5E_OBJECT, H5E_CANTOPENOBJ, -H5_DAOS_H5_OPEN_ERROR, "can't open group");
-                break;
-            case H5I_DATASET:
-                if(NULL == (target_obj = (H5_daos_obj_t *)H5_daos_dataset_open_helper(udata->req->file,
-                        H5P_DATASET_ACCESS_DEFAULT, TRUE, int_int_req, &first_task, &dep_task)))
-                    D_GOTO_ERROR(H5E_OBJECT, H5E_CANTOPENOBJ, -H5_DAOS_H5_OPEN_ERROR, "can't open dataset");
-                break;
-            case H5I_DATATYPE:
-                if(NULL == (target_obj = (H5_daos_obj_t *)H5_daos_datatype_open_helper(udata->req->file,
-                        H5P_DATATYPE_ACCESS_DEFAULT, TRUE, int_int_req, &first_task, &dep_task)))
-                    D_GOTO_ERROR(H5E_OBJECT, H5E_CANTOPENOBJ, -H5_DAOS_H5_OPEN_ERROR, "can't open datatype");
-                break;
-            case H5I_MAP:
-                if(NULL == (target_obj = (H5_daos_obj_t *)H5_daos_map_open_helper(udata->req->file,
-                        H5P_MAP_ACCESS_DEFAULT, TRUE, int_int_req, &first_task, &dep_task)))
-                    D_GOTO_ERROR(H5E_OBJECT, H5E_CANTOPENOBJ, -H5_DAOS_H5_OPEN_ERROR, "can't open map");
-                break;
-            default:
-                D_GOTO_ERROR(H5E_OBJECT, H5E_BADVALUE, -H5_DAOS_BAD_VALUE, "invalid object type");
-        } /* end switch */
-
-        /* Create task to finalize internal operation */
-        if(H5_daos_create_task(H5_daos_h5op_finalize, dep_task ? 1 : 0, dep_task ? &dep_task : NULL,
-                NULL, NULL, int_int_req, &int_int_req->finalize_task) < 0)
-            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't create task to finalize internal operation");
-
-        /* Schedule finalize task (or save it to be scheduled later),
-         * give it ownership of int_int_req, and update task pointers */
-        if(first_task) {
-            if(0 != (ret = tse_task_schedule(int_int_req->finalize_task, false)))
-                D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
-        } /* end if */
-        else
-            first_task = int_int_req->finalize_task;
-        dep_task = int_int_req->finalize_task;
-        int_int_req = NULL;
-
-        /* Fill in object's OID */
-        target_obj->oid = udata->oid;
-
-        /* Set name for object and visit it */
-        udata->iter_data->u.obj_iter_data.obj_name = udata->link_name;
-        if(H5_daos_object_visit(NULL, target_obj, udata->iter_data,
-                udata->req, &first_task, &dep_task) < 0)
-            D_GOTO_ERROR(H5E_OBJECT, H5E_BADITER, -H5_DAOS_H5_ITER_ERROR, "failed to visit object");
-
-        /* Register dependency on dep_task for soft link visiting metatask */
-        if(dep_task && 0 != (ret = tse_task_register_deps(udata->visit_metatask, 1, &dep_task)))
-            D_GOTO_ERROR(H5E_OBJECT, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't set dependencies for object visit metatask: %s", H5_daos_err_to_string(ret));
-    } /* end if */
-
-done:
-    /* Schedule first task */
-    if(first_task && 0 != (ret = tse_task_schedule(first_task, false)))
-        D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, ret, "can't schedule task to visit object: %s", H5_daos_err_to_string(ret));
-
-    /* Close object since object visiting task should now own it */
-    if(target_obj && H5_daos_object_close(&target_obj->item) < 0)
-        D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
-
-    /* Close internal request for target object open */
-    if(int_int_req && H5_daos_req_free_int(int_int_req) < 0)
-        D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
-
-    if(udata) {
-        /* Close group */
-        if(H5_daos_group_close_real(udata->target_grp) < 0)
-            D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close group");
-
-        /* Handle errors in this function */
-        /* Do not place any code that can issue errors after this block, except for
-         * H5_daos_req_free_int, which updates req->status if it sees an error */
-        if(ret_value < -H5_DAOS_SHORT_CIRCUIT && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
-            udata->req->status = ret_value;
-            udata->req->failed_task = "object existence check task (soft link visit)";
-        } /* end if */
-
-        /* Release our reference to req */
-        if(H5_daos_req_free_int(udata->req) < 0)
-            D_DONE_ERROR(H5E_IO, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
-
-        /* Free private data */
-        DV_free(udata);
-    }
-    else
-        assert(ret_value == -H5_DAOS_DAOS_GET_ERROR);
-
-    /* Return task to task list */
-    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
-        D_DONE_ERROR(H5E_OBJECT, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
-
-    /* Complete this task */
-    tse_task_complete(task, ret_value);
-
-    D_FUNC_LEAVE;
-} /* end H5_daos_object_visit_soft_task() */
 
 
 /*-------------------------------------------------------------------------

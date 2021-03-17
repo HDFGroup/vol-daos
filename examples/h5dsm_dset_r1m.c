@@ -8,8 +8,9 @@ int main(int argc, char *argv[]) {
     hid_t nfile = -1, ndset = -1;
     hsize_t dims[1] = {256 * 1024};
     int *buf = NULL, *nbuf = NULL;
+#ifdef DV_HAVE_SNAP_OPEN_ID
     H5_daos_snap_id_t snap_id;
-    int i;
+#endif
 
     (void)MPI_Init(&argc, &argv);
 

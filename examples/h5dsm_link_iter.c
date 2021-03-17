@@ -4,6 +4,8 @@ int od_test_g;
 
 herr_t iter_cb(hid_t loc_id, const char *link_name, const H5L_info2_t *linfo,
         void *op_data) {
+    (void)loc_id;
+
     /* Print name, type, and address or value size */
     printf("%s: ", link_name);
     if(linfo->type == H5L_TYPE_HARD) {
@@ -38,7 +40,9 @@ int main(int argc, char *argv[]) {
     hid_t file = -1, fapl = -1;
     hsize_t num_link = 0;
     herr_t ret;
+#ifdef DV_HAVE_SNAP_OPEN_ID
     H5_daos_snap_id_t snap_id;
+#endif
 
     (void)MPI_Init(&argc, &argv);
 

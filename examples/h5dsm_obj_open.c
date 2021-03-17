@@ -6,7 +6,9 @@ int main(int argc, char *argv[]) {
     hid_t file = -1, obj = -1, fapl = -1;
     H5I_type_t obj_type;
     char *obj_str = NULL;
+#ifdef DV_HAVE_SNAP_OPEN_ID
     H5_daos_snap_id_t snap_id;
+#endif
 
     (void)MPI_Init(&argc, &argv);
 

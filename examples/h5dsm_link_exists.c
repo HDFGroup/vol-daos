@@ -4,7 +4,9 @@ int main(int argc, char *argv[]) {
     uuid_t pool_uuid;
     char *pool_grp = NULL;
     hid_t file = -1, fapl = -1;
+#ifdef DV_HAVE_SNAP_OPEN_ID
     H5_daos_snap_id_t snap_id;
+#endif
     htri_t link_exists;
 
     (void)MPI_Init(&argc, &argv);

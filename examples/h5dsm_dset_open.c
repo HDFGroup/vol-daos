@@ -7,7 +7,9 @@ int main(int argc, char *argv[]) {
     int ndims;
     hsize_t dims[2];
     htri_t tri_ret;
+#ifdef DV_HAVE_SNAP_OPEN_ID
     H5_daos_snap_id_t snap_id;
+#endif
 
     (void)MPI_Init(&argc, &argv);
 

@@ -10,7 +10,9 @@ int main(int argc, char *argv[]) {
     size_t name_buf_size = 0;
     ssize_t ssize_ret;
     htri_t tri_ret;
+#ifdef DV_HAVE_SNAP_OPEN_ID
     H5_daos_snap_id_t snap_id;
+#endif
 
     (void)MPI_Init(&argc, &argv);
 

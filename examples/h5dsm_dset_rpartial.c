@@ -8,7 +8,9 @@ int main(int argc, char *argv[]) {
     hid_t file = -1, dset = -1, file_space = -1, mem_space = -1, fapl = -1;
     hsize_t dims[2] = {4, 6};
     hsize_t start[2], count[2];
+#ifdef DV_HAVE_SNAP_OPEN_ID
     H5_daos_snap_id_t snap_id;
+#endif
     int buf[4][6];
     int rank, mpi_size;
     char *file_sel_str[2] = {"XXX...", "...XXX"};

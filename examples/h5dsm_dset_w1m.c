@@ -7,9 +7,11 @@ int main(int argc, char *argv[]) {
     hid_t file = -1, dset = -1, space = -1, fapl = -1;
     hid_t nfile = -1, ndset = -1;
     hsize_t dims[1] = {256 * 1024};
+    size_t i;
+#ifdef DV_HAVE_SNAP_OPEN_ID
     H5_daos_snap_id_t snap_id;
+#endif
     int *buf = NULL;
-    int i;
 
     (void)MPI_Init(&argc, &argv);
 
@@ -60,7 +62,7 @@ int main(int argc, char *argv[]) {
         ERROR;
 
     /* Fill buffer */
-    for(i = 0; i < dims[0]; i++)
+    for(i = 0; (hsize_t)i < dims[0]; i++)
         buf[i] = rand();
 
     /* Write data */

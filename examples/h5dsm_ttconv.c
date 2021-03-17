@@ -33,7 +33,8 @@ int main(int argc, char *argv[]) {
     const type_all buf_init[4] = {{-1, 'a', (double)-1.}, {-2, 'b', (double)-2.}, {-3, 'c', (double)-3.}, {-4, 'd', (double)-4.}};
     const type_convall buf_conv_init[4] = {{(long long)-5, 'e', (float)-5.}, {(long long)-6, 'f', (float)-6.}, {(long long)-7, 'g', (float)-7.}, {(long long)-8, 'h', (float)-8.}};
     const type_convall buf2_init[4][2] = {{{(long long)-1, 'a', (float)-1.}, {(long long)-2, 'b', (float)-2.}}, {{(long long)-3, 'c', (float)-3.}, {(long long)-4, 'd', (float)-4.}}, {{(long long)-5, 'e', (float)-5.}, {(long long)-6, 'f', (float)-6.}}, {{(long long)-7, 'g', (float)-7.}, {(long long)-8, 'h', (float)-8.}}};
-    int i, j, i2;
+    size_t i, j;
+    int i2;
 
     (void)MPI_Init(&argc, &argv);
 
@@ -212,7 +213,7 @@ int main(int argc, char *argv[]) {
      * Full write/read, no member conversion
      */
     /* Fill buffer */
-    for(i = 0; i < dims[0]; i++) {
+    for(i = 0; (hsize_t)i < dims[0]; i++) {
         buf[i].a = rand() % 10;
         buf[i].b = 'A' + (char)(rand() % 26);
         buf[i].c = (double)(rand() % 100) / (double)10;
@@ -222,7 +223,7 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Writing attribute with no member conversion\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%d, %c, %.1f}", buf[i].a, buf[i].b, buf[i].c);
@@ -235,7 +236,7 @@ int main(int argc, char *argv[]) {
         ERROR;
 
     /* Update file_buf */
-    for(i = 0; i < dims[0]; i++) {
+    for(i = 0; (hsize_t)i < dims[0]; i++) {
         file_buf[i].a = buf[i].a;
         file_buf[i].b = buf[i].b;
         file_buf[i].c = buf[i].c;
@@ -250,14 +251,14 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Read attribute with no member conversion\n");
         printf("exp = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%d, %c, %.1f}", file_buf[i].a, file_buf[i].b, file_buf[i].c);
         } /* end for */
         printf("}\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%d, %c, %.1f}", buf[i].a, buf[i].b, buf[i].c);
@@ -266,14 +267,14 @@ int main(int argc, char *argv[]) {
     } /* end if */
 
     /* Check buffer */
-    for(i = 0; i< dims[0]; i++) {
+    for(i = 0; (hsize_t)i < dims[0]; i++) {
         if(file_buf[i].a != buf[i].a)
-            PRINTF_ERROR("Member a at location %d does not match", i);
+            PRINTF_ERROR("Member a at location %zu does not match", i);
         if(file_buf[i].b != buf[i].b)
-            PRINTF_ERROR("Member b at location %d does not match", i);
+            PRINTF_ERROR("Member b at location %zu does not match", i);
         if(((file_buf[i].c - buf[i].c) > (double)0.01)
                 || ((file_buf[i].c - buf[i].c) < (double)-0.01))
-            PRINTF_ERROR("Member c at location %d does not match", i);
+            PRINTF_ERROR("Member c at location %zu does not match", i);
     } /* end for */
 
     if(verbose_g)
@@ -283,7 +284,7 @@ int main(int argc, char *argv[]) {
      * Full write/read, with member conversion
      */
     /* Fill buffer */
-    for(i = 0; i < dims[0]; i++) {
+    for(i = 0; (hsize_t)i < dims[0]; i++) {
         buf_conv[i].a = (long long)(rand() % 10);
         buf_conv[i].b = 'A' + (char)(rand() % 26);
         buf_conv[i].c = (float)(rand() % 100) / (float)10;
@@ -293,7 +294,7 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Writing attribute with member conversion\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%lld, %c, %.1f}", buf_conv[i].a, buf_conv[i].b, (double)buf_conv[i].c);
@@ -306,7 +307,7 @@ int main(int argc, char *argv[]) {
         ERROR;
 
     /* Update file_buf */
-    for(i = 0; i < dims[0]; i++) {
+    for(i = 0; (hsize_t)i < dims[0]; i++) {
         file_buf[i].a = (int)buf_conv[i].a;
         file_buf[i].b = buf_conv[i].b;
         file_buf[i].c = (double)buf_conv[i].c;
@@ -321,14 +322,14 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Read attribute with no member conversion\n");
         printf("exp = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%d, %c, %.1f}", file_buf[i].a, file_buf[i].b, file_buf[i].c);
         } /* end for */
         printf("}\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%d, %c, %.1f}", buf[i].a, buf[i].b, buf[i].c);
@@ -337,14 +338,14 @@ int main(int argc, char *argv[]) {
     } /* end if */
 
     /* Check buffer */
-    for(i = 0; i< dims[0]; i++) {
+    for(i = 0; (hsize_t)i < dims[0]; i++) {
         if(file_buf[i].a != buf[i].a)
-            PRINTF_ERROR("Member a at location %d does not match", i);
+            PRINTF_ERROR("Member a at location %zu does not match", i);
         if(file_buf[i].b != buf[i].b)
-            PRINTF_ERROR("Member b at location %d does not match", i);
+            PRINTF_ERROR("Member b at location %zu does not match", i);
         if(((file_buf[i].c - buf[i].c) > (double)0.01)
                 || ((file_buf[i].c - buf[i].c) < (double)-0.01))
-            PRINTF_ERROR("Member c at location %d does not match", i);
+            PRINTF_ERROR("Member c at location %zu does not match", i);
     } /* end for */
 
     /* Read data */
@@ -356,14 +357,14 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Read attribute with member conversion\n");
         printf("exp = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%d, %c, %.1f}", file_buf[i].a, file_buf[i].b, file_buf[i].c);
         } /* end for */
         printf("}\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%lld, %c, %.1f}", buf_conv[i].a, buf_conv[i].b, (double)buf_conv[i].c);
@@ -372,14 +373,14 @@ int main(int argc, char *argv[]) {
     } /* end if */
 
     /* Check buffer */
-    for(i = 0; i< dims[0]; i++) {
+    for(i = 0; (hsize_t)i < dims[0]; i++) {
         if((long long)file_buf[i].a != buf_conv[i].a)
-            PRINTF_ERROR("Member a at location %d does not match", i);
+            PRINTF_ERROR("Member a at location %zu does not match", i);
         if(file_buf[i].b != buf_conv[i].b)
-            PRINTF_ERROR("Member b at location %d does not match", i);
+            PRINTF_ERROR("Member b at location %zu does not match", i);
         if(((file_buf[i].c - (double)buf_conv[i].c) > (double)0.01)
                 || ((file_buf[i].c - (double)buf_conv[i].c) < (double)-0.01))
-            PRINTF_ERROR("Member c at location %d does not match", i);
+            PRINTF_ERROR("Member c at location %zu does not match", i);
     } /* end for */
 
     if(verbose_g)
@@ -389,7 +390,7 @@ int main(int argc, char *argv[]) {
      * Write by parts
      */
     /* Fill buffer */
-    for(i = 0; i < dims[0]; i++) {
+    for(i = 0; (hsize_t)i < dims[0]; i++) {
         buf_conv[i].a = (long long)(rand() % 10);
         buf_conv[i].b = 'A' + (char)(rand() % 26);
         buf_conv[i].c = (float)(rand() % 100) / (float)10;
@@ -399,7 +400,7 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Writing attribute compound member \'a\'\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%lld, %c, %.1f}", buf_conv[i].a, buf_conv[i].b, (double)buf_conv[i].c);
@@ -412,7 +413,7 @@ int main(int argc, char *argv[]) {
         ERROR;
 
     /* Update file_buf */
-    for(i = 0; i < dims[0]; i++)
+    for(i = 0; (hsize_t)i < dims[0]; i++)
         file_buf[i].a = (int)buf_conv[i].a;
 
     /* Read data */
@@ -424,14 +425,14 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Read attribute with no member conversion\n");
         printf("exp = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%d, %c, %.1f}", file_buf[i].a, file_buf[i].b, file_buf[i].c);
         } /* end for */
         printf("}\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%d, %c, %.1f}", buf[i].a, buf[i].b, buf[i].c);
@@ -440,21 +441,21 @@ int main(int argc, char *argv[]) {
     } /* end if */
 
     /* Check buffer */
-    for(i = 0; i< dims[0]; i++) {
+    for(i = 0; (hsize_t)i < dims[0]; i++) {
         if(file_buf[i].a != buf[i].a)
-            PRINTF_ERROR("Member a at location %d does not match", i);
+            PRINTF_ERROR("Member a at location %zu does not match", i);
         if(file_buf[i].b != buf[i].b)
-            PRINTF_ERROR("Member b at location %d does not match", i);
+            PRINTF_ERROR("Member b at location %zu does not match", i);
         if(((file_buf[i].c - buf[i].c) > (double)0.01)
                 || ((file_buf[i].c - buf[i].c) < (double)-0.01))
-            PRINTF_ERROR("Member c at location %d does not match", i);
+            PRINTF_ERROR("Member c at location %zu does not match", i);
     } /* end for */
 
     if(verbose_g)
         printf("\n");
 
     /* Fill buffer */
-    for(i = 0; i < dims[0]; i++) {
+    for(i = 0; (hsize_t)i < dims[0]; i++) {
         buf_conv[i].a = (long long)(rand() % 10);
         buf_conv[i].b = 'A' + (char)(rand() % 26);
         buf_conv[i].c = (float)(rand() % 100) / (float)10;
@@ -464,7 +465,7 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Writing attribute compound member \'b\'\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%lld, %c, %.1f}", buf_conv[i].a, buf_conv[i].b, (double)buf_conv[i].c);
@@ -477,7 +478,7 @@ int main(int argc, char *argv[]) {
         ERROR;
 
     /* Update file_buf */
-    for(i = 0; i < dims[0]; i++)
+    for(i = 0; (hsize_t)i < dims[0]; i++)
         file_buf[i].b = buf_conv[i].b;
 
     /* Read data */
@@ -489,14 +490,14 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Read attribute with no member conversion\n");
         printf("exp = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%d, %c, %.1f}", file_buf[i].a, file_buf[i].b, file_buf[i].c);
         } /* end for */
         printf("}\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%d, %c, %.1f}", buf[i].a, buf[i].b, buf[i].c);
@@ -505,21 +506,21 @@ int main(int argc, char *argv[]) {
     } /* end if */
 
     /* Check buffer */
-    for(i = 0; i< dims[0]; i++) {
+    for(i = 0; (hsize_t)i < dims[0]; i++) {
         if(file_buf[i].a != buf[i].a)
-            PRINTF_ERROR("Member a at location %d does not match", i);
+            PRINTF_ERROR("Member a at location %zu does not match", i);
         if(file_buf[i].b != buf[i].b)
-            PRINTF_ERROR("Member b at location %d does not match", i);
+            PRINTF_ERROR("Member b at location %zu does not match", i);
         if(((file_buf[i].c - buf[i].c) > (double)0.01)
                 || ((file_buf[i].c - buf[i].c) < (double)-0.01))
-            PRINTF_ERROR("Member c at location %d does not match", i);
+            PRINTF_ERROR("Member c at location %zu does not match", i);
     } /* end for */
 
     if(verbose_g)
         printf("\n");
 
     /* Fill buffer */
-    for(i = 0; i < dims[0]; i++) {
+    for(i = 0; (hsize_t)i < dims[0]; i++) {
         buf_conv[i].a = (long long)(rand() % 10);
         buf_conv[i].b = 'A' + (char)(rand() % 26);
         buf_conv[i].c = (float)(rand() % 100) / (float)10;
@@ -529,7 +530,7 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Writing attribute compound member \'c\'\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%lld, %c, %.1f}", buf_conv[i].a, buf_conv[i].b, (double)buf_conv[i].c);
@@ -542,7 +543,7 @@ int main(int argc, char *argv[]) {
         ERROR;
 
     /* Update file_buf */
-    for(i = 0; i < dims[0]; i++)
+    for(i = 0; (hsize_t)i < dims[0]; i++)
         file_buf[i].c = (double)buf_conv[i].c;
 
     /* Read data */
@@ -554,14 +555,14 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Read attribute with no member conversion\n");
         printf("exp = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%d, %c, %.1f}", file_buf[i].a, file_buf[i].b, file_buf[i].c);
         } /* end for */
         printf("}\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%d, %c, %.1f}", buf[i].a, buf[i].b, buf[i].c);
@@ -570,14 +571,14 @@ int main(int argc, char *argv[]) {
     } /* end if */
 
     /* Check buffer */
-    for(i = 0; i< dims[0]; i++) {
+    for(i = 0; (hsize_t)i < dims[0]; i++) {
         if(file_buf[i].a != buf[i].a)
-            PRINTF_ERROR("Member a at location %d does not match", i);
+            PRINTF_ERROR("Member a at location %zu does not match", i);
         if(file_buf[i].b != buf[i].b)
-            PRINTF_ERROR("Member b at location %d does not match", i);
+            PRINTF_ERROR("Member b at location %zu does not match", i);
         if(((file_buf[i].c - buf[i].c) > (double)0.01)
                 || ((file_buf[i].c - buf[i].c) < (double)-0.01))
-            PRINTF_ERROR("Member c at location %d does not match", i);
+            PRINTF_ERROR("Member c at location %zu does not match", i);
     } /* end for */
 
     if(verbose_g)
@@ -595,14 +596,14 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Read full attribute compound member \'a\'\n");
         printf("exp = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%d, %c, %.1f}", file_buf[i].a, buf_conv_init[i].b, (double)buf_conv_init[i].c);
         } /* end for */
         printf("}\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%lld, %c, %.1f}", buf_conv[i].a, buf_conv[i].b, (double)buf_conv[i].c);
@@ -611,14 +612,14 @@ int main(int argc, char *argv[]) {
     } /* end if */
 
     /* Check buffer */
-    for(i = 0; i< dims[0]; i++) {
+    for(i = 0; (hsize_t)i < dims[0]; i++) {
         if((long long)file_buf[i].a != buf_conv[i].a)
-            PRINTF_ERROR("Member a at location %d does not match", i);
+            PRINTF_ERROR("Member a at location %zu does not match", i);
         if(buf_conv_init[i].b != buf_conv[i].b)
-            PRINTF_ERROR("Member b at location %d does not match", i);
+            PRINTF_ERROR("Member b at location %zu does not match", i);
         if(((buf_conv_init[i].c - buf_conv[i].c) > 0.01f)
                 || ((buf_conv_init[i].c - buf_conv[i].c) < -0.01f))
-            PRINTF_ERROR("Member c at location %d does not match", i);
+            PRINTF_ERROR("Member c at location %zu does not match", i);
     } /* end for */
 
     if(verbose_g)
@@ -633,14 +634,14 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Read full attribute compound member \'b\'\n");
         printf("exp = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%lld, %c, %.1f}", buf_conv_init[i].a, file_buf[i].b, (double)buf_conv_init[i].c);
         } /* end for */
         printf("}\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%lld, %c, %.1f}", buf_conv[i].a, buf_conv[i].b, (double)buf_conv[i].c);
@@ -649,14 +650,14 @@ int main(int argc, char *argv[]) {
     } /* end if */
 
     /* Check buffer */
-    for(i = 0; i< dims[0]; i++) {
+    for(i = 0; (hsize_t)i < dims[0]; i++) {
         if(buf_conv_init[i].a != buf_conv[i].a)
-            PRINTF_ERROR("Member a at location %d does not match", i);
+            PRINTF_ERROR("Member a at location %zu does not match", i);
         if(file_buf[i].b != buf_conv[i].b)
-            PRINTF_ERROR("Member b at location %d does not match", i);
+            PRINTF_ERROR("Member b at location %zu does not match", i);
         if(((buf_conv_init[i].c - buf_conv[i].c) > 0.01f)
                 || ((buf_conv_init[i].c - buf_conv[i].c) < -0.01f))
-            PRINTF_ERROR("Member c at location %d does not match", i);
+            PRINTF_ERROR("Member c at location %zu does not match", i);
     } /* end for */
 
     if(verbose_g)
@@ -671,14 +672,14 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Read full attribute compound member \'c\'\n");
         printf("exp = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%lld, %c, %.1f}", buf_conv_init[i].a, buf_conv_init[i].b, file_buf[i].c);
         } /* end for */
         printf("}\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%lld, %c, %.1f}", buf_conv[i].a, buf_conv[i].b, (double)buf_conv[i].c);
@@ -687,14 +688,14 @@ int main(int argc, char *argv[]) {
     } /* end if */
 
     /* Check buffer */
-    for(i = 0; i< dims[0]; i++) {
+    for(i = 0; (hsize_t)i < dims[0]; i++) {
         if(buf_conv_init[i].a != buf_conv[i].a)
-            PRINTF_ERROR("Member a at location %d does not match", i);
+            PRINTF_ERROR("Member a at location %zu does not match", i);
         if(buf_conv_init[i].b != buf_conv[i].b)
-            PRINTF_ERROR("Member b at location %d does not match", i);
+            PRINTF_ERROR("Member b at location %zu does not match", i);
         if(((file_buf[i].c - (double)buf_conv[i].c) > (double)0.01)
                 || ((file_buf[i].c - (double)buf_conv[i].c) < (double)-0.01))
-            PRINTF_ERROR("Member c at location %d does not match", i);
+            PRINTF_ERROR("Member c at location %zu does not match", i);
     } /* end for */
 
     if(verbose_g)
@@ -704,7 +705,7 @@ int main(int argc, char *argv[]) {
      * Write/read partial attributes
      */
     /* Fill buffer */
-    for(i = 0; i < dims[0]; i++) {
+    for(i = 0; (hsize_t)i < dims[0]; i++) {
         buf_conv[i].a = (long long)(rand() % 10);
         buf_conv[i].b = 'A' + (char)(rand() % 26);
         buf_conv[i].c = (float)(rand() % 100) / (float)10;
@@ -714,7 +715,7 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Writing full memory type to attribute containing only member \'a\'\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%lld, %c, %.1f}", buf_conv[i].a, buf_conv[i].b, (double)buf_conv[i].c);
@@ -727,7 +728,7 @@ int main(int argc, char *argv[]) {
         ERROR;
 
     /* Update file_buf */
-    for(i = 0; i < dims[0]; i++)
+    for(i = 0; (hsize_t)i < dims[0]; i++)
         file_buf[i].a = (int)buf_conv[i].a;
 
     /* Read data */
@@ -739,14 +740,14 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Read attribute containing only member \'a\'\n");
         printf("exp = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%d, %c, %.1f}", file_buf[i].a, buf_conv_init[i].b, (double)buf_conv_init[i].c);
         } /* end for */
         printf("}\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%lld, %c, %.1f}", buf_conv[i].a, buf_conv[i].b, (double)buf_conv[i].c);
@@ -755,21 +756,21 @@ int main(int argc, char *argv[]) {
     } /* end if */
 
     /* Check buffer */
-    for(i = 0; i< dims[0]; i++) {
+    for(i = 0; (hsize_t)i < dims[0]; i++) {
         if((long long)file_buf[i].a != buf_conv[i].a)
-            PRINTF_ERROR("Member a at location %d does not match", i);
+            PRINTF_ERROR("Member a at location %zu does not match", i);
         if(buf_conv_init[i].b != buf_conv[i].b)
-            PRINTF_ERROR("Member b at location %d does not match", i);
+            PRINTF_ERROR("Member b at location %zu does not match", i);
         if(((buf_conv_init[i].c - buf_conv[i].c) > 0.01f)
                 || ((buf_conv_init[i].c - buf_conv[i].c) < -0.01f))
-            PRINTF_ERROR("Member c at location %d does not match", i);
+            PRINTF_ERROR("Member c at location %zu does not match", i);
     } /* end for */
 
     if(verbose_g)
         printf("\n");
 
     /* Fill buffer */
-    for(i = 0; i < dims[0]; i++) {
+    for(i = 0; (hsize_t)i < dims[0]; i++) {
         buf_conv[i].a = (long long)(rand() % 10);
         buf_conv[i].b = 'A' + (char)(rand() % 26);
         buf_conv[i].c = (float)(rand() % 100) / (float)10;
@@ -779,7 +780,7 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Writing full memory type to attribute containing only member \'b\'\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%lld, %c, %.1f}", buf_conv[i].a, buf_conv[i].b, (double)buf_conv[i].c);
@@ -792,7 +793,7 @@ int main(int argc, char *argv[]) {
         ERROR;
 
     /* Update file_buf */
-    for(i = 0; i < dims[0]; i++)
+    for(i = 0; (hsize_t)i < dims[0]; i++)
         file_buf[i].b = buf_conv[i].b;
 
     /* Read data */
@@ -804,14 +805,14 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Read attribute containing only member \'b\'\n");
         printf("exp = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%lld, %c, %.1f}", buf_conv_init[i].a, file_buf[i].b, (double)buf_conv_init[i].c);
         } /* end for */
         printf("}\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%lld, %c, %.1f}", buf_conv[i].a, buf_conv[i].b, (double)buf_conv[i].c);
@@ -820,21 +821,21 @@ int main(int argc, char *argv[]) {
     } /* end if */
 
     /* Check buffer */
-    for(i = 0; i< dims[0]; i++) {
+    for(i = 0; (hsize_t)i < dims[0]; i++) {
         if(buf_conv_init[i].a != buf_conv[i].a)
-            PRINTF_ERROR("Member a at location %d does not match", i);
+            PRINTF_ERROR("Member a at location %zu does not match", i);
         if(file_buf[i].b != buf_conv[i].b)
-            PRINTF_ERROR("Member b at location %d does not match", i);
+            PRINTF_ERROR("Member b at location %zu does not match", i);
         if(((buf_conv_init[i].c - buf_conv[i].c) > 0.01f)
                 || ((buf_conv_init[i].c - buf_conv[i].c) < -0.01f))
-            PRINTF_ERROR("Member c at location %d does not match", i);
+            PRINTF_ERROR("Member c at location %zu does not match", i);
     } /* end for */
 
     if(verbose_g)
         printf("\n");
 
     /* Fill buffer */
-    for(i = 0; i < dims[0]; i++) {
+    for(i = 0; (hsize_t)i < dims[0]; i++) {
         buf_conv[i].a = (long long)(rand() % 10);
         buf_conv[i].b = 'A' + (char)(rand() % 26);
         buf_conv[i].c = (float)(rand() % 100) / (float)10;
@@ -844,7 +845,7 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Writing full memory type to attribute containing only member \'c\'\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%lld, %c, %.1f}", buf_conv[i].a, buf_conv[i].b, (double)buf_conv[i].c);
@@ -857,7 +858,7 @@ int main(int argc, char *argv[]) {
         ERROR;
 
     /* Update file_buf */
-    for(i = 0; i < dims[0]; i++)
+    for(i = 0; (hsize_t)i < dims[0]; i++)
         file_buf[i].c = (double)buf_conv[i].c;
 
     /* Read data */
@@ -869,14 +870,14 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Read attribute containing only member \'c\'\n");
         printf("exp = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%lld, %c, %.1f}", buf_conv_init[i].a, buf_conv_init[i].b, file_buf[i].c);
         } /* end for */
         printf("}\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%lld, %c, %.1f}", buf_conv[i].a, buf_conv[i].b, (double)buf_conv[i].c);
@@ -885,14 +886,14 @@ int main(int argc, char *argv[]) {
     } /* end if */
 
     /* Check buffer */
-    for(i = 0; i< dims[0]; i++) {
+    for(i = 0; (hsize_t)i < dims[0]; i++) {
         if(buf_conv_init[i].a != buf_conv[i].a)
-            PRINTF_ERROR("Member a at location %d does not match", i);
+            PRINTF_ERROR("Member a at location %zu does not match", i);
         if(buf_conv_init[i].b != buf_conv[i].b)
-            PRINTF_ERROR("Member b at location %d does not match", i);
+            PRINTF_ERROR("Member b at location %zu does not match", i);
         if(((file_buf[i].c - (double)buf_conv[i].c) > (double)0.01)
                 || ((file_buf[i].c - (double)buf_conv[i].c) < (double)-0.01))
-            PRINTF_ERROR("Member c at location %d does not match", i);
+            PRINTF_ERROR("Member c at location %zu does not match", i);
     } /* end for */
 
     if(verbose_g)
@@ -905,7 +906,7 @@ int main(int argc, char *argv[]) {
      * Full write/read, no member conversion
      */
     /* Fill buffer */
-    for(i = 0; i < dims[0]; i++) {
+    for(i = 0; (hsize_t)i < dims[0]; i++) {
         buf[i].a = rand() % 10;
         buf[i].b = 'A' + (char)(rand() % 26);
         buf[i].c = (double)(rand() % 100) / (double)10;
@@ -915,7 +916,7 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Writing dataset with no member conversion\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%d, %c, %.1f}", buf[i].a, buf[i].b, buf[i].c);
@@ -928,7 +929,7 @@ int main(int argc, char *argv[]) {
         ERROR;
 
     /* Update file_buf */
-    for(i = 0; i < dims[0]; i++) {
+    for(i = 0; (hsize_t)i < dims[0]; i++) {
         file_buf[i].a = buf[i].a;
         file_buf[i].b = buf[i].b;
         file_buf[i].c = buf[i].c;
@@ -943,14 +944,14 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Read dataset with no member conversion\n");
         printf("exp = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%d, %c, %.1f}", file_buf[i].a, file_buf[i].b, file_buf[i].c);
         } /* end for */
         printf("}\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%d, %c, %.1f}", buf[i].a, buf[i].b, buf[i].c);
@@ -959,14 +960,14 @@ int main(int argc, char *argv[]) {
     } /* end if */
 
     /* Check buffer */
-    for(i = 0; i< dims[0]; i++) {
+    for(i = 0; (hsize_t)i < dims[0]; i++) {
         if(file_buf[i].a != buf[i].a)
-            PRINTF_ERROR("Member a at location %d does not match", i);
+            PRINTF_ERROR("Member a at location %zu does not match", i);
         if(file_buf[i].b != buf[i].b)
-            PRINTF_ERROR("Member b at location %d does not match", i);
+            PRINTF_ERROR("Member b at location %zu does not match", i);
         if(((file_buf[i].c - buf[i].c) > (double)0.01)
                 || ((file_buf[i].c - buf[i].c) < (double)-0.01))
-            PRINTF_ERROR("Member c at location %d does not match", i);
+            PRINTF_ERROR("Member c at location %zu does not match", i);
     } /* end for */
 
     if(verbose_g)
@@ -976,7 +977,7 @@ int main(int argc, char *argv[]) {
      * Full write/read, with member conversion
      */
     /* Fill buffer */
-    for(i = 0; i < dims[0]; i++) {
+    for(i = 0; (hsize_t)i < dims[0]; i++) {
         buf_conv[i].a = (long long)(rand() % 10);
         buf_conv[i].b = 'A' + (char)(rand() % 26);
         buf_conv[i].c = (float)(rand() % 100) / (float)10;
@@ -986,7 +987,7 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Writing dataset with member conversion\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%lld, %c, %.1f}", buf_conv[i].a, buf_conv[i].b, (double)buf_conv[i].c);
@@ -999,7 +1000,7 @@ int main(int argc, char *argv[]) {
         ERROR;
 
     /* Update file_buf */
-    for(i = 0; i < dims[0]; i++) {
+    for(i = 0; (hsize_t)i < dims[0]; i++) {
         file_buf[i].a = (int)buf_conv[i].a;
         file_buf[i].b = buf_conv[i].b;
         file_buf[i].c = (double)buf_conv[i].c;
@@ -1014,14 +1015,14 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Read dataset with no member conversion\n");
         printf("exp = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%d, %c, %.1f}", file_buf[i].a, file_buf[i].b, file_buf[i].c);
         } /* end for */
         printf("}\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%d, %c, %.1f}", buf[i].a, buf[i].b, buf[i].c);
@@ -1030,14 +1031,14 @@ int main(int argc, char *argv[]) {
     } /* end if */
 
     /* Check buffer */
-    for(i = 0; i< dims[0]; i++) {
+    for(i = 0; (hsize_t)i < dims[0]; i++) {
         if(file_buf[i].a != buf[i].a)
-            PRINTF_ERROR("Member a at location %d does not match", i);
+            PRINTF_ERROR("Member a at location %zu does not match", i);
         if(file_buf[i].b != buf[i].b)
-            PRINTF_ERROR("Member b at location %d does not match", i);
+            PRINTF_ERROR("Member b at location %zu does not match", i);
         if(((file_buf[i].c - buf[i].c) > (double)0.01)
                 || ((file_buf[i].c - buf[i].c) < (double)-0.01))
-            PRINTF_ERROR("Member c at location %d does not match", i);
+            PRINTF_ERROR("Member c at location %zu does not match", i);
     } /* end for */
 
     /* Read data */
@@ -1049,14 +1050,14 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Read dataset with member conversion\n");
         printf("exp = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%d, %c, %.1f}", file_buf[i].a, file_buf[i].b, file_buf[i].c);
         } /* end for */
         printf("}\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%lld, %c, %.1f}", buf_conv[i].a, buf_conv[i].b, (double)buf_conv[i].c);
@@ -1065,14 +1066,14 @@ int main(int argc, char *argv[]) {
     } /* end if */
 
     /* Check buffer */
-    for(i = 0; i< dims[0]; i++) {
+    for(i = 0; (hsize_t)i < dims[0]; i++) {
         if((long long)file_buf[i].a != buf_conv[i].a)
-            PRINTF_ERROR("Member a at location %d does not match", i);
+            PRINTF_ERROR("Member a at location %zu does not match", i);
         if(file_buf[i].b != buf_conv[i].b)
-            PRINTF_ERROR("Member b at location %d does not match", i);
+            PRINTF_ERROR("Member b at location %zu does not match", i);
         if(((file_buf[i].c - (double)buf_conv[i].c) > (double)0.01)
                 || ((file_buf[i].c - (double)buf_conv[i].c) < (double)-0.01))
-            PRINTF_ERROR("Member c at location %d does not match", i);
+            PRINTF_ERROR("Member c at location %zu does not match", i);
     } /* end for */
 
     if(verbose_g)
@@ -1082,7 +1083,7 @@ int main(int argc, char *argv[]) {
      * Write by parts
      */
     /* Fill buffer */
-    for(i = 0; i < dims[0]; i++) {
+    for(i = 0; (hsize_t)i < dims[0]; i++) {
         buf_conv[i].a = (long long)(rand() % 10);
         buf_conv[i].b = 'A' + (char)(rand() % 26);
         buf_conv[i].c = (float)(rand() % 100) / (float)10;
@@ -1092,7 +1093,7 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Writing dataset compound member \'a\'\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%lld, %c, %.1f}", buf_conv[i].a, buf_conv[i].b, (double)buf_conv[i].c);
@@ -1105,7 +1106,7 @@ int main(int argc, char *argv[]) {
         ERROR;
 
     /* Update file_buf */
-    for(i = 0; i < dims[0]; i++)
+    for(i = 0; (hsize_t)i < dims[0]; i++)
         file_buf[i].a = (int)buf_conv[i].a;
 
     /* Read data */
@@ -1117,14 +1118,14 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Read dataset with no member conversion\n");
         printf("exp = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%d, %c, %.1f}", file_buf[i].a, file_buf[i].b, file_buf[i].c);
         } /* end for */
         printf("}\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%d, %c, %.1f}", buf[i].a, buf[i].b, buf[i].c);
@@ -1133,21 +1134,21 @@ int main(int argc, char *argv[]) {
     } /* end if */
 
     /* Check buffer */
-    for(i = 0; i< dims[0]; i++) {
+    for(i = 0; (hsize_t)i < dims[0]; i++) {
         if(file_buf[i].a != buf[i].a)
-            PRINTF_ERROR("Member a at location %d does not match", i);
+            PRINTF_ERROR("Member a at location %zu does not match", i);
         if(file_buf[i].b != buf[i].b)
-            PRINTF_ERROR("Member b at location %d does not match", i);
+            PRINTF_ERROR("Member b at location %zu does not match", i);
         if(((file_buf[i].c - buf[i].c) > (double)0.01)
                 || ((file_buf[i].c - buf[i].c) < (double)-0.01))
-            PRINTF_ERROR("Member c at location %d does not match", i);
+            PRINTF_ERROR("Member c at location %zu does not match", i);
     } /* end for */
 
     if(verbose_g)
         printf("\n");
 
     /* Fill buffer */
-    for(i = 0; i < dims[0]; i++) {
+    for(i = 0; (hsize_t)i < dims[0]; i++) {
         buf_conv[i].a = (long long)(rand() % 10);
         buf_conv[i].b = 'A' + (char)(rand() % 26);
         buf_conv[i].c = (float)(rand() % 100) / (float)10;
@@ -1157,7 +1158,7 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Writing dataset compound member \'b\'\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%lld, %c, %.1f}", buf_conv[i].a, buf_conv[i].b, (double)buf_conv[i].c);
@@ -1170,7 +1171,7 @@ int main(int argc, char *argv[]) {
         ERROR;
 
     /* Update file_buf */
-    for(i = 0; i < dims[0]; i++)
+    for(i = 0; (hsize_t)i < dims[0]; i++)
         file_buf[i].b = buf_conv[i].b;
 
     /* Read data */
@@ -1182,14 +1183,14 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Read dataset with no member conversion\n");
         printf("exp = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%d, %c, %.1f}", file_buf[i].a, file_buf[i].b, file_buf[i].c);
         } /* end for */
         printf("}\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%d, %c, %.1f}", buf[i].a, buf[i].b, buf[i].c);
@@ -1198,21 +1199,21 @@ int main(int argc, char *argv[]) {
     } /* end if */
 
     /* Check buffer */
-    for(i = 0; i< dims[0]; i++) {
+    for(i = 0; (hsize_t)i < dims[0]; i++) {
         if(file_buf[i].a != buf[i].a)
-            PRINTF_ERROR("Member a at location %d does not match", i);
+            PRINTF_ERROR("Member a at location %zu does not match", i);
         if(file_buf[i].b != buf[i].b)
-            PRINTF_ERROR("Member b at location %d does not match", i);
+            PRINTF_ERROR("Member b at location %zu does not match", i);
         if(((file_buf[i].c - buf[i].c) > (double)0.01)
                 || ((file_buf[i].c - buf[i].c) < (double)-0.01))
-            PRINTF_ERROR("Member c at location %d does not match", i);
+            PRINTF_ERROR("Member c at location %zu does not match", i);
     } /* end for */
 
     if(verbose_g)
         printf("\n");
 
     /* Fill buffer */
-    for(i = 0; i < dims[0]; i++) {
+    for(i = 0; (hsize_t)i < dims[0]; i++) {
         buf_conv[i].a = (long long)(rand() % 10);
         buf_conv[i].b = 'A' + (char)(rand() % 26);
         buf_conv[i].c = (float)(rand() % 100) / (float)10;
@@ -1222,7 +1223,7 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Writing dataset compound member \'c\'\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%lld, %c, %.1f}", buf_conv[i].a, buf_conv[i].b, (double)buf_conv[i].c);
@@ -1235,7 +1236,7 @@ int main(int argc, char *argv[]) {
         ERROR;
 
     /* Update file_buf */
-    for(i = 0; i < dims[0]; i++)
+    for(i = 0; (hsize_t)i < dims[0]; i++)
         file_buf[i].c = (double)buf_conv[i].c;
 
     /* Read data */
@@ -1247,14 +1248,14 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Read dataset with no member conversion\n");
         printf("exp = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%d, %c, %.1f}", file_buf[i].a, file_buf[i].b, file_buf[i].c);
         } /* end for */
         printf("}\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%d, %c, %.1f}", buf[i].a, buf[i].b, buf[i].c);
@@ -1263,14 +1264,14 @@ int main(int argc, char *argv[]) {
     } /* end if */
 
     /* Check buffer */
-    for(i = 0; i< dims[0]; i++) {
+    for(i = 0; (hsize_t)i < dims[0]; i++) {
         if(file_buf[i].a != buf[i].a)
-            PRINTF_ERROR("Member a at location %d does not match", i);
+            PRINTF_ERROR("Member a at location %zu does not match", i);
         if(file_buf[i].b != buf[i].b)
-            PRINTF_ERROR("Member b at location %d does not match", i);
+            PRINTF_ERROR("Member b at location %zu does not match", i);
         if(((file_buf[i].c - buf[i].c) > (double)0.01)
                 || ((file_buf[i].c - buf[i].c) < (double)-0.01))
-            PRINTF_ERROR("Member c at location %d does not match", i);
+            PRINTF_ERROR("Member c at location %zu does not match", i);
     } /* end for */
 
     if(verbose_g)
@@ -1288,14 +1289,14 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Read full dataset compound member \'a\'\n");
         printf("exp = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%d, %c, %.1f}", file_buf[i].a, buf_conv_init[i].b, (double)buf_conv_init[i].c);
         } /* end for */
         printf("}\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%lld, %c, %.1f}", buf_conv[i].a, buf_conv[i].b, (double)buf_conv[i].c);
@@ -1304,14 +1305,14 @@ int main(int argc, char *argv[]) {
     } /* end if */
 
     /* Check buffer */
-    for(i = 0; i< dims[0]; i++) {
+    for(i = 0; (hsize_t)i < dims[0]; i++) {
         if((long long)file_buf[i].a != buf_conv[i].a)
-            PRINTF_ERROR("Member a at location %d does not match", i);
+            PRINTF_ERROR("Member a at location %zu does not match", i);
         if(buf_conv_init[i].b != buf_conv[i].b)
-            PRINTF_ERROR("Member b at location %d does not match", i);
+            PRINTF_ERROR("Member b at location %zu does not match", i);
         if(((buf_conv_init[i].c - buf_conv[i].c) > 0.01f)
                 || ((buf_conv_init[i].c - buf_conv[i].c) < -0.01f))
-            PRINTF_ERROR("Member c at location %d does not match", i);
+            PRINTF_ERROR("Member c at location %zu does not match", i);
     } /* end for */
 
     if(verbose_g)
@@ -1326,14 +1327,14 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Read full dataset compound member \'b\'\n");
         printf("exp = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%lld, %c, %.1f}", buf_conv_init[i].a, file_buf[i].b, (double)buf_conv_init[i].c);
         } /* end for */
         printf("}\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%lld, %c, %.1f}", buf_conv[i].a, buf_conv[i].b, (double)buf_conv[i].c);
@@ -1342,14 +1343,14 @@ int main(int argc, char *argv[]) {
     } /* end if */
 
     /* Check buffer */
-    for(i = 0; i< dims[0]; i++) {
+    for(i = 0; (hsize_t)i < dims[0]; i++) {
         if(buf_conv_init[i].a != buf_conv[i].a)
-            PRINTF_ERROR("Member a at location %d does not match", i);
+            PRINTF_ERROR("Member a at location %zu does not match", i);
         if(file_buf[i].b != buf_conv[i].b)
-            PRINTF_ERROR("Member b at location %d does not match", i);
+            PRINTF_ERROR("Member b at location %zu does not match", i);
         if(((buf_conv_init[i].c - buf_conv[i].c) > 0.01f)
                 || ((buf_conv_init[i].c - buf_conv[i].c) < -0.01f))
-            PRINTF_ERROR("Member c at location %d does not match", i);
+            PRINTF_ERROR("Member c at location %zu does not match", i);
     } /* end for */
 
     if(verbose_g)
@@ -1364,14 +1365,14 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Read full dataset compound member \'c\'\n");
         printf("exp = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%lld, %c, %.1f}", buf_conv_init[i].a, buf_conv_init[i].b, file_buf[i].c);
         } /* end for */
         printf("}\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%lld, %c, %.1f}", buf_conv[i].a, buf_conv[i].b, (double)buf_conv[i].c);
@@ -1380,14 +1381,14 @@ int main(int argc, char *argv[]) {
     } /* end if */
 
     /* Check buffer */
-    for(i = 0; i< dims[0]; i++) {
+    for(i = 0; (hsize_t)i < dims[0]; i++) {
         if(buf_conv_init[i].a != buf_conv[i].a)
-            PRINTF_ERROR("Member a at location %d does not match", i);
+            PRINTF_ERROR("Member a at location %zu does not match", i);
         if(buf_conv_init[i].b != buf_conv[i].b)
-            PRINTF_ERROR("Member b at location %d does not match", i);
+            PRINTF_ERROR("Member b at location %zu does not match", i);
         if(((file_buf[i].c - (double)buf_conv[i].c) > (double)0.01)
                 || ((file_buf[i].c - (double)buf_conv[i].c) < (double)-0.01))
-            PRINTF_ERROR("Member c at location %d does not match", i);
+            PRINTF_ERROR("Member c at location %zu does not match", i);
     } /* end for */
 
     if(verbose_g)
@@ -1397,7 +1398,7 @@ int main(int argc, char *argv[]) {
      * Write/read partial datasets
      */
     /* Fill buffer */
-    for(i = 0; i < dims[0]; i++) {
+    for(i = 0; (hsize_t)i < dims[0]; i++) {
         buf_conv[i].a = (long long)(rand() % 10);
         buf_conv[i].b = 'A' + (char)(rand() % 26);
         buf_conv[i].c = (float)(rand() % 100) / (float)10;
@@ -1407,7 +1408,7 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Writing full memory type to dataset containing only member \'a\'\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%lld, %c, %.1f}", buf_conv[i].a, buf_conv[i].b, (double)buf_conv[i].c);
@@ -1420,7 +1421,7 @@ int main(int argc, char *argv[]) {
         ERROR;
 
     /* Update file_buf */
-    for(i = 0; i < dims[0]; i++)
+    for(i = 0; (hsize_t)i < dims[0]; i++)
         file_buf[i].a = (int)buf_conv[i].a;
 
     /* Read data */
@@ -1432,14 +1433,14 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Read dataset containing only member \'a\'\n");
         printf("exp = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%d, %c, %.1f}", file_buf[i].a, buf_conv_init[i].b, (double)buf_conv_init[i].c);
         } /* end for */
         printf("}\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%lld, %c, %.1f}", buf_conv[i].a, buf_conv[i].b, (double)buf_conv[i].c);
@@ -1448,21 +1449,21 @@ int main(int argc, char *argv[]) {
     } /* end if */
 
     /* Check buffer */
-    for(i = 0; i< dims[0]; i++) {
+    for(i = 0; (hsize_t)i < dims[0]; i++) {
         if((long long)file_buf[i].a != buf_conv[i].a)
-            PRINTF_ERROR("Member a at location %d does not match", i);
+            PRINTF_ERROR("Member a at location %zu does not match", i);
         if(buf_conv_init[i].b != buf_conv[i].b)
-            PRINTF_ERROR("Member b at location %d does not match", i);
+            PRINTF_ERROR("Member b at location %zu does not match", i);
         if(((buf_conv_init[i].c - buf_conv[i].c) > 0.01f)
                 || ((buf_conv_init[i].c - buf_conv[i].c) < -0.01f))
-            PRINTF_ERROR("Member c at location %d does not match", i);
+            PRINTF_ERROR("Member c at location %zu does not match", i);
     } /* end for */
 
     if(verbose_g)
         printf("\n");
 
     /* Fill buffer */
-    for(i = 0; i < dims[0]; i++) {
+    for(i = 0; (hsize_t)i < dims[0]; i++) {
         buf_conv[i].a = (long long)(rand() % 10);
         buf_conv[i].b = 'A' + (char)(rand() % 26);
         buf_conv[i].c = (float)(rand() % 100) / (float)10;
@@ -1472,7 +1473,7 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Writing full memory type to dataset containing only member \'b\'\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%lld, %c, %.1f}", buf_conv[i].a, buf_conv[i].b, (double)buf_conv[i].c);
@@ -1485,7 +1486,7 @@ int main(int argc, char *argv[]) {
         ERROR;
 
     /* Update file_buf */
-    for(i = 0; i < dims[0]; i++)
+    for(i = 0; (hsize_t)i < dims[0]; i++)
         file_buf[i].b = buf_conv[i].b;
 
     /* Read data */
@@ -1497,14 +1498,14 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Read dataset containing only member \'b\'\n");
         printf("exp = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%lld, %c, %.1f}", buf_conv_init[i].a, file_buf[i].b, (double)buf_conv_init[i].c);
         } /* end for */
         printf("}\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%lld, %c, %.1f}", buf_conv[i].a, buf_conv[i].b, (double)buf_conv[i].c);
@@ -1513,21 +1514,21 @@ int main(int argc, char *argv[]) {
     } /* end if */
 
     /* Check buffer */
-    for(i = 0; i< dims[0]; i++) {
+    for(i = 0; (hsize_t)i < dims[0]; i++) {
         if(buf_conv_init[i].a != buf_conv[i].a)
-            PRINTF_ERROR("Member a at location %d does not match", i);
+            PRINTF_ERROR("Member a at location %zu does not match", i);
         if(file_buf[i].b != buf_conv[i].b)
-            PRINTF_ERROR("Member b at location %d does not match", i);
+            PRINTF_ERROR("Member b at location %zu does not match", i);
         if(((buf_conv_init[i].c - buf_conv[i].c) > 0.01f)
                 || ((buf_conv_init[i].c - buf_conv[i].c) < -0.01f))
-            PRINTF_ERROR("Member c at location %d does not match", i);
+            PRINTF_ERROR("Member c at location %zu does not match", i);
     } /* end for */
 
     if(verbose_g)
         printf("\n");
 
     /* Fill buffer */
-    for(i = 0; i < dims[0]; i++) {
+    for(i = 0; (hsize_t)i < dims[0]; i++) {
         buf_conv[i].a = (long long)(rand() % 10);
         buf_conv[i].b = 'A' + (char)(rand() % 26);
         buf_conv[i].c = (float)(rand() % 100) / (float)10;
@@ -1537,7 +1538,7 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Writing full memory type to dataset containing only member \'c\'\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%lld, %c, %.1f}", buf_conv[i].a, buf_conv[i].b, (double)buf_conv[i].c);
@@ -1550,7 +1551,7 @@ int main(int argc, char *argv[]) {
         ERROR;
 
     /* Update file_buf */
-    for(i = 0; i < dims[0]; i++)
+    for(i = 0; (hsize_t)i < dims[0]; i++)
         file_buf[i].c = (double)buf_conv[i].c;
 
     /* Read data */
@@ -1562,14 +1563,14 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Read dataset containing only member \'c\'\n");
         printf("exp = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%lld, %c, %.1f}", buf_conv_init[i].a, buf_conv_init[i].b, file_buf[i].c);
         } /* end for */
         printf("}\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf(", ");
             printf("{%lld, %c, %.1f}", buf_conv[i].a, buf_conv[i].b, (double)buf_conv[i].c);
@@ -1578,14 +1579,14 @@ int main(int argc, char *argv[]) {
     } /* end if */
 
     /* Check buffer */
-    for(i = 0; i< dims[0]; i++) {
+    for(i = 0; (hsize_t)i < dims[0]; i++) {
         if(buf_conv_init[i].a != buf_conv[i].a)
-            PRINTF_ERROR("Member a at location %d does not match", i);
+            PRINTF_ERROR("Member a at location %zu does not match", i);
         if(buf_conv_init[i].b != buf_conv[i].b)
-            PRINTF_ERROR("Member b at location %d does not match", i);
+            PRINTF_ERROR("Member b at location %zu does not match", i);
         if(((file_buf[i].c - (double)buf_conv[i].c) > (double)0.01)
                 || ((file_buf[i].c - (double)buf_conv[i].c) < (double)-0.01))
-            PRINTF_ERROR("Member c at location %d does not match", i);
+            PRINTF_ERROR("Member c at location %zu does not match", i);
     } /* end for */
 
     if(verbose_g)
@@ -1598,7 +1599,7 @@ int main(int argc, char *argv[]) {
      * Full write/read, member conversion
      */
     /* Fill buffer */
-    for(i = 0; i < dims[0]; i++)
+    for(i = 0; (hsize_t)i < dims[0]; i++)
         for(j = 0; j < dims[1]; j++) {
             buf2[i][j].a = rand() % 10;
             buf2[i][j].b = 'A' + (char)(rand() % 26);
@@ -1609,7 +1610,7 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Writing full 2-D dataset with member conversion\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf("\n       ");
             for(j = 0; j < dims[1]; j++) {
@@ -1626,7 +1627,7 @@ int main(int argc, char *argv[]) {
         ERROR;
 
     /* Update file_buf */
-    for(i = 0; i < dims[0]; i++)
+    for(i = 0; (hsize_t)i < dims[0]; i++)
         for(j = 0; j < dims[1]; j++) {
             file_buf2[i][j].a = (int)buf2[i][j].a;
             file_buf2[i][j].b = buf2[i][j].b;
@@ -1642,7 +1643,7 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Read full 2-D dataset with member conversion\n");
         printf("exp = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf("\n       ");
             for(j = 0; j < dims[1]; j++) {
@@ -1653,7 +1654,7 @@ int main(int argc, char *argv[]) {
         } /* end for */
         printf("}\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf("\n       ");
             for(j = 0; j < dims[1]; j++) {
@@ -1666,15 +1667,15 @@ int main(int argc, char *argv[]) {
     } /* end if */
 
     /* Check buffer */
-    for(i = 0; i< dims[0]; i++)
+    for(i = 0; (hsize_t)i < dims[0]; i++)
         for(j = 0; j < dims[1]; j++) {
             if((long long)file_buf2[i][j].a != buf2[i][j].a)
-                PRINTF_ERROR("Member a at location %d does not match", i);
+                PRINTF_ERROR("Member a at location %zu does not match", i);
             if(file_buf2[i][j].b != buf2[i][j].b)
-                PRINTF_ERROR("Member b at location %d does not match", i);
+                PRINTF_ERROR("Member b at location %zu does not match", i);
             if(((file_buf2[i][j].c - (double)buf2[i][j].c) > (double)0.01)
                     || ((file_buf2[i][j].c - (double)buf2[i][j].c) < (double)-0.01))
-                PRINTF_ERROR("Member c at location %d does not match", i);
+                PRINTF_ERROR("Member c at location %zu does not match", i);
         } /* end for */
 
     if(verbose_g)
@@ -1693,7 +1694,7 @@ int main(int argc, char *argv[]) {
      * Partial write with full type/full read to full type 
      */
     /* Fill buffer */
-    for(i = 0; i < dims[0]; i++)
+    for(i = 0; (hsize_t)i < dims[0]; i++)
         for(j = 0; j < dims[1]; j++) {
             buf2[i][j].a = rand() % 10;
             buf2[i][j].b = 'A' + (char)(rand() % 26);
@@ -1704,7 +1705,7 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Writing partial 2-D dataset with member conversion\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf("\n       ");
             for(j = 0; j < dims[1]; j++) {
@@ -1739,7 +1740,7 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Read full 2-D dataset with member conversion\n");
         printf("exp = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf("\n       ");
             for(j = 0; j < dims[1]; j++) {
@@ -1750,7 +1751,7 @@ int main(int argc, char *argv[]) {
         } /* end for */
         printf("}\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf("\n       ");
             for(j = 0; j < dims[1]; j++) {
@@ -1763,7 +1764,7 @@ int main(int argc, char *argv[]) {
     } /* end if */
 
     /* Check buffer */
-    for(i = 0; i< dims[0]; i++)
+    for(i = 0; (hsize_t)i < dims[0]; i++)
         /*! ----------------------------------------------*/
         /*! Temporary hack until overwrites are supported */
         {
@@ -1771,12 +1772,12 @@ int main(int argc, char *argv[]) {
         /*for(j = 0; j < dims[1]; j++) {*/
         /*! ----------------------------------------------*/
             if((long long)file_buf2[i][j].a != buf2[i][j].a)
-                PRINTF_ERROR("Member a at location %d, %d does not match", i, j);
+                PRINTF_ERROR("Member a at location %zu, %zu does not match", i, j);
             if(file_buf2[i][j].b != buf2[i][j].b)
-                PRINTF_ERROR("Member b at location %d, %d does not match", i, j);
+                PRINTF_ERROR("Member b at location %zu, %zu does not match", i, j);
             if(((file_buf2[i][j].c - (double)buf2[i][j].c) > (double)0.01)
                     || ((file_buf2[i][j].c - (double)buf2[i][j].c) < (double)-0.01))
-                PRINTF_ERROR("Member c at location %d, %d does not match", i, j);
+                PRINTF_ERROR("Member c at location %zu, %zu does not match", i, j);
         } /* end for */
 
     if(verbose_g)
@@ -1795,7 +1796,7 @@ int main(int argc, char *argv[]) {
      * Partial write with member a/full read to full type 
      */
     /* Fill buffer */
-    for(i = 0; i < dims[0]; i++)
+    for(i = 0; (hsize_t)i < dims[0]; i++)
         for(j = 0; j < dims[1]; j++) {
             buf2[i][j].a = rand() % 10;
             buf2[i][j].b = 'A' + (char)(rand() % 26);
@@ -1806,7 +1807,7 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Writing partial 2-D dataset with member conversion to member \'a\'\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf("\n       ");
             for(j = 0; j < dims[1]; j++) {
@@ -1839,7 +1840,7 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Read full 2-D dataset with member conversion\n");
         printf("exp = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf("\n       ");
             for(j = 0; j < dims[1]; j++) {
@@ -1850,7 +1851,7 @@ int main(int argc, char *argv[]) {
         } /* end for */
         printf("}\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf("\n       ");
             for(j = 0; j < dims[1]; j++) {
@@ -1863,7 +1864,7 @@ int main(int argc, char *argv[]) {
     } /* end if */
 
     /* Check buffer */
-    for(i = 0; i< dims[0]; i++)
+    for(i = 0; (hsize_t)i < dims[0]; i++)
         /*! ----------------------------------------------*/
         /*! Temporary hack until overwrites are supported */
         {
@@ -1871,12 +1872,12 @@ int main(int argc, char *argv[]) {
         /*for(j = 0; j < dims[1]; j++) {*/
         /*! ----------------------------------------------*/
             if((long long)file_buf2[i][j].a != buf2[i][j].a)
-                PRINTF_ERROR("Member a at location %d, %d does not match", i, j);
+                PRINTF_ERROR("Member a at location %zu, %zu does not match", i, j);
             if(file_buf2[i][j].b != buf2[i][j].b)
-                PRINTF_ERROR("Member b at location %d, %d does not match", i, j);
+                PRINTF_ERROR("Member b at location %zu, %zu does not match", i, j);
             if(((file_buf2[i][j].c - (double)buf2[i][j].c) > (double)0.01)
                     || ((file_buf2[i][j].c - (double)buf2[i][j].c) < (double)-0.01))
-                PRINTF_ERROR("Member c at location %d, %d does not match", i, j);
+                PRINTF_ERROR("Member c at location %zu, %zu does not match", i, j);
         } /* end for */
 
     if(verbose_g)
@@ -1894,7 +1895,7 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Read partial 2-D dataset to contiguous buffer with member conversion to member \'a\'\n");
         printf("exp = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf("\n       ");
             for(j = 0; j < dims[1]; j++) {
@@ -1905,7 +1906,7 @@ int main(int argc, char *argv[]) {
         } /* end for */
         printf("}\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf("\n       ");
             for(j = 0; j < dims[1]; j++) {
@@ -1918,7 +1919,7 @@ int main(int argc, char *argv[]) {
     } /* end if */
 
     /* Check buffer */
-    for(i = 0; i< dims[0]; i++)
+    for(i = 0; (hsize_t)i < dims[0]; i++)
         for(j = 0; j < dims[1]; j++) {
             /*! ----------------------------------------------*/
             /*! Temporary hack until overwrites are supported */
@@ -1927,12 +1928,12 @@ int main(int argc, char *argv[]) {
             if(((i == 1 || i == 2)
                     ? (long long)file_buf2[i][j].a : buf2_init[i][j].a)
                     != buf2[i][j].a)
-                PRINTF_ERROR("Member a at location %d, %d does not match", i, j);
+                PRINTF_ERROR("Member a at location %zu, %zu does not match", i, j);
             if(buf2_init[i][j].b != buf2[i][j].b)
-                PRINTF_ERROR("Member b at location %d, %d does not match", i, j);
+                PRINTF_ERROR("Member b at location %zu, %zu does not match", i, j);
             if(((buf2_init[i][j].c - buf2[i][j].c) > 0.01f)
                     || ((buf2_init[i][j].c - buf2[i][j].c) < -0.01f))
-                PRINTF_ERROR("Member c at location %d, %d does not match", i, j);
+                PRINTF_ERROR("Member c at location %zu, %zu does not match", i, j);
         } /* end for */
 
     if(verbose_g)
@@ -1950,7 +1951,7 @@ int main(int argc, char *argv[]) {
     if(verbose_g) {
         printf("Read partial 2-D dataset to non-contiguous buffer with member conversion to member \'a\'\n");
         printf("exp = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf("\n       ");
             for(j = 0; j < dims[1]; j++) {
@@ -1961,7 +1962,7 @@ int main(int argc, char *argv[]) {
         } /* end for */
         printf("}\n");
         printf("buf = {");
-        for(i = 0; i < dims[0]; i++) {
+        for(i = 0; (hsize_t)i < dims[0]; i++) {
             if(i > 0)
                 printf("\n       ");
             for(j = 0; j < dims[1]; j++) {
@@ -1974,7 +1975,7 @@ int main(int argc, char *argv[]) {
     } /* end if */
 
     /* Check buffer */
-    for(i = 0; i< dims[0]; i++)
+    for(i = 0; (hsize_t)i < dims[0]; i++)
         for(j = 0; j < dims[1]; j++) {
             /*! ----------------------------------------------*/
             /*! Temporary hack until overwrites are supported */
@@ -1983,12 +1984,12 @@ int main(int argc, char *argv[]) {
             if(((j == 1) ? (long long)file_buf2[i / 2 + 1][i % 2].a
                     : buf2_init[i][j].a)
                     != buf2[i][j].a)
-                PRINTF_ERROR("Member a at location %d, %d does not match", i, j);
+                PRINTF_ERROR("Member a at location %zu, %zu does not match", i, j);
             if(buf2_init[i][j].b != buf2[i][j].b)
-                PRINTF_ERROR("Member b at location %d, %d does not match", i, j);
+                PRINTF_ERROR("Member b at location %zu, %zu does not match", i, j);
             if(((buf2_init[i][j].c - buf2[i][j].c) > 0.01f)
                     || ((buf2_init[i][j].c - buf2[i][j].c) < -0.01f))
-                PRINTF_ERROR("Member c at location %d, %d does not match", i, j);
+                PRINTF_ERROR("Member c at location %zu, %zu does not match", i, j);
         } /* end for */
 
     if(verbose_g)

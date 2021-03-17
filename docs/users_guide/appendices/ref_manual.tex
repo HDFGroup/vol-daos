@@ -23,7 +23,10 @@ Initialize the DAOS VOL connector.
 \paragraph{Description:}
 \begin{flushleft}%
 \texttt{H5daos\_init} initializes the VOL connector by registering the connector with
-the library.
+the library. \texttt{pool\_uuid} identifies the UUID of the DAOS pool to connect to.
+\texttt{pool\_grp} and \texttt{pool\_svcl} respectively identify the server group name
+and pool service replica rank list to use when connecting to DAOS. These may be NULL,
+in which case a default group name and service replica rank list are used.
 \end{flushleft}%
 
 \paragraph{Parameters:}

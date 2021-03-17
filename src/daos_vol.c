@@ -381,10 +381,6 @@ H5daos_init(uuid_t pool_uuid, const char *pool_grp, const char *pool_svcl)
 
     if(uuid_is_null(pool_uuid))
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "not a valid UUID");
-    if(NULL == pool_grp)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "not a valid service group");
-    if(NULL == pool_svcl)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "not a valid service list");
 
     /* Initialize HDF5 */
     if(H5open() < 0)

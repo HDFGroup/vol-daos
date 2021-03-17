@@ -1,6 +1,7 @@
 #include "h5dsm_example.h"
 
 int main(int argc, char *argv[]) {
+#ifndef H5_NO_DEPRECATED_SYMBOLS
     uuid_t pool_uuid;
     char *pool_grp = NULL;
     hid_t file = -1, obj = -1, fapl = -1;
@@ -93,5 +94,10 @@ error:
 
     (void)MPI_Finalize();
     return 1;
+#else
+    (void)argc; (void)argv;
+    printf("SKIPPED - H5Oopen_by_addr is unavailable\n");
+    return 0;
+#endif
 }
 

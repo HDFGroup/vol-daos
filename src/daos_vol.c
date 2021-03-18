@@ -108,7 +108,7 @@ static int H5_daos_bool_prop_compare(const void *_value1, const void *_value2,
     size_t size);
 static herr_t H5_daos_init(hid_t vipl_id);
 static herr_t H5_daos_term(void);
-static herr_t H5_daos_set_pool_globals(const char *pool_grp, const char *pool_svcl);
+static herr_t H5_daos_set_pool_globals(const uuid_t pool_uuid, const char *pool_grp, const char *pool_svcl);
 static herr_t H5_daos_fill_def_plist_cache(void);
 static void *H5_daos_fapl_copy(const void *_old_fa);
 static herr_t H5_daos_fapl_free(void *_fa);
@@ -280,6 +280,7 @@ size_t daos_vol_curr_alloc_bytes;
 
 /* Global variables used to connect to DAOS pools */
 static hbool_t H5_daos_pool_globals_set_g = FALSE;  /* Pool config set */
+uuid_t H5_daos_pool_uuid_g;
 char H5_daos_pool_grp_g[H5_DAOS_MAX_GRP_NAME + 1] = {'\0'}; /* Pool Group */
 static d_rank_t H5_daos_pool_ranks_g[H5_DAOS_MAX_SVC_REPLICAS]; /* Pool ranks */
 d_rank_list_t H5_daos_pool_svcl_g = {0};                  /* Pool svc list */
@@ -386,6 +387,10 @@ H5daos_init(uuid_t pool_uuid, const char *pool_grp, const char *pool_svcl)
     if(H5open() < 0)
         D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "HDF5 failed to initialize");
 
+    /* Save arguments to globals */
+    if(H5_daos_set_pool_globals(pool_uuid, pool_grp, pool_svcl) < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't set pool globals");
+
     if(H5_DAOS_g >= 0 && (idType = H5Iget_type(H5_DAOS_g)) < 0)
         D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "failed to retrieve DAOS VOL connector's ID type");
 
@@ -397,10 +402,6 @@ H5daos_init(uuid_t pool_uuid, const char *pool_grp, const char *pool_svcl)
             D_GOTO_ERROR(H5E_ID, H5E_CANTINIT, FAIL, "can't determine if DAOS VOL connector is registered");
 
         if(!is_registered) {
-            /* Save arguments to globals */
-            if(H5_daos_set_pool_globals(pool_grp, pool_svcl) < 0)
-                D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't set pool globals");
-
             /* Register connector */
             if((H5_DAOS_g = H5VLregister_connector((const H5VL_class_t *)&H5_daos_g, H5P_DEFAULT)) < 0)
                 D_GOTO_ERROR(H5E_ID, H5E_CANTINSERT, FAIL, "can't create ID for DAOS VOL connector");
@@ -1209,7 +1210,7 @@ H5_daos_init(hid_t H5VL_DAOS_UNUSED vipl_id)
         uuid_t puuid;
 
         uuid_clear(puuid);
-        if(H5_daos_set_pool_globals(NULL, NULL) < 0)
+        if(H5_daos_set_pool_globals(puuid, NULL, NULL) < 0)
             D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't set pool globals");
     } /* end if */
     assert(H5_daos_pool_globals_set_g);
@@ -1301,6 +1302,9 @@ H5_daos_term(void)
     /* Free default property list cache */
     DV_free((void *)H5_daos_plist_cache_g);
 
+    /* Reset global pool UUID if it was set previously */
+    uuid_clear(H5_daos_pool_uuid_g);
+
     /* "Forget" connector id.  This should normally be called by the library
      * when it is closing the id, so no need to close it here. */
     H5_DAOS_g = H5I_INVALID_HID;
@@ -1357,7 +1361,7 @@ done:
  *-------------------------------------------------------------------------
  */
 static herr_t
-H5_daos_set_pool_globals(const char *pool_grp, const char *pool_svcl)
+H5_daos_set_pool_globals(const uuid_t pool_uuid, const char *pool_grp, const char *pool_svcl)
 {
     char *pool_grp_env = getenv("DAOS_GROUP");
     char *pool_svcl_env = getenv("DAOS_SVCL");
@@ -1366,6 +1370,12 @@ H5_daos_set_pool_globals(const char *pool_grp, const char *pool_svcl)
 
     if(pool_grp && (strlen(pool_grp) > H5_DAOS_MAX_GRP_NAME))
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "service group name is too long");
+
+    /* Set global pool UUID if provided via H5daos_init */
+    if(!uuid_is_null(pool_uuid))
+        uuid_copy(H5_daos_pool_uuid_g, pool_uuid);
+    else
+        uuid_clear(H5_daos_pool_uuid_g);
 
     /* Set name of DAOS pool group to be used */
     memset(H5_daos_pool_grp_g, '\0', sizeof(H5_daos_pool_grp_g));

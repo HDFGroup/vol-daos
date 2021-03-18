@@ -359,14 +359,19 @@ H5_daos_file_set_pool_uuid(H5_daos_file_t *file, const char *filepath)
     if(H5_daos_bypass_duns_g && !pool_uuid_env)
         D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "DAOS_POOL environment variable must be set when bypassing DUNS");
 
-    /* Attempt to retrieve the file's pool UUID by using
-     * duns_resolve_path on the given directory path
-     */
-    if(!H5_daos_bypass_duns_g) {
+    /* Check if the pool UUID was set via H5daos_init */
+    if(!uuid_is_null(H5_daos_pool_uuid_g)) {
+        uuid_copy(file->puuid, H5_daos_pool_uuid_g);
+    }
+    else if(!H5_daos_bypass_duns_g) {
         struct duns_attr_t duns_attr;
         char *dir_name;
         char cwd[PATH_MAX];
         int ret;
+
+        /* Attempt to retrieve the file's pool UUID by using
+         * duns_resolve_path on the given directory path
+         */
 
         memset(&duns_attr, 0, sizeof(struct duns_attr_t));
 

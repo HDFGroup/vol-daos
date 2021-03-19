@@ -57,43 +57,30 @@ extern "C" {
 #endif
 
 /**
- * Initialize this VOL connector by connecting to the pool and registering
- * the connector with the library. \pool_uuid identifies the UUID of the
- * pool to connect to. \pool_grp and \pool_svcl respectively identify the
- * server group name and pool service replica rank list to use when connecting
- * to DAOS. These may be NULL, in which case a default group name and service
+ * Modify the file access property list to use the DAOS VOL connector.
+ *
+ * \pool_uuid identifies the UUID of the DAOS pool to connect to.
+ *
+ * \pool_grp and \pool_svcl respectively identify the server group name
+ * and pool service replica rank list to use when connecting to DAOS.
+ * These may be NULL, in which case a default group name and service
  * replica rank list are used.
  *
+ * \comm and \info identify the communicator and info object used to
+ * coordinate actions on file create, open, flush, and close.
+ *
+ * \param fapl_id   [IN]    File access property list
  * \param pool_uuid [IN]    DAOS pool UUID
  * \param pool_grp  [IN]    Process set name of the DAOS servers managing the pool
  * \param pool_svcl [IN]    Comma-separated list of pool service replica ranks
+ * \param comm      [IN]    MPI communicator
+ * \param info      [IN]    MPI info
  *
  * \return Non-negative on success/Negative on failure
  */
 H5VL_DAOS_PUBLIC herr_t
-H5daos_init(uuid_t pool_uuid, const char *pool_grp, const char *pool_svcl);
-
-/**
- * Shut down the DAOS VOL.
- *
- * \return Non-negative on success/Negative on failure
- */
-H5VL_DAOS_PUBLIC herr_t
-H5daos_term(void);
-
-/**
- * Modify the file access property list to use the DAOS VOL connector.
- * \comm and \info identify the communicator and info object used to coordinate
- * actions on file create, open, flush, and close.
- *
- * \param fapl_id [IN]      File access property list
- * \param comm    [IN]      MPI communicator
- * \param info    [IN]      MPI info
- *
- * \return Non-negative on success/Negative on failure
- */
-H5VL_DAOS_PUBLIC herr_t
-H5Pset_fapl_daos(hid_t fapl_id, MPI_Comm comm, MPI_Info info);
+H5Pset_fapl_daos(hid_t fapl_id, const uuid_t pool_uuid, const char *pool_grp,
+        const char *pool_svcl, MPI_Comm file_comm, MPI_Info file_info);
 
 /**
  * Sets the provided DAOS object class on the given property list.

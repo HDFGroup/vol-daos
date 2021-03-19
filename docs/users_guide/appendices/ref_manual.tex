@@ -5,85 +5,13 @@
 \section{Reference Manual}
 \label{apdx:ref_manual}
 
-\subsection{H5daos\_init}
-\label{ref:h5daos_init}
-
-\paragraph{Synopsis:}
-\begin{flushleft}%
-\begin{minted}[breaklines=true,fontsize=\small]{hdf5-c-lexer.py:HDF5CLexer -x}
-herr_t H5daos_init(uuid_t pool_uuid, const char *pool_grp, const char *pool_svcl);
-\end{minted}
-\end{flushleft}%
-
-\paragraph{Purpose:}
-\begin{flushleft}%
-Initialize the DAOS VOL connector.
-\end{flushleft}%
-
-\paragraph{Description:}
-\begin{flushleft}%
-\texttt{H5daos\_init} initializes the VOL connector by registering the connector with
-the library. \texttt{pool\_uuid} identifies the UUID of the DAOS pool to connect to.
-\texttt{pool\_grp} and \texttt{pool\_svcl} respectively identify the server group name
-and pool service replica rank list to use when connecting to DAOS. These may be NULL,
-in which case a default group name and service replica rank list are used.
-\end{flushleft}%
-
-\paragraph{Parameters:}
-\begin{flushleft}%
- \begin{tabular}{ll}%
-   \texttt{uuid\_t pool\_uuid} & IN: UUID to identify a pool \\
-   \texttt{const char *pool\_grp} & IN: Process set name of the DAOS servers managing the pool \\
-   \texttt{const char *pool\_svcl} & IN: Comma-separated list of pool service replica ranks \\
- \end{tabular}%
-\end{flushleft}%
-
-\paragraph{Returns:}
-\begin{flushleft}%
-Returns a non-negative value if successful; otherwise returns a negative value.
-\end{flushleft}%
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-\newpage
-\subsection{H5daos\_term}
-\label{ref:h5daos_term}
-
-\paragraph{Synopsis:}
-\begin{flushleft}%
-\begin{minted}[breaklines=true,fontsize=\small]{hdf5-c-lexer.py:HDF5CLexer -x}
-herr_t H5daos_term(void);
-\end{minted}
-\end{flushleft}%
-
-\paragraph{Purpose:}
-\begin{flushleft}%
-Terminate the DAOS VOL connector.
-\end{flushleft}%
-
-\paragraph{Description:}
-\begin{flushleft}%
-\texttt{H5daos\_term} terminates the DAOS VOL connector.
-\end{flushleft}%
-
-\paragraph{Parameters:}
-\begin{flushleft}%
-None.
-\end{flushleft}%
-
-\paragraph{Returns:}
-\begin{flushleft}%
-Returns a non-negative value if successful; otherwise returns a negative value.
-\end{flushleft}%
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-\newpage
 \subsection{H5Pset\_fapl\_daos}
 \label{ref:h5pset_fapl_daos}
 
 \paragraph{Synopsis:}
 \begin{flushleft}%
 \begin{minted}[breaklines=true,fontsize=\small]{hdf5-c-lexer.py:HDF5CLexer -x}
-herr_t H5Pset_fapl_daos(hid_t fapl_id, MPI_Comm comm, MPI_Info info);
+herr_t H5Pset_fapl_daos(hid_t fapl_id, const uuid_t pool_uuid, const char *pool_grp, const char *pool_svcl, MPI_Comm file_comm, MPI_Info file_info);
 \end{minted}
 \end{flushleft}%
 
@@ -95,15 +23,26 @@ Set the file access property list to use the DAOS VOL connector.
 \paragraph{Description:}
 \begin{flushleft}%
 \texttt{H5Pset\_fapl\_daos} modifies the file access property list to use the
-DAOS VOL connector. \texttt{file\_comm} and
-\texttt{file\_info} identify the communicator and info object used to
-coordinate actions on file create, open, flush, and close.
+DAOS VOL connector.
+
+\texttt{pool\_uuid} identifies the UUID of the DAOS pool to connect to.
+
+\texttt{pool\_grp} and \texttt{pool\_svcl} respectively identify the server
+group name and pool service replica rank list to use when connecting to DAOS.
+These may be NULL, in which case a default group name and service replica rank
+list are used.
+
+\texttt{file\_comm} and \texttt{file\_info} identify the communicator and info
+object used to coordinate actions on file create, open, flush, and close.
 \end{flushleft}%
 
 \paragraph{Parameters:}
 \begin{flushleft}%
  \begin{tabular}{ll}%
    \texttt{hid\_t fapl\_id} & IN: File access property list ID \\
+   \texttt{const uuid\_t pool\_uuid} & IN: DAOS pool UUID \\
+   \texttt{const char *pool\_grp} & IN: Process set name of the DAOS servers managing the pool \\
+   \texttt{const char *pool\_svcl} & IN: Comma-separated list of pool service replica ranks \\
    \texttt{MPI\_Comm file\_comm} & IN: MPI Communicator \\
    \texttt{MPI\_Info file\_info} & IN: MPI Info \\
  \end{tabular}%

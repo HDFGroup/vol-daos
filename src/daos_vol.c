@@ -108,7 +108,7 @@ static int H5_daos_bool_prop_compare(const void *_value1, const void *_value2,
     size_t size);
 static herr_t H5_daos_init(hid_t vipl_id);
 static herr_t H5_daos_term(void);
-static herr_t H5_daos_set_pool_globals(const uuid_t pool_uuid, const char *pool_grp, const char *pool_svcl);
+static herr_t H5_daos_set_pool_globals(const char *pool_grp, const char *pool_svcl);
 static herr_t H5_daos_fill_def_plist_cache(void);
 static void *H5_daos_fapl_copy(const void *_old_fa);
 static herr_t H5_daos_fapl_free(void *_fa);
@@ -280,7 +280,6 @@ size_t daos_vol_curr_alloc_bytes;
 
 /* Global variables used to connect to DAOS pools */
 static hbool_t H5_daos_pool_globals_set_g = FALSE;  /* Pool config set */
-uuid_t H5_daos_pool_uuid_g;
 char H5_daos_pool_grp_g[H5_DAOS_MAX_GRP_NAME + 1] = {'\0'}; /* Pool Group */
 static d_rank_t H5_daos_pool_ranks_g[H5_DAOS_MAX_SVC_REPLICAS]; /* Pool ranks */
 d_rank_list_t H5_daos_pool_svcl_g = {0};                  /* Pool svc list */
@@ -360,41 +359,62 @@ const daos_size_t H5_daos_fillval_key_size_g         = (daos_size_t)(sizeof(H5_d
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5daos_init
+ * Function:    H5Pset_fapl_daos
  *
- * Purpose:     Initialize this VOL connector by connecting to the pool and
- *              registering the connector with the library.
+ * Purpose:     Modify the file access property list to use the DAOS VOL
+ *              connector defined in this source file.
+ *
+ *              pool_uuid identifies the UUID of the DAOS pool to connect
+ *              to. pool_grp and pool_svcl respectively identify the server
+ *              group name and pool service replica rank list to use when
+ *              connecting to DAOS. These may be NULL, in which case a
+ *              default group name and service replica rank list are used.
+ *              file_comm and file_info identify the communicator and info
+ *              object used to coordinate actions on file create, open,
+ *              flush, and close.
  *
  * Return:      Non-negative on success/Negative on failure
  *
  * Programmer:  Neil Fortner
- *              March, 2017
+ *              October, 2016
  *
  *-------------------------------------------------------------------------
  */
 herr_t
-H5daos_init(uuid_t pool_uuid, const char *pool_grp, const char *pool_svcl)
+H5Pset_fapl_daos(hid_t fapl_id, const uuid_t pool_uuid, const char *pool_grp,
+    const char *pool_svcl, MPI_Comm file_comm, MPI_Info file_info)
 {
-    H5I_type_t idType = H5I_UNINIT;
-    herr_t     ret_value = SUCCEED;            /* Return value */
+    H5_daos_fapl_t fa;
+    H5I_type_t     idType = H5I_UNINIT;
+    htri_t         is_fapl;
+    herr_t         ret_value = FAIL;
 
     H5_daos_inc_api_cnt();
 
+    /* Check arguments */
+    if(fapl_id == H5P_DEFAULT)
+        D_GOTO_ERROR(H5E_PLIST, H5E_BADVALUE, FAIL, "can't set values in default property list");
+    if((is_fapl = H5Pisa_class(fapl_id, H5P_FILE_ACCESS)) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "couldn't determine property list class");
+    if(!is_fapl)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "not a file access property list");
     if(uuid_is_null(pool_uuid))
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "not a valid UUID");
+    if(MPI_COMM_NULL == file_comm)
+        D_GOTO_ERROR(H5E_PLIST, H5E_BADTYPE, FAIL, "not a valid MPI communicator");
 
-    /* Initialize HDF5 */
+    /* Ensure HDF5 is initialized */
     if(H5open() < 0)
         D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "HDF5 failed to initialize");
 
-    /* Save arguments to globals */
-    if(H5_daos_set_pool_globals(pool_uuid, pool_grp, pool_svcl) < 0)
+    /* Save pool arguments to globals */
+    if(H5_daos_set_pool_globals(pool_grp, pool_svcl) < 0)
         D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't set pool globals");
 
+    /* Register the DAOS VOL connector if it isn't already registered */
     if(H5_DAOS_g >= 0 && (idType = H5Iget_type(H5_DAOS_g)) < 0)
         D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "failed to retrieve DAOS VOL connector's ID type");
 
-    /* Register the DAOS VOL, if it isn't already */
     if(H5I_VOL != idType) {
         htri_t is_registered;
 
@@ -412,79 +432,8 @@ H5daos_init(uuid_t pool_uuid, const char *pool_grp, const char *pool_svcl)
         } /* end else */
     } /* end if */
 
-done:
-    D_FUNC_LEAVE_API;
-} /* end H5daos_init() */
-
-
-/*-------------------------------------------------------------------------
- * Function:    H5daos_term
- *
- * Purpose:     Shut down the DAOS VOL
- *
- * Return:      Non-negative on success/Negative on failure
- *
- * Programmer:  Neil Fortner
- *              March, 2017
- *
- *-------------------------------------------------------------------------
- */
-herr_t
-H5daos_term(void)
-{
-    herr_t ret_value = SUCCEED;            /* Return value */
-
-    H5_daos_inc_api_cnt();
-
-    /* Terminate the connector */
-    if(H5_daos_term() < 0)
-        D_GOTO_ERROR(H5E_VOL, H5E_CLOSEERROR, FAIL, "can't terminate DAOS VOL connector");
-
-done:
-    D_FUNC_LEAVE_API;
-} /* end H5daos_term() */
-
-
-/*-------------------------------------------------------------------------
- * Function:    H5Pset_fapl_daos
- *
- * Purpose:     Modify the file access property list to use the DAOS VOL
- *              connector defined in this source file.  file_comm and
- *              file_info identify the communicator and info object used
- *              to coordinate actions on file create, open, flush, and
- *              close.
- *
- * Return:      Non-negative on success/Negative on failure
- *
- * Programmer:  Neil Fortner
- *              October, 2016
- *
- *-------------------------------------------------------------------------
- */
-herr_t
-H5Pset_fapl_daos(hid_t fapl_id, MPI_Comm file_comm, MPI_Info file_info)
-{
-    H5_daos_fapl_t fa;
-    htri_t         is_fapl;
-    herr_t         ret_value = FAIL;
-
-    H5_daos_inc_api_cnt();
-
-    if(H5_DAOS_g < 0)
-        D_GOTO_ERROR(H5E_VOL, H5E_UNINITIALIZED, FAIL, "DAOS VOL connector not initialized");
-
-    if(fapl_id == H5P_DEFAULT)
-        D_GOTO_ERROR(H5E_PLIST, H5E_BADVALUE, FAIL, "can't set values in default property list");
-
-    if((is_fapl = H5Pisa_class(fapl_id, H5P_FILE_ACCESS)) < 0)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "couldn't determine property list class");
-    if(!is_fapl)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "not a file access property list");
-
-    if(MPI_COMM_NULL == file_comm)
-        D_GOTO_ERROR(H5E_PLIST, H5E_BADTYPE, FAIL, "not a valid MPI communicator");
-
     /* Initialize driver specific properties */
+    uuid_copy(fa.pool_uuid, pool_uuid);
     fa.comm = file_comm;
     fa.info = file_info;
     fa.free_comm_info = FALSE;
@@ -1206,13 +1155,8 @@ H5_daos_init(hid_t H5VL_DAOS_UNUSED vipl_id)
 #endif
 
     /* Set pool globals if they were not already set */
-    if(!H5_daos_pool_globals_set_g) {
-        uuid_t puuid;
-
-        uuid_clear(puuid);
-        if(H5_daos_set_pool_globals(puuid, NULL, NULL) < 0)
-            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't set pool globals");
-    } /* end if */
+    if(!H5_daos_pool_globals_set_g && H5_daos_set_pool_globals(NULL, NULL) < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't set pool globals");
     assert(H5_daos_pool_globals_set_g);
 
     /* Determine if bypassing of the DUNS has been requested */
@@ -1302,9 +1246,6 @@ H5_daos_term(void)
     /* Free default property list cache */
     DV_free((void *)H5_daos_plist_cache_g);
 
-    /* Reset global pool UUID if it was set previously */
-    uuid_clear(H5_daos_pool_uuid_g);
-
     /* "Forget" connector id.  This should normally be called by the library
      * when it is closing the id, so no need to close it here. */
     H5_DAOS_g = H5I_INVALID_HID;
@@ -1361,7 +1302,7 @@ done:
  *-------------------------------------------------------------------------
  */
 static herr_t
-H5_daos_set_pool_globals(const uuid_t pool_uuid, const char *pool_grp, const char *pool_svcl)
+H5_daos_set_pool_globals(const char *pool_grp, const char *pool_svcl)
 {
     char *pool_grp_env = getenv("DAOS_GROUP");
     char *pool_svcl_env = getenv("DAOS_SVCL");
@@ -1370,12 +1311,6 @@ H5_daos_set_pool_globals(const uuid_t pool_uuid, const char *pool_grp, const cha
 
     if(pool_grp && (strlen(pool_grp) > H5_DAOS_MAX_GRP_NAME))
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "service group name is too long");
-
-    /* Set global pool UUID if provided via H5daos_init */
-    if(!uuid_is_null(pool_uuid))
-        uuid_copy(H5_daos_pool_uuid_g, pool_uuid);
-    else
-        uuid_clear(H5_daos_pool_uuid_g);
 
     /* Set name of DAOS pool group to be used */
     memset(H5_daos_pool_grp_g, '\0', sizeof(H5_daos_pool_grp_g));

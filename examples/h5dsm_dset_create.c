@@ -18,14 +18,11 @@ int main(int argc, char *argv[]) {
     if(0 != uuid_parse(argv[1], pool_uuid))
         ERROR;
 
-    /* Initialize VOL */
-    if(H5daos_init(pool_uuid, pool_grp, getenv("DAOS_SVCL") ? getenv("DAOS_SVCL") : "0") < 0)
-        ERROR;
-
     /* Set up FAPL */
     if((fapl = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         ERROR;
-    if(H5Pset_fapl_daos(fapl, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
+    if(H5Pset_fapl_daos(fapl, pool_uuid, pool_grp, getenv("DAOS_SVCL") ? getenv("DAOS_SVCL") : "0",
+            MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         ERROR;
     if(H5Pset_all_coll_metadata_ops(fapl, true) < 0)
         ERROR;

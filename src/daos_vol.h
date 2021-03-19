@@ -457,6 +457,7 @@ do { \
 
 /* DAOS-specific file access properties */
 typedef struct H5_daos_fapl_t {
+    uuid_t              pool_uuid;
     MPI_Comm            comm;           /* communicator                  */
     MPI_Info            info;           /* file information              */
     hbool_t             free_comm_info; /* Whether MPI communicator/info need to be freed */
@@ -1005,7 +1006,6 @@ extern size_t daos_vol_curr_alloc_bytes;
 #endif
 
 /* Global variables used to connect to DAOS pools */
-extern H5VL_DAOS_PRIVATE uuid_t H5_daos_pool_uuid_g;
 extern H5VL_DAOS_PRIVATE char H5_daos_pool_grp_g[];
 extern H5VL_DAOS_PRIVATE d_rank_list_t H5_daos_pool_svcl_g;
 

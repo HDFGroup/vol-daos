@@ -188,10 +188,8 @@ int main(void)
      * the pool UUID, "daos_server" as the group name for the DAOS
      * servers managing the pool and simply rank 0 as the only rank
      * in the pool service list. */
-    H5daos_init(pool_uuid, "daos_server", "0");
-
     fapl_id = H5Pcreate(H5P_FILE_ACCESS);
-    H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL);
+    H5Pset_fapl_daos(fapl_id, pool_uuid, "daos_server", "0", MPI_COMM_WORLD, MPI_INFO_NULL);
 
     /* Currently required for the DAOS VOL connector, set all metadata
      * operations to be collective */
@@ -204,9 +202,6 @@ int main(void)
 
     H5Pclose(fapl_id);
     H5Fclose(file_id);
-
-    /* Terminate the DAOS VOL connector. */
-    H5daos_term();
 
     return 0;
 }

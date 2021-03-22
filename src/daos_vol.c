@@ -27,13 +27,6 @@
 /* Local Macros */
 /****************/
 
-/* Default DAOS group ID used for creating pools */
-#ifndef DAOS_DEFAULT_GROUP_ID
-# define DAOS_DEFAULT_GROUP_ID "daos_server"
-#endif
-#define H5_DAOS_MAX_GRP_NAME     64
-#define H5_DAOS_MAX_SVC_REPLICAS 13
-
 /* Macro to "allocate" the next OIDX value from the local allocation of OIDXs */
 #define H5_DAOS_ALLOCATE_NEXT_OIDX(oidx_out_ptr, next_oidx_ptr, max_oidx_ptr) \
 do {                                                                          \
@@ -73,9 +66,10 @@ typedef struct H5_daos_pool_connect_ud_t {
     daos_handle_t *poh;
     daos_pool_info_t *info;
     const char *grp;
+#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
     d_rank_list_t *svc;
+#endif
     unsigned int flags;
-    hbool_t free_rank_list;
 } H5_daos_pool_connect_ud_t;
 
 /* Task user data for pool disconnect */
@@ -108,10 +102,9 @@ static int H5_daos_bool_prop_compare(const void *_value1, const void *_value2,
     size_t size);
 static herr_t H5_daos_init(hid_t vipl_id);
 static herr_t H5_daos_term(void);
-static herr_t H5_daos_set_pool_globals(const char *pool_grp, const char *pool_svcl);
 static herr_t H5_daos_fill_def_plist_cache(void);
-static void *H5_daos_fapl_copy(const void *_old_fa);
-static herr_t H5_daos_fapl_free(void *_fa);
+static void *H5_daos_faccess_info_copy(const void *_old_fa);
+static herr_t H5_daos_faccess_info_free(void *_fa);
 static herr_t H5_daos_get_conn_cls(void *item, H5VL_get_conn_lvl_t lvl,
     const H5VL_class_t **conn_cls);
 static herr_t H5_daos_opt_query(void *item, H5VL_subclass_t cls, int opt_type,
@@ -154,10 +147,10 @@ static const H5VL_class_t H5_daos_g = {
     H5_daos_init,                            /* Connector initialize */
     H5_daos_term,                            /* Connector terminate */
     {
-        sizeof(H5_daos_fapl_t),              /* Connector Info size */
-        H5_daos_fapl_copy,                   /* Connector Info copy */
+        sizeof(H5_daos_faccess_t),           /* Connector Info size */
+        H5_daos_faccess_info_copy,           /* Connector Info copy */
         NULL,                                /* Connector Info compare */
-        H5_daos_fapl_free,                   /* Connector Info free */
+        H5_daos_faccess_info_free,           /* Connector Info free */
         NULL,                                /* Connector Info To String */
         NULL,                                /* Connector String To Info */
     },
@@ -278,13 +271,6 @@ hid_t dv_async_err_g = H5I_INVALID_HID;
 size_t daos_vol_curr_alloc_bytes;
 #endif
 
-/* Global variables used to connect to DAOS pools */
-static hbool_t H5_daos_pool_globals_set_g = FALSE;  /* Pool config set */
-char H5_daos_pool_grp_g[H5_DAOS_MAX_GRP_NAME + 1] = {'\0'}; /* Pool Group */
-static d_rank_t H5_daos_pool_ranks_g[H5_DAOS_MAX_SVC_REPLICAS]; /* Pool ranks */
-d_rank_list_t H5_daos_pool_svcl_g = {0};                  /* Pool svc list */
-static const unsigned int   H5_daos_pool_default_svc_nreplicas_g = 1;            /* Number of replicas */
-
 /* Global variable used to bypass the DUNS in favor of standard DAOS
  * container operations if requested.
  */
@@ -382,12 +368,16 @@ const daos_size_t H5_daos_fillval_key_size_g         = (daos_size_t)(sizeof(H5_d
  */
 herr_t
 H5Pset_fapl_daos(hid_t fapl_id, const uuid_t pool_uuid, const char *pool_grp,
-    const char *pool_svcl, MPI_Comm file_comm, MPI_Info file_info)
+    const char
+#if defined(DAOS_API_VERSION_MAJOR) && DAOS_API_VERSION_MAJOR >= 1
+    H5VL_DAOS_UNUSED
+#endif
+    *pool_svcl, MPI_Comm file_comm, MPI_Info file_info)
 {
-    H5_daos_fapl_t fa;
-    H5I_type_t     idType = H5I_UNINIT;
-    htri_t         is_fapl;
-    herr_t         ret_value = FAIL;
+    H5_daos_faccess_t fa;
+    H5I_type_t        idType = H5I_UNINIT;
+    htri_t            is_fapl;
+    herr_t            ret_value = FAIL;
 
     H5_daos_inc_api_cnt();
 
@@ -406,10 +396,6 @@ H5Pset_fapl_daos(hid_t fapl_id, const uuid_t pool_uuid, const char *pool_grp,
     /* Ensure HDF5 is initialized */
     if(H5open() < 0)
         D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "HDF5 failed to initialize");
-
-    /* Save pool arguments to globals */
-    if(H5_daos_set_pool_globals(pool_grp, pool_svcl) < 0)
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't set pool globals");
 
     /* Register the DAOS VOL connector if it isn't already registered */
     if(H5_DAOS_g >= 0 && (idType = H5Iget_type(H5_DAOS_g)) < 0)
@@ -433,7 +419,29 @@ H5Pset_fapl_daos(hid_t fapl_id, const uuid_t pool_uuid, const char *pool_grp,
     } /* end if */
 
     /* Initialize driver specific properties */
-    uuid_copy(fa.pool_uuid, pool_uuid);
+    uuid_copy(fa.pacc_params.pool_uuid, pool_uuid);
+
+    memset(fa.pacc_params.pool_group, '\0', sizeof(fa.pacc_params.pool_group));
+    if(pool_grp) {
+        size_t pool_grp_name_len = strlen(pool_grp);
+
+        if(pool_grp_name_len > H5_DAOS_MAX_GRP_NAME)
+            D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "service group name is too long");
+        else if(pool_grp_name_len > 0)
+            strncpy(fa.pacc_params.pool_group, pool_grp, H5_DAOS_MAX_GRP_NAME - 1);
+    }
+
+#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
+    if(pool_svcl) {
+        if(NULL == (fa.pacc_params.pool_svcl = daos_rank_list_parse(pool_svcl, ":")))
+            D_GOTO_ERROR(H5E_ARGS, H5E_CANTINIT, FAIL, "failed to parse service replica rank list");
+        if(fa.pacc_params.pool_svcl->rl_nr == 0 || fa.pacc_params.pool_svcl->rl_nr > H5_DAOS_MAX_SVC_REPLICAS)
+            D_GOTO_ERROR(H5E_ARGS, H5E_CANTINIT, FAIL, "not a valid service replica rank list");
+    }
+    else
+        fa.pacc_params.pool_svcl = NULL;
+#endif
+
     fa.comm = file_comm;
     fa.info = file_info;
     fa.free_comm_info = FALSE;
@@ -441,6 +449,11 @@ H5Pset_fapl_daos(hid_t fapl_id, const uuid_t pool_uuid, const char *pool_grp,
     ret_value = H5Pset_vol(fapl_id, H5_DAOS_g, &fa);
 
 done:
+#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
+    if(fa.pacc_params.pool_svcl)
+        d_rank_list_free(fa.pacc_params.pool_svcl);
+#endif
+
     D_FUNC_LEAVE_API;
 } /* end H5Pset_fapl_daos() */
 
@@ -1154,11 +1167,6 @@ H5_daos_init(hid_t H5VL_DAOS_UNUSED vipl_id)
     daos_vol_curr_alloc_bytes = 0;
 #endif
 
-    /* Set pool globals if they were not already set */
-    if(!H5_daos_pool_globals_set_g && H5_daos_set_pool_globals(NULL, NULL) < 0)
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't set pool globals");
-    assert(H5_daos_pool_globals_set_g);
-
     /* Determine if bypassing of the DUNS has been requested */
     if(NULL != getenv("H5_DAOS_BYPASS_DUNS"))
         H5_daos_bypass_duns_g = TRUE;
@@ -1292,63 +1300,6 @@ done:
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_set_pool_globals
- *
- * Purpose:     Sets global variables that are used when connecting to a
- *              DAOS pool.
- *
- * Return:      Non-negative on success/Negative on failure
- *
- *-------------------------------------------------------------------------
- */
-static herr_t
-H5_daos_set_pool_globals(const char *pool_grp, const char *pool_svcl)
-{
-    char *pool_grp_env = getenv("DAOS_GROUP");
-    char *pool_svcl_env = getenv("DAOS_SVCL");
-    d_rank_list_t *svcl = NULL;
-    herr_t ret_value = SUCCEED;
-
-    if(pool_grp && (strlen(pool_grp) > H5_DAOS_MAX_GRP_NAME))
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "service group name is too long");
-
-    /* Set name of DAOS pool group to be used */
-    memset(H5_daos_pool_grp_g, '\0', sizeof(H5_daos_pool_grp_g));
-    if(pool_grp_env)
-        strncpy(H5_daos_pool_grp_g, pool_grp_env, sizeof(H5_daos_pool_grp_g) - 1);
-    else
-        strncpy(H5_daos_pool_grp_g, pool_grp ? pool_grp : DAOS_DEFAULT_GROUP_ID, sizeof(H5_daos_pool_grp_g) - 1);
-
-    /* Setup pool service replica rank list */
-    memset(&H5_daos_pool_svcl_g, 0, sizeof(H5_daos_pool_svcl_g));
-    memset(H5_daos_pool_ranks_g, 0, sizeof(H5_daos_pool_ranks_g));
-    H5_daos_pool_svcl_g.rl_ranks = H5_daos_pool_ranks_g;
-    if(pool_svcl || pool_svcl_env) {
-        uint32_t i;
-
-        /* Parse rank list */
-        if(NULL == (svcl = daos_rank_list_parse(pool_svcl_env ? pool_svcl_env : pool_svcl, ":")))
-            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "failed to parse service rank list");
-        if(svcl->rl_nr == 0 || svcl->rl_nr > H5_DAOS_MAX_SVC_REPLICAS)
-            D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "not a valid service list");
-        H5_daos_pool_svcl_g.rl_nr = svcl->rl_nr;
-        for(i = 0; i < svcl->rl_nr; i++)
-            H5_daos_pool_ranks_g[i] = svcl->rl_ranks[i];
-    }
-    else
-        H5_daos_pool_svcl_g.rl_nr = (uint32_t)H5_daos_pool_default_svc_nreplicas_g;
-
-    H5_daos_pool_globals_set_g = TRUE;
-
-done:
-    if(svcl)
-        daos_rank_list_free(svcl);
-
-    D_FUNC_LEAVE;
-} /* end H5_daos_set_pool_globals() */
-
-
-/*-------------------------------------------------------------------------
  * Function:    H5_daos_fill_def_plist_cache
  *
  * Purpose:     Sets up a global cache of the default values for several
@@ -1433,7 +1384,7 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_pool_connect(uuid_t *pool_uuid, char *pool_grp, d_rank_list_t *svcl,
+H5_daos_pool_connect(H5_daos_pool_acc_params_t *pool_acc_params,
     unsigned int flags, daos_handle_t *poh_out, daos_pool_info_t *pool_info_out,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
@@ -1442,9 +1393,11 @@ H5_daos_pool_connect(uuid_t *pool_uuid, char *pool_grp, d_rank_list_t *svcl,
     int ret;
     herr_t ret_value = SUCCEED;
 
-    assert(pool_uuid);
-    assert(pool_grp);
-    assert(svcl);
+    assert(pool_acc_params);
+    assert(!uuid_is_null(pool_acc_params->pool_uuid));
+#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
+    assert(pool_acc_params->pool_svcl);
+#endif
     assert(poh_out);
     assert(req);
     assert(first_task);
@@ -1453,13 +1406,14 @@ H5_daos_pool_connect(uuid_t *pool_uuid, char *pool_grp, d_rank_list_t *svcl,
     if(NULL == (connect_udata = (H5_daos_pool_connect_ud_t *)DV_malloc(sizeof(H5_daos_pool_connect_ud_t))))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate user data struct for pool connect task");
     connect_udata->req = req;
-    connect_udata->puuid = pool_uuid;
+    connect_udata->puuid = &pool_acc_params->pool_uuid;
     connect_udata->poh = poh_out;
-    connect_udata->grp = pool_grp;
-    connect_udata->svc = svcl;
+    connect_udata->grp = pool_acc_params->pool_group;
+#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
+    connect_udata->svc = pool_acc_params->pool_svcl;
+#endif
     connect_udata->flags = flags;
     connect_udata->info = pool_info_out;
-    connect_udata->free_rank_list = FALSE;
 
     /* Create task for pool connect */
     if(H5_daos_create_daos_task(DAOS_OPC_POOL_CONNECT, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
@@ -1593,9 +1547,6 @@ H5_daos_pool_connect_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 done:
     /* Free private data if we haven't released ownership */
     if(udata) {
-        if(udata->free_rank_list && udata->svc)
-            daos_rank_list_free(udata->svc);
-
         /* Handle errors in this function */
         /* Do not place any code that can issue errors after this block, except
          * for H5_daos_req_free_int, which updates req->status if it sees an
@@ -1791,7 +1742,7 @@ done:
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_fapl_copy
+ * Function:    H5_daos_faccess_info_copy
  *
  * Purpose:     Copies the DAOS-specific file access properties.
  *
@@ -1804,26 +1755,33 @@ done:
  *-------------------------------------------------------------------------
  */
 static void *
-H5_daos_fapl_copy(const void *_old_fa)
+H5_daos_faccess_info_copy(const void *_old_fa)
 {
-    const H5_daos_fapl_t *old_fa = (const H5_daos_fapl_t*)_old_fa;
-    H5_daos_fapl_t       *new_fa = NULL;
-    void                 *ret_value = NULL;
+    const H5_daos_faccess_t *old_fa = (const H5_daos_faccess_t *)_old_fa;
+    H5_daos_faccess_t       *new_fa = NULL;
+    void                    *ret_value = NULL;
 
     H5_daos_inc_api_cnt();
 
     if(!_old_fa)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "invalid fapl");
 
-    if(NULL == (new_fa = (H5_daos_fapl_t *)DV_malloc(sizeof(H5_daos_fapl_t))))
+    if(NULL == (new_fa = (H5_daos_faccess_t *)DV_malloc(sizeof(H5_daos_faccess_t))))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_NOSPACE, NULL, "memory allocation failed");
 
     /* Copy the general information */
-    memcpy(new_fa, old_fa, sizeof(H5_daos_fapl_t));
+    memcpy(new_fa, old_fa, sizeof(H5_daos_faccess_t));
 
     /* Clear allocated fields, so they aren't freed if something goes wrong.  No
      * need to clear info since it is only freed if comm is not null. */
     new_fa->comm = MPI_COMM_NULL;
+#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
+    /* Copy service replica rank list */
+    new_fa->pacc_params.pool_svcl = NULL;
+    if(old_fa->pacc_params.pool_svcl &&
+            (0 != d_rank_list_dup(&new_fa->pacc_params.pool_svcl, old_fa->pacc_params.pool_svcl)))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTCOPY, NULL, "failed to copy service replica rank list");
+#endif
 
     /* Duplicate communicator and Info object. */
     if(FAIL == H5_daos_comm_info_dup(old_fa->comm, old_fa->info, &new_fa->comm, &new_fa->info))
@@ -1835,16 +1793,16 @@ H5_daos_fapl_copy(const void *_old_fa)
 done:
     if(NULL == ret_value) {
         /* cleanup */
-        if(new_fa && H5_daos_fapl_free(new_fa) < 0)
+        if(new_fa && H5_daos_faccess_info_free(new_fa) < 0)
             D_DONE_ERROR(H5E_PLIST, H5E_CANTFREE, NULL, "can't free fapl");
     } /* end if */
 
     D_FUNC_LEAVE_API;
-} /* end H5_daos_fapl_copy() */
+} /* end H5_daos_faccess_info_copy() */
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_fapl_free
+ * Function:    H5_daos_faccess_info_free
  *
  * Purpose:     Frees the DAOS-specific file access properties.
  *
@@ -1857,27 +1815,60 @@ done:
  *-------------------------------------------------------------------------
  */
 static herr_t
-H5_daos_fapl_free(void *_fa)
+H5_daos_faccess_info_free(void *_fa)
 {
-    H5_daos_fapl_t *fa = (H5_daos_fapl_t*) _fa;
-    herr_t          ret_value = SUCCEED;
+    H5_daos_faccess_t *fa = (H5_daos_faccess_t*) _fa;
+    herr_t            ret_value = SUCCEED;
 
     H5_daos_inc_api_cnt();
 
     if(!_fa)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "invalid fapl");
 
-    /* Free the internal communicator and INFO object */
-    if(fa->free_comm_info && fa->comm != MPI_COMM_NULL)
-        if(H5_daos_comm_info_free(&fa->comm, &fa->info) < 0)
-            D_GOTO_ERROR(H5E_INTERNAL, H5E_CANTFREE, FAIL, "failed to free copy of MPI communicator and info");
+    if(H5_daos_faccess_info_free_helper(fa) < 0)
+        D_GOTO_ERROR(H5E_INTERNAL, H5E_CANTFREE, FAIL, "can't free DAOS-specific file access properties");
 
+done:
     /* free the struct */
     DV_free(fa);
 
-done:
     D_FUNC_LEAVE_API;
-} /* end H5_daos_fapl_free() */
+} /* end H5_daos_faccess_info_free() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    H5_daos_faccess_info_free_helper
+ *
+ * Purpose:     Frees the DAOS-specific file access properties without
+ *              freeing the access info structure itself.
+ *
+ * Return:      Non-negative on Success/Negative on failure
+ *
+ *-------------------------------------------------------------------------
+ */
+herr_t
+H5_daos_faccess_info_free_helper(H5_daos_faccess_t *faccess_info)
+{
+    herr_t ret_value = SUCCEED;
+
+    assert(faccess_info);
+
+#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
+    /* Free service replica rank list */
+    if(faccess_info->pacc_params.pool_svcl) {
+        daos_rank_list_free(faccess_info->pacc_params.pool_svcl);
+        faccess_info->pacc_params.pool_svcl = NULL;
+    }
+#endif
+
+    /* Free the internal communicator and INFO object */
+    if(faccess_info->free_comm_info)
+        if(H5_daos_comm_info_free(&faccess_info->comm, &faccess_info->info) < 0)
+            D_GOTO_ERROR(H5E_INTERNAL, H5E_CANTFREE, FAIL, "failed to free copy of MPI communicator and info");
+
+done:
+    D_FUNC_LEAVE;
+} /* end H5_daos_faccess_info_free_helper() */
 
 
 /*---------------------------------------------------------------------------
@@ -2439,7 +2430,7 @@ H5_daos_oidx_bcast(H5_daos_file_t *file, uint64_t *oidx_out,
     oidx_bcast_udata->bcast_udata.buffer = oidx_bcast_udata->next_oidx_buf;
     oidx_bcast_udata->bcast_udata.buffer_len = H5_DAOS_ENCODED_UINT64_T_SIZE;
     oidx_bcast_udata->bcast_udata.count = H5_DAOS_ENCODED_UINT64_T_SIZE;
-    oidx_bcast_udata->bcast_udata.comm = req->file->comm;
+    oidx_bcast_udata->bcast_udata.comm = req->file->facc_params.comm;
     oidx_bcast_udata->file = file;
     oidx_bcast_udata->oidx_out = oidx_out;
     oidx_bcast_udata->next_oidx = &file->next_oidx_collective;
@@ -3651,7 +3642,7 @@ H5_daos_mpi_ibarrier_task(tse_task_t *task)
     assert(req->file);
 
     /* Make call to MPI_Ibarrier */
-    if(MPI_SUCCESS != MPI_Ibarrier(req->file->comm, &H5_daos_mpi_req_g))
+    if(MPI_SUCCESS != MPI_Ibarrier(req->file->facc_params.comm, &H5_daos_mpi_req_g))
         D_GOTO_ERROR(H5E_VOL, H5E_MPI, -H5_DAOS_MPI_ERROR, "MPI_Ibarrier failed");
 
     /* Register this task as the current in-flight MPI task */
@@ -4306,7 +4297,7 @@ H5_daos_mpi_ibcast(H5_daos_mpi_ibcast_ud_t *_bcast_udata, H5_daos_obj_t *obj,
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "failed to allocate buffer for MPI broadcast user data");
         bcast_udata->req = req;
         bcast_udata->obj = obj;
-        bcast_udata->comm = req->file->comm;
+        bcast_udata->comm = req->file->facc_params.comm;
     } /* end if */
 
     /* Allocate bcast_udata's buffer if necessary */
@@ -4401,7 +4392,7 @@ H5_daos_collective_error_check(H5_daos_obj_t *obj, H5_daos_req_t *req,
     req->collective.err_check_ud.buffer_len = sizeof(req->collective.coll_status);
     req->collective.err_check_ud.count = req->collective.err_check_ud.buffer_len;
     req->collective.err_check_ud.bcast_metatask = NULL;
-    req->collective.err_check_ud.comm = req->file->comm;
+    req->collective.err_check_ud.comm = req->file->facc_params.comm;
 
     if(H5_daos_mpi_ibcast(&req->collective.err_check_ud, obj, sizeof(req->collective.coll_status),
             FALSE, (req->file->my_rank == 0) ? H5_daos_collective_error_check_prep_cb : NULL,

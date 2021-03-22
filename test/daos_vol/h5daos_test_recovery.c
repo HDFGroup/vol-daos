@@ -84,7 +84,7 @@ typedef struct {
 uuid_t pool_uuid;
 int    mpi_rank;
 static int    mpi_size;
-static d_rank_list_t *svcl;
+static const d_rank_list_t *svcl;
 static int    *wdata, *rdata;
 static int    *map_keys, *map_vals, *map_vals_out;
 static int    *attr_write, *attr_read;
@@ -1117,7 +1117,6 @@ static int figure_out_op(const char *str)
 int
 main( int argc, char** argv )
 {
-    d_rank_list_t  glob_svcl = {0};
     char           file_pool_uuid[256];
     char           filename[NAME_LENGTH];
     hid_t          fapl_id = -1, file_id = -1;
@@ -1188,13 +1187,11 @@ main( int argc, char** argv )
         pool_string = file_pool_uuid;
     }
 
-    /* Try to retrieve the global SVCL from the connector */
-    if(H5daos_get_global_svcl(&glob_svcl) < 0) {
+    /* Try to retrieve the SVCL from the file */
+    if(H5daos_get_svcl(file_id, &svcl) < 0) {
         printf("Can't retrieve global SVCL\n\n");
         goto error;
     }
-
-    svcl = &glob_svcl;
 
     if (MAINPROCESS) {
         fprintf(stdout, "Test parameters:\n\n");

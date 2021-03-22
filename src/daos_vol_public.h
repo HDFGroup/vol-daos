@@ -72,7 +72,7 @@ extern "C" {
  * \param fapl_id   [IN]    File access property list
  * \param pool_uuid [IN]    DAOS pool UUID
  * \param pool_grp  [IN]    Process set name of the DAOS servers managing the pool
- * \param pool_svcl [IN]    Comma-separated list of pool service replica ranks
+ * \param pool_svcl [IN]    Colon-separated list of pool service replica ranks
  * \param comm      [IN]    MPI communicator
  * \param info      [IN]    MPI info
  *
@@ -189,7 +189,9 @@ H5VL_DAOS_PUBLIC herr_t H5Pset_daos_snap_open(hid_t fapl_id,
  */
 H5VL_DAOS_PUBLIC herr_t H5daos_get_poh(hid_t file_id, daos_handle_t *poh);
 H5VL_DAOS_PUBLIC herr_t H5daos_get_pool_uuid(hid_t file_id, uuid_t *pool_uuid);
-H5VL_DAOS_PUBLIC herr_t H5daos_get_global_svcl(d_rank_list_t *svcl);
+#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
+H5VL_DAOS_PUBLIC herr_t H5daos_get_svcl(hid_t file_id, const d_rank_list_t **svcl);
+#endif
 
 #ifdef __cplusplus
 }

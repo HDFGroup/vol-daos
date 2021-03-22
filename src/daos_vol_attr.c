@@ -1585,7 +1585,7 @@ H5_daos_attribute_open_helper(H5_daos_item_t *item, const H5VL_loc_params_t *loc
         bcast_udata->bcast_ud.buffer = bcast_udata->flex_buf;
         bcast_udata->bcast_ud.buffer_len = H5_DAOS_AINFO_BCAST_BUF_SIZE;
         bcast_udata->bcast_ud.count = H5_DAOS_AINFO_BCAST_BUF_SIZE;
-        bcast_udata->bcast_ud.comm = req->file->comm;
+        bcast_udata->bcast_ud.comm = req->file->facc_params.comm;
         bcast_udata->attr = attr;
 
         ainfo_buf_size = H5_DAOS_AINFO_BCAST_BUF_SIZE;
@@ -2651,7 +2651,7 @@ H5_daos_attribute_read_int(H5_daos_attr_t *attr, hid_t mem_type_id,
         bcast_udata->buffer = need_tconv ? tconv_buf : buf;
         bcast_udata->buffer_len = bcast_buf_size;
         bcast_udata->count = bcast_udata->buffer_len;
-        bcast_udata->comm = req->file->comm;
+        bcast_udata->comm = req->file->facc_params.comm;
     } /* end if */
 
     if(!collective || (attr->item.file->my_rank == 0) || need_tconv) {
@@ -5560,7 +5560,7 @@ H5_daos_attribute_exists(H5_daos_obj_t *attr_container_obj, const char *attr_nam
         attr_exists_ud->bcast_ud.buffer = (void *)&attr_exists_ud->bcast_exists;
         attr_exists_ud->bcast_ud.buffer_len = (int)sizeof(htri_t);
         attr_exists_ud->bcast_ud.count = (int)sizeof(htri_t);
-        attr_exists_ud->bcast_ud.comm = req->file->comm;
+        attr_exists_ud->bcast_ud.comm = req->file->facc_params.comm;
         must_bcast = TRUE;
     } /* end if */
 

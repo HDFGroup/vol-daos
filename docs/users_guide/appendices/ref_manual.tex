@@ -42,7 +42,7 @@ object used to coordinate actions on file create, open, flush, and close.
    \texttt{hid\_t fapl\_id} & IN: File access property list ID \\
    \texttt{const uuid\_t pool\_uuid} & IN: DAOS pool UUID \\
    \texttt{const char *pool\_grp} & IN: Process set name of the DAOS servers managing the pool \\
-   \texttt{const char *pool\_svcl} & IN: Comma-separated list of pool service replica ranks \\
+   \texttt{const char *pool\_svcl} & IN: Colon-separated list of pool service replica ranks \\
    \texttt{MPI\_Comm file\_comm} & IN: MPI Communicator \\
    \texttt{MPI\_Info file\_info} & IN: MPI Info \\
  \end{tabular}%

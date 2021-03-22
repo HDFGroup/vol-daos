@@ -206,6 +206,13 @@ do { \
 #define H5_DAOS_PROGRESS_KICK (uint64_t)0
 #define H5_DAOS_PROGRESS_WAIT UINT64_MAX
 
+/* Defines for connecting to pools */
+#ifndef DAOS_DEFAULT_GROUP_ID
+# define DAOS_DEFAULT_GROUP_ID "daos_server"
+#endif
+#define H5_DAOS_MAX_GRP_NAME     64
+#define H5_DAOS_MAX_SVC_REPLICAS 13
+
 /* Remove warnings when connector does not use callback arguments */
 #if defined(__cplusplus)
 # define H5VL_DAOS_UNUSED
@@ -455,13 +462,22 @@ do { \
 /* Private Typedefs */
 /********************/
 
+/* DAOS pool access parameters */
+typedef struct H5_daos_pool_acc_params_t {
+    uuid_t         pool_uuid;
+    char           pool_group[H5_DAOS_MAX_GRP_NAME + 1];
+#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
+    d_rank_list_t *pool_svcl;
+#endif
+} H5_daos_pool_acc_params_t;
+
 /* DAOS-specific file access properties */
-typedef struct H5_daos_fapl_t {
-    uuid_t              pool_uuid;
-    MPI_Comm            comm;           /* communicator                  */
-    MPI_Info            info;           /* file information              */
-    hbool_t             free_comm_info; /* Whether MPI communicator/info need to be freed */
-} H5_daos_fapl_t;
+typedef struct H5_daos_faccess_t {
+    H5_daos_pool_acc_params_t pacc_params;
+    MPI_Comm                  comm;           /* communicator                  */
+    MPI_Info                  info;           /* file information              */
+    hbool_t                   free_comm_info; /* Whether MPI communicator/info need to be freed */
+} H5_daos_faccess_t;
 
 /* Forward declaration of operation pool struct */
 typedef struct H5_daos_op_pool_t H5_daos_op_pool_t;
@@ -561,7 +577,7 @@ typedef struct H5_daos_file_t {
     daos_prop_t *cont_prop;
     char *file_name;
     uuid_t uuid;
-    uuid_t puuid;
+    H5_daos_faccess_t facc_params;
     unsigned flags;
     daos_handle_t glob_md_oh;
     daos_obj_id_t glob_md_oid;
@@ -569,16 +585,12 @@ typedef struct H5_daos_file_t {
     hid_t fapl_id;
     H5_daos_fapl_cache_t fapl_cache;
     H5_daos_enc_plist_cache_t def_plist_cache;
-    MPI_Comm comm;
-    MPI_Info info;
     int my_rank;
     int num_procs;
     uint64_t next_oidx;
     uint64_t max_oidx;
     uint64_t next_oidx_collective;
     uint64_t max_oidx_collective;
-    hid_t vol_id;
-    void *vol_info;
 } H5_daos_file_t;
 
 /* The GCPL cache struct */
@@ -1005,10 +1017,6 @@ H5FL_DEFINE_EXTERN(H5_daos_attr_t);*/
 extern size_t daos_vol_curr_alloc_bytes;
 #endif
 
-/* Global variables used to connect to DAOS pools */
-extern H5VL_DAOS_PRIVATE char H5_daos_pool_grp_g[];
-extern H5VL_DAOS_PRIVATE d_rank_list_t H5_daos_pool_svcl_g;
-
 /* Global variable used for bypassing the DUNS when requested. */
 extern H5VL_DAOS_PRIVATE hbool_t H5_daos_bypass_duns_g;
 
@@ -1098,8 +1106,8 @@ extern "C" {
 #endif
 
 /* General routines */
-H5VL_DAOS_PRIVATE herr_t H5_daos_pool_connect(uuid_t *pool_uuid, char *pool_grp,
-    d_rank_list_t *svcl, unsigned int flags, daos_handle_t *poh_out, daos_pool_info_t *pool_info_out,
+H5VL_DAOS_PRIVATE herr_t H5_daos_pool_connect(H5_daos_pool_acc_params_t *pool_acc_params,
+    unsigned int flags, daos_handle_t *poh_out, daos_pool_info_t *pool_info_out,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE herr_t H5_daos_pool_disconnect(daos_handle_t *poh,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
@@ -1123,6 +1131,7 @@ H5VL_DAOS_PRIVATE herr_t H5_daos_obj_open(H5_daos_file_t *file,
     const char *task_name, tse_task_t **first_task, tse_task_t **dep_task);
 H5VL_DAOS_PRIVATE herr_t H5_daos_free_async(void *buf,
     tse_task_t **first_task, tse_task_t **dep_task);
+H5VL_DAOS_PRIVATE herr_t H5_daos_faccess_info_free_helper(H5_daos_faccess_t *faccess_info);
 H5VL_DAOS_PRIVATE herr_t H5_daos_comm_info_dup(MPI_Comm comm, MPI_Info info,
         MPI_Comm *comm_new, MPI_Info *info_new);
 H5VL_DAOS_PRIVATE herr_t H5_daos_comm_info_free(MPI_Comm *comm, MPI_Info *info);

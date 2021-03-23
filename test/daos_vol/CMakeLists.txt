@@ -34,6 +34,11 @@ foreach(vol_test ${daos_vol_tests})
   target_link_libraries(h5daos_test_${vol_test}
     hdf5_vol_daos
   )
+  if(${vol_test} STREQUAL "recovery")
+    target_link_libraries(h5daos_test_${vol_test}
+      daos_common
+    )
+  endif()
   set(HDF5_VOL_EXT_SERIAL_TESTS_EXE
     ${HDF5_VOL_EXT_SERIAL_TESTS_EXE}
     h5daos_test_${vol_test}

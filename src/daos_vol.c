@@ -351,13 +351,11 @@ const daos_size_t H5_daos_fillval_key_size_g         = (daos_size_t)(sizeof(H5_d
  *              connector defined in this source file.
  *
  *              pool_uuid identifies the UUID of the DAOS pool to connect
- *              to. pool_grp and pool_svcl respectively identify the server
- *              group name and pool service replica rank list to use when
- *              connecting to DAOS. These may be NULL, in which case a
- *              default group name and service replica rank list are used.
- *              file_comm and file_info identify the communicator and info
- *              object used to coordinate actions on file create, open,
- *              flush, and close.
+ *              to. pool_grp identifies the server group name to use when
+ *              connecting to the DAOS pool. This may be NULL, in which
+ *              case a default group name is used. file_comm and file_info
+ *              identify the communicator and info object used to
+ *              coordinate actions on file create, open, flush, and close.
  *
  * Return:      Non-negative on success/Negative on failure
  *
@@ -368,11 +366,7 @@ const daos_size_t H5_daos_fillval_key_size_g         = (daos_size_t)(sizeof(H5_d
  */
 herr_t
 H5Pset_fapl_daos(hid_t fapl_id, const uuid_t pool_uuid, const char *pool_grp,
-    const char
-#if defined(DAOS_API_VERSION_MAJOR) && DAOS_API_VERSION_MAJOR >= 1
-    H5VL_DAOS_UNUSED
-#endif
-    *pool_svcl, MPI_Comm file_comm, MPI_Info file_info)
+    MPI_Comm file_comm, MPI_Info file_info)
 {
     H5_daos_faccess_t fa;
     H5I_type_t        idType = H5I_UNINIT;
@@ -431,17 +425,6 @@ H5Pset_fapl_daos(hid_t fapl_id, const uuid_t pool_uuid, const char *pool_grp,
             strncpy(fa.pacc_params.pool_group, pool_grp, H5_DAOS_MAX_GRP_NAME - 1);
     }
 
-#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
-    if(pool_svcl) {
-        if(NULL == (fa.pacc_params.pool_svcl = daos_rank_list_parse(pool_svcl, ":")))
-            D_GOTO_ERROR(H5E_ARGS, H5E_CANTINIT, FAIL, "failed to parse service replica rank list");
-        if(fa.pacc_params.pool_svcl->rl_nr == 0 || fa.pacc_params.pool_svcl->rl_nr > H5_DAOS_MAX_SVC_REPLICAS)
-            D_GOTO_ERROR(H5E_ARGS, H5E_CANTINIT, FAIL, "not a valid service replica rank list");
-    }
-    else
-        fa.pacc_params.pool_svcl = NULL;
-#endif
-
     fa.comm = file_comm;
     fa.info = file_info;
     fa.free_comm_info = FALSE;
@@ -449,11 +432,6 @@ H5Pset_fapl_daos(hid_t fapl_id, const uuid_t pool_uuid, const char *pool_grp,
     ret_value = H5Pset_vol(fapl_id, H5_DAOS_g, &fa);
 
 done:
-#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
-    if(fa.pacc_params.pool_svcl)
-        d_rank_list_free(fa.pacc_params.pool_svcl);
-#endif
-
     D_FUNC_LEAVE_API;
 } /* end H5Pset_fapl_daos() */
 
@@ -1395,9 +1373,6 @@ H5_daos_pool_connect(H5_daos_pool_acc_params_t *pool_acc_params,
 
     assert(pool_acc_params);
     assert(!uuid_is_null(pool_acc_params->pool_uuid));
-#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
-    assert(pool_acc_params->pool_svcl);
-#endif
     assert(poh_out);
     assert(req);
     assert(first_task);
@@ -1409,11 +1384,11 @@ H5_daos_pool_connect(H5_daos_pool_acc_params_t *pool_acc_params,
     connect_udata->puuid = &pool_acc_params->pool_uuid;
     connect_udata->poh = poh_out;
     connect_udata->grp = pool_acc_params->pool_group;
-#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
-    connect_udata->svc = pool_acc_params->pool_svcl;
-#endif
     connect_udata->flags = flags;
     connect_udata->info = pool_info_out;
+#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
+    connect_udata->svc = NULL;
+#endif
 
     /* Create task for pool connect */
     if(H5_daos_create_daos_task(DAOS_OPC_POOL_CONNECT, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
@@ -1486,13 +1461,29 @@ H5_daos_pool_connect_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     memset(connect_args, 0, sizeof(*connect_args));
     connect_args->poh = udata->poh;
     connect_args->grp = udata->grp;
-#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
-    connect_args->svc = udata->svc;
-#endif
     connect_args->flags = udata->flags;
     connect_args->info = udata->info;
     /* TODO that cast can be removed once DAOS task struct is fixed */
     uuid_copy((unsigned char *)connect_args->uuid, *udata->puuid);
+
+#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
+    {
+        char *pool_svcl_env = getenv("DAOS_SVCL");
+
+        if(!pool_svcl_env)
+            D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, -H5_DAOS_BAD_VALUE,
+                    "DAOS_SVCL environment variable must be set");
+
+        if(NULL == (udata->svc = daos_rank_list_parse(pool_svcl_env, ":")))
+            D_GOTO_ERROR(H5E_ARGS, H5E_CANTGET, -H5_DAOS_H5_GET_ERROR,
+                    "failed to parse service replica rank list from DAOS_SVCL environment variable");
+        if(udata->svc->rl_nr == 0 || udata->svc->rl_nr > H5_DAOS_MAX_SVC_REPLICAS)
+            D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, -H5_DAOS_BAD_VALUE,
+                    "not a valid service replica rank list");
+
+        connect_args->svc = udata->svc;
+    }
+#endif
 
 done:
     if(ret_value < 0)
@@ -1559,6 +1550,11 @@ done:
         /* Release our reference to req */
         if(H5_daos_req_free_int(udata->req) < 0)
             D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+
+#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
+        if(udata->svc)
+            d_rank_list_free(udata->svc);
+#endif
 
         /* Free private data */
         DV_free(udata);
@@ -1775,13 +1771,6 @@ H5_daos_faccess_info_copy(const void *_old_fa)
     /* Clear allocated fields, so they aren't freed if something goes wrong.  No
      * need to clear info since it is only freed if comm is not null. */
     new_fa->comm = MPI_COMM_NULL;
-#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
-    /* Copy service replica rank list */
-    new_fa->pacc_params.pool_svcl = NULL;
-    if(old_fa->pacc_params.pool_svcl &&
-            (0 != d_rank_list_dup(&new_fa->pacc_params.pool_svcl, old_fa->pacc_params.pool_svcl)))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTCOPY, NULL, "failed to copy service replica rank list");
-#endif
 
     /* Duplicate communicator and Info object. */
     if(FAIL == H5_daos_comm_info_dup(old_fa->comm, old_fa->info, &new_fa->comm, &new_fa->info))
@@ -1852,14 +1841,6 @@ H5_daos_faccess_info_free_helper(H5_daos_faccess_t *faccess_info)
     herr_t ret_value = SUCCEED;
 
     assert(faccess_info);
-
-#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
-    /* Free service replica rank list */
-    if(faccess_info->pacc_params.pool_svcl) {
-        daos_rank_list_free(faccess_info->pacc_params.pool_svcl);
-        faccess_info->pacc_params.pool_svcl = NULL;
-    }
-#endif
 
     /* Free the internal communicator and INFO object */
     if(faccess_info->free_comm_info)

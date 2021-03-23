@@ -84,7 +84,9 @@ typedef struct {
 uuid_t pool_uuid;
 int    mpi_rank;
 static int    mpi_size;
+#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
 static const d_rank_list_t *svcl;
+#endif
 static int    *wdata, *rdata;
 static int    *map_keys, *map_vals, *map_vals_out;
 static int    *attr_write, *attr_read;
@@ -1138,6 +1140,24 @@ main( int argc, char** argv )
         goto error;
     }
 
+#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
+    /* Try to retrieve the SVCL from the DAOS_SVCL environment variable */
+    {
+        char *pool_svcl_env = getenv("DAOS_SVCL");
+
+        if(pool_svcl_env) {
+            if(NULL == (svcl = daos_rank_list_parse(pool_svcl_env, ":"))) {
+                printf("Can't retrieve SVCL from DAOS_SVCL environment variable\n\n");
+                goto error;
+            }
+        }
+        else {
+            printf("DAOS_SVCL environment variable must be set\n");
+            goto error;
+        }
+    }
+#endif
+
     snprintf(filename, NAME_LENGTH, "%s", FILENAME);
 
     if((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0) {
@@ -1185,12 +1205,6 @@ main( int argc, char** argv )
 
         uuid_unparse(pool_uuid, file_pool_uuid);
         pool_string = file_pool_uuid;
-    }
-
-    /* Try to retrieve the SVCL from the file */
-    if(H5daos_get_svcl(file_id, &svcl) < 0) {
-        printf("Can't retrieve global SVCL\n\n");
-        goto error;
     }
 
     if (MAINPROCESS) {

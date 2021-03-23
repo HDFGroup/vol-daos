@@ -154,9 +154,6 @@ H5_daos_get_file_access_info(hid_t fapl_id, H5_daos_faccess_t *fa_out)
     H5_daos_faccess_t *local_fapl_info = NULL;
     char *pool_uuid_env = getenv("DAOS_POOL");
     char *pool_grp_env = getenv("DAOS_POOL_GROUP");
-#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
-    char *pool_svcl_env = getenv("DAOS_SVCL");
-#endif
     herr_t ret_value = SUCCEED;
 
     assert(fa_out);
@@ -182,13 +179,6 @@ H5_daos_get_file_access_info(hid_t fapl_id, H5_daos_faccess_t *fa_out)
             strncpy(fa_out->pacc_params.pool_group, local_fapl_info->pacc_params.pool_group, H5_DAOS_MAX_GRP_NAME - 1);
             fa_out->pacc_params.pool_group[H5_DAOS_MAX_GRP_NAME] = '\0';
         }
-
-#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
-        if(!pool_svcl_env && local_fapl_info->pacc_params.pool_svcl) {
-            if(0 != d_rank_list_dup(&fa_out->pacc_params.pool_svcl, local_fapl_info->pacc_params.pool_svcl))
-                D_GOTO_ERROR(H5E_INTERNAL, H5E_CANTCOPY, FAIL, "failed to copy service replica rank list");
-        }
-#endif
 
         if(H5_daos_comm_info_dup(local_fapl_info->comm, local_fapl_info->info,
                 &fa_out->comm, &fa_out->info) < 0)
@@ -241,16 +231,6 @@ H5_daos_get_file_access_info(hid_t fapl_id, H5_daos_faccess_t *fa_out)
         }
     }
 
-#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
-    if(pool_svcl_env) {
-        /* Parse rank list from env. variable */
-        if(NULL == (fa_out->pacc_params.pool_svcl = daos_rank_list_parse(pool_svcl_env, ":")))
-            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "failed to parse service replica rank list from DAOS_SVCL environment variable");
-        if(fa_out->pacc_params.pool_svcl->rl_nr == 0 || fa_out->pacc_params.pool_svcl->rl_nr > H5_DAOS_MAX_SVC_REPLICAS)
-            D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "not a valid service replica rank list");
-    }
-#endif
-
     /*
      * Finally, check for any information that wasn't provided at all.
      *
@@ -258,8 +238,7 @@ H5_daos_get_file_access_info(hid_t fapl_id, H5_daos_faccess_t *fa_out)
      * the DUNS may be able to retrieve the pool UUID from the file's
      * parent directory, so a NULL UUID is allowed.
      *
-     * Defaults will be provided for the pool group and pool svcl fields
-     * if unset.
+     * A default will be provided for the pool group field if unset.
      */
 
     if(H5_daos_bypass_duns_g && uuid_is_null(fa_out->pacc_params.pool_uuid))
@@ -269,15 +248,6 @@ H5_daos_get_file_access_info(hid_t fapl_id, H5_daos_faccess_t *fa_out)
         strncpy(fa_out->pacc_params.pool_group, DAOS_DEFAULT_GROUP_ID, H5_DAOS_MAX_GRP_NAME - 1);
         fa_out->pacc_params.pool_group[H5_DAOS_MAX_GRP_NAME] = '\0';
     }
-
-#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
-    if(!fa_out->pacc_params.pool_svcl) {
-        if(NULL == (fa_out->pacc_params.pool_svcl = d_rank_list_alloc(1)))
-            D_GOTO_ERROR(H5E_ARGS, H5E_CANTALLOC, FAIL, "can't allocate service replica rank list");
-        fa_out->pacc_params.pool_svcl->rl_nr = 1;
-        fa_out->pacc_params.pool_svcl->rl_ranks[0] = 0;
-    }
-#endif
 
 done:
     if(local_fapl_info)
@@ -2260,9 +2230,6 @@ H5_daos_duns_resolve_path_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
             strncpy(udata->u.cont_delete_info.pacc_params.pool_group,
                     udata->req->file->facc_params.pacc_params.pool_group, H5_DAOS_MAX_GRP_NAME - 1);
             udata->u.cont_delete_info.pacc_params.pool_group[H5_DAOS_MAX_GRP_NAME] = '\0';
-#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
-            udata->u.cont_delete_info.pacc_params.pool_svcl = udata->req->file->facc_params.pacc_params.pool_svcl;
-#endif
 
             if(H5_daos_file_delete(udata->path, &udata->u.cont_delete_info.pacc_params,
                     TRUE, NULL, udata->req, &first_task, &dep_task) < 0)

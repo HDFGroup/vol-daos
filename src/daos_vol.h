@@ -464,11 +464,8 @@ do { \
 
 /* DAOS pool access parameters */
 typedef struct H5_daos_pool_acc_params_t {
-    uuid_t         pool_uuid;
-    char           pool_group[H5_DAOS_MAX_GRP_NAME + 1];
-#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
-    d_rank_list_t *pool_svcl;
-#endif
+    uuid_t pool_uuid;
+    char   pool_group[H5_DAOS_MAX_GRP_NAME + 1];
 } H5_daos_pool_acc_params_t;
 
 /* DAOS-specific file access properties */

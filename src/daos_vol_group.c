@@ -1233,7 +1233,7 @@ H5_daos_group_open_helper(H5_daos_file_t *file, H5_daos_group_t *grp, hid_t gapl
         bcast_udata->bcast_udata.buffer = bcast_udata->flex_buf;
         bcast_udata->bcast_udata.buffer_len = H5_DAOS_GINFO_BUF_SIZE;
         bcast_udata->bcast_udata.count = H5_DAOS_GINFO_BUF_SIZE;
-        bcast_udata->bcast_udata.comm = req->file->facc_params.comm;
+        bcast_udata->bcast_udata.comm = req->file->comm;
     } /* end if */
 
     /* Open group and read metadata if this process should */

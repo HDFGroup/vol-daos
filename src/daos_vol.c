@@ -147,7 +147,7 @@ static const H5VL_class_t H5_daos_g = {
     H5_daos_init,                            /* Connector initialize */
     H5_daos_term,                            /* Connector terminate */
     {
-        sizeof(H5_daos_faccess_t),           /* Connector Info size */
+        sizeof(H5_daos_acc_params_t),        /* Connector Info size */
         H5_daos_faccess_info_copy,           /* Connector Info copy */
         NULL,                                /* Connector Info compare */
         H5_daos_faccess_info_free,           /* Connector Info free */
@@ -353,9 +353,7 @@ const daos_size_t H5_daos_fillval_key_size_g         = (daos_size_t)(sizeof(H5_d
  *              pool_uuid identifies the UUID of the DAOS pool to connect
  *              to. pool_grp identifies the server group name to use when
  *              connecting to the DAOS pool. This may be NULL, in which
- *              case a default group name is used. file_comm and file_info
- *              identify the communicator and info object used to
- *              coordinate actions on file create, open, flush, and close.
+ *              case a default group name is used.
  *
  * Return:      Non-negative on success/Negative on failure
  *
@@ -365,13 +363,12 @@ const daos_size_t H5_daos_fillval_key_size_g         = (daos_size_t)(sizeof(H5_d
  *-------------------------------------------------------------------------
  */
 herr_t
-H5Pset_fapl_daos(hid_t fapl_id, const uuid_t pool_uuid, const char *pool_grp,
-    MPI_Comm file_comm, MPI_Info file_info)
+H5Pset_fapl_daos(hid_t fapl_id, const uuid_t pool_uuid, const char *pool_grp)
 {
-    H5_daos_faccess_t fa;
-    H5I_type_t        idType = H5I_UNINIT;
-    htri_t            is_fapl;
-    herr_t            ret_value = FAIL;
+    H5_daos_acc_params_t fa;
+    H5I_type_t           idType = H5I_UNINIT;
+    htri_t               is_fapl;
+    herr_t               ret_value = FAIL;
 
     H5_daos_inc_api_cnt();
 
@@ -384,8 +381,6 @@ H5Pset_fapl_daos(hid_t fapl_id, const uuid_t pool_uuid, const char *pool_grp,
         D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "not a file access property list");
     if(uuid_is_null(pool_uuid))
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "not a valid UUID");
-    if(MPI_COMM_NULL == file_comm)
-        D_GOTO_ERROR(H5E_PLIST, H5E_BADTYPE, FAIL, "not a valid MPI communicator");
 
     /* Ensure HDF5 is initialized */
     if(H5open() < 0)
@@ -413,21 +408,17 @@ H5Pset_fapl_daos(hid_t fapl_id, const uuid_t pool_uuid, const char *pool_grp,
     } /* end if */
 
     /* Initialize driver specific properties */
-    uuid_copy(fa.pacc_params.pool_uuid, pool_uuid);
+    uuid_copy(fa.pool_uuid, pool_uuid);
 
-    memset(fa.pacc_params.pool_group, '\0', sizeof(fa.pacc_params.pool_group));
+    memset(fa.pool_group, '\0', sizeof(fa.pool_group));
     if(pool_grp) {
         size_t pool_grp_name_len = strlen(pool_grp);
 
         if(pool_grp_name_len > H5_DAOS_MAX_GRP_NAME)
             D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "service group name is too long");
         else if(pool_grp_name_len > 0)
-            strncpy(fa.pacc_params.pool_group, pool_grp, H5_DAOS_MAX_GRP_NAME - 1);
+            strncpy(fa.pool_group, pool_grp, H5_DAOS_MAX_GRP_NAME - 1);
     }
-
-    fa.comm = file_comm;
-    fa.info = file_info;
-    fa.free_comm_info = FALSE;
 
     ret_value = H5Pset_vol(fapl_id, H5_DAOS_g, &fa);
 
@@ -1362,9 +1353,9 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_pool_connect(H5_daos_pool_acc_params_t *pool_acc_params,
-    unsigned int flags, daos_handle_t *poh_out, daos_pool_info_t *pool_info_out,
-    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
+H5_daos_pool_connect(H5_daos_acc_params_t *pool_acc_params, unsigned int flags,
+    daos_handle_t *poh_out, daos_pool_info_t *pool_info_out, H5_daos_req_t *req,
+    tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_pool_connect_ud_t *connect_udata = NULL;
     tse_task_t *connect_task = NULL;
@@ -1753,29 +1744,20 @@ done:
 static void *
 H5_daos_faccess_info_copy(const void *_old_fa)
 {
-    const H5_daos_faccess_t *old_fa = (const H5_daos_faccess_t *)_old_fa;
-    H5_daos_faccess_t       *new_fa = NULL;
-    void                    *ret_value = NULL;
+    const H5_daos_acc_params_t *old_fa = (const H5_daos_acc_params_t *)_old_fa;
+    H5_daos_acc_params_t       *new_fa = NULL;
+    void                       *ret_value = NULL;
 
     H5_daos_inc_api_cnt();
 
     if(!_old_fa)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "invalid fapl");
 
-    if(NULL == (new_fa = (H5_daos_faccess_t *)DV_malloc(sizeof(H5_daos_faccess_t))))
+    if(NULL == (new_fa = (H5_daos_acc_params_t *)DV_malloc(sizeof(H5_daos_acc_params_t))))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_NOSPACE, NULL, "memory allocation failed");
 
     /* Copy the general information */
-    memcpy(new_fa, old_fa, sizeof(H5_daos_faccess_t));
-
-    /* Clear allocated fields, so they aren't freed if something goes wrong.  No
-     * need to clear info since it is only freed if comm is not null. */
-    new_fa->comm = MPI_COMM_NULL;
-
-    /* Duplicate communicator and Info object. */
-    if(FAIL == H5_daos_comm_info_dup(old_fa->comm, old_fa->info, &new_fa->comm, &new_fa->info))
-        D_GOTO_ERROR(H5E_INTERNAL, H5E_CANTCOPY, NULL, "failed to duplicate MPI communicator and info");
-    new_fa->free_comm_info = TRUE;
+    memcpy(new_fa, old_fa, sizeof(H5_daos_acc_params_t));
 
     ret_value = new_fa;
 
@@ -1806,16 +1788,13 @@ done:
 static herr_t
 H5_daos_faccess_info_free(void *_fa)
 {
-    H5_daos_faccess_t *fa = (H5_daos_faccess_t*) _fa;
-    herr_t            ret_value = SUCCEED;
+    H5_daos_acc_params_t *fa = (H5_daos_acc_params_t*) _fa;
+    herr_t                ret_value = SUCCEED;
 
     H5_daos_inc_api_cnt();
 
     if(!_fa)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "invalid fapl");
-
-    if(H5_daos_faccess_info_free_helper(fa) < 0)
-        D_GOTO_ERROR(H5E_INTERNAL, H5E_CANTFREE, FAIL, "can't free DAOS-specific file access properties");
 
 done:
     /* free the struct */
@@ -1823,33 +1802,6 @@ done:
 
     D_FUNC_LEAVE_API;
 } /* end H5_daos_faccess_info_free() */
-
-
-/*-------------------------------------------------------------------------
- * Function:    H5_daos_faccess_info_free_helper
- *
- * Purpose:     Frees the DAOS-specific file access properties without
- *              freeing the access info structure itself.
- *
- * Return:      Non-negative on Success/Negative on failure
- *
- *-------------------------------------------------------------------------
- */
-herr_t
-H5_daos_faccess_info_free_helper(H5_daos_faccess_t *faccess_info)
-{
-    herr_t ret_value = SUCCEED;
-
-    assert(faccess_info);
-
-    /* Free the internal communicator and INFO object */
-    if(faccess_info->free_comm_info)
-        if(H5_daos_comm_info_free(&faccess_info->comm, &faccess_info->info) < 0)
-            D_GOTO_ERROR(H5E_INTERNAL, H5E_CANTFREE, FAIL, "failed to free copy of MPI communicator and info");
-
-done:
-    D_FUNC_LEAVE;
-} /* end H5_daos_faccess_info_free_helper() */
 
 
 /*---------------------------------------------------------------------------
@@ -2411,7 +2363,7 @@ H5_daos_oidx_bcast(H5_daos_file_t *file, uint64_t *oidx_out,
     oidx_bcast_udata->bcast_udata.buffer = oidx_bcast_udata->next_oidx_buf;
     oidx_bcast_udata->bcast_udata.buffer_len = H5_DAOS_ENCODED_UINT64_T_SIZE;
     oidx_bcast_udata->bcast_udata.count = H5_DAOS_ENCODED_UINT64_T_SIZE;
-    oidx_bcast_udata->bcast_udata.comm = req->file->facc_params.comm;
+    oidx_bcast_udata->bcast_udata.comm = req->file->comm;
     oidx_bcast_udata->file = file;
     oidx_bcast_udata->oidx_out = oidx_out;
     oidx_bcast_udata->next_oidx = &file->next_oidx_collective;
@@ -3623,7 +3575,7 @@ H5_daos_mpi_ibarrier_task(tse_task_t *task)
     assert(req->file);
 
     /* Make call to MPI_Ibarrier */
-    if(MPI_SUCCESS != MPI_Ibarrier(req->file->facc_params.comm, &H5_daos_mpi_req_g))
+    if(MPI_SUCCESS != MPI_Ibarrier(req->file->comm, &H5_daos_mpi_req_g))
         D_GOTO_ERROR(H5E_VOL, H5E_MPI, -H5_DAOS_MPI_ERROR, "MPI_Ibarrier failed");
 
     /* Register this task as the current in-flight MPI task */
@@ -4278,7 +4230,7 @@ H5_daos_mpi_ibcast(H5_daos_mpi_ibcast_ud_t *_bcast_udata, H5_daos_obj_t *obj,
             D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "failed to allocate buffer for MPI broadcast user data");
         bcast_udata->req = req;
         bcast_udata->obj = obj;
-        bcast_udata->comm = req->file->facc_params.comm;
+        bcast_udata->comm = req->file->comm;
     } /* end if */
 
     /* Allocate bcast_udata's buffer if necessary */
@@ -4373,7 +4325,7 @@ H5_daos_collective_error_check(H5_daos_obj_t *obj, H5_daos_req_t *req,
     req->collective.err_check_ud.buffer_len = sizeof(req->collective.coll_status);
     req->collective.err_check_ud.count = req->collective.err_check_ud.buffer_len;
     req->collective.err_check_ud.bcast_metatask = NULL;
-    req->collective.err_check_ud.comm = req->file->facc_params.comm;
+    req->collective.err_check_ud.comm = req->file->comm;
 
     if(H5_daos_mpi_ibcast(&req->collective.err_check_ud, obj, sizeof(req->collective.coll_status),
             FALSE, (req->file->my_rank == 0) ? H5_daos_collective_error_check_prep_cb : NULL,
@@ -4878,69 +4830,81 @@ done:
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_comm_info_dup
+ * Function:    H5_daos_get_mpi_info
  *
- * Purpose:     Make duplicates of MPI communicator and info objects.
- *              If the info object is in fact MPI_INFO_NULL, no duplicate
- *              is made but the same value is assigned to the 'info_new'
- *              object handle.
+ * Purpose:     Retrieves any MPI parameters set on the given FAPL via
+ *              H5Pset_fapl_mpio()/H5Pset_mpi_params(). Produces duplicates
+ *              of the communicator/info objects that must be freed with
+ *              H5_daos_comm_info_free().
  *
- * Return:      Success:    Non-negative.  The new communicator and info
- *                          object handles are returned via the comm_new
- *                          and info_new pointers.
+ * Return:      Success:    Non-negative. The new communicator and info
+ *                          object handles are returned via the comm_out
+ *                          and info_out pointers.
  *
  *              Failure:    Negative.
  *
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_comm_info_dup(MPI_Comm comm, MPI_Info info,
-    MPI_Comm *comm_new, MPI_Info *info_new)
+H5_daos_get_mpi_info(hid_t fapl_id, MPI_Comm *comm_out, MPI_Info *info_out,
+    int *mpi_rank, int *mpi_size)
 {
-    MPI_Comm comm_dup = MPI_COMM_NULL;
-    MPI_Info info_dup = MPI_INFO_NULL;
-    int      mpi_code;
-    herr_t   ret_value = SUCCEED;
+    MPI_Comm comm = MPI_COMM_NULL;
+    MPI_Info info = MPI_INFO_NULL;
+    int mpi_initialized;
+    herr_t ret_value = SUCCEED;
 
-    /* Check arguments */
-    if(MPI_COMM_NULL == comm)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "invalid MPI communicator -- MPI_COMM_NULL");
-    if(!comm_new)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "comm_new pointer is NULL");
-    if(!info_new)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "info_new pointer is NULL");
+    if(H5Pget_mpi_params(fapl_id, &comm, &info) < 0)
+        D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, FAIL, "can't get HDF5 MPI information");
 
-    /* Duplicate the MPI objects. Temporary variables are used for error recovery cleanup. */
-    if(MPI_SUCCESS != (mpi_code = MPI_Comm_dup(comm, &comm_dup)))
-        D_GOTO_ERROR(H5E_INTERNAL, H5E_MPI, FAIL, "MPI_Comm_dup failed: %d", mpi_code);
-    if(MPI_INFO_NULL != info) {
-        if(MPI_SUCCESS != (mpi_code = MPI_Info_dup(info, &info_dup)))
-            D_GOTO_ERROR(H5E_INTERNAL, H5E_MPI, FAIL, "MPI_Info_dup failed: %d", mpi_code);
+    /*
+     * If no MPI info was set (as in the case of passing a default FAPL),
+     * simply use MPI_COMM_SELF as the communicator.
+     */
+    if(comm == MPI_COMM_NULL)
+        comm = MPI_COMM_SELF;
+
+    if(MPI_SUCCESS != MPI_Initialized(&mpi_initialized))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't determine if MPI has been initialized");
+    if(mpi_initialized) {
+        if(mpi_rank)
+            MPI_Comm_rank(comm, mpi_rank);
+        if(mpi_size)
+            MPI_Comm_size(comm, mpi_size);
     }
     else {
-        info_dup = info;
+        if(mpi_rank)
+            *mpi_rank = 0;
+        if(mpi_size)
+            *mpi_size = 1;
     }
 
-    /* Set MPI_ERRORS_RETURN on comm_dup so that MPI failures are not fatal,
-       and return codes can be checked and handled. May 23, 2017 FTW */
-    if(MPI_SUCCESS != (mpi_code = MPI_Comm_set_errhandler(comm_dup, MPI_ERRORS_RETURN)))
-        D_GOTO_ERROR(H5E_INTERNAL, H5E_MPI, FAIL, "MPI_Comm_set_errhandler failed: %d", mpi_code);
-
-    /* Copy the duplicated MPI objects to the return arguments. */
-    *comm_new = comm_dup;
-    *info_new = info_dup;
+    if(comm_out)
+        *comm_out = comm;
+    if(info_out)
+        *info_out = info;
 
 done:
-    if(FAIL == ret_value) {
-        /* Need to free anything created */
-        if(MPI_COMM_NULL != comm_dup)
-            MPI_Comm_free(&comm_dup);
-        if(MPI_INFO_NULL != info_dup)
-            MPI_Info_free(&info_dup);
+    if(ret_value < 0) {
+        if(H5_daos_comm_info_free(&comm, &info) < 0)
+            D_DONE_ERROR(H5E_VOL, H5E_CANTFREE, FAIL, "can't free MPI comm and info objects");
+    }
+    else if(!comm_out || !info_out) {
+        /* If comm or info are being returned to caller,
+         * mark them as NULL to prevent freeing below.
+         * Otherwise, free them since the caller will not.
+         */
+        if(comm_out)
+            comm = MPI_COMM_NULL;
+        if(info_out)
+            info = MPI_INFO_NULL;
+
+        if(H5_daos_comm_info_free(&comm, &info) < 0)
+            D_DONE_ERROR(H5E_VOL, H5E_CANTFREE, FAIL, "can't free MPI comm and info objects");
     }
 
     D_FUNC_LEAVE;
-} /* end H5_daos_comm_info_dup() */
+} /* end H5_daos_get_mpi_info() */
 
 
 /*-------------------------------------------------------------------------
@@ -4969,7 +4933,7 @@ H5_daos_comm_info_free(MPI_Comm *comm, MPI_Info *info)
     if(!info)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "info pointer is NULL");
 
-    if(MPI_COMM_NULL != *comm)
+    if(MPI_COMM_NULL != *comm && MPI_COMM_WORLD != *comm && MPI_COMM_SELF != *comm)
         MPI_Comm_free(comm);
     if(MPI_INFO_NULL != *info)
         MPI_Info_free(info);

@@ -81,7 +81,7 @@ H5daos_get_pool_uuid(hid_t file_id, uuid_t *pool_uuid)
     if(H5I_FILE != file->item.type)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a file");
 
-    uuid_copy(*pool_uuid, file->facc_params.pacc_params.pool_uuid);
+    uuid_copy(*pool_uuid, file->facc_params.pool_uuid);
 
 done:
     D_FUNC_LEAVE_API;

@@ -370,7 +370,7 @@ H5_daos_bcast_fill_val(H5_daos_dset_t *dset, H5_daos_req_t *req,
     bcast_udata->buffer = dset->fill_val;
     bcast_udata->buffer_len = (int)fill_val_size;
     bcast_udata->count = (int)fill_val_size;
-    bcast_udata->comm = req->file->facc_params.comm;
+    bcast_udata->comm = req->file->comm;
 
     /* Create task for fill value bcast */
     if(H5_daos_create_task(H5_daos_mpi_ibcast_task, 1, dep_task, NULL, H5_daos_fill_val_bcast_comp_cb,
@@ -1937,7 +1937,7 @@ H5_daos_dataset_open_helper(H5_daos_file_t *file, hid_t dapl_id, hbool_t collect
         bcast_udata->bcast_udata.buffer = bcast_udata->flex_buf;
         bcast_udata->bcast_udata.buffer_len = H5_DAOS_DINFO_BCAST_BUF_SIZE;
         bcast_udata->bcast_udata.count = H5_DAOS_DINFO_BCAST_BUF_SIZE;
-        bcast_udata->bcast_udata.comm = req->file->facc_params.comm;
+        bcast_udata->bcast_udata.comm = req->file->comm;
 
         dinfo_buf_size = H5_DAOS_DINFO_BCAST_BUF_SIZE;
     } /* end if */

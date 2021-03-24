@@ -65,20 +65,14 @@ extern "C" {
  * the DAOS pool. This may be NULL, in which case a default group name
  * is used.
  *
- * \comm and \info identify the communicator and info object used to
- * coordinate actions on file create, open, flush, and close.
- *
  * \param fapl_id   [IN]    File access property list
  * \param pool_uuid [IN]    DAOS pool UUID
  * \param pool_grp  [IN]    Process set name of the DAOS servers managing the pool
- * \param comm      [IN]    MPI communicator
- * \param info      [IN]    MPI info
  *
  * \return Non-negative on success/Negative on failure
  */
 H5VL_DAOS_PUBLIC herr_t
-H5Pset_fapl_daos(hid_t fapl_id, const uuid_t pool_uuid, const char *pool_grp,
-    MPI_Comm file_comm, MPI_Info file_info);
+H5Pset_fapl_daos(hid_t fapl_id, const uuid_t pool_uuid, const char *pool_grp);
 
 /**
  * Sets the provided DAOS object class on the given property list.

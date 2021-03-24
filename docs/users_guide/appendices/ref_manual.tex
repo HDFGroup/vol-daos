@@ -11,7 +11,7 @@
 \paragraph{Synopsis:}
 \begin{flushleft}%
 \begin{minted}[breaklines=true,fontsize=\small]{hdf5-c-lexer.py:HDF5CLexer -x}
-herr_t H5Pset_fapl_daos(hid_t fapl_id, const uuid_t pool_uuid, const char *pool_grp, MPI_Comm file_comm, MPI_Info file_info);
+herr_t H5Pset_fapl_daos(hid_t fapl_id, const uuid_t pool_uuid, const char *pool_grp);
 \end{minted}
 \end{flushleft}%
 
@@ -29,9 +29,6 @@ DAOS VOL connector.
 
 \texttt{pool\_grp} identifies the server group name to use when connecting to
 the DAOS pool. This may be NULL, in which case a default group name is used.
-
-\texttt{file\_comm} and \texttt{file\_info} identify the communicator and info
-object used to coordinate actions on file create, open, flush, and close.
 \end{flushleft}%
 
 \paragraph{Parameters:}
@@ -40,8 +37,6 @@ object used to coordinate actions on file create, open, flush, and close.
    \texttt{hid\_t fapl\_id} & IN: File access property list ID \\
    \texttt{const uuid\_t pool\_uuid} & IN: DAOS pool UUID \\
    \texttt{const char *pool\_grp} & IN: Process set name of the DAOS servers managing the pool \\
-   \texttt{MPI\_Comm file\_comm} & IN: MPI Communicator \\
-   \texttt{MPI\_Info file\_info} & IN: MPI Info \\
  \end{tabular}%
 \end{flushleft}%
 

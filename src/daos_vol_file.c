@@ -3653,11 +3653,18 @@ H5_daos_fill_fapl_cache(H5_daos_file_t *file, hid_t fapl_id)
     file->fapl_cache.is_collective_md_read = collective_md_read;
     file->fapl_cache.is_collective_md_write = collective_md_write;
 
+    /* set default object class from env variable first */
+    oclass_str = getenv("HDF5_DAOS_OBJ_CLASS");
+    if (oclass_str) {
+        file->fapl_cache.default_object_class = (daos_oclass_id_t)daos_oclass_name2id(oclass_str);
+    } else {
+        file->fapl_cache.default_object_class = OC_UNKNOWN;
+    }
+
     /* Check for file default object class set on fapl_id */
     /* Note we do not copy the oclass_str in the property callbacks (there is no
      * "get" callback, so this is more like an H5P_peek, and we do not need to
      * free oclass_str as it points directly into the plist value */
-    file->fapl_cache.default_object_class = OC_UNKNOWN;
     if((prop_exists = H5Pexist(fapl_id, H5_DAOS_OBJ_CLASS_NAME)) < 0)
         D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "can't check for object class property");
     if(prop_exists) {

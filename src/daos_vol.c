@@ -1216,11 +1216,11 @@ H5_daos_init(hid_t H5VL_DAOS_UNUSED vipl_id)
     assert(H5_daos_pool_globals_set_g);
 
     /* Determine if bypassing of the DUNS has been requested */
-    if(NULL != getenv("H5_DAOS_BYPASS_DUNS"))
+    if(NULL != getenv("HDF5_DAOS_BYPASS_DUNS"))
         H5_daos_bypass_duns_g = TRUE;
 
     /* Determine automatic chunking target size */
-    if(NULL != (auto_chunk_str = getenv("H5_DAOS_CHUNK_TARGET_SIZE"))) {
+    if(NULL != (auto_chunk_str = getenv("HDF5_DAOS_CHUNK_TARGET_SIZE"))) {
         long long chunk_target_size_ll;
 
         errno = 0;

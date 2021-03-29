@@ -181,17 +181,18 @@ int main(void)
     uuid_t pool_uuid;
     hid_t fapl_id, file_id;
 
+    fapl_id = H5Pcreate(H5P_FILE_ACCESS);
+
+    /* Set the MPI communicator and info */
+    H5Pset_mpi_params(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL);
+
     /* Parse the pool UUID. */
     uuid_parse("fce30f79-b34b-46c1-9b1f-bb52d99dacca", pool_uuid);
 
     /* Initialize DAOS VOL connector using the above parsed UUID for
-     * the pool UUID, "daos_server" as the group name for the DAOS
-     * servers managing the pool and simply rank 0 as the only rank
-     * in the pool service list. */
-    H5daos_init(pool_uuid, "daos_server", "0");
-
-    fapl_id = H5Pcreate(H5P_FILE_ACCESS);
-    H5Pset_fapl_daos(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL);
+     * the pool UUID and "daos_server" as the group name for the DAOS
+     * servers managing the pool. */
+    H5Pset_fapl_daos(fapl_id, pool_uuid, "daos_server");
 
     /* Currently required for the DAOS VOL connector, set all metadata
      * operations to be collective */
@@ -204,9 +205,6 @@ int main(void)
 
     H5Pclose(fapl_id);
     H5Fclose(file_id);
-
-    /* Terminate the DAOS VOL connector. */
-    H5daos_term();
 
     return 0;
 }
@@ -500,6 +498,8 @@ If the \dvc{} is dynamically loaded by \acrshort{hdf5}, the \acrshort{daos} pool
 
 \begin{verbatim}
 DAOS_POOL - The UUID of the DAOS pool to use.
+
+DAOS_POOL_GROUP - Process set name of the servers managing the DAOS pool.
 
 DAOS_SVCL - A comma-separated list of server ranks used for
             daos_pool_connect(). Generated from daos_pool_create().

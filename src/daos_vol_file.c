@@ -43,8 +43,8 @@ typedef struct H5_daos_cont_op_info_t {
     H5_daos_cont_op_type_t op_type;
     union {
         struct {
+            H5_daos_acc_params_t facc_params;
             daos_handle_t cont_poh;
-            uuid_t cont_puuid;
             uuid_t cont_uuid;
             herr_t *delete_status;
         } cont_delete_info;
@@ -67,8 +67,7 @@ typedef struct get_obj_ids_udata_t {
 /* Local Prototypes */
 /********************/
 
-static herr_t H5_daos_cont_get_fapl_info(hid_t fapl_id, H5_daos_fapl_t *fa_out);
-static herr_t H5_daos_cont_set_mpi_info(H5_daos_file_t *file, H5_daos_fapl_t *fa);
+static herr_t H5_daos_get_file_access_info(hid_t fapl_id, H5_daos_acc_params_t *fa_out);
 #ifdef H5_DAOS_USE_TRANSACTIONS
 static int H5_daos_tx_open_prep_cb(tse_task_t *task, void *args);
 static int H5_daos_tx_open_comp_cb(tse_task_t *task, void *args);
@@ -103,13 +102,14 @@ static int H5_daos_cont_open_prep_cb(tse_task_t *task, void *args);
 static int H5_daos_cont_open_comp_cb(tse_task_t *task, void *args);
 static int H5_daos_cont_query_prep_cb(tse_task_t *task, void *args);
 static int H5_daos_cont_query_comp_cb(tse_task_t *task, void *args);
-static herr_t H5_daos_file_set_pool_uuid(H5_daos_file_t *file, const char *filepath);
+static herr_t H5_daos_file_get_pool_uuid(H5_daos_file_t *file, const char *filepath);
 static int H5_daos_handles_bcast_comp_cb(tse_task_t *task, void *args);
 static herr_t H5_daos_file_handles_bcast(H5_daos_file_t *file,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 static int H5_daos_get_container_handles_task(tse_task_t *task);
-static herr_t H5_daos_file_delete(uuid_t *puuid, const char *file_path, hbool_t ignore_missing,
-    herr_t *delete_status, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
+static herr_t H5_daos_file_delete(const char *file_path, H5_daos_acc_params_t *file_acc_params,
+    hbool_t ignore_missing, herr_t *delete_status, H5_daos_req_t *req,
+    tse_task_t **first_task, tse_task_t **dep_task);
 static int H5_daos_file_delete_status_bcast_comp_cb(tse_task_t *task, void *args);
 static herr_t H5_daos_get_cont_destroy_task(H5_daos_cont_op_info_t *cont_op_info,
     tse_task_cb_t prep_cb, tse_task_cb_t comp_cb, H5_daos_req_t *req,
@@ -129,58 +129,92 @@ static herr_t H5_daos_get_obj_ids_callback(hid_t id, void *udata);
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_cont_get_fapl_info
+ * Function:    H5_daos_get_file_access_info
  *
- * Purpose:     Retrieve needed information from the given FAPL ID.
+ * Purpose:     Retrieves information needed for accessing DAOS files from
+ *              the given FAPL ID. In case this information is not set on
+ *              the given FAPL, or this information needs to be overridden,
+ *              this info may also be parsed from the following environment
+ *              variables:
+ *
+ *              DAOS_POOL       - DAOS pool UUID to use
+ *              DAOS_POOL_GROUP - Process set name of the servers managing
+ *                                the DAOS pool
  *
  * Return:      Non-negative on success/Negative on failure
  *
  *-------------------------------------------------------------------------
  */
 static herr_t
-H5_daos_cont_get_fapl_info(hid_t fapl_id, H5_daos_fapl_t *fa_out)
+H5_daos_get_file_access_info(hid_t fapl_id, H5_daos_acc_params_t *fa_out)
 {
-    H5_daos_fapl_t *local_fapl_info = NULL;
+    H5_daos_acc_params_t *local_fapl_info = NULL;
+    char *pool_uuid_env = getenv("DAOS_POOL");
+    char *pool_grp_env = getenv("DAOS_POOL_GROUP");
     herr_t ret_value = SUCCEED;
+
+    assert(fa_out);
 
     /* Make sure H5_DAOS_g is set. */
     H5_DAOS_G_INIT(FAIL);
 
+    memset(fa_out, 0, sizeof(*fa_out));
+    uuid_clear(fa_out->pool_uuid);
+
     /*
-     * First, check to see if any MPI info was set through the use of
+     * First, check to see if any info was set through the use of
      * a H5Pset_fapl_daos() call.
      */
     if(H5Pget_vol_info(fapl_id, (void **) &local_fapl_info) < 0)
         D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, FAIL, "can't get VOL info struct");
     if(local_fapl_info) {
-        if(H5_daos_comm_info_dup(local_fapl_info->comm, local_fapl_info->info,
-                &fa_out->comm, &fa_out->info) < 0)
-            D_GOTO_ERROR(H5E_INTERNAL, H5E_CANTCOPY, FAIL, "failed to duplicate MPI communicator and info");
-        fa_out->free_comm_info = TRUE;
-    }
-    else {
-        hid_t driver_id;
+        if(!pool_uuid_env && !uuid_is_null(local_fapl_info->pool_uuid)) {
+            uuid_copy(fa_out->pool_uuid, local_fapl_info->pool_uuid);
+        }
 
-        /*
-         * If no info was set using H5Pset_fapl_daos(), see if the application
-         * set any MPI info by using HDF5's H5Pset_fapl_mpio().
-         */
-        if((driver_id = H5Pget_driver(fapl_id)) < 0)
-            D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, FAIL, "can't determine if a MPI-based HDF5 VFD was requested for file access");
-        if(H5FD_MPIO == driver_id) {
-            if(H5Pget_fapl_mpio(fapl_id, &fa_out->comm, &fa_out->info) < 0)
-                D_GOTO_ERROR(H5E_PLIST, H5E_CANTGET, FAIL, "can't get HDF5 MPI information");
-            fa_out->free_comm_info = TRUE;
+        if(!pool_grp_env && (strlen(local_fapl_info->pool_group) > 0)) {
+            strncpy(fa_out->pool_group, local_fapl_info->pool_group, H5_DAOS_MAX_GRP_NAME - 1);
+            fa_out->pool_group[H5_DAOS_MAX_GRP_NAME] = '\0';
         }
-        else {
-            /*
-             * If no MPI info was set (as in the case of passing a default FAPL),
-             * simply use MPI_COMM_SELF as the communicator.
-             */
-            fa_out->comm = MPI_COMM_SELF;
-            fa_out->info = MPI_INFO_NULL;
-            fa_out->free_comm_info = FALSE;
+    }
+
+    /*
+     * Check for any information set via environment variables
+     */
+
+    if(pool_uuid_env) {
+        /* Parse pool UUID from env. variable */
+        if(uuid_parse(pool_uuid_env, fa_out->pool_uuid) < 0)
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't parse UUID from DAOS_POOL environment variable");
+    }
+
+    if(pool_grp_env) {
+        size_t pool_grp_name_len = strlen(pool_grp_env);
+
+        if(pool_grp_name_len > H5_DAOS_MAX_GRP_NAME)
+            D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "service group name is too long");
+        else if(pool_grp_name_len > 0) {
+            strncpy(fa_out->pool_group, pool_grp_env, H5_DAOS_MAX_GRP_NAME - 1);
+            fa_out->pool_group[H5_DAOS_MAX_GRP_NAME] = '\0';
         }
+    }
+
+    /*
+     * Finally, check for any information that wasn't provided at all.
+     *
+     * An unset pool UUID is an error if bypassing the DUNS. Otherwise,
+     * the DUNS may be able to retrieve the pool UUID from the file's
+     * parent directory, so a NULL UUID is allowed.
+     *
+     * A default will be provided for the pool group field if unset.
+     */
+
+    if(H5_daos_bypass_duns_g && uuid_is_null(fa_out->pool_uuid))
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "DAOS pool UUID is not set");
+
+    if((!local_fapl_info && !pool_grp_env) || (0 == strlen(fa_out->pool_group))) {
+        strncpy(fa_out->pool_group, DAOS_DEFAULT_GROUP_ID, H5_DAOS_MAX_GRP_NAME - 1);
+        fa_out->pool_group[H5_DAOS_MAX_GRP_NAME] = '\0';
     }
 
 done:
@@ -188,49 +222,7 @@ done:
         H5VLfree_connector_info(H5_DAOS_g, local_fapl_info);
 
     D_FUNC_LEAVE;
-} /* end H5_daos_cont_get_fapl_info() */
-
-
-/*-------------------------------------------------------------------------
- * Function:    H5_daos_cont_set_mpi_info
- *
- * Purpose:     Set MPI info for file.
- *
- * Return:      Non-negative on success/Negative on failure
- *
- *-------------------------------------------------------------------------
- */
-static herr_t
-H5_daos_cont_set_mpi_info(H5_daos_file_t *file, H5_daos_fapl_t *fa)
-{
-    int mpi_initialized;
-    herr_t ret_value = SUCCEED;
-
-    assert(file);
-    assert(fa);
-
-    if(MPI_SUCCESS != MPI_Initialized(&mpi_initialized))
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't determine if MPI has been initialized");
-    if(mpi_initialized) {
-        /* Duplicate communicator and Info object. */
-        /*
-         * XXX: DSINC - Need to pass in MPI Info to VOL connector as well.
-         */
-        if(FAIL == H5_daos_comm_info_dup(fa->comm, fa->info, &file->comm, &file->info))
-            D_GOTO_ERROR(H5E_INTERNAL, H5E_CANTCOPY, FAIL, "failed to duplicate MPI communicator and info");
-
-        /* Obtain the process rank and size from the communicator attached to the
-         * fapl ID */
-        MPI_Comm_rank(file->comm, &file->my_rank);
-        MPI_Comm_size(file->comm, &file->num_procs);
-    } else {
-        file->my_rank = 0;
-        file->num_procs = 1;
-    }
-
-done:
-    D_FUNC_LEAVE;
-} /* end H5_daos_cont_set_mpi_info() */
+} /* end H5_daos_get_file_access_info() */
 
 #ifdef H5_DAOS_USE_TRANSACTIONS
 
@@ -337,86 +329,61 @@ done:
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5_daos_file_set_pool_uuid
+ * Function:    H5_daos_file_get_pool_uuid
  *
- * Purpose:     Sets the DAOS pool UUID for the given file.
+ * Purpose:     Attempts to retrieve the DAOS pool UUID for a file by
+ *              calling duns_resolve_path on the parent directory.
  *
  * Return:      Non-negative on success/Negative on failure
  *
  *-------------------------------------------------------------------------
  */
 static herr_t
-H5_daos_file_set_pool_uuid(H5_daos_file_t *file, const char *filepath)
+H5_daos_file_get_pool_uuid(H5_daos_file_t *file, const char *filepath)
 {
-    const char *pool_uuid_env = getenv("DAOS_POOL");
+    struct duns_attr_t duns_attr;
     char *fpath_copy = NULL;
+    char *dir_name;
+    char cwd[PATH_MAX];
+    int ret;
     herr_t ret_value = SUCCEED;
 
     assert(file);
-    assert(uuid_is_null(file->puuid));
     assert(filepath);
+    assert(!H5_daos_bypass_duns_g);
 
-    if(H5_daos_bypass_duns_g && !pool_uuid_env)
-        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "DAOS_POOL environment variable must be set when bypassing DUNS");
+    memset(&duns_attr, 0, sizeof(struct duns_attr_t));
 
-    /* Check if the pool UUID was set via H5daos_init */
-    if(!uuid_is_null(H5_daos_pool_uuid_g)) {
-        uuid_copy(file->puuid, H5_daos_pool_uuid_g);
+    if(NULL == (fpath_copy = strdup(filepath)))
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't copy filepath");
+
+    dir_name = dirname(fpath_copy);
+
+    if(!strncmp(dir_name, ".", 2)) {
+        if(NULL == getcwd(cwd, PATH_MAX))
+            D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "can't get current working directory: %s", strerror(errno));
+        dir_name = cwd;
     }
-    else if(!H5_daos_bypass_duns_g) {
-        struct duns_attr_t duns_attr;
-        char *dir_name;
-        char cwd[PATH_MAX];
-        int ret;
 
-        /* Attempt to retrieve the file's pool UUID by using
-         * duns_resolve_path on the given directory path
-         */
-
-        memset(&duns_attr, 0, sizeof(struct duns_attr_t));
-
-        if(NULL == (fpath_copy = strdup(filepath)))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't copy filepath");
-
-        dir_name = dirname(fpath_copy);
-
-        if(!strncmp(dir_name, ".", 2)) {
-            if(NULL == getcwd(cwd, PATH_MAX))
-                D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "can't get current working directory: %s", strerror(errno));
-            dir_name = cwd;
-        }
-
-        /* Try to resolve the DUNS directory path. ENODATA signifies that
-         * the directory path was probably not created with the DUNS, so
-         * we will try other methods for retrieving the file's pool UUID.
-         */
-        if(0 == (ret = duns_resolve_path(dir_name, &duns_attr)))
-            uuid_copy(file->puuid, duns_attr.da_puuid);
-        else if(ENODATA != ret) {
-            if(EOPNOTSUPP == ret)
-                D_GOTO_ERROR(H5E_FILE, H5E_PATH, FAIL, "duns_resolve_path failed - DUNS not supported on file system");
-            else
-                D_GOTO_ERROR(H5E_FILE, H5E_PATH, FAIL, "duns_resolve_path failed: %s", H5_daos_err_to_string(ret));
-        } /* end else */
-    } /* end if */
-
-    if(uuid_is_null(file->puuid)) {
-        if(pool_uuid_env) {
-            /* Attempt to parse pool UUID from DAOS_POOL environment variable */
-            if(uuid_parse(pool_uuid_env, file->puuid) < 0)
-                D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't parse UUID from DAOS_POOL environment variable");
-        }
+    /* Try to resolve the DUNS directory path. ENODATA signifies that
+     * the directory path was probably not created with the DUNS, so
+     * we will try other methods for retrieving the file's pool UUID.
+     */
+    if(0 == (ret = duns_resolve_path(dir_name, &duns_attr)))
+        uuid_copy(file->facc_params.pool_uuid, duns_attr.da_puuid);
+    else if(ENODATA != ret) {
+        if(EOPNOTSUPP == ret)
+            D_GOTO_ERROR(H5E_FILE, H5E_PATH, FAIL, "duns_resolve_path failed - DUNS not supported on file system");
         else
-            /* It is an error if the file's pool UUID is still unset at this point */
-            D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "file's pool UUID is invalid or is not set - try setting DAOS_POOL environment variable");
-    } /* end if */
+            D_GOTO_ERROR(H5E_FILE, H5E_PATH, FAIL, "duns_resolve_path failed: %s", H5_daos_err_to_string(ret));
+    } /* end else */
 
 done:
     if(fpath_copy)
         free(fpath_copy);
 
     D_FUNC_LEAVE;
-} /* end H5_daos_file_set_pool_uuid() */
+} /* end H5_daos_file_get_pool_uuid() */
 
 
 /*-------------------------------------------------------------------------
@@ -789,7 +756,6 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     hid_t fapl_id, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
 {
     H5_daos_file_t *file = NULL;
-    H5_daos_fapl_t fapl_info = {0};
     H5_daos_req_t *int_req = NULL;
     tse_task_t *first_task = NULL;
     tse_task_t *dep_task = NULL;
@@ -830,8 +796,9 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     file->glob_md_oh = DAOS_HDL_INVAL;
     file->root_grp = NULL;
     file->fapl_id = H5P_FILE_ACCESS_DEFAULT;
-    file->vol_id = H5I_INVALID_HID;
     file->item.rc = 1;
+    file->comm = MPI_COMM_NULL;
+    file->info = MPI_INFO_NULL;
 
     /* Fill in fields of file we know */
     file->item.type = H5I_FILE;
@@ -843,16 +810,22 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     if((fapl_id != H5P_FILE_ACCESS_DEFAULT) && (file->fapl_id = H5Pcopy(fapl_id)) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTCOPY, NULL, "failed to copy fapl");
 
-    /* Set the pool UUID for the file */
-    if(H5_daos_file_set_pool_uuid(file, name) < 0)
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't set file's DAOS pool UUID");
-
-    /* Get information from the FAPL */
-    if(H5_daos_cont_get_fapl_info(fapl_id, &fapl_info) < 0)
+    /* Get needed file/pool access information */
+    if(H5_daos_get_file_access_info(fapl_id, &file->facc_params) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTGET, NULL, "can't get DAOS info struct");
 
-    /* Set MPI container info */
-    if(H5_daos_cont_set_mpi_info(file, &fapl_info) < 0)
+    /* Try to retrieve file's pool UUID using DUNS */
+    if(!H5_daos_bypass_duns_g &&
+            H5_daos_file_get_pool_uuid(file, file->file_name) < 0)
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't retrieve file's DAOS pool UUID");
+
+    /* It is an error if the file's pool UUID is still unset at this point */
+    if(uuid_is_null(file->facc_params.pool_uuid))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, NULL, "file's pool UUID is not set - try setting DAOS_POOL environment variable");
+
+    /* Set MPI info on file object */
+    if(H5_daos_get_mpi_info(fapl_id, &file->comm, &file->info,
+            &file->my_rank, &file->num_procs) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTSET, NULL, "can't set MPI container info");
 
     /* Hash file name to create uuid */
@@ -874,9 +847,8 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
 
     if(file->my_rank == 0) {
         /* Connect to container's pool */
-        if(H5_daos_pool_connect(&file->puuid, H5_daos_pool_grp_g, &H5_daos_pool_svcl_g,
-                DAOS_PC_RW, &file->container_poh, NULL, int_req,
-                &first_task, &dep_task) < 0)
+        if(H5_daos_pool_connect(&file->facc_params, DAOS_PC_RW, &file->container_poh,
+                NULL, int_req, &first_task, &dep_task) < 0)
             D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't connect to pool");
 
         /* Create container on rank 0 */
@@ -944,10 +916,6 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id,
     ret_value = (void *)file;
 
 done:
-    if(fapl_info.free_comm_info)
-        if(H5_daos_comm_info_free(&fapl_info.comm, &fapl_info.info) < 0)
-            D_GOTO_ERROR(H5E_INTERNAL, H5E_CANTFREE, NULL, "failed to free copy of MPI communicator and info");
-
     if(int_req) {
         assert(file);
 
@@ -1267,7 +1235,7 @@ H5_daos_duns_create_path_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     H5_DAOS_PREP_REQ(udata->req, H5E_FILE);
 
     /* Set the pool UUID for duns_create_path */
-    uuid_copy(udata->duns_attr.da_puuid, udata->req->file->puuid);
+    uuid_copy(udata->duns_attr.da_puuid, udata->req->file->facc_params.pool_uuid);
 
 done:
     if(ret_value < 0)
@@ -1522,7 +1490,6 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_file_t *file = NULL;
-    H5_daos_fapl_t fapl_info = {0};
 #ifdef DV_HAVE_SNAP_OPEN_ID
     H5_daos_snap_id_t snap_id;
 #endif
@@ -1545,8 +1512,9 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     file->glob_md_oh = DAOS_HDL_INVAL;
     file->root_grp = NULL;
     file->fapl_id = H5P_FILE_ACCESS_DEFAULT;
-    file->vol_id = H5I_INVALID_HID;
     file->item.rc = 1;
+    file->comm = MPI_COMM_NULL;
+    file->info = MPI_INFO_NULL;
 
     /* Fill in fields of file we know */
     file->item.type = H5I_FILE;
@@ -1557,16 +1525,22 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     if((fapl_id != H5P_FILE_ACCESS_DEFAULT) && (file->fapl_id = H5Pcopy(fapl_id)) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTCOPY, NULL, "failed to copy fapl");
 
-    /* Set the pool UUID for the file if bypassing DUNS */
-    if(H5_daos_bypass_duns_g && H5_daos_file_set_pool_uuid(file, name) < 0)
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't set file's DAOS pool UUID");
-
-    /* Get information from the FAPL */
-    if(H5_daos_cont_get_fapl_info(fapl_id, &fapl_info) < 0)
+    /* Get needed file/pool access information */
+    if(H5_daos_get_file_access_info(fapl_id, &file->facc_params) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTGET, NULL, "can't get DAOS info struct");
 
-    /* Set MPI container info */
-    if(H5_daos_cont_set_mpi_info(file, &fapl_info) < 0)
+    /* Try to retrieve file's pool UUID using DUNS */
+    if(!H5_daos_bypass_duns_g &&
+            H5_daos_file_get_pool_uuid(file, file->file_name) < 0)
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, NULL, "can't retrieve file's DAOS pool UUID");
+
+    /* It is an error if the file's pool UUID is still unset at this point */
+    if(uuid_is_null(file->facc_params.pool_uuid))
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, NULL, "file's pool UUID is not set - try setting DAOS_POOL environment variable");
+
+    /* Set MPI info on file object */
+    if(H5_daos_get_mpi_info(fapl_id, &file->comm, &file->info,
+            &file->my_rank, &file->num_procs) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTSET, NULL, "can't set MPI container info");
 
     /* Hash file name to create uuid if bypassing DUNS */
@@ -1634,10 +1608,6 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
     ret_value = (void *)file;
 
 done:
-    if(fapl_info.free_comm_info)
-        if(H5_daos_comm_info_free(&fapl_info.comm, &fapl_info.info) < 0)
-            D_GOTO_ERROR(H5E_INTERNAL, H5E_CANTFREE, NULL, "failed to free copy of MPI communicator and info");
-
     if(int_req) {
         assert(file);
 
@@ -1742,9 +1712,8 @@ H5_daos_cont_open(H5_daos_file_t *file, unsigned flags,
             D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create task to resolve DUNS path");
 
         /* Connect to container's pool */
-        if(H5_daos_pool_connect(&file->puuid, H5_daos_pool_grp_g, &H5_daos_pool_svcl_g,
-                flags & H5F_ACC_RDWR ? DAOS_PC_RW : DAOS_PC_RO, &file->container_poh,
-                NULL, req, first_task, dep_task) < 0)
+        if(H5_daos_pool_connect(&file->facc_params, flags & H5F_ACC_RDWR ? DAOS_PC_RW : DAOS_PC_RO,
+                &file->container_poh, NULL, req, first_task, dep_task) < 0)
             D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't connect to pool");
     }
 
@@ -2196,8 +2165,15 @@ H5_daos_duns_resolve_path_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         } /* end if */
         else if(udata->flags & H5F_ACC_TRUNC) {
             assert(udata->cont_op_metatask);
+            assert(udata->req->file);
 
-            if(H5_daos_file_delete(&udata->duns_attr.da_puuid, udata->path,
+            /* Set parameters for file delete operation */
+            uuid_copy(udata->u.cont_delete_info.facc_params.pool_uuid, udata->duns_attr.da_puuid);
+            strncpy(udata->u.cont_delete_info.facc_params.pool_group,
+                    udata->req->file->facc_params.pool_group, H5_DAOS_MAX_GRP_NAME - 1);
+            udata->u.cont_delete_info.facc_params.pool_group[H5_DAOS_MAX_GRP_NAME] = '\0';
+
+            if(H5_daos_file_delete(udata->path, &udata->u.cont_delete_info.facc_params,
                     TRUE, NULL, udata->req, &first_task, &dep_task) < 0)
                 D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, -H5_DAOS_H5_DESTROY_ERROR, "can't create task to destroy container");
 
@@ -2210,10 +2186,10 @@ H5_daos_duns_resolve_path_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
          * copy the resolved pool UUID into the file object.
          */
         if(udata->op_type == H5_DAOS_CONT_OPEN)
-            uuid_copy(udata->req->file->puuid, udata->duns_attr.da_puuid);
+            uuid_copy(udata->req->file->facc_params.pool_uuid, udata->duns_attr.da_puuid);
         /* If deleting a DUNS path/DAOS container, copy the resolved pool UUID for the delete operation */
         else if(udata->op_type == H5_DAOS_CONT_DESTROY)
-            uuid_copy(udata->u.cont_delete_info.cont_puuid, udata->duns_attr.da_puuid);
+            uuid_copy(udata->u.cont_delete_info.facc_params.pool_uuid, udata->duns_attr.da_puuid);
     } /* end else */
 
 done:
@@ -2580,11 +2556,13 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
     hid_t dxpl_id, void **req, va_list arguments)
 {
     H5_daos_file_t *file = NULL;
-    H5_daos_fapl_t fapl_info = {0};
+    H5_daos_acc_params_t faccess_info = {0};
     H5_daos_mpi_ibcast_ud_t *bcast_info = NULL;
     H5_daos_req_t *int_req = NULL;
     tse_task_t *first_task = NULL;
     tse_task_t *dep_task = NULL;
+    MPI_Comm file_delete_comm = MPI_COMM_NULL;
+    MPI_Info file_delete_info = MPI_INFO_NULL;
     int ret;
     herr_t ret_value = SUCCEED;    /* Return value */
 
@@ -2690,7 +2668,7 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
             hid_t fapl_id = va_arg(arguments, hid_t);
             const char *filename = va_arg(arguments, const char *);
             herr_t *delete_ret = va_arg(arguments, herr_t *);
-            int mpi_rank, mpi_size, mpi_initialized;
+            int mpi_rank, mpi_size;
 
             /* Initialize returned value in case we fail */
             *delete_ret = FAIL;
@@ -2699,23 +2677,23 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
             if(NULL == (int_req = H5_daos_req_create(NULL, "file delete", NULL, NULL, NULL, H5I_INVALID_HID)))
                 D_GOTO_ERROR(H5E_FILE, H5E_CANTALLOC, FAIL, "can't create DAOS request");
 
-            /* Get information from the FAPL */
-            if(H5_daos_cont_get_fapl_info(fapl_id, &fapl_info) < 0)
+            /* Get needed file/pool access information */
+            if(H5_daos_get_file_access_info(fapl_id, &faccess_info) < 0)
                 D_GOTO_ERROR(H5E_FILE, H5E_CANTGET, FAIL, "can't get DAOS info struct");
 
-            if(MPI_SUCCESS != MPI_Initialized(&mpi_initialized))
-                D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, FAIL, "can't determine if MPI has been initialized");
-            if(mpi_initialized) {
-                MPI_Comm_rank(fapl_info.comm, &mpi_rank);
-                MPI_Comm_size(fapl_info.comm, &mpi_size);
-            } else {
-                mpi_rank = 0;
-                mpi_size = 1;
-            }
+            /* Get any MPI info available */
+            if(H5_daos_get_mpi_info(fapl_id, &file_delete_comm,
+                    &file_delete_info, &mpi_rank, &mpi_size) < 0)
+                D_GOTO_ERROR(H5E_FILE, H5E_CANTGET, FAIL, "can't get HDF5 MPI information");
 
-            if((mpi_rank == 0) && H5_daos_file_delete(NULL, filename, FALSE,
-                    delete_ret, int_req, &first_task, &dep_task) < 0)
-                D_GOTO_ERROR(H5E_FILE, H5E_CANTDELETE, FAIL, "can't delete file");
+            if((mpi_rank == 0) && H5_daos_file_delete(filename, &faccess_info,
+                    FALSE, delete_ret, int_req, &first_task, &dep_task) < 0) {
+                /* Make sure to participate in following broadcast if needed */
+                if(mpi_size > 1)
+                    D_DONE_ERROR(H5E_FILE, H5E_CANTDELETE, FAIL, "can't delete file");
+                else
+                    D_GOTO_ERROR(H5E_FILE, H5E_CANTDELETE, FAIL, "can't delete file");
+            }
 
             if(mpi_size > 1) {
                 /* Setup broadcast of file deletion status to other ranks */
@@ -2725,7 +2703,7 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
                 bcast_info->obj = NULL;
                 bcast_info->buffer = delete_ret;
                 bcast_info->buffer_len = bcast_info->count = (int)sizeof(delete_ret);
-                bcast_info->comm = fapl_info.comm;
+                bcast_info->comm = file_delete_comm;
 
                 if(H5_daos_mpi_ibcast(bcast_info, NULL, sizeof(delete_ret), FALSE, NULL,
                         H5_daos_file_delete_status_bcast_comp_cb, int_req, &first_task, &dep_task) < 0)
@@ -2818,9 +2796,8 @@ done:
         } /* else */
     } /* end if */
 
-    if(fapl_info.free_comm_info)
-        if(H5_daos_comm_info_free(&fapl_info.comm, &fapl_info.info) < 0)
-            D_GOTO_ERROR(H5E_FILE, H5E_CANTFREE, FAIL, "failed to free copy of MPI communicator and info");
+    if(H5_daos_comm_info_free(&file_delete_comm, &file_delete_info) < 0)
+        D_DONE_ERROR(H5E_FILE, H5E_CANTFREE, FAIL, "can't free MPI communicator and info objects");
 
     D_FUNC_LEAVE_API;
 } /* end H5_daos_file_specific() */
@@ -2837,13 +2814,15 @@ done:
  *-------------------------------------------------------------------------
  */
 static herr_t
-H5_daos_file_delete(uuid_t *puuid, const char *file_path, hbool_t ignore_missing,
-    herr_t *delete_status, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
+H5_daos_file_delete(const char *file_path, H5_daos_acc_params_t *file_acc_params,
+    hbool_t ignore_missing, herr_t *delete_status, H5_daos_req_t *req,
+    tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_cont_op_info_t *destroy_udata = NULL;
     herr_t ret_value = SUCCEED;
 
     assert(file_path);
+    assert(file_acc_params);
     assert(req);
     assert(first_task);
     assert(dep_task);
@@ -2860,34 +2839,25 @@ H5_daos_file_delete(uuid_t *puuid, const char *file_path, hbool_t ignore_missing
     destroy_udata->duns_attr.da_type = DAOS_PROP_CO_LAYOUT_HDF5;
     destroy_udata->duns_attr.da_no_prefix = FALSE;
     destroy_udata->u.cont_delete_info.delete_status = delete_status;
+    destroy_udata->u.cont_delete_info.facc_params = *file_acc_params;
 
-    if(!puuid) {
+    if(uuid_is_null(file_acc_params->pool_uuid)) {
         if(!H5_daos_bypass_duns_g) {
             /* Create task to resolve given pathname */
             if(H5_daos_duns_resolve_path(destroy_udata, NULL,
                     H5_daos_duns_resolve_path_comp_cb, req, first_task, dep_task) < 0)
                 D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't resolve DUNS path");
         }
-        else {
-            const char *pool_uuid_env = getenv("DAOS_POOL");
-
-            /* Determine pool UUID from environment variable */
-
-            if(!pool_uuid_env)
-                D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, FAIL, "DAOS pool UUID is invalid - DAOS_POOL env. variable must be set when bypassing DUNS");
-
-            if(uuid_parse(pool_uuid_env, destroy_udata->u.cont_delete_info.cont_puuid) < 0)
-                D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't parse UUID from DAOS_POOL environment variable");
-
-            /* Hash file name to create uuid */
-            H5_daos_hash128(file_path, &destroy_udata->u.cont_delete_info.cont_uuid);
-        }
-
-        puuid = &destroy_udata->u.cont_delete_info.cont_puuid;
+        else
+            D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, FAIL, "pool UUID is NULL");
     }
 
+    /* Hash file name to create container uuid if bypassing DUNS */
+    if(H5_daos_bypass_duns_g)
+        H5_daos_hash128(file_path, &destroy_udata->u.cont_delete_info.cont_uuid);
+
     /* Create tasks to connect to container's pool and destroy the DUNS path/DAOS container. */
-    if(H5_daos_pool_connect(puuid, H5_daos_pool_grp_g, &H5_daos_pool_svcl_g, DAOS_PC_RW,
+    if(H5_daos_pool_connect(&destroy_udata->u.cont_delete_info.facc_params, DAOS_PC_RW,
             destroy_udata->poh, NULL, req, first_task, dep_task) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, FAIL, "can't create task to connect to container's pool");
 
@@ -3330,9 +3300,8 @@ H5_daos_file_close_helper(H5_daos_file_t *file)
             file->file_name = DV_free(file->file_name);
         if(file->def_plist_cache.plist_buffer)
             file->def_plist_cache.plist_buffer = DV_free(file->def_plist_cache.plist_buffer);
-        if(file->comm || file->info)
-            if(H5_daos_comm_info_free(&file->comm, &file->info) < 0)
-                D_DONE_ERROR(H5E_INTERNAL, H5E_CANTFREE, FAIL, "failed to free copy of MPI communicator and info");
+        if(H5_daos_comm_info_free(&file->comm, &file->info) < 0)
+            D_DONE_ERROR(H5E_INTERNAL, H5E_CANTFREE, FAIL, "failed to free copy of MPI communicator and info");
         if(file->fapl_id != H5I_INVALID_HID && file->fapl_id != H5P_FILE_ACCESS_DEFAULT)
             if(H5Idec_ref(file->fapl_id) < 0)
                 D_DONE_ERROR(H5E_SYM, H5E_CANTDEC, FAIL, "failed to close fapl");
@@ -3348,12 +3317,6 @@ H5_daos_file_close_helper(H5_daos_file_t *file)
                 D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, FAIL, "can't disconnect from container's pool: %s", H5_daos_err_to_string(ret));
             file->container_poh = DAOS_HDL_INVAL;
         }
-        if(file->vol_id >= 0) {
-            if(H5VLfree_connector_info(file->vol_id, file->vol_info) < 0)
-                D_DONE_ERROR(H5E_FILE, H5E_CANTFREE, FAIL, "can't free VOL connector info");
-            if(H5Idec_ref(file->vol_id) < 0)
-                D_DONE_ERROR(H5E_FILE, H5E_CANTDEC, FAIL, "can't decrement VOL connector ID");
-        } /* end if */
         H5FL_FREE(H5_daos_file_t, file);
     } /* end if */
     else if(file->item.rc == 1) {
@@ -3592,12 +3555,12 @@ H5_daos_file_flush(H5_daos_file_t H5VL_DAOS_UNUSED *file,
 
 #if 0
     /* Collectively determine if anyone requested a snapshot of the epoch */
-    if(MPI_SUCCESS != MPI_Reduce(file->my_rank == 0 ? MPI_IN_PLACE : &file->snap_epoch, &file->snap_epoch, 1, MPI_INT, MPI_LOR, 0, file->comm))
+    if(MPI_SUCCESS != MPI_Reduce(file->my_rank == 0 ? MPI_IN_PLACE : &file->snap_epoch, &file->snap_epoch, 1, MPI_INT, MPI_LOR, 0, file->facc_params.comm))
         D_GOTO_ERROR(H5E_FILE, H5E_MPI, FAIL, "failed to determine whether to take snapshot (MPI_Reduce)");
 
     /* Barrier on all ranks so we don't commit before all ranks are
      * finished writing. H5Fflush must be called collectively. */
-    if(MPI_SUCCESS != MPI_Barrier(file->comm))
+    if(MPI_SUCCESS != MPI_Barrier(file->facc_params.comm))
         D_GOTO_ERROR(H5E_FILE, H5E_MPI, FAIL, "MPI_Barrier failed");
 
     /* Commit the epoch */

@@ -81,34 +81,8 @@ H5daos_get_pool_uuid(hid_t file_id, uuid_t *pool_uuid)
     if(H5I_FILE != file->item.type)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a file");
 
-    uuid_copy(*pool_uuid, file->puuid);
+    uuid_copy(*pool_uuid, file->facc_params.pool_uuid);
 
 done:
     D_FUNC_LEAVE_API;
 } /* end H5daos_get_pool_uuid() */
-
-
-/*-------------------------------------------------------------------------
- * Function:    H5daos_get_global_svcl
- *
- * Purpose:     Internal API function to return the global pool replica
- *              service rank list.
- *
- * Return:      Non-negative on success/Negative on failure
- *
- *-------------------------------------------------------------------------
- */
-herr_t
-H5daos_get_global_svcl(d_rank_list_t *svcl)
-{
-    herr_t ret_value = SUCCEED;
-
-    H5_daos_inc_api_cnt();
-
-    if(!svcl)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "svcl pointer is NULL");
-    *svcl = H5_daos_pool_svcl_g;
-
-done:
-    D_FUNC_LEAVE_API;
-} /* end H5daos_get_svcl() */

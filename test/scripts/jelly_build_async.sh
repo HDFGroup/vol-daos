@@ -7,7 +7,7 @@ echo "(current dir is: $PWD)"
 export SPACK_ROOT=/mnt/wrk/jsoumagne/spack
 source $SPACK_ROOT/share/spack/setup-env.sh
 spack load -r daos@1.1.4
-spack load -r hdf5@1.12-async
+spack load -r hdf5@1.13.0rc5
 spack load -r cmake
 spack load -r gcc
 

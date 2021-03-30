@@ -160,7 +160,7 @@ if(NOT HDF5_VOL_DAOS_TESTING_USE_SYSTEM_SERVER)
   set(H5VL_TEST_SERVER_EXIT_COMMAND "killall -9 daos_io_server")
 
   # Test will start running after following line is printed
-  set(H5VL_TEST_SERVER_START_MSG "DAOS I/O server")
+  set(H5VL_TEST_SERVER_START_MSG "DAOS I/O Engine")
 
   # Test will start running after following line is printed
   set(H5VL_TEST_CLIENT_HELPER_START_MSG "listening on")
@@ -191,7 +191,7 @@ set(H5VL_TEST_NO_FILTERS TRUE)
 # Disable automatic chunk sizing for VOL tests
 set(DAOS_CLIENT_ENV_VARS
   ${DAOS_CLIENT_ENV_VARS}
-  "H5_DAOS_CHUNK_TARGET_SIZE=1073741824"
+  "HDF5_DAOS_CHUNK_TARGET_SIZE=1073741824"
 )
 set(H5VL_TEST_ENV_VARS "env ${DAOS_CLIENT_ENV_VARS}")
 

@@ -11,7 +11,8 @@
 \paragraph{Synopsis:}
 \begin{flushleft}%
 \begin{minted}[breaklines=true,fontsize=\small]{hdf5-c-lexer.py:HDF5CLexer -x}
-herr_t H5Pset_fapl_daos(hid_t fapl_id, const uuid_t pool_uuid, const char *pool_grp);
+herr_t H5Pset_fapl_daos(hid_t fapl_id, const uuid_t pool_uuid,
+                        const char *pool_grp);
 \end{minted}
 \end{flushleft}%
 
@@ -53,8 +54,8 @@ Returns a non-negative value if successful; otherwise returns a negative value.
 \paragraph{Synopsis:}
 \begin{flushleft}%
 \begin{minted}[breaklines=true,fontsize=\small]{hdf5-c-lexer.py:HDF5CLexer -x}
-herr_t H5daos_set_all_ind_metadata_ops(hid_t accpl_id, hbool_t
-    is_independent);
+herr_t H5daos_set_all_ind_metadata_ops(hid_t accpl_id,
+                                       hbool_t is_independent);
 \end{minted}
 \end{flushleft}%
 
@@ -108,8 +109,8 @@ Returns a non-negative value if successful; otherwise returns a negative value.
 \paragraph{Synopsis:}
 \begin{flushleft}%
 \begin{minted}[breaklines=true,fontsize=\small]{hdf5-c-lexer.py:HDF5CLexer -x}
-herr_t H5daos_get_all_ind_metadata_ops(hid_t accpl_id, hbool_t
-    *is_independent);
+herr_t H5daos_get_all_ind_metadata_ops(hid_t accpl_id,
+                                       hbool_t *is_independent);
 \end{minted}
 \end{flushleft}%
 

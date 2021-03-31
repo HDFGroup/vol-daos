@@ -148,22 +148,14 @@ against \texttt{libuuid.so} (or similar) in order to use UUIDs. Note that depend
 can alternatively be retrieved through CMake or pkg-config.
 \end{enumerate}
 
-An \acrshort{hdf5} \dvc{} application also requires in that particular case three new
-function calls in addition to those for an equivalent \acrshort{hdf5} application (see
+An \acrshort{hdf5} \dvc{} application also requires in that particular case one new
+function call in addition to those for an equivalent \acrshort{hdf5} application (see
 Appendix~\ref{apdx:ref_manual} for more details):
 
 \begin{itemize}
- \item \texttt{\hyperref[ref:h5daos_init]{H5daos\_init()}} --- Initializes the \dvc{}
-
-    Called upon application startup, before any file is accessed.
-
  \item \texttt{\hyperref[ref:h5pset_fapl_daos]{H5Pset\_fapl\_daos()}} --- Sets \dvc{} access on File Access Property List.
 
     Called to prepare a FAPL to open a file through the \dvc{}. See \href{https://support.hdfgroup.org/HDF5/Tutor/property.html#fa}{HDF5 File Access Property Lists} for more information about File Access Property Lists.
-
- \item \texttt{\hyperref[ref:h5daos_term]{H5daos\_term()}} --- Cleanly shutdowns the \dvc{}
-
-    Called on application shutdown, after all files have been closed.
 \end{itemize}
 
 \subsubsection{Skeleton Example}

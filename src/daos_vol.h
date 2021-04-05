@@ -18,10 +18,9 @@
 /* Public headers needed by this file */
 #include "daos_vol_public.h"
 
-/* CART headers */
+/* GURT headers */
 #include <gurt/types.h>
 #include <gurt/common.h>
-#include <cart/api.h>
 
 /* DAOS headers */
 #include <daos.h>

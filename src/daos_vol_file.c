@@ -1004,10 +1004,9 @@ H5_daos_cont_create(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *req,
     create_udata->path = file->file_name;
     create_udata->flags = flags;
     create_udata->ignore_missing_path = TRUE;
+    memset(&create_udata->duns_attr, 0, sizeof(struct duns_attr_t));
     create_udata->duns_attr.da_type = DAOS_PROP_CO_LAYOUT_HDF5;
-    create_udata->duns_attr.da_props = NULL;
     create_udata->duns_attr.da_oclass_id = file->fapl_cache.default_object_class;
-    create_udata->duns_attr.da_no_prefix = FALSE;
     uuid_copy(create_udata->duns_attr.da_cuuid, file->uuid);
 
     if(!H5_daos_bypass_duns_g) {
@@ -2836,8 +2835,8 @@ H5_daos_file_delete(const char *file_path, H5_daos_acc_params_t *file_acc_params
     destroy_udata->path = file_path;
     destroy_udata->flags = 0;
     destroy_udata->ignore_missing_path = ignore_missing;
+    memset(&destroy_udata->duns_attr, 0, sizeof(struct duns_attr_t));
     destroy_udata->duns_attr.da_type = DAOS_PROP_CO_LAYOUT_HDF5;
-    destroy_udata->duns_attr.da_no_prefix = FALSE;
     destroy_udata->u.cont_delete_info.delete_status = delete_status;
     destroy_udata->u.cont_delete_info.facc_params = *file_acc_params;
 

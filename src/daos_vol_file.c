@@ -1008,9 +1008,6 @@ H5_daos_cont_create(H5_daos_file_t *file, unsigned flags, H5_daos_req_t *req,
     create_udata->duns_attr.da_type = DAOS_PROP_CO_LAYOUT_HDF5;
     create_udata->duns_attr.da_oclass_id = file->fapl_cache.default_object_class;
     uuid_copy(create_udata->duns_attr.da_cuuid, file->uuid);
-#if DAOS_API_VERSION_MAJOR > 1 || DAOS_API_VERSION_MINOR > 2
-    create_udata->duns_attr.da_flags = 0;
-#endif
 
     if(!H5_daos_bypass_duns_g) {
         /* Create task to attempt to resolve DUNS path. This task will handle
@@ -2838,13 +2835,10 @@ H5_daos_file_delete(const char *file_path, H5_daos_acc_params_t *file_acc_params
     destroy_udata->path = file_path;
     destroy_udata->flags = 0;
     destroy_udata->ignore_missing_path = ignore_missing;
-    destroy_udata->u.cont_delete_info.delete_status = delete_status;
-    destroy_udata->u.cont_delete_info.facc_params = *file_acc_params;
     memset(&destroy_udata->duns_attr, 0, sizeof(struct duns_attr_t));
     destroy_udata->duns_attr.da_type = DAOS_PROP_CO_LAYOUT_HDF5;
-#if DAOS_API_VERSION_MAJOR > 1 || DAOS_API_VERSION_MINOR > 2
-    destroy_udata->duns_attr.da_flags = 0;
-#endif
+    destroy_udata->u.cont_delete_info.delete_status = delete_status;
+    destroy_udata->u.cont_delete_info.facc_params = *file_acc_params;
 
     if(uuid_is_null(file_acc_params->pool_uuid)) {
         if(!H5_daos_bypass_duns_g) {

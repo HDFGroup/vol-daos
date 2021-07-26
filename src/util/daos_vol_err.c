@@ -171,12 +171,12 @@ H5_daos_err_to_string(int ret)
             return "service group not attached (DER_NOTATTACH)";
         case -DER_MISMATCH:
             return "version mismatch (DER_MISMATCH)";
-#ifdef DER_EVICTED
-        case -DER_EVICTED:
-            return "rank has been evicted (DER_EVICTED)";
-#else
+#if DAOS_API_VERSION_MAJOR > 1 || DAOS_API_VERSION_MINOR > 2
         case -DER_EXCLUDED:
             return "rank has been excluded (DER_EXCLUDED)";
+#else
+        case -DER_EVICTED:
+            return "rank has been evicted (DER_EVICTED)";
 #endif
         case -DER_NOREPLY:
             return "user-provided RPC handler didn't send reply back (DER_NOREPLY)";

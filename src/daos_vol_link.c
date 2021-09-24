@@ -1904,6 +1904,19 @@ H5_daos_link_create_task(tse_task_t *task)
             udata->link_name_len, &udata->link_val, udata->req, &first_task, &dep_task)))
         D_GOTO_ERROR(H5E_LINK, H5E_CANTCOPY, ret, "failed to write destination link: %s", H5_daos_err_to_string(ret));
 
+    if (dep_task) {
+            tse_task_t *metatask = NULL;
+
+	    /* Create metatask for coordination */
+	    if(H5_daos_create_task(H5_daos_metatask_autocomplete, 1, &dep_task,  NULL, NULL, NULL, &metatask) < 0)
+		D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create metatask for link create");
+
+            /* Schedule metatask */
+            if(0 != (ret = tse_task_schedule(metatask, false)))
+    	        D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't schedule metatask for link create: %s", H5_daos_err_to_string(ret));
+	    dep_task = metatask;
+    }
+
 done:
     if(udata) {
         /* Schedule first task */

@@ -49,12 +49,6 @@ do {                                                                  \
         (*next_oidx_ptr) = H5_DAOS_OIDX_FIRST_USER;                   \
 } while(0)
 
-#define H5_DAOS_PRINT_UUID(uuid) do {       \
-    char uuid_buf[37];                      \
-    uuid_unparse(uuid, uuid_buf);           \
-    printf("POOL UUID = %s\n", uuid_buf);   \
-} while (0)
-
 /************************************/
 /* Local Type and Struct Definition */
 /************************************/
@@ -62,13 +56,10 @@ do {                                                                  \
 /* Task user data for pool connect */
 typedef struct H5_daos_pool_connect_ud_t {
     H5_daos_req_t *req;
-    uuid_t *puuid;
+    const char *pool;
     daos_handle_t *poh;
     daos_pool_info_t *info;
-    const char *grp;
-#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
-    d_rank_list_t *svc;
-#endif
+    const char *sys;
     unsigned int flags;
 } H5_daos_pool_connect_ud_t;
 
@@ -89,6 +80,7 @@ typedef struct H5_daos_obj_open_ud_t {
 /* Local Prototypes */
 /********************/
 
+static herr_t H5_daos_set_prop(hid_t fcpl_id, const char *prop_str);
 static herr_t H5_daos_set_object_class(hid_t plist_id, char *object_class);
 static herr_t H5_daos_str_prop_delete(hid_t prop_id, const char *name,
     size_t size, void *_value);
@@ -350,10 +342,9 @@ const daos_size_t H5_daos_fillval_key_size_g         = (daos_size_t)(sizeof(H5_d
  * Purpose:     Modify the file access property list to use the DAOS VOL
  *              connector defined in this source file.
  *
- *              pool_uuid identifies the UUID of the DAOS pool to connect
- *              to. pool_grp identifies the server group name to use when
- *              connecting to the DAOS pool. This may be NULL, in which
- *              case a default group name is used.
+ *              pool identifies the UUID or label of the DAOS pool to connect to. sys_name
+ *              identifies the DAOS server system to use when connecting to the DAOS pool. This may
+ *              be NULL, in which case a default system is used.
  *
  * Return:      Non-negative on success/Negative on failure
  *
@@ -363,7 +354,7 @@ const daos_size_t H5_daos_fillval_key_size_g         = (daos_size_t)(sizeof(H5_d
  *-------------------------------------------------------------------------
  */
 herr_t
-H5Pset_fapl_daos(hid_t fapl_id, const uuid_t pool_uuid, const char *pool_grp)
+H5Pset_fapl_daos(hid_t fapl_id, const char *pool, const char *sys_name)
 {
     H5_daos_acc_params_t fa;
     H5I_type_t           idType = H5I_UNINIT;
@@ -379,8 +370,8 @@ H5Pset_fapl_daos(hid_t fapl_id, const uuid_t pool_uuid, const char *pool_grp)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "couldn't determine property list class");
     if(!is_fapl)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "not a file access property list");
-    if(uuid_is_null(pool_uuid))
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "not a valid UUID");
+    if(pool == NULL)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "not a valid POOL");
 
     /* Ensure HDF5 is initialized */
     if(H5open() < 0)
@@ -408,16 +399,13 @@ H5Pset_fapl_daos(hid_t fapl_id, const uuid_t pool_uuid, const char *pool_grp)
     } /* end if */
 
     /* Initialize driver specific properties */
-    uuid_copy(fa.pool_uuid, pool_uuid);
+    strncpy(fa.pool, pool, DAOS_PROP_LABEL_MAX_LEN);
+    fa.pool[DAOS_PROP_LABEL_MAX_LEN] = 0;
 
-    memset(fa.pool_group, '\0', sizeof(fa.pool_group));
-    if(pool_grp) {
-        size_t pool_grp_name_len = strlen(pool_grp);
-
-        if(pool_grp_name_len > H5_DAOS_MAX_GRP_NAME)
-            D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "service group name is too long");
-        else if(pool_grp_name_len > 0)
-            strncpy(fa.pool_group, pool_grp, H5_DAOS_MAX_GRP_NAME - 1);
+    memset(fa.sys, '\0', sizeof(fa.sys));
+    if(sys_name) {
+	strncpy(fa.sys, sys_name, DAOS_SYS_NAME_MAX);
+	fa.sys[DAOS_SYS_NAME_MAX] = 0;
     }
 
     ret_value = H5Pset_vol(fapl_id, H5_DAOS_g, &fa);
@@ -425,6 +413,67 @@ H5Pset_fapl_daos(hid_t fapl_id, const uuid_t pool_uuid, const char *pool_grp)
 done:
     D_FUNC_LEAVE_API;
 } /* end H5Pset_fapl_daos() */
+
+herr_t
+H5daos_set_prop(hid_t fcpl_id, const char *prop_str)
+{
+    htri_t      is_fcpl;
+    herr_t      ret_value = SUCCEED;
+
+    H5_daos_inc_api_cnt();
+
+    /* Check arguments */
+    if(fcpl_id == H5P_DEFAULT)
+        D_GOTO_ERROR(H5E_PLIST, H5E_BADVALUE, FAIL, "can't set values in default property list");
+    if((is_fcpl = H5Pisa_class(fcpl_id, H5P_FILE_CREATE)) < 0)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "couldn't determine property list class");
+    if(!is_fcpl)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADTYPE, FAIL, "not a file create property list");
+    if(prop_str == NULL)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "not a valid DAOS property string");
+
+    if(fcpl_id == H5P_DEFAULT)
+        D_GOTO_ERROR(H5E_PLIST, H5E_BADVALUE, FAIL, "can't set values in default property list");
+
+    /* Call internal routine */
+    if(H5_daos_set_prop(fcpl_id, prop_str) < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTSET, FAIL, "can't set DAOS properties");
+
+done:
+    D_FUNC_LEAVE_API;
+} /* end H5daos_set_prop() */
+
+static herr_t
+H5_daos_set_prop(hid_t fcpl_id, const char *prop_str)
+{
+    char        *copied_prop;
+    htri_t      prop_exists;
+    herr_t      ret_value = SUCCEED;
+
+    /* Check if the property already exists on the property list */
+    if((prop_exists = H5Pexist(fcpl_id, H5_DAOS_FILE_PROP_NAME)) < 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "can't check for object class property");
+
+    /* Copy object class */
+    if(prop_str)
+        if(NULL == (copied_prop = strdup(prop_str)))
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't copy prop string");
+
+    /* Set the property, or insert it if it does not exist */
+    if(prop_exists) {
+        if(H5Pset(fcpl_id, H5_DAOS_FILE_PROP_NAME, &copied_prop) < 0)
+            D_GOTO_ERROR(H5E_PLIST, H5E_CANTSET, FAIL, "can't set property");
+    } /* end if */
+    else
+        if(H5Pinsert2(fcpl_id, H5_DAOS_FILE_PROP_NAME, sizeof(char *),
+                &copied_prop, NULL, NULL,
+                H5_daos_str_prop_delete, H5_daos_str_prop_copy,
+                H5_daos_str_prop_compare, H5_daos_str_prop_close) < 0)
+            D_GOTO_ERROR(H5E_PLIST, H5E_CANTINSERT, FAIL, "can't insert property into list");
+
+done:
+    D_FUNC_LEAVE;
+} /* end H5_daos_set_prop() */
 
 
 /*-------------------------------------------------------------------------
@@ -535,8 +584,11 @@ H5_daos_set_oclass_from_oid(hid_t plist_id, daos_obj_id_t oid)
     herr_t ret_value = SUCCEED;
 
     /* Get object class id from oid */
-    /* Replace with DAOS function once public! DSINC */
+#if CHECK_DAOS_API_VERSION(1, 6)
+    oc_id = daos_obj_id2class(oid);
+#else
     oc_id = ((oid.hi & OID_FMT_CLASS_MASK) >> OID_FMT_CLASS_SHIFT) & 0xffff;
+#endif
 
     /* Get object class string */
     if(daos_oclass_id2name(oc_id, oclass_str) < 0)
@@ -1363,7 +1415,7 @@ H5_daos_pool_connect(H5_daos_acc_params_t *pool_acc_params, unsigned int flags,
     herr_t ret_value = SUCCEED;
 
     assert(pool_acc_params);
-    assert(!uuid_is_null(pool_acc_params->pool_uuid));
+    assert(pool_acc_params->pool);
     assert(poh_out);
     assert(req);
     assert(first_task);
@@ -1372,14 +1424,11 @@ H5_daos_pool_connect(H5_daos_acc_params_t *pool_acc_params, unsigned int flags,
     if(NULL == (connect_udata = (H5_daos_pool_connect_ud_t *)DV_malloc(sizeof(H5_daos_pool_connect_ud_t))))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate user data struct for pool connect task");
     connect_udata->req = req;
-    connect_udata->puuid = &pool_acc_params->pool_uuid;
+    connect_udata->pool = pool_acc_params->pool;
     connect_udata->poh = poh_out;
-    connect_udata->grp = pool_acc_params->pool_group;
+    connect_udata->sys = pool_acc_params->sys;
     connect_udata->flags = flags;
     connect_udata->info = pool_info_out;
-#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
-    connect_udata->svc = NULL;
-#endif
 
     /* Create task for pool connect */
     if(H5_daos_create_daos_task(DAOS_OPC_POOL_CONNECT, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
@@ -1438,42 +1487,24 @@ H5_daos_pool_connect_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         D_GOTO_ERROR(H5E_VOL, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for pool connect task");
 
     assert(udata->req);
-    assert(udata->puuid);
+    assert(udata->pool);
 
     /* Handle errors */
     H5_DAOS_PREP_REQ(udata->req, H5E_VOL);
-
-    if(uuid_is_null(*udata->puuid))
-        D_GOTO_ERROR(H5E_VOL, H5E_BADVALUE, -H5_DAOS_BAD_VALUE, "pool UUID is invalid");
 
     /* Set daos_pool_connect task args */
     if(NULL == (connect_args = daos_task_get_args(task)))
         D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for pool connect task");
     memset(connect_args, 0, sizeof(*connect_args));
     connect_args->poh = udata->poh;
-    connect_args->grp = udata->grp;
+    connect_args->grp = udata->sys;
     connect_args->flags = udata->flags;
     connect_args->info = udata->info;
-    /* TODO that cast can be removed once DAOS task struct is fixed */
-    uuid_copy((unsigned char *)connect_args->uuid, *udata->puuid);
-
-#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
-    {
-        char *pool_svcl_env = getenv("DAOS_SVCL");
-
-        if(!pool_svcl_env)
-            D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, -H5_DAOS_BAD_VALUE,
-                    "DAOS_SVCL environment variable must be set");
-
-        if(NULL == (udata->svc = daos_rank_list_parse(pool_svcl_env, ":")))
-            D_GOTO_ERROR(H5E_ARGS, H5E_CANTGET, -H5_DAOS_H5_GET_ERROR,
-                    "failed to parse service replica rank list from DAOS_SVCL environment variable");
-        if(udata->svc->rl_nr == 0 || udata->svc->rl_nr > H5_DAOS_MAX_SVC_REPLICAS)
-            D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, -H5_DAOS_BAD_VALUE,
-                    "not a valid service replica rank list");
-
-        connect_args->svc = udata->svc;
-    }
+#if CHECK_DAOS_API_VERSION(1, 4)
+    connect_args->pool = udata->pool;
+#else
+    if(uuid_parse(udata->pool, connect_args->uuid) < 0)
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "invalid pool uuid");
 #endif
 
 done:
@@ -2611,16 +2642,23 @@ H5_daos_oid_encode(daos_obj_id_t *oid, uint64_t oidx, H5I_type_t obj_type,
     if(object_class == OC_UNKNOWN)
         object_class = file->fapl_cache.default_object_class;
 
-    /* Set the object class by default according to object type if not set from
-     * above */
-    if(object_class == OC_UNKNOWN)
-        object_class = (obj_type == H5I_DATASET) ? OC_SX : OC_S1;
-
     /* Generate oid */
 #if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
+    if(object_class == OC_UNKNOWN)
+        object_class = (obj_type == H5I_DATASET) ? OC_SX : OC_S1;
     daos_obj_generate_id(oid, object_feats, object_class, 0);
 #else
-    if (daos_obj_generate_oid(file->coh, oid, object_feats, object_class, 0, 0) != 0)
+    daos_oclass_hints_t hints = 0;
+
+    /** if user does not set default object class, use DAOS default, but set a large oclass for
+     * datasets, and small for other object types */
+    if(object_class == OC_UNKNOWN) {
+	    if (obj_type == H5I_DATASET)
+		    hints = DAOS_OCH_SHD_MAX;
+	    else
+		    hints = DAOS_OCH_SHD_DEF;
+    }
+    if (daos_obj_generate_oid(file->coh, oid, object_feats, object_class, hints, 0) != 0)
         D_GOTO_ERROR(H5E_VOL, H5E_CANTSET, FAIL, "Can't set object class");
 #endif
 

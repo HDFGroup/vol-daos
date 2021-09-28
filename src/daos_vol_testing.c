@@ -55,7 +55,7 @@ done:
 
 
 /*-------------------------------------------------------------------------
- * Function:    H5daos_get_pool_uuid
+ * Function:    H5daos_get_pool
  *
  * Purpose:     Internal API function to return the pool UUID for a file.
  *
@@ -64,7 +64,7 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5daos_get_pool_uuid(hid_t file_id, uuid_t *pool_uuid)
+H5daos_get_pool(hid_t file_id, char *pool)
 {
     H5_daos_file_t *file = NULL;
     herr_t ret_value = SUCCEED;
@@ -73,15 +73,15 @@ H5daos_get_pool_uuid(hid_t file_id, uuid_t *pool_uuid)
 
     if(file_id < 0)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "file ID is invalid");
-    if(!pool_uuid)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "pool_uuid pointer is NULL");
+    if(!pool)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "pool pointer is NULL");
 
     if(NULL == (file = (H5_daos_file_t *)H5VLobject(file_id)))
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
     if(H5I_FILE != file->item.type)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a file");
 
-    uuid_copy(*pool_uuid, file->facc_params.pool_uuid);
+    strcpy(pool, file->facc_params.pool);
 
 done:
     D_FUNC_LEAVE_API;

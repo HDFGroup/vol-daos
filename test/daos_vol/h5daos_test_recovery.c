@@ -81,12 +81,9 @@ typedef struct {
 /*
  * Global variables
  */
-uuid_t pool_uuid;
+char   pool[DAOS_PROP_LABEL_MAX_LEN + 1];
 int    mpi_rank;
 static int    mpi_size;
-#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
-static const d_rank_list_t *svcl;
-#endif
 static int    *wdata, *rdata;
 static int    *map_keys, *map_vals, *map_vals_out;
 static int    *attr_write, *attr_read;
@@ -113,7 +110,6 @@ static int figure_out_op(const char *);
 static void inject_fault(d_rank_t which_server)
 {
     char                     dmg_cmd[100];
-    char		     pool_string[256];
     int                      rc;
 
     if(MAINPROCESS) {
@@ -126,29 +122,13 @@ static void inject_fault(d_rank_t which_server)
         }
 
         /* Exclude the server from the pool */
-#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
-        struct d_tgt_list targets;
-        int tgt = -1;
-
-        targets.tl_nr = 1;
-        targets.tl_ranks = &which_server;
-        tgt = -1;
-        targets.tl_tgts = &tgt;
-
-        if(daos_pool_tgt_exclude(pool_uuid, "daos_server", svcl, &targets, NULL) < 0) {
-            printf("daos_pool_tgt_exclude failed");
-            return;
-        }
-#else
-        uuid_unparse(pool_uuid, &pool_string[0]);
         snprintf(dmg_cmd, sizeof(dmg_cmd),
-                "dmg pool exclude -i --pool=%s --ranks=%d", pool_string, which_server);
+                "dmg pool exclude -i --pool=%s --ranks=%d", pool, which_server);
         rc = system(dmg_cmd);
         if (rc != 0) {
             printf(" %s failed with rc %#x\n", dmg_cmd, rc);
             return;
         }
-#endif
 
         fprintf(stdout, "\n\n\n\n        ========>>> Killed and excluded the server (rank %d)\n\n\n\n", which_server);
     }
@@ -1119,7 +1099,6 @@ static int figure_out_op(const char *str)
 int
 main( int argc, char** argv )
 {
-    char           file_pool_uuid[256];
     char           filename[NAME_LENGTH];
     hid_t          fapl_id = -1, file_id = -1;
     char          *pool_string = NULL;
@@ -1139,24 +1118,6 @@ main( int argc, char** argv )
         nerrors++;
         goto error;
     }
-
-#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
-    /* Try to retrieve the SVCL from the DAOS_SVCL environment variable */
-    {
-        char *pool_svcl_env = getenv("DAOS_SVCL");
-
-        if(pool_svcl_env) {
-            if(NULL == (svcl = daos_rank_list_parse(pool_svcl_env, ":"))) {
-                printf("Can't retrieve SVCL from DAOS_SVCL environment variable\n\n");
-                goto error;
-            }
-        }
-        else {
-            printf("DAOS_SVCL environment variable must be set\n");
-            goto error;
-        }
-    }
-#endif
 
     snprintf(filename, NAME_LENGTH, "%s", FILENAME);
 
@@ -1191,28 +1152,19 @@ main( int argc, char** argv )
     }
 
     if (NULL != (pool_string = getenv("DAOS_POOL"))) {
-        if (0 != uuid_parse(pool_string, pool_uuid)) {
-            printf("Could not parse pool UUID\n\n");
-            goto error;
-        }
+        strcpy(pool, pool_string);
     }
     else {
         /* Try to retrieve pool UUID from the file */
-        if(H5daos_get_pool_uuid(file_id, &pool_uuid) < 0) {
+        if(H5daos_get_pool(file_id, pool) < 0) {
             printf("Can't retrieve file's pool UUID\n\n");
             goto error;
         }
-
-        uuid_unparse(pool_uuid, file_pool_uuid);
-        pool_string = file_pool_uuid;
     }
 
     if (MAINPROCESS) {
         fprintf(stdout, "Test parameters:\n\n");
-        fprintf(stdout, "  - Pool UUID: %s\n", pool_string);
-#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
-        fprintf(stdout, "  - POOL SVCL: %s\n", getenv("DAOS_SVCL"));
-#endif
+        fprintf(stdout, "  - Pool: %s\n", pool);
         fprintf(stdout, "  - Test File name: %s\n", filename);
         fprintf(stdout, "\n\n");
     }

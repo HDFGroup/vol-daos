@@ -209,7 +209,6 @@ do { \
 #ifndef DAOS_DEFAULT_GROUP_ID
 # define DAOS_DEFAULT_GROUP_ID "daos_server"
 #endif
-#define H5_DAOS_MAX_GRP_NAME     64
 #define H5_DAOS_MAX_SVC_REPLICAS 13
 
 /* Remove warnings when connector does not use callback arguments */
@@ -280,6 +279,9 @@ do { \
 #ifdef DV_HAVE_SNAP_OPEN_ID
 #define H5_DAOS_SNAP_OPEN_ID "daos_snap_open"
 #endif
+
+/* Property to specify DAOS property */
+#define H5_DAOS_FILE_PROP_NAME "daos_prop_name"
 
 /* Property to specify DAOS object class */
 #define H5_DAOS_OBJ_CLASS_NAME "daos_object_class"
@@ -456,6 +458,13 @@ do { \
     assert((req)->in_progress); \
 } while(0)
 
+#if defined(DAOS_API_VERSION_MAJOR) && defined(DAOS_API_VERSION_MINOR)
+#define CHECK_DAOS_API_VERSION(major, minor)                                            \
+        ((DAOS_API_VERSION_MAJOR > (major))                                             \
+        || (DAOS_API_VERSION_MAJOR == (major) && DAOS_API_VERSION_MINOR >= (minor)))
+#else
+#define CHECK_DAOS_API_VERSION(major, minor) 0
+#endif
 
 /********************/
 /* Private Typedefs */
@@ -463,8 +472,8 @@ do { \
 
 /* DAOS-specific file/pool access parameters */
 typedef struct H5_daos_acc_params_t {
-    uuid_t pool_uuid;
-    char   pool_group[H5_DAOS_MAX_GRP_NAME + 1];
+    char   pool[DAOS_PROP_LABEL_MAX_LEN +1];
+    char   sys[DAOS_SYS_NAME_MAX + 1];
 } H5_daos_acc_params_t;
 
 /* Forward declaration of operation pool struct */
@@ -562,15 +571,17 @@ typedef struct H5_daos_file_t {
     H5_daos_item_t item; /* Must be first */
     daos_handle_t coh;
     daos_handle_t container_poh;
+    daos_prop_t *create_prop;
     daos_prop_t *cont_prop;
     char *file_name;
-    uuid_t uuid;
+    char cont[DAOS_PROP_LABEL_MAX_LEN + 1];
     H5_daos_acc_params_t facc_params;
     unsigned flags;
     daos_handle_t glob_md_oh;
     daos_obj_id_t glob_md_oid;
     struct H5_daos_group_t *root_grp;
     hid_t fapl_id;
+    hid_t fcpl_id;
     H5_daos_fapl_cache_t fapl_cache;
     H5_daos_enc_plist_cache_t def_plist_cache;
     MPI_Comm comm;

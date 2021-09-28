@@ -59,20 +59,33 @@ extern "C" {
 /**
  * Modify the file access property list to use the DAOS VOL connector.
  *
- * \pool_uuid identifies the UUID of the DAOS pool to connect to.
+ * \pool identifies the UUID or label of the DAOS pool to connect to.
  *
- * \pool_grp identifies the server group name to use when connecting to
- * the DAOS pool. This may be NULL, in which case a default group name
+ * \sys_name identifies the DAOS system name to use when connecting to
+ * the DAOS pool. This may be NULL, in which case a default system name
  * is used.
  *
  * \param fapl_id   [IN]    File access property list
- * \param pool_uuid [IN]    DAOS pool UUID
- * \param pool_grp  [IN]    Process set name of the DAOS servers managing the pool
+ * \param pool      [IN]    DAOS pool UUID
+ * \param sys_name  [IN]    Process set name of the DAOS servers managing the pool
  *
  * \return Non-negative on success/Negative on failure
  */
 H5VL_DAOS_PUBLIC herr_t
-H5Pset_fapl_daos(hid_t fapl_id, const uuid_t pool_uuid, const char *pool_grp);
+H5Pset_fapl_daos(hid_t fapl_id, const char *pool, const char *sys_name);
+
+/**
+ * Sets DAOS properties on the file creation property list when creating a container.  This allows
+ * users to set properties like the rf factor, ACLs, etc. \prop_str must be of the following format:
+ * prop_entry_name1:value1;prop_entry_name2:value2;prop_entry_name3:value3;
+ *
+ * \param fcpl_id   [IN]    File creation property list
+ * \param prop_str  [IN]    A serialized string of DAOS properties & values.
+ *
+ * \return Non-negative on success/Negative on failure
+ */
+H5VL_DAOS_PUBLIC herr_t
+H5daos_set_prop(hid_t fcpl_id, const char *prop_str);
 
 /**
  * Sets the provided DAOS object class on the given property list.
@@ -180,7 +193,7 @@ H5VL_DAOS_PUBLIC herr_t H5Pset_daos_snap_open(hid_t fapl_id,
  * API routines for external testing
  */
 H5VL_DAOS_PUBLIC herr_t H5daos_get_poh(hid_t file_id, daos_handle_t *poh);
-H5VL_DAOS_PUBLIC herr_t H5daos_get_pool_uuid(hid_t file_id, uuid_t *pool_uuid);
+H5VL_DAOS_PUBLIC herr_t H5daos_get_pool(hid_t file_id, char *pool);
 
 #ifdef __cplusplus
 }

@@ -118,6 +118,7 @@ typedef struct H5_daos_link_write_ud_t {
     uint64_t max_corder;
     tse_task_t *link_write_task;
     tse_task_t *update_task;
+    tse_task_t *metatask;
 } H5_daos_link_write_ud_t;
 
 /* Task user data for writing link creation order info to a group */
@@ -996,7 +997,6 @@ H5_daos_link_write_task(tse_task_t *task)
          * ownership of udata */
         assert(!first_task);
         first_task = udata->update_task;
-        dep_task = udata->update_task;
         udata = NULL;
     } /* end else */
 
@@ -1911,6 +1911,7 @@ H5_daos_link_create_task(tse_task_t *task)
 	    if(H5_daos_create_task(H5_daos_metatask_autocomplete, 1, &dep_task,  NULL, NULL, NULL, &metatask) < 0)
 		D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create metatask for link create");
 
+	    tse_task_register_deps(task, 1, &metatask);
             /* Schedule metatask */
             if(0 != (ret = tse_task_schedule(metatask, false)))
     	        D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't schedule metatask for link create: %s", H5_daos_err_to_string(ret));
@@ -1935,13 +1936,6 @@ done:
         assert(ret_value == -H5_DAOS_DAOS_GET_ERROR);
         assert(!first_task);
     } /* end else */
-
-    /* Return task to task list */
-    if(H5_daos_task_list_put(H5_daos_task_list_g, task) < 0)
-        D_DONE_ERROR(H5E_LINK, H5E_CLOSEERROR, -H5_DAOS_TASK_LIST_ERROR, "can't return task to task list");
-
-    /* Complete this task */
-    tse_task_complete(task, ret_value);
 
     D_FUNC_LEAVE;
 } /* end H5_daos_link_create_task() */

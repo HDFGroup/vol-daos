@@ -347,6 +347,12 @@ main( int argc, char** argv )
         goto error;
     }
 
+    /** set RF0 property on container */
+    if(H5daos_set_prop(fcpl_id, "rf:0") < 0) {
+        nerrors++;
+        goto error;
+    }
+
     /* First test: both default */
     TESTING("default FCPL and FAPL");
     nerrors += test_oclass(fcpl_id, fapl_id, "S1", "S1", "SX");

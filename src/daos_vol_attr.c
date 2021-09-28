@@ -6256,6 +6256,8 @@ H5_daos_attribute_iterate_by_name_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSE
                     tmp_char = p[udata->u.name_order_data.kds[i].kd_key_len];
                     p[udata->u.name_order_data.kds[i].kd_key_len] = '\0';
 
+		    H5_DAOS_WAIT_ON_ASYNC_CHAIN(udata->req, first_task, dep_task, H5E_ATTR, H5E_CANTINIT, FAIL);
+
                     /* Create task to call user-supplied operator callback function */
                     if(H5_daos_attribute_get_iter_op_task(udata, &p[2],
                             udata->req, &first_task, &dep_task) < 0)

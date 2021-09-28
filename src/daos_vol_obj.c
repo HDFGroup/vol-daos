@@ -4631,7 +4631,11 @@ H5_daos_object_get_info_task(tse_task_t *task)
     /* Basic fields */
     if(udata->fields & H5O_INFO_BASIC) {
         uint64_t fileno64;
-        uint8_t *uuid_p = (uint8_t *)&(*udata->target_obj_p)->item.file->uuid;
+        uuid_t cuuid;
+        uint8_t *uuid_p;
+
+	uuid_parse((*udata->target_obj_p)->item.file->cont, cuuid);
+	uuid_p = (uint8_t *)&cuuid;
 
         /* Use the lower <sizeof(unsigned long)> bytes of the file uuid
          * as the fileno.  Ideally we would write separate 32 and 64 bit

@@ -1907,10 +1907,12 @@ H5_daos_link_create_task(tse_task_t *task)
             tse_task_t *metatask = NULL;
 
 	    /* Create metatask for coordination */
-	    if(H5_daos_create_task(H5_daos_metatask_autocomplete, 1, &dep_task,  NULL, NULL, NULL, &metatask) < 0)
+            if(H5_daos_create_task(H5_daos_metatask_autocomp_other, 1, &dep_task,
+                    NULL, NULL, task, &metatask) < 0) {
 		D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create metatask for link create");
-
-	    tse_task_register_deps(task, 1, &metatask);
+                tse_task_complete(task, ret_value);
+	    }
+	    //tse_task_register_deps(task, 1, &metatask);
             /* Schedule metatask */
             if(0 != (ret = tse_task_schedule(metatask, false)))
     	        D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't schedule metatask for link create: %s", H5_daos_err_to_string(ret));

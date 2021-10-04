@@ -11,8 +11,7 @@
 \paragraph{Synopsis:}
 \begin{flushleft}%
 \begin{minted}[breaklines=true,fontsize=\small]{hdf5-c-lexer.py:HDF5CLexer -x}
-herr_t H5Pset_fapl_daos(hid_t fapl_id, const uuid_t pool_uuid,
-                        const char *pool_grp);
+herr_t H5Pset_fapl_daos(hid_t fapl_id, const char *pool, const char *daos_sys);
 \end{minted}
 \end{flushleft}%
 
@@ -26,18 +25,18 @@ Set the file access property list to use the DAOS VOL connector.
 \texttt{H5Pset\_fapl\_daos} modifies the file access property list to use the
 DAOS VOL connector.
 
-\texttt{pool\_uuid} identifies the UUID of the DAOS pool to connect to.
+\texttt{pool} identifies the label or UUID of the DAOS pool to connect to.
 
-\texttt{pool\_grp} identifies the server group name to use when connecting to
-the DAOS pool. This may be NULL, in which case a default group name is used.
+\texttt{pool\_grp} identifies the DAOS system name to use when connecting to
+the DAOS pool. This may be NULL, in which case a default system name is used.
 \end{flushleft}%
 
 \paragraph{Parameters:}
 \begin{flushleft}%
  \begin{tabular}{ll}%
    \texttt{hid\_t fapl\_id} & IN: File access property list ID \\
-   \texttt{const uuid\_t pool\_uuid} & IN: DAOS pool UUID \\
-   \texttt{const char *pool\_grp} & IN: Process set name of the DAOS servers managing the pool \\
+   \texttt{const char *pool} & IN: DAOS pool UUID or Label \\
+   \texttt{const char *daos\_sys} & IN: DAOS System name where pool exists \\
  \end{tabular}%
 \end{flushleft}%
 

@@ -1,8 +1,7 @@
 #include "h5dsm_example.h"
 
 int main(int argc, char *argv[]) {
-    uuid_t pool_uuid;
-    char *pool_grp = NULL;
+    char *daos_sys = NULL;
     hid_t file = -1, dset = -1, fapl = -1, space = -1, type = -1, dcpl = -1, dapl = -1, def_dcpl = -1, def_dapl = -1;
     int ndims;
     hsize_t dims[2];
@@ -16,16 +15,12 @@ int main(int argc, char *argv[]) {
     if(argc < 4 || argc > 5)
         PRINTF_ERROR("argc must be 4 or 5\n");
 
-    /* Parse UUID */
-    if(0 != uuid_parse(argv[1], pool_uuid))
-        ERROR;
-
     /* Set up FAPL */
     if((fapl = H5Pcreate(H5P_FILE_ACCESS)) < 0)
         ERROR;
     if(H5Pset_mpi_params(fapl, MPI_COMM_WORLD, MPI_INFO_NULL) < 0)
         ERROR;
-    if(H5Pset_fapl_daos(fapl, pool_uuid, pool_grp) < 0)
+    if(H5Pset_fapl_daos(fapl, argv[1], daos_sys) < 0)
         ERROR;
     if(H5Pset_all_coll_metadata_ops(fapl, true) < 0)
         ERROR;

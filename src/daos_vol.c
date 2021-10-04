@@ -432,9 +432,6 @@ H5daos_set_prop(hid_t fcpl_id, const char *prop_str)
     if(prop_str == NULL)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "not a valid DAOS property string");
 
-    if(fcpl_id == H5P_DEFAULT)
-        D_GOTO_ERROR(H5E_PLIST, H5E_BADVALUE, FAIL, "can't set values in default property list");
-
     /* Call internal routine */
     if(H5_daos_set_prop(fcpl_id, prop_str) < 0)
         D_GOTO_ERROR(H5E_VOL, H5E_CANTSET, FAIL, "can't set DAOS properties");

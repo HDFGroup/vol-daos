@@ -47,6 +47,47 @@ Returns a non-negative value if successful; otherwise returns a negative value.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \newpage
+\subsection{H5daos\_set\_prop}
+\label{ref:h5daos_set_prop}
+
+\paragraph{Synopsis:}
+\begin{flushleft}%
+\begin{minted}[breaklines=true,fontsize=\small]{hdf5-c-lexer.py:HDF5CLexer -x}
+herr_t H5daos_set_prop(hid_t fcpl_id, const char *prop_str);
+\end{minted}
+\end{flushleft}%
+
+\paragraph{Purpose:}
+\begin{flushleft}%
+Sets DAOS property entries for the DAOS container corresponding to the HDF5 file created. The DAOS
+property entries include the Redundancy Factor of the container, container label, etc.
+
+The property string should be of the format: 
+prop_entry_name1:value1;prop_entry_name2:value2;prop_entry_name3:value3;
+
+\end{flushleft}%
+
+\paragraph{Description:}
+\begin{flushleft}%
+\texttt{H5daos\_set\_prop} modifies the file creation property list to set DAOS
+container property entries.
+\end{flushleft}%
+
+\paragraph{Parameters:}
+\begin{flushleft}%
+ \begin{tabular}{lp{0.8\linewidth}}%
+   \texttt{hid\_t fcpl\_id} & IN: File creation property list ID \\
+   \texttt{const char *prop\_str} & IN: String value of property entries and values\\
+ \end{tabular}%
+\end{flushleft}%
+
+\paragraph{Returns:}
+\begin{flushleft}%
+Returns a non-negative value if successful; otherwise returns a negative value.
+\end{flushleft}%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\newpage
 \subsection{H5daos\_set\_all\_ind\_metadata\_ops}
 \label{ref:h5daos_set_all_ind_metadata_ops}
 

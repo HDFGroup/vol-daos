@@ -118,7 +118,6 @@ typedef struct H5_daos_link_write_ud_t {
     uint64_t max_corder;
     tse_task_t *link_write_task;
     tse_task_t *update_task;
-    tse_task_t *metatask;
 } H5_daos_link_write_ud_t;
 
 /* Task user data for writing link creation order info to a group */

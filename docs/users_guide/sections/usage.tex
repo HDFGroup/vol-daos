@@ -168,9 +168,8 @@ meant only for the case when the \dvc{} is not being dynamically loaded.
 #include "hdf5.h"
 #include "daos_vol_public.h"
 
-int main(void)
+int main(int argc, char *argv[])
 {
-    uuid_t pool_uuid;
     hid_t fapl_id, file_id;
 
     fapl_id = H5Pcreate(H5P_FILE_ACCESS);
@@ -178,13 +177,10 @@ int main(void)
     /* Set the MPI communicator and info */
     H5Pset_mpi_params(fapl_id, MPI_COMM_WORLD, MPI_INFO_NULL);
 
-    /* Parse the pool UUID. */
-    uuid_parse("fce30f79-b34b-46c1-9b1f-bb52d99dacca", pool_uuid);
-
     /* Initialize DAOS VOL connector using the above parsed UUID for
      * the pool UUID and "daos_server" as the group name for the DAOS
      * servers managing the pool. */
-    H5Pset_fapl_daos(fapl_id, pool_uuid, "daos_server");
+    H5Pset_fapl_daos(fapl_id, argv[1], "daos_server");
 
     /* Currently required for the DAOS VOL connector, set all metadata
      * operations to be collective */

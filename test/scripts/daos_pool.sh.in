@@ -3,5 +3,5 @@
 echo "Sleeping 5s"
 sleep 5
 env DAOS_AGENT_DRPC_DIR=@DAOS_AGENT_DIR@ \
-@DAOS_DMG_EXECUTABLE@ -i pool create -s=@DAOS_POOL_SIZE@G
+@DAOS_DMG_EXECUTABLE@ -i pool create -s=@DAOS_POOL_SIZE@G --label="daos_vol_test_pool" --nsvc=1
 

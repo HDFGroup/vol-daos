@@ -154,6 +154,8 @@ test_oclass(hid_t fcpl_id, hid_t fapl_id, const char *exp_root_oclass,
         printf("object class check failed for default dataset\n");
         goto error;
     } /* end if */
+#else
+    (void)exp_dset_oclass; /* silence compiler */
 #endif
     if(H5Pclose(plist_id) < 0)
         TEST_ERROR

@@ -157,7 +157,7 @@ if(NOT HDF5_VOL_DAOS_TESTING_USE_SYSTEM_SERVER)
 
   # Server
   set(HDF5_VOL_TEST_SERVER ${DAOS_SERVER_EXECUTABLE})
-  set(H5VL_TEST_SERVER_EXIT_COMMAND "killall -9 daos_io_server")
+  set(H5VL_TEST_SERVER_EXIT_COMMAND "killall -9 daos_server")
 
   # Test will start running after following line is printed
   set(H5VL_TEST_SERVER_START_MSG "DAOS I/O Engine")

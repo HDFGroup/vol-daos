@@ -2947,8 +2947,8 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_map_get(void *_map, H5VL_map_get_t get_type,
-    hid_t dxpl_id, void H5VL_DAOS_UNUSED **req, va_list arguments)
+H5_daos_map_get(void *_map, H5VL_map_args_t *map_args, hid_t dxpl_id,
+    void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_map_t *map = (H5_daos_map_t *)_map;
     H5_daos_req_t *int_req = NULL;
@@ -2958,15 +2958,17 @@ H5_daos_map_get(void *_map, H5VL_map_get_t get_type,
     int ret;
     herr_t ret_value = SUCCEED;    /* Return value */
 
+    assert(map_args);
+
     if(!_map)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
 
     H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
 
-    switch (get_type) {
+    switch (map_args->get.get_type) {
         case H5VL_MAP_GET_MCPL:
             {
-                hid_t *plist_id = va_arg(arguments, hid_t *);
+                hid_t *plist_id = &map_args->get.args.get_mcpl.mcpl_id;
 
                 /* Wait for the map to open if necessary */
                 if(!map->obj.item.created && map->obj.item.open_req->status != 0) {
@@ -2988,7 +2990,7 @@ H5_daos_map_get(void *_map, H5VL_map_get_t get_type,
             } /* end block */
         case H5VL_MAP_GET_MAPL:
             {
-                hid_t *plist_id = va_arg(arguments, hid_t *);
+                hid_t *plist_id = &map_args->get.args.get_mapl.mapl_id;
 
                 /* Wait for the map to open if necessary */
                 if(!map->obj.item.created && map->obj.item.open_req->status != 0) {
@@ -3006,7 +3008,7 @@ H5_daos_map_get(void *_map, H5VL_map_get_t get_type,
             } /* end block */
         case H5VL_MAP_GET_KEY_TYPE:
             {
-                hid_t *ret_id = va_arg(arguments, hid_t *);
+                hid_t *ret_id = &map_args->get.args.get_key_type.type_id;
 
                 /* Wait for the map to open if necessary */
                 if(!map->obj.item.created && map->obj.item.open_req->status != 0) {
@@ -3023,7 +3025,7 @@ H5_daos_map_get(void *_map, H5VL_map_get_t get_type,
             } /* end block */
         case H5VL_MAP_GET_VAL_TYPE:
             {
-                hid_t *ret_id = va_arg(arguments, hid_t *);
+                hid_t *ret_id = &map_args->get.args.get_val_type.type_id;
 
                 /* Wait for the map to open if necessary */
                 if(!map->obj.item.created && map->obj.item.open_req->status != 0) {
@@ -3041,7 +3043,7 @@ H5_daos_map_get(void *_map, H5VL_map_get_t get_type,
         case H5VL_MAP_GET_COUNT:
             {
                 H5_daos_iter_data_t iter_data;
-                hsize_t *count = va_arg(arguments, hsize_t *);
+                hsize_t *count = &map_args->get.args.get_count.count;
 
                 /* Wait for the map to open if necessary */
                 /* Needed because below code accesses map->key_type_id */
@@ -3174,9 +3176,8 @@ H5_daos_map_get_count_cb(hid_t H5VL_DAOS_UNUSED map_id,
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_map_specific(void *_item, const H5VL_loc_params_t *loc_params,
-    H5VL_map_specific_t specific_type, hid_t dxpl_id, void **req,
-    va_list arguments)
+H5_daos_map_specific(void *_item, H5VL_map_args_t *map_args,
+    hid_t dxpl_id, void **req)
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_map_t *map = NULL;
@@ -3192,10 +3193,10 @@ H5_daos_map_specific(void *_item, const H5VL_loc_params_t *loc_params,
     int ret;
     herr_t ret_value = SUCCEED;
 
+    assert(map_args);
+
     if(!_item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
-    if(!loc_params)
-        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "location parameters object is NULL");
 
     H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
 
@@ -3210,15 +3211,16 @@ H5_daos_map_specific(void *_item, const H5VL_loc_params_t *loc_params,
             item->open_req, NULL, NULL, dxpl_id)))
         D_GOTO_ERROR(H5E_MAP, H5E_CANTALLOC, FAIL, "can't create DAOS request");
 
-    switch (specific_type) {
+    switch (map_args->specific.specific_type) {
         /* H5Miterate(_by_name) */
         case H5VL_MAP_ITER:
         {
             H5_daos_iter_data_t iter_data;
-            hsize_t *idx = va_arg(arguments, hsize_t *);
-            hid_t key_mem_type_id = va_arg(arguments, hid_t);
-            H5M_iterate_t op = va_arg(arguments, H5M_iterate_t);
-            void *op_data = va_arg(arguments, void *);
+            H5VL_loc_params_t *loc_params = &map_args->specific.args.iterate.loc_params;
+            hsize_t *idx = &map_args->specific.args.iterate.idx;
+            hid_t key_mem_type_id = map_args->specific.args.iterate.key_mem_type_id;
+            H5M_iterate_t op = map_args->specific.args.iterate.op;
+            void *op_data = map_args->specific.args.iterate.op_data;
 
             int_req->op_name = "map iterate";
 
@@ -3311,8 +3313,9 @@ H5_daos_map_specific(void *_item, const H5VL_loc_params_t *loc_params,
 
         case H5VL_MAP_DELETE:
         {
-            hid_t key_mem_type_id = va_arg(arguments, hid_t);
-            const void *key = va_arg(arguments, const void *);
+            H5VL_loc_params_t *loc_params = &map_args->specific.args.del.loc_params;
+            hid_t key_mem_type_id = map_args->specific.args.del.key_mem_type_id;
+            const void *key = map_args->specific.args.del.key;
 
             int_req->op_name = "map key delete";
 
@@ -3366,7 +3369,7 @@ done:
             D_DONE_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
         /* Check for external async.  Disabled for iteration for now. */
-        if(req && specific_type != H5VL_MAP_ITER) {
+        if(req && map_args->specific.specific_type != H5VL_MAP_ITER) {
             /* Return int_req as req */
             *req = int_req;
 
@@ -3390,7 +3393,7 @@ done:
 
             /* Set return value for map iteration, unless this function failed but
              * the iteration did not */
-            if(specific_type == H5VL_MAP_ITER && !(ret_value < 0 && iter_ret >= 0))
+            if(map_args->specific.specific_type == H5VL_MAP_ITER && !(ret_value < 0 && iter_ret >= 0))
                 ret_value = iter_ret;
         } /* end else */
     } /* end if */

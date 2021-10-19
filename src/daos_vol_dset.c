@@ -4131,8 +4131,8 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_dataset_get(void *_dset, H5VL_dataset_get_t get_type,
-    hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req, va_list arguments)
+H5_daos_dataset_get(void *_dset, H5VL_dataset_get_args_t *get_args,
+    hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_dset_t *dset = (H5_daos_dset_t *)_dset;
     H5_daos_dset_get_ud_t *get_udata = NULL;
@@ -4146,13 +4146,15 @@ H5_daos_dataset_get(void *_dset, H5VL_dataset_get_t get_type,
 
     if(!_dset)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
+    if(!get_args)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "Invalid operation arguments");
 
     H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
 
-    switch (get_type) {
+    switch (get_args->op_type) {
         case H5VL_DATASET_GET_DCPL:
             {
-                hid_t *plist_id = va_arg(arguments, hid_t *);
+                hid_t *plist_id = &get_args->args.get_dcpl.dcpl_id;
 
                 if(!plist_id)
                     D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "output argument not supplied");
@@ -4197,7 +4199,7 @@ H5_daos_dataset_get(void *_dset, H5VL_dataset_get_t get_type,
             } /* end block */
         case H5VL_DATASET_GET_DAPL:
             {
-                hid_t *plist_id = va_arg(arguments, hid_t *);
+                hid_t *plist_id = &get_args->args.get_dapl.dapl_id;
 
                 if(!plist_id)
                     D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "output argument not supplied");
@@ -4215,7 +4217,7 @@ H5_daos_dataset_get(void *_dset, H5VL_dataset_get_t get_type,
             } /* end block */
         case H5VL_DATASET_GET_SPACE:
             {
-                hid_t *ret_id = va_arg(arguments, hid_t *);
+                hid_t *ret_id = &get_args->args.get_space.space_id;
 
                 if(!ret_id)
                     D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "output argument not supplied");
@@ -4263,7 +4265,7 @@ H5_daos_dataset_get(void *_dset, H5VL_dataset_get_t get_type,
             } /* end block */
         case H5VL_DATASET_GET_SPACE_STATUS:
             {
-                H5D_space_status_t *allocation = va_arg(arguments, H5D_space_status_t *);
+                H5D_space_status_t *allocation = get_args->args.get_space_status.status;
 
                 if(!allocation)
                     D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "output argument not supplied");
@@ -4279,7 +4281,7 @@ H5_daos_dataset_get(void *_dset, H5VL_dataset_get_t get_type,
             } /* end block */
         case H5VL_DATASET_GET_TYPE:
             {
-                hid_t *ret_id = va_arg(arguments, hid_t *);
+                hid_t *ret_id = &get_args->args.get_type.type_id;
 
                 if(!ret_id)
                     D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "output argument not supplied");
@@ -4320,7 +4322,7 @@ H5_daos_dataset_get(void *_dset, H5VL_dataset_get_t get_type,
             } /* end block */
         case H5VL_DATASET_GET_STORAGE_SIZE:
             {
-                hsize_t     *storage_size = va_arg(arguments, hsize_t *);
+                hsize_t     *storage_size = get_args->args.get_storage_size.storage_size;
                 hssize_t    nelements = 0;
                 size_t      dtype_size = 0;
 
@@ -4370,12 +4372,12 @@ H5_daos_dataset_get(void *_dset, H5VL_dataset_get_t get_type,
         /* Finish filling in task_udata */
         get_udata->req = int_req;
         get_udata->dset = dset;
-        get_udata->get_type = get_type;
+        get_udata->get_type = get_args->op_type;
 
         /* Create task to get dataset info.  USe empty task for everything but
          * storage size, for the other get types the realize callback will
          * do the actual retrieval. */
-        if(H5_daos_create_task(get_type == H5VL_DATASET_GET_STORAGE_SIZE
+        if(H5_daos_create_task(get_args->op_type == H5VL_DATASET_GET_STORAGE_SIZE
                 ? H5_daos_dataset_get_task : H5_daos_metatask_autocomplete,
                 0, NULL, NULL, NULL, get_udata, &get_task) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't create task to perform get operation");
@@ -4459,8 +4461,8 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_dataset_specific(void *_item, H5VL_dataset_specific_t specific_type,
-    hid_t dxpl_id, void H5VL_DAOS_UNUSED **req, va_list arguments)
+H5_daos_dataset_specific(void *_item, H5VL_dataset_specific_args_t *specific_args,
+    hid_t dxpl_id, void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_dset_t *dset = (H5_daos_dset_t *)_item;
     H5_daos_req_t *int_req = NULL;
@@ -4477,6 +4479,8 @@ H5_daos_dataset_specific(void *_item, H5VL_dataset_specific_t specific_type,
 
     if(!_item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
+    if(!specific_args)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "Invalid operation arguments");
     if(H5I_DATASET != dset->obj.item.type)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a dataset");
 
@@ -4488,10 +4492,10 @@ H5_daos_dataset_specific(void *_item, H5VL_dataset_specific_t specific_type,
     H5_DAOS_GET_METADATA_IO_MODES(dset->obj.item.file, dapl_id, H5P_DATASET_ACCESS_DEFAULT,
             collective_md_read, collective_md_write, H5E_DATASET, FAIL);
 
-    switch (specific_type) {
+    switch (specific_args->op_type) {
         case H5VL_DATASET_SET_EXTENT:
             {
-                const hsize_t *size = va_arg(arguments, const hsize_t *);
+                const hsize_t *size = specific_args->args.set_extent.size;
 
                 if(!size)
                     D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "size parameter is NULL");
@@ -4586,7 +4590,7 @@ done:
         /* Add the request to the object's request queue.  This will add the
          * dependency on the dataset open if necessary. */
         if(H5_daos_req_enqueue(int_req, first_task, &dset->obj.item,
-                specific_type == H5VL_DATASET_SET_EXTENT || specific_type == H5VL_DATASET_FLUSH
+                specific_args->op_type == H5VL_DATASET_SET_EXTENT || specific_args->op_type == H5VL_DATASET_FLUSH
                 ? H5_DAOS_OP_TYPE_WRITE_ORDERED : H5_DAOS_OP_TYPE_READ,
                 H5_DAOS_OP_SCOPE_OBJ, must_coll_req, !req) < 0)
             D_DONE_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't add request to request queue");

@@ -20,20 +20,11 @@
 
 #define MAINPROCESS (!mpi_rank)
 
-/* Use FUNC to safely handle variations of C99 __func__ keyword handling */
-#ifdef H5_HAVE_C99_FUNC
-#define FUNC __func__
-#elif defined(H5_HAVE_FUNCTION)
-#define FUNC __FUNCTION__
-#else
-#error "We need __func__ or __FUNCTION__ to test function names!"
-#endif
-
 /*
  * Print the current location on the standard output stream.
  */
 #define AT()     if (MAINPROCESS) printf ("   at %s:%d in %s()...\n",        \
-        __FILE__, __LINE__, FUNC);
+        __FILE__, __LINE__, __func__);
 
 /*
  * The name of the test is printed by saying TESTING("something") which will

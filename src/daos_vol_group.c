@@ -1615,8 +1615,8 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_group_get(void *_item, H5VL_group_get_t get_type, hid_t dxpl_id,
-    void **req, va_list arguments)
+H5_daos_group_get(void *_item, H5VL_group_get_args_t *get_args, hid_t dxpl_id,
+    void **req)
 {
     H5_daos_group_t *grp = (H5_daos_group_t *)_item;
     H5_daos_req_t   *int_req = NULL;
@@ -1629,6 +1629,8 @@ H5_daos_group_get(void *_item, H5VL_group_get_t get_type, hid_t dxpl_id,
 
     if(!_item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
+    if(!get_args)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "Invalid operation arguments");
     if(H5I_FILE != grp->obj.item.type && H5I_GROUP != grp->obj.item.type)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a file or group");
 
@@ -1641,11 +1643,11 @@ H5_daos_group_get(void *_item, H5VL_group_get_t get_type, hid_t dxpl_id,
     int_req->th_open = TRUE;
 #endif /* H5_DAOS_USE_TRANSACTIONS */
 
-    switch (get_type) {
+    switch (get_args->op_type) {
         /* H5Gget_create_plist */
         case H5VL_GROUP_GET_GCPL:
         {
-            hid_t *ret_id = va_arg(arguments, hid_t *);
+            hid_t *ret_id = &get_args->args.get_gcpl.gcpl_id;
 
             /* Wait for the group to open if necessary */
             if(!grp->obj.item.created && grp->obj.item.open_req->status != 0) {
@@ -1668,8 +1670,8 @@ H5_daos_group_get(void *_item, H5VL_group_get_t get_type, hid_t dxpl_id,
         /* H5Gget_info(_by_name/by_idx) */
         case H5VL_GROUP_GET_INFO:
         {
-            const H5VL_loc_params_t *loc_params = va_arg(arguments, const H5VL_loc_params_t *);
-            H5G_info_t *group_info = va_arg(arguments, H5G_info_t *);
+            const H5VL_loc_params_t *loc_params = &get_args->args.get_info.loc_params;
+            H5G_info_t *group_info = get_args->args.get_info.ginfo;
 
             /* Start H5 operation */
             if(NULL == (int_req = H5_daos_req_create(grp->obj.item.file, "group get info",
@@ -1751,26 +1753,28 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_group_specific(void *_item, H5VL_group_specific_t specific_type,
-    hid_t H5VL_DAOS_UNUSED dxpl_id, void **req, va_list H5VL_DAOS_UNUSED arguments)
+H5_daos_group_specific(void *_item, H5VL_group_specific_args_t *specific_args,
+    hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
 {
     H5_daos_group_t *grp = (H5_daos_group_t *)_item;
     tse_task_t *first_task = NULL;
     tse_task_t *dep_task = NULL;
     H5_daos_req_t *int_req = NULL;
     int ret;
-    herr_t           ret_value = SUCCEED;
+    herr_t ret_value = SUCCEED;
 
     H5_daos_inc_api_cnt();
 
     if(!_item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
+    if(!specific_args)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "Invalid operation arguments");
     if(H5I_FILE != grp->obj.item.type && H5I_GROUP != grp->obj.item.type)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a file or group");
 
     H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
 
-    switch (specific_type) {
+    switch (specific_args->op_type) {
         /* H5Gflush */
         case H5VL_GROUP_FLUSH:
         {
@@ -1817,7 +1821,7 @@ done:
          * use WRITE_ORDERED so all previous operations complete before the
          * flush and all subsequent operations start after the flush (this is
          * where we implement the barrier semantics for flush). */
-        assert(specific_type == H5VL_GROUP_FLUSH);
+        assert(specific_args->op_type == H5VL_GROUP_FLUSH);
         if(H5_daos_req_enqueue(int_req, first_task, &grp->obj.item,
                 H5_DAOS_OP_TYPE_WRITE_ORDERED, H5_DAOS_OP_SCOPE_OBJ, FALSE, !req) < 0)
             D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't add request to request queue");

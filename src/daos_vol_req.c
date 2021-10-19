@@ -161,22 +161,21 @@ done:
  */
 herr_t
 H5_daos_req_specific(void H5VL_DAOS_UNUSED *_req,
-    H5VL_request_specific_t specific_type, va_list
-#if H5VL_VERSION < 2
-H5VL_DAOS_UNUSED
-#endif
-arguments)
+    H5VL_request_specific_args_t *specific_args)
 {
     herr_t ret_value = SUCCEED;    /* Return value */
 
     H5_daos_inc_api_cnt();
 
-    switch (specific_type) {
+    if(!specific_args)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "Invalid operation arguments");
+
+    switch (specific_args->op_type) {
 #if H5VL_VERSION >= 2
         /* H5ESget_err_info */
         case H5VL_REQUEST_GET_ERR_STACK:
         {
-            hid_t *err_stack_id = va_arg(arguments, hid_t *);
+            hid_t *err_stack_id = &specific_args->args.get_err_stack.err_stack_id;
 
             /* We don't currently track per-operation error stacks.  Just return
              * H5I_INVALID_HID */

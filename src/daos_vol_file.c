@@ -2979,18 +2979,22 @@ H5_daos_file_delete_status_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED
 
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
-        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for dataset info broadcast task");
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for file deletion status broadcast task");
 
     assert(udata->req);
 
     /* Handle errors in bcast task.  Only record error in udata->req_status if
      * it does not already contain an error (it could contain an error if
      * another task this task is not dependent on also failed). */
-    if((task->dt_result < -H5_DAOS_PRE_ERROR
-            && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) ||
-            ( *((herr_t *)udata->buffer) < 0)) {
+    if(task->dt_result < -H5_DAOS_PRE_ERROR
+            && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
         udata->req->status = task->dt_result;
         udata->req->failed_task = "MPI_Ibcast file deletion status";
+    } /* end if */
+    else if(*((herr_t *)udata->buffer) < 0) {
+        /* Handle lead rank failing during file deletion */
+        if(udata->req->file->my_rank != 0)
+            D_GOTO_ERROR(H5E_FILE, H5E_CANTDELETEFILE, -H5_DAOS_REMOTE_ERROR, "lead process failed to delete file");
     } /* end if */
 
 done:
@@ -3007,7 +3011,7 @@ done:
 
         /* Release our reference to req */
         if(H5_daos_req_free_int(udata->req) < 0)
-            D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+            D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
 
         /* Return task to task list */
         if(H5_daos_task_list_put(H5_daos_task_list_g, udata->bcast_metatask) < 0)

@@ -5772,7 +5772,8 @@ H5_daos_attr_exists_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         else if(attr_missing)
             *udata->exists = FALSE;
         else
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "attribute exists in inconsistent state (metadata missing)");
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, -H5_DAOS_DAOS_GET_ERROR,
+                    "attribute exists in inconsistent state (metadata missing)");
     } /* end if */
 
 done:
@@ -6247,7 +6248,7 @@ H5_daos_attribute_iterate_by_name_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSE
                     tmp_char = p[udata->u.name_order_data.kds[i].kd_key_len];
                     p[udata->u.name_order_data.kds[i].kd_key_len] = '\0';
 
-                    H5_DAOS_WAIT_ON_ASYNC_CHAIN(udata->req, first_task, dep_task, H5E_ATTR, H5E_CANTINIT, FAIL);
+                    H5_DAOS_WAIT_ON_ASYNC_CHAIN(udata->req, first_task, dep_task, H5E_ATTR, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR);
 
                     /* Create task to call user-supplied operator callback function */
                     if(H5_daos_attribute_get_iter_op_task(udata, &p[2],
@@ -7146,7 +7147,7 @@ H5_daos_attribute_get_name_by_name_order(H5_daos_attr_get_name_by_idx_ud_t *get_
      */
     if(H5_daos_create_task(H5_daos_attribute_gnbno_no_attrs_check_task, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
             NULL, NULL, get_name_udata, &no_attrs_check_task) < 0)
-        D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to check for no attributes on object");
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to check for no attributes on object");
 
     /* Schedule attribute count check task (or save it to be scheduled later) and
      * give it a reference to req */
@@ -7524,7 +7525,7 @@ H5_daos_attribute_get_name_by_idx_free_udata(H5_daos_attr_get_name_by_idx_ud_t *
     /* Create task for freeing udata */
     if(H5_daos_create_task(H5_daos_attribute_get_name_by_idx_free_udata_task, *dep_task ? 1 : 0,
             *dep_task ? dep_task : NULL, NULL, NULL, udata, &free_task) < 0)
-        D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to free attribute name retrieval udata");
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to free attribute name retrieval udata");
 
     /* Schedule attribute name retrieval udata free task (or save it to be scheduled later) and
      * give it a reference to req and target_obj */

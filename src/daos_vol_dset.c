@@ -2565,12 +2565,12 @@ H5_daos_chunk_io_tconv_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         if(H5Dgather(udata->tconv.mem_space_id, udata->tconv.buf, udata->tconv.mem_type_id,
                 (size_t)udata->tconv.num_elem * udata->tconv.mem_type_size, udata->tconv.tconv_buf,
                 NULL, NULL) < 0)
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, H5_DAOS_H5_SCATGATH_ERROR, "can't gather data to conversion buffer");
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, -H5_DAOS_H5_SCATGATH_ERROR, "can't gather data to conversion buffer");
 
         /* Perform type conversion */
         if(H5Tconvert(udata->tconv.mem_type_id, udata->dset->file_type_id, (size_t)udata->tconv.num_elem,
                 udata->tconv.tconv_buf, udata->tconv.bkg_buf, udata->req->dxpl_id) < 0)
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTCONVERT, H5_DAOS_H5_TCONV_ERROR, "can't perform type conversion");
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTCONVERT, -H5_DAOS_H5_TCONV_ERROR, "can't perform type conversion");
     } /* end if */
 
     /* Set sg_iov to point to tconv_buf */
@@ -2637,7 +2637,7 @@ H5_daos_chunk_io_tconv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         /* Perform type conversion */
         if(H5Tconvert(udata->dset->file_type_id, udata->tconv.mem_type_id, (size_t)udata->tconv.num_elem,
                 udata->tconv.tconv_buf, udata->tconv.bkg_buf, udata->req->dxpl_id) < 0)
-            D_GOTO_ERROR(H5E_DATASET, H5E_CANTCONVERT, H5_DAOS_H5_TCONV_ERROR, "can't perform type conversion");
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTCONVERT, -H5_DAOS_H5_TCONV_ERROR, "can't perform type conversion");
 
         /* Scatter data to memory buffer if necessary */
         if(udata->tconv.reuse != H5_DAOS_TCONV_REUSE_TCONV) {
@@ -2647,7 +2647,7 @@ H5_daos_chunk_io_tconv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
             scatter_cb_ud.len = (size_t)udata->tconv.num_elem * udata->tconv.mem_type_size;
             if(H5Dscatter(H5_daos_scatter_cb, &scatter_cb_ud, udata->tconv.mem_type_id,
                     udata->tconv.mem_space_id, udata->tconv.buf) < 0)
-                D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, H5_DAOS_H5_SCATGATH_ERROR, "can't scatter data to read buffer");
+                D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, -H5_DAOS_H5_SCATGATH_ERROR, "can't scatter data to read buffer");
         } /* end if */
     } /* end if */
 
@@ -4980,12 +4980,12 @@ H5_daos_dataset_refresh_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
             /* Decode dataspace */
             if((decoded_space = H5Sdecode(udata->md_rw_cb_ud.sg_iov[0].iov_buf)) < 0)
-                D_GOTO_ERROR(H5E_ARGS, H5E_CANTDECODE, FAIL, "can't deserialize dataspace");
+                D_GOTO_ERROR(H5E_ARGS, H5E_CANTDECODE, -H5_DAOS_H5_DECODE_ERROR, "can't deserialize dataspace");
 
             /* Close dataset's current dataspace ID */
             if(dset->space_id >= 0 && H5Sclose(dset->space_id) < 0) {
                 H5Sclose(decoded_space);
-                D_GOTO_ERROR(H5E_DATASPACE, H5E_CLOSEERROR, FAIL, "can't close dataset's old dataspace");
+                D_GOTO_ERROR(H5E_DATASPACE, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close dataset's old dataspace");
             }
 
             dset->space_id = decoded_space;
@@ -5404,7 +5404,7 @@ done:
 
         if(update_cb_ud) {
             if(H5Sclose(update_cb_ud->new_space_id) < 0)
-                D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close dataspace");
+                D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, FAIL, "can't close dataspace");
             update_cb_ud = DV_free(update_cb_ud);
         } /* end if */
     } /* end if */

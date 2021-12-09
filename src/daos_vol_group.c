@@ -191,8 +191,8 @@ H5_daos_group_traverse(H5_daos_item_t *item, const char *path,
                     D_GOTO_ERROR(H5E_SYM, H5E_CANTALLOC, NULL, "can't create DAOS request");
 
                 /* Allocate the group object that is returned to the user */
-		if(NULL == (obj = H5FL_CALLOC(H5_daos_group_t)))
-			D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate DAOS group struct");
+                if(NULL == (obj = H5FL_CALLOC(H5_daos_group_t)))
+                    D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate DAOS group struct");
 
                 /* Open next group in path */
                 if(H5_daos_group_open_helper(item->file, (H5_daos_group_t *)obj,
@@ -2135,7 +2135,7 @@ H5_daos_group_get_info_task(tse_task_t *task)
 
     /* Verify opened objec tis a group */
     if(udata->opened_type != H5I_GROUP)
-        D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, FAIL, "opened object is not a group");
+        D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, -H5_DAOS_BAD_VALUE, "opened object is not a group");
 
     /* Retrieve the group's info */
     udata->group_info->storage_type = H5G_STORAGE_TYPE_UNKNOWN;
@@ -2155,7 +2155,7 @@ H5_daos_group_get_info_task(tse_task_t *task)
 
     /* Retrieve the number of links in the group. */
     if(H5_daos_group_get_num_links((H5_daos_group_t *)udata->target_obj, &udata->group_info->nlinks, udata->req, &first_task, &dep_task) < 0)
-        D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, FAIL, "can't get the number of links in group");
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, -H5_DAOS_DAOS_GET_ERROR, "can't get the number of links in group");
 
 done:
     /* Clean up */
@@ -2464,7 +2464,7 @@ H5_daos_group_gnl_task(tse_task_t *task)
 
         /* Register id for grp */
         if((target_grp_id = H5VLwrap_register((H5_daos_group_t *)udata->md_rw_cb_ud.obj, H5I_GROUP)) < 0)
-            D_GOTO_ERROR(H5E_ID, H5E_CANTREGISTER, FAIL, "unable to atomize object handle");
+            D_GOTO_ERROR(H5E_ID, H5E_CANTREGISTER, -H5_DAOS_SETUP_ERROR, "unable to atomize object handle");
         udata->md_rw_cb_ud.obj->item.rc++;
 
         /* Initialize iteration data */
@@ -2477,7 +2477,7 @@ H5_daos_group_gnl_task(tse_task_t *task)
          * incremented or are copied, so we can free udata in this function
          * without waiting */
         if(H5_daos_link_iterate((H5_daos_group_t *)udata->md_rw_cb_ud.obj, &iter_data, &first_task, &dep_task) < 0)
-            D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, FAIL, "can't retrieve the number of links in group");
+            D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, -H5_DAOS_SETUP_ERROR, "can't retrieve the number of links in group");
 
         /* Create metatask to complete this task after dep_task if necessary */
         if(dep_task) {
@@ -2498,7 +2498,7 @@ done:
     /* Close group ID.  No need to mark as nonblocking close since the ID rc
      * shouldn't drop to 0. */
     if((target_grp_id >= 0) && (H5Idec_ref(target_grp_id) < 0))
-        D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group ID");
+        D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close group ID");
 
     /* Schedule first task */
     if(first_task && 0 != (ret = tse_task_schedule(first_task, false)))

@@ -2320,7 +2320,7 @@ H5_daos_oidx_generate_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     /* Set arguments for OIDX generation */
     if(NULL == (alloc_args = daos_task_get_args(task)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTGET, FAIL, "can't get arguments for OIDX generation task");
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTGET, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for OIDX generation task");
     alloc_args->coh = udata->generic_ud.req->file->coh;
     alloc_args->num_oids = H5_DAOS_OIDX_NALLOC;
     alloc_args->oid = udata->next_oidx;
@@ -2612,7 +2612,7 @@ done:
     if(udata) {
         /* Release our reference on the file */
         if(H5_daos_file_close_helper(udata->file) < 0)
-            D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, FAIL, "can't close file");
+            D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close file");
 
         /* Handle errors in this function */
         /* Do not place any code that can issue errors after this block, except
@@ -2768,7 +2768,7 @@ done:
 
         /* Release our reference on the file */
         if(H5_daos_file_close_helper(udata->file) < 0)
-            D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, FAIL, "can't close file");
+            D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close file");
 
         /* Handle errors in this function */
         /* Do not place any code that can issue errors after this block, except for
@@ -4044,7 +4044,7 @@ H5_daos_list_key_init(H5_daos_iter_data_t *iter_data, H5_daos_obj_t *target_obj,
 
     /* Allocate iter udata */
     if(NULL == (iter_udata = (H5_daos_iter_ud_t *)DV_calloc(sizeof(H5_daos_iter_ud_t))))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate iteration user data");
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate iteration user data");
 
     /* Fill in user data fields */
     iter_udata->target_obj = target_obj;
@@ -4059,7 +4059,7 @@ H5_daos_list_key_init(H5_daos_iter_data_t *iter_data, H5_daos_obj_t *target_obj,
      * existing iter_data */
     if(base_iter) {
         if(NULL == (iter_udata->iter_data = (H5_daos_iter_data_t *)DV_malloc(sizeof(H5_daos_iter_data_t))))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate iteration data");
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate iteration data");
         memcpy(iter_udata->iter_data, iter_data, sizeof(*iter_data));
     } /* end if */
     else

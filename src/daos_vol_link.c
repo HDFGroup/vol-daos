@@ -1121,7 +1121,7 @@ H5_daos_link_write_end_task(tse_task_t *task)
      * target group */
     if(H5_daos_link_write_corder_info((H5_daos_group_t *)udata->md_rw_cb_ud.obj, udata->max_corder, udata,
             udata->md_rw_cb_ud.req, &first_task, &dep_task) < 0)
-        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create task for writing link creation order information to group");
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't create task for writing link creation order information to group");
 
     /* Schedule link write update task, and transfer ownership of udata.  This
      * can run in parallel with tasks scheduled by
@@ -1741,7 +1741,7 @@ H5_daos_link_write_corder_info(H5_daos_group_t *target_grp, uint64_t new_max_cor
     /* Create task to finish this operation */
     if(H5_daos_create_task(H5_daos_link_wr_corder_info_task, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
             NULL, NULL, write_corder_ud, &write_corder_ud->write_corder_task) < 0)
-        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't create task to write creation order info");
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create task to write creation order info");
 
     /* Schedule creation order write task, give write_corder_ud a reference to
      * link_write_ud, and transfer ownership of write_corder_ud.
@@ -1909,13 +1909,13 @@ H5_daos_link_create_task(tse_task_t *task)
         /* Create metatask for coordination */
         if(H5_daos_create_task(H5_daos_metatask_autocomp_other, 1, &dep_task,
                 NULL, NULL, task, &metatask) < 0) {
-            D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create metatask for link create");
+            D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't create metatask for link create");
             tse_task_complete(task, ret_value);
 	    }
 
         /* Schedule metatask */
         if(0 != (ret = tse_task_schedule(metatask, false)))
-            D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't schedule metatask for link create: %s", H5_daos_err_to_string(ret));
+            D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, ret, "can't schedule metatask for link create: %s", H5_daos_err_to_string(ret));
         dep_task = metatask;
     }
 
@@ -4132,7 +4132,7 @@ H5_daos_link_get_info(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
 
     /* Allocate task udata struct */
     if(NULL == (task_udata = (H5_daos_link_get_info_ud_t *)DV_calloc(sizeof(H5_daos_link_get_info_ud_t))))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate link get info data");
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate link get info data");
     task_udata->req = req;
     task_udata->link_info_out = link_info_out;
     task_udata->link_val_out = link_val_out;
@@ -4395,25 +4395,25 @@ H5_daos_link_get_val(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
              * pool, and will be integrated into this function's task chain. */
             if(NULL == (int_int_req = H5_daos_req_create(item->file, "target object open within link get info by index",
                     NULL, NULL, req, H5I_INVALID_HID)))
-                D_GOTO_ERROR(H5E_LINK, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't create DAOS request");
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTALLOC, FAIL, "can't create DAOS request");
 
             /* Open the group containing the target link */
             sub_loc_params.type = H5VL_OBJECT_BY_SELF;
             sub_loc_params.obj_type = item->type;
             if(NULL == (task_udata->target_obj = (H5_daos_obj_t *)H5_daos_group_open_int(item, &sub_loc_params,
                     loc_params->loc_data.loc_by_idx.name, loc_params->loc_data.loc_by_idx.lapl_id, int_int_req, FALSE, first_task, dep_task)))
-                D_GOTO_ERROR(H5E_LINK, H5E_CANTOPENOBJ, -H5_DAOS_H5_OPEN_ERROR, "can't open group containing target link");
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTOPENOBJ, FAIL, "can't open group containing target link");
 
             /* Create task to finalize internal operation */
             if(H5_daos_create_task(H5_daos_h5op_finalize, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
                     NULL, NULL, int_int_req, &int_int_req->finalize_task) < 0)
-                D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't create task to finalize internal operation");
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create task to finalize internal operation");
 
             /* Schedule finalize task (or save it to be scheduled later),
              * give it ownership of int_int_req, and update task pointers */
             if(*first_task) {
                 if(0 != (ret = tse_task_schedule(int_int_req->finalize_task, false)))
-                    D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, ret, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
+                    D_GOTO_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't schedule task to finalize H5 operation: %s", H5_daos_err_to_string(ret));
             } /* end if */
             else
                 *first_task = int_int_req->finalize_task;
@@ -4426,7 +4426,7 @@ H5_daos_link_get_val(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
                     loc_params->loc_data.loc_by_idx.order, (uint64_t)loc_params->loc_data.loc_by_idx.n,
                     &task_udata->target_name, &task_udata->target_name_len, &task_udata->path_buf,
                     NULL, req, first_task, dep_task) < 0)
-                D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, -H5_DAOS_H5_GET_ERROR, "can't get link name");
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't get link name");
 
             break;
         } /* H5VL_OBJECT_BY_IDX */
@@ -4441,7 +4441,7 @@ H5_daos_link_get_val(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params,
     memset(&task_udata->local_link_val, 0, sizeof(task_udata->local_link_val));
     if(H5_daos_link_read_late_name((H5_daos_group_t *)task_udata->target_obj, &task_udata->target_name,
             &task_udata->target_name_len, req, &task_udata->local_link_val, NULL, first_task, dep_task) < 0)
-        D_GOTO_ERROR(H5E_LINK, H5E_READERROR, -H5_DAOS_H5_GET_ERROR, "failed to read link");
+        D_GOTO_ERROR(H5E_LINK, H5E_READERROR, FAIL, "failed to read link");
 
 done:
     /* Clean up */
@@ -4452,14 +4452,14 @@ done:
             if(task_udata->target_obj && H5_daos_object_close(&task_udata->target_obj->item) < 0)
                 D_DONE_ERROR(H5E_LINK, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close object");
             task_udata = DV_free(task_udata);
-            D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR, "can't create task for link get val end");
+            D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't create task for link get val end");
         }
         else {
             /* Schedule end task (or save it to be scheduled later) and give it a
              * reference to req and udata (transfer ownership of the group) */
             if(*first_task) {
                 if(0 != (ret = tse_task_schedule(end_task, false)))
-                    D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, ret, "can't schedule task for link get val: %s", H5_daos_err_to_string(ret));
+                    D_DONE_ERROR(H5E_LINK, H5E_CANTINIT, FAIL, "can't schedule task for link get val: %s", H5_daos_err_to_string(ret));
             } /* end if */
             else
                 *first_task = end_task;
@@ -4471,7 +4471,7 @@ done:
 
     /* Close internal request for target object open */
     if(int_int_req && H5_daos_req_free_int(int_int_req) < 0)
-        D_DONE_ERROR(H5E_LINK, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+        D_DONE_ERROR(H5E_LINK, H5E_CLOSEERROR, FAIL, "can't free request");
 
     D_FUNC_LEAVE;
 } /* end H5_daos_link_get_val() */
@@ -5069,7 +5069,7 @@ H5_daos_link_iterate_op_task(tse_task_t *task)
             ret = dv_hash_table_insert(udata->iter_ud->iter_data->u.link_iter_data.visited_link_table, oid_lo_copy, oid_lo_copy);
             if(!ret) {
                 DV_free(oid_lo_copy);
-                D_GOTO_ERROR(H5E_LINK, H5E_CANTINSERT, ret, "failed to insert link into visited link table");
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTINSERT, -H5_DAOS_SETUP_ERROR, "failed to insert link into visited link table");
             } /* end if */
 
             /* Start internal H5 operation for target object open.  This will
@@ -5609,7 +5609,7 @@ H5_daos_link_ibco_op_task(tse_task_t *task)
             ret = dv_hash_table_insert(udata->iter_data->u.link_iter_data.visited_link_table, oid_lo_copy, oid_lo_copy);
             if(!ret) {
                 DV_free(oid_lo_copy);
-                D_GOTO_ERROR(H5E_LINK, H5E_CANTINSERT, ret, "failed to insert link into visited link table");
+                D_GOTO_ERROR(H5E_LINK, H5E_CANTINSERT, -H5_DAOS_SETUP_ERROR, "failed to insert link into visited link table");
             } /* end if */
 
             /* Start internal H5 operation for target object open.  This will
@@ -8068,7 +8068,7 @@ H5_daos_link_gnbc_task(tse_task_t *task)
 
     /* Check that creation order is tracked for target group */
     if(!((H5_daos_group_t *)(udata->md_rw_cb_ud.obj))->gcpl_cache.track_corder)
-        D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, (-1), "creation order is not tracked for group");
+        D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, -H5_DAOS_BAD_VALUE, "creation order is not tracked for group");
 
     /* Ensure the index is within range */
     if(udata->index >= (uint64_t)udata->grp_nlinks)
@@ -8289,7 +8289,7 @@ H5_daos_link_get_name_by_crt_order(H5_daos_group_t *target_grp, H5_iter_order_t 
 
     /* Retrieve the current number of links in the group */
     if(H5_daos_group_get_num_links(target_grp, &gnbc_udata->grp_nlinks, req, first_task, dep_task) < 0)
-        D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, (-1), "can't get number of links in group");
+        D_GOTO_ERROR(H5E_LINK, H5E_CANTGET, FAIL, "can't get number of links in group");
 
     /* Create task to finish this operation */
     if(H5_daos_create_task(H5_daos_link_gnbc_task, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,

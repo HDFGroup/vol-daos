@@ -3751,7 +3751,7 @@ done:
             D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
         /* Check for external async.  Disabled for H5Ovisit for now. */
-        if(0 && req && specific_args->op_type != H5VL_OBJECT_VISIT) {
+        if(req && specific_args->op_type != H5VL_OBJECT_VISIT) {
             /* Return int_req as req */
             *req = int_req;
 

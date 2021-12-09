@@ -6810,6 +6810,16 @@ done:
 
     if(corder_delete_ud) {
         assert(ret_value < 0);
+
+        if (update_task)
+            tse_task_complete(update_task, -H5_DAOS_SETUP_ERROR);
+        if (delete_task)
+            tse_task_complete(delete_task, -H5_DAOS_SETUP_ERROR);
+        if (bookkeep_task)
+            tse_task_complete(bookkeep_task, -H5_DAOS_SETUP_ERROR);
+        if (finish_task)
+            tse_task_complete(finish_task, -H5_DAOS_SETUP_ERROR);
+
         corder_delete_ud = DV_free(corder_delete_ud);
     }
 

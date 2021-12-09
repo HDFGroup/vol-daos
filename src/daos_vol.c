@@ -99,10 +99,11 @@ static void *H5_daos_faccess_info_copy(const void *_old_fa);
 static herr_t H5_daos_faccess_info_free(void *_fa);
 static herr_t H5_daos_get_conn_cls(void *item, H5VL_get_conn_lvl_t lvl,
     const H5VL_class_t **conn_cls);
+static herr_t H5_daos_get_cap_flags(const void *info, unsigned *cap_flags);
 static herr_t H5_daos_opt_query(void *item, H5VL_subclass_t cls, int opt_type,
     H5_DAOS_OPT_QUERY_OUT_TYPE *supported);
-static herr_t H5_daos_optional(void *item, int op_type, hid_t dxpl_id,
-    void **req, va_list arguments);
+static herr_t H5_daos_optional(void *item, H5VL_optional_args_t *opt_args, hid_t dxpl_id,
+    void **req);
 
 static herr_t H5_daos_oidx_bcast(H5_daos_file_t *file, uint64_t *oidx_out,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
@@ -214,6 +215,7 @@ static const H5VL_class_t H5_daos_g = {
     },
     {
         H5_daos_get_conn_cls,                /* Connector get connector class */
+        H5_daos_get_cap_flags,               /* Connector get cap flags */
         H5_daos_opt_query                    /* Connector optional callback query */
     },
     {
@@ -404,8 +406,8 @@ H5Pset_fapl_daos(hid_t fapl_id, const char *pool, const char *sys_name)
 
     memset(fa.sys, '\0', sizeof(fa.sys));
     if(sys_name) {
-	strncpy(fa.sys, sys_name, DAOS_SYS_NAME_MAX);
-	fa.sys[DAOS_SYS_NAME_MAX] = 0;
+        strncpy(fa.sys, sys_name, DAOS_SYS_NAME_MAX);
+        fa.sys[DAOS_SYS_NAME_MAX] = 0;
     }
 
     ret_value = H5Pset_vol(fapl_id, H5_DAOS_g, &fa);
@@ -1283,7 +1285,7 @@ done:
 #ifdef DV_TRACK_MEM_USAGE
     /* Check for allocated memory */
     if(0 != daos_vol_curr_alloc_bytes)
-        FUNC_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, FAIL, "%zu bytes were still left allocated", daos_vol_curr_alloc_bytes)
+        D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, FAIL, "%zu bytes were still left allocated", daos_vol_curr_alloc_bytes)
 
     daos_vol_curr_alloc_bytes = 0;
 #endif
@@ -1488,6 +1490,10 @@ H5_daos_pool_connect_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     /* Handle errors */
     H5_DAOS_PREP_REQ(udata->req, H5E_VOL);
+
+    /* Ensure that DAOS pool is set */
+    if(!udata->pool || (0 == strlen(udata->pool)))
+        D_GOTO_ERROR(H5E_IO, H5E_CANTINIT, -H5_DAOS_BAD_VALUE, "DAOS pool is not set");
 
     /* Set daos_pool_connect task args */
     if(NULL == (connect_args = daos_task_get_args(task)))
@@ -1866,6 +1872,35 @@ done:
 
 
 /*---------------------------------------------------------------------------
+ * Function:    H5_daos_get_cap_flags
+ *
+ * Purpose:     Retrieves the capability flags for this VOL connector.
+ *
+ * Return:      Non-negative on Success/Negative on failure
+ *
+ *---------------------------------------------------------------------------
+ */
+static herr_t
+H5_daos_get_cap_flags(const void H5VL_DAOS_UNUSED *info, unsigned *cap_flags)
+{
+    herr_t ret_value = SUCCEED;
+
+    H5_daos_inc_api_cnt();
+
+    if(!cap_flags)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "invalid cap_flags parameter");
+
+    H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
+
+    /* Set the flags from the connector's capability flags field */
+    *cap_flags = H5_daos_g.cap_flags;
+
+done:
+    D_FUNC_LEAVE_API;
+} /* end H5_daos_get_cap_flags() */
+
+
+/*---------------------------------------------------------------------------
  * Function:    H5_daos_opt_query
  *
  * Purpose:     Query if an optional operation is supported by this connector
@@ -1973,35 +2008,39 @@ done:
  *
  *-------------------------------------------------------------------------
  */
-static herr_t H5_daos_optional(void *item, int op_type, hid_t dxpl_id,
-    void **req, va_list arguments)
+static herr_t H5_daos_optional(void *item, H5VL_optional_args_t *opt_args, hid_t dxpl_id,
+    void **req)
 {
-    herr_t          ret_value = SUCCEED;
+    herr_t ret_value = SUCCEED;
 
     H5_daos_inc_api_cnt();
 
     /* Check operation type */
-    switch(op_type) {
+    switch(opt_args->op_type) {
         /* H5Mcreate/create_anon */
         case H5VL_MAP_CREATE:
         {
-            const H5VL_loc_params_t *loc_params = va_arg(arguments, const H5VL_loc_params_t *);
-            const char *name = va_arg(arguments, const char *);
-            hid_t lcpl_id = va_arg(arguments, hid_t);
-            hid_t ktype_id = va_arg(arguments, hid_t);
-            hid_t vtype_id = va_arg(arguments, hid_t);
-            hid_t mcpl_id = va_arg(arguments, hid_t);
-            hid_t mapl_id = va_arg(arguments, hid_t);
-            void **map = va_arg(arguments, void **);
+            H5VL_map_args_t *map_args = (H5VL_map_args_t *)opt_args->args;
+            hid_t lcpl_id = H5I_INVALID_HID;
+            hid_t ktype_id = H5I_INVALID_HID;
+            hid_t vtype_id = H5I_INVALID_HID;
+            hid_t mcpl_id = H5I_INVALID_HID;
+            hid_t mapl_id = H5I_INVALID_HID;
 
-            /* Check map argument.  All other arguments will be checked by
-             * H5_daos_map_create. */
-            if(!map)
-                D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map object output parameter is NULL");
+            /* Check operation arguments pointer.  All other arguments will
+             * be checked by H5_daos_map_create. */
+            if(!map_args)
+                D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "Invalid operation arguments");
+
+            lcpl_id  = map_args->create.lcpl_id;
+            ktype_id = map_args->create.key_type_id;
+            vtype_id = map_args->create.val_type_id;
+            mcpl_id  = map_args->create.mcpl_id;
+            mapl_id  = map_args->create.mapl_id;
 
             /* Pass the call */
-            if(NULL == (*map = H5_daos_map_create(item, loc_params, name, lcpl_id, ktype_id, vtype_id,
-                    mcpl_id, mapl_id, dxpl_id, req)))
+            if(NULL == (map_args->create.map = H5_daos_map_create(item, &map_args->create.loc_params,
+                    map_args->create.name, lcpl_id, ktype_id, vtype_id, mcpl_id, mapl_id, dxpl_id, req)))
                 D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, FAIL, "can't create map object");
 
             break;
@@ -2010,18 +2049,19 @@ static herr_t H5_daos_optional(void *item, int op_type, hid_t dxpl_id,
         /* H5Mopen */
         case H5VL_MAP_OPEN:
         {
-            const H5VL_loc_params_t *loc_params = va_arg(arguments, const H5VL_loc_params_t *);
-            const char *name = va_arg(arguments, const char *);
-            hid_t mapl_id = va_arg(arguments, hid_t);
-            void **map = va_arg(arguments, void **);
+            H5VL_map_args_t *map_args = (H5VL_map_args_t *)opt_args->args;
+            hid_t mapl_id = H5I_INVALID_HID;
 
-            /* Check map argument.  All other arguments will be checked by
-             * H5_daos_map_open. */
-            if(!map)
-                D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "map object output parameter is NULL");
+            /* Check operation arguments pointer.  All other arguments will
+             * be checked by H5_daos_map_open. */
+            if(!map_args)
+                D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "Invalid operation arguments");
+
+            mapl_id = map_args->open.mapl_id;
 
             /* Pass the call */
-            if(NULL == (*map = H5_daos_map_open(item, loc_params, name, mapl_id, dxpl_id, req)))
+            if(NULL == (map_args->open.map = H5_daos_map_open(item, &map_args->open.loc_params,
+                    map_args->open.name, mapl_id, dxpl_id, req)))
                 D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, FAIL, "can't open map object");
 
             break;
@@ -2030,15 +2070,23 @@ static herr_t H5_daos_optional(void *item, int op_type, hid_t dxpl_id,
         /* H5Mget */
         case H5VL_MAP_GET_VAL:
         {
-            hid_t key_mem_type_id = va_arg(arguments, hid_t);
-            const void *key = va_arg(arguments, const void *);
-            hid_t val_mem_type_id = va_arg(arguments, hid_t);
-            void *value = va_arg(arguments, void *);
+            H5VL_map_args_t *map_args = (H5VL_map_args_t *)opt_args->args;
+            hid_t key_mem_type_id = H5I_INVALID_HID;
+            hid_t val_mem_type_id = H5I_INVALID_HID;
+            void *value = NULL;
 
-            /* All arguments will be checked by H5_daos_map_get_val. */
+            /* Check operation arguments pointer.  All other arguments will
+             * be checked by H5_daos_map_get_val. */
+            if(!map_args)
+                D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "Invalid operation arguments");
+
+            key_mem_type_id = map_args->get_val.key_mem_type_id;
+            val_mem_type_id = map_args->get_val.value_mem_type_id;
+            value           = map_args->get_val.value;
 
             /* Pass the call */
-            if((ret_value = H5_daos_map_get_val(item, key_mem_type_id, key, val_mem_type_id, value, dxpl_id, req)) < 0)
+            if((ret_value = H5_daos_map_get_val(item, key_mem_type_id, map_args->get_val.key,
+                    val_mem_type_id, value, dxpl_id, req)) < 0)
                 D_GOTO_ERROR(H5E_MAP, H5E_READERROR, ret_value, "can't get value");
 
             break;
@@ -2047,14 +2095,21 @@ static herr_t H5_daos_optional(void *item, int op_type, hid_t dxpl_id,
         /* H5Mexists */
         case H5VL_MAP_EXISTS:
         {
-            hid_t key_mem_type_id = va_arg(arguments, hid_t);
-            const void *key = va_arg(arguments, const void *);
-            hbool_t *exists = va_arg(arguments, hbool_t *);
+            H5VL_map_args_t *map_args = (H5VL_map_args_t *)opt_args->args;
+            hid_t key_mem_type_id = H5I_INVALID_HID;
+            hbool_t *exists = NULL;
 
-            /* All arguments will be checked by H5_daos_map_exists. */
+            /* Check operation arguments pointer.  All other arguments will
+             * be checked by H5_daos_map_exists. */
+            if(!map_args)
+                D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "Invalid operation arguments");
+
+            key_mem_type_id = map_args->exists.key_mem_type_id;
+            exists          = &map_args->exists.exists;
 
             /* Pass the call */
-            if((ret_value = H5_daos_map_exists(item, key_mem_type_id, key, exists, dxpl_id, req)) < 0)
+            if((ret_value = H5_daos_map_exists(item, key_mem_type_id, map_args->exists.key,
+                    exists, dxpl_id, req)) < 0)
                 D_GOTO_ERROR(H5E_MAP, H5E_READERROR, ret_value, "can't check if value exists");
 
             break;
@@ -2063,15 +2118,21 @@ static herr_t H5_daos_optional(void *item, int op_type, hid_t dxpl_id,
         /* H5Mput */
         case H5VL_MAP_PUT:
         {
-            hid_t key_mem_type_id = va_arg(arguments, hid_t);
-            const void *key = va_arg(arguments, const void *);
-            hid_t val_mem_type_id = va_arg(arguments, hid_t);
-            const void *value = va_arg(arguments, const void *);
+            H5VL_map_args_t *map_args = (H5VL_map_args_t *)opt_args->args;
+            hid_t key_mem_type_id = H5I_INVALID_HID;
+            hid_t val_mem_type_id = H5I_INVALID_HID;
 
-            /* All arguments will be checked by H5_daos_map_put. */
+            /* Check operation arguments pointer.  All other arguments will
+             * be checked by H5_daos_map_put. */
+            if(!map_args)
+                D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "Invalid operation arguments");
+
+            key_mem_type_id = map_args->put.key_mem_type_id;
+            val_mem_type_id = map_args->put.value_mem_type_id;
 
             /* Pass the call */
-            if((ret_value = H5_daos_map_put(item, key_mem_type_id, key, val_mem_type_id, value, dxpl_id, req)) < 0)
+            if((ret_value = H5_daos_map_put(item, key_mem_type_id, map_args->put.key,
+                    val_mem_type_id, map_args->put.value, dxpl_id, req)) < 0)
                 D_GOTO_ERROR(H5E_MAP, H5E_WRITEERROR, ret_value, "can't put value");
 
             break;
@@ -2080,12 +2141,15 @@ static herr_t H5_daos_optional(void *item, int op_type, hid_t dxpl_id,
         /* Operations that get misc info from the map */
         case H5VL_MAP_GET:
         {
-            H5VL_map_get_t get_type = va_arg(arguments, H5VL_map_get_t);
+            H5VL_map_args_t *map_args = (H5VL_map_args_t *)opt_args->args;
 
-            /* All arguments will be checked by H5_daos_map_get. */
+            /* Check operation arguments pointer.  All other arguments will
+             * be checked by H5_daos_map_get. */
+            if(!map_args)
+                D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "Invalid operation arguments");
 
             /* Pass the call */
-            if((ret_value = H5_daos_map_get(item, get_type, dxpl_id, req, arguments)) < 0)
+            if((ret_value = H5_daos_map_get(item, map_args, dxpl_id, req)) < 0)
                 D_GOTO_ERROR(H5E_MAP, H5E_CANTGET, ret_value, "can't perform map get operation");
 
             break;
@@ -2094,13 +2158,15 @@ static herr_t H5_daos_optional(void *item, int op_type, hid_t dxpl_id,
         /* Specific operations (H5Miterate and H5Mdelete) */
         case H5VL_MAP_SPECIFIC:
         {
-            const H5VL_loc_params_t *loc_params = va_arg(arguments, const H5VL_loc_params_t *);
-            H5VL_map_specific_t specific_type = va_arg(arguments, H5VL_map_specific_t);
+            H5VL_map_args_t *map_args = (H5VL_map_args_t *)opt_args->args;
 
-            /* All arguments will be checked by H5_daos_map_specific. */
+            /* Check operation arguments pointer.  All other arguments will
+             * be checked by H5_daos_map_specific. */
+            if(!map_args)
+                D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "Invalid operation arguments");
 
             /* Pass the call */
-            if((ret_value = H5_daos_map_specific(item, loc_params, specific_type, dxpl_id, req, arguments)) < 0)
+            if((ret_value = H5_daos_map_specific(item, map_args, dxpl_id, req)) < 0)
                 D_GOTO_ERROR(H5E_MAP, H5E_CANTINIT, ret_value, "can't perform specific map operation");
 
             break;
@@ -2254,7 +2320,7 @@ H5_daos_oidx_generate_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     /* Set arguments for OIDX generation */
     if(NULL == (alloc_args = daos_task_get_args(task)))
-        D_GOTO_ERROR(H5E_FILE, H5E_CANTGET, FAIL, "can't get arguments for OIDX generation task");
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTGET, -H5_DAOS_DAOS_GET_ERROR, "can't get arguments for OIDX generation task");
     alloc_args->coh = udata->generic_ud.req->file->coh;
     alloc_args->num_oids = H5_DAOS_OIDX_NALLOC;
     alloc_args->oid = udata->next_oidx;
@@ -2546,7 +2612,7 @@ done:
     if(udata) {
         /* Release our reference on the file */
         if(H5_daos_file_close_helper(udata->file) < 0)
-            D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, FAIL, "can't close file");
+            D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close file");
 
         /* Handle errors in this function */
         /* Do not place any code that can issue errors after this block, except
@@ -2650,10 +2716,10 @@ H5_daos_oid_encode(daos_obj_id_t *oid, uint64_t oidx, H5I_type_t obj_type,
     /** if user does not set default object class, use DAOS default, but set a large oclass for
      * datasets, and small for other object types */
     if(object_class == OC_UNKNOWN) {
-	    if (obj_type == H5I_DATASET)
-		    hints = DAOS_OCH_SHD_MAX;
-	    else
-		    hints = DAOS_OCH_SHD_DEF;
+        if (obj_type == H5I_DATASET)
+            hints = DAOS_OCH_SHD_MAX;
+        else
+            hints = DAOS_OCH_SHD_DEF;
     }
     if (daos_obj_generate_oid(file->coh, oid, object_feats, object_class, hints, 0) != 0)
         D_GOTO_ERROR(H5E_VOL, H5E_CANTSET, FAIL, "Can't set object class");
@@ -2702,7 +2768,7 @@ done:
 
         /* Release our reference on the file */
         if(H5_daos_file_close_helper(udata->file) < 0)
-            D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, FAIL, "can't close file");
+            D_DONE_ERROR(H5E_VOL, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close file");
 
         /* Handle errors in this function */
         /* Do not place any code that can issue errors after this block, except for
@@ -3978,7 +4044,7 @@ H5_daos_list_key_init(H5_daos_iter_data_t *iter_data, H5_daos_obj_t *target_obj,
 
     /* Allocate iter udata */
     if(NULL == (iter_udata = (H5_daos_iter_ud_t *)DV_calloc(sizeof(H5_daos_iter_ud_t))))
-        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate iteration user data");
+        D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate iteration user data");
 
     /* Fill in user data fields */
     iter_udata->target_obj = target_obj;
@@ -3993,7 +4059,7 @@ H5_daos_list_key_init(H5_daos_iter_data_t *iter_data, H5_daos_obj_t *target_obj,
      * existing iter_data */
     if(base_iter) {
         if(NULL == (iter_udata->iter_data = (H5_daos_iter_data_t *)DV_malloc(sizeof(H5_daos_iter_data_t))))
-            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate iteration data");
+            D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, -H5_DAOS_ALLOC_ERROR, "can't allocate iteration data");
         memcpy(iter_udata->iter_data, iter_data, sizeof(*iter_data));
     } /* end if */
     else

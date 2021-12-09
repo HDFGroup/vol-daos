@@ -53,7 +53,7 @@ typedef struct H5_daos_cont_op_info_t {
 
 typedef struct get_obj_count_udata_t {
     char file_id[DAOS_PROP_LABEL_MAX_LEN +1];
-    ssize_t obj_count;
+    size_t obj_count;
 } get_obj_count_udata_t;
 
 typedef struct get_obj_ids_udata_t {
@@ -146,7 +146,7 @@ H5_daos_get_cont_props(hid_t fcpl_id, daos_prop_t **prop)
         if(H5Pget(fcpl_id, H5_DAOS_FILE_PROP_NAME, &prop_str) < 0)
             D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "can't get container property");
     } else {
-	prop_str = getenv("HDF5_DAOS_FILE_PROP");
+        prop_str = getenv("HDF5_DAOS_FILE_PROP");
         if(prop_str == NULL)
             D_GOTO_DONE(0);
     }
@@ -171,9 +171,9 @@ done:
  *              this info may also be parsed from the following environment
  *              variables:
  *
- *              DAOS_POOL       - DAOS pool to use
- *              DAOS_POOL_GROUP - Process set name of the servers managing
- *                                the DAOS pool
+ *              DAOS_POOL - DAOS pool to use
+ *              DAOS_SYS  - Process set name of the servers managing
+ *                          the DAOS pool
  *
  * Return:      Non-negative on success/Negative on failure
  *
@@ -217,12 +217,12 @@ H5_daos_get_file_access_info(hid_t fapl_id, H5_daos_acc_params_t *fa_out)
     if(pool_env) {
         /* Parse pool UUID/Label from env. variable */
         strncpy(fa_out->pool, pool_env, DAOS_PROP_LABEL_MAX_LEN);
-	fa_out->pool[DAOS_PROP_LABEL_MAX_LEN] = 0;
+        fa_out->pool[DAOS_PROP_LABEL_MAX_LEN] = 0;
     }
 
     if(sys_env) {
-	strncpy(fa_out->sys, sys_env, DAOS_SYS_NAME_MAX);
-	fa_out->sys[DAOS_SYS_NAME_MAX] = 0;
+        strncpy(fa_out->sys, sys_env, DAOS_SYS_NAME_MAX);
+        fa_out->sys[DAOS_SYS_NAME_MAX] = 0;
     }
 
     /*
@@ -235,7 +235,7 @@ H5_daos_get_file_access_info(hid_t fapl_id, H5_daos_acc_params_t *fa_out)
      * A default will be provided for the pool group field if unset.
      */
 
-    if(H5_daos_bypass_duns_g && fa_out->pool == NULL)
+    if(H5_daos_bypass_duns_g && (0 == strlen(fa_out->pool)))
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "DAOS pool is not set");
 
     if((!local_fapl_info && !sys_env) || (0 == strlen(fa_out->sys))) {
@@ -1594,7 +1594,7 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id,
         uuid_t uuid;
 
         H5_daos_hash128(name, &uuid);
-	uuid_unparse(uuid, file->cont);
+        uuid_unparse(uuid, file->cont);
     }
 
 #ifdef DV_HAVE_SNAP_OPEN_ID
@@ -2219,9 +2219,9 @@ H5_daos_duns_resolve_path_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
             /* Set parameters for file delete operation */
 #if CHECK_DAOS_API_VERSION(1, 4)
-	    strcpy(udata->u.cont_delete_info.facc_params.pool, udata->duns_attr.da_pool);
+	        strcpy(udata->u.cont_delete_info.facc_params.pool, udata->duns_attr.da_pool);
 #else
-	    uuid_unparse(udata->duns_attr.da_puuid, udata->u.cont_delete_info.facc_params.pool);
+	        uuid_unparse(udata->duns_attr.da_puuid, udata->u.cont_delete_info.facc_params.pool);
 #endif
             strcpy(udata->u.cont_delete_info.facc_params.sys, udata->req->file->facc_params.sys);
 
@@ -2241,7 +2241,7 @@ H5_daos_duns_resolve_path_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 #if CHECK_DAOS_API_VERSION(1, 4)
             strcpy(udata->req->file->facc_params.pool, udata->duns_attr.da_pool);
 #else
-	    uuid_unparse(udata->duns_attr.da_puuid, udata->req->file->facc_params.pool);
+            uuid_unparse(udata->duns_attr.da_puuid, udata->req->file->facc_params.pool);
 #endif
         /* If deleting a DUNS path/DAOS container, copy the resolved pool UUID for the delete operation */
         else if(udata->op_type == H5_DAOS_CONT_DESTROY)
@@ -2316,7 +2316,7 @@ H5_daos_cont_open_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 #if CHECK_DAOS_API_VERSION(1, 4)
         strcpy(udata->req->file->cont, udata->duns_attr.da_cont);
 #else
-	uuid_unparse(udata->duns_attr.da_cuuid, udata->req->file->cont);
+        uuid_unparse(udata->duns_attr.da_cuuid, udata->req->file->cont);
 #endif
 
     /* Set daos_cont_open task args */
@@ -2412,8 +2412,8 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_file_get(void *_item, H5VL_file_get_t get_type, hid_t H5VL_DAOS_UNUSED dxpl_id,
-    void H5VL_DAOS_UNUSED **req, va_list H5VL_DAOS_UNUSED arguments)
+H5_daos_file_get(void *_item, H5VL_file_get_args_t *get_args, hid_t H5VL_DAOS_UNUSED dxpl_id,
+    void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_file_t *file = NULL;
@@ -2423,7 +2423,10 @@ H5_daos_file_get(void *_item, H5VL_file_get_t get_type, hid_t H5VL_DAOS_UNUSED d
 
     if(!_item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
-    if(get_type == H5VL_FILE_GET_NAME) {
+    if(!get_args)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "Invalid operation arguments");
+
+    if(get_args->op_type == H5VL_FILE_GET_NAME) {
         file = item->file;
 
         if(H5I_FILE != item->type && H5I_GROUP != item->type &&
@@ -2439,11 +2442,11 @@ H5_daos_file_get(void *_item, H5VL_file_get_t get_type, hid_t H5VL_DAOS_UNUSED d
 
     H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
 
-    switch (get_type) {
+    switch (get_args->op_type) {
         /* "get container info" */
         case H5VL_FILE_GET_CONT_INFO:
         {
-            H5VL_file_cont_info_t *info = va_arg(arguments, H5VL_file_cont_info_t *);
+            H5VL_file_cont_info_t *info = get_args->args.get_cont_info.info;
 
             /* Verify structure version */
             if(info->version != H5VL_CONTAINER_INFO_VERSION)
@@ -2460,7 +2463,7 @@ H5_daos_file_get(void *_item, H5VL_file_get_t get_type, hid_t H5VL_DAOS_UNUSED d
         /* H5Fget_access_plist */
         case H5VL_FILE_GET_FAPL:
         {
-            hid_t *ret_id = va_arg(arguments, hid_t *);
+            hid_t *ret_id = &get_args->args.get_fapl.fapl_id;
 
             if((*ret_id = H5Pcopy(file->fapl_id)) < 0)
                 D_GOTO_ERROR(H5E_PLIST, H5E_CANTCOPY, FAIL, "can't get file's FAPL");
@@ -2471,7 +2474,7 @@ H5_daos_file_get(void *_item, H5VL_file_get_t get_type, hid_t H5VL_DAOS_UNUSED d
         /* H5Fget_create_plist */
         case H5VL_FILE_GET_FCPL:
         {
-            hid_t *ret_id = va_arg(arguments, hid_t *);
+            hid_t *ret_id = &get_args->args.get_fcpl.fcpl_id;
 
             /* Wait for the file to open if necessary */
             if(!file->item.created && file->item.open_req->status != 0) {
@@ -2495,7 +2498,7 @@ H5_daos_file_get(void *_item, H5VL_file_get_t get_type, hid_t H5VL_DAOS_UNUSED d
         /* H5Fget_intent */
         case H5VL_FILE_GET_INTENT:
         {
-            unsigned *ret_intent = va_arg(arguments, unsigned *);
+            unsigned *ret_intent = get_args->args.get_intent.flags;
 
             if((file->flags & H5F_ACC_RDWR) == H5F_ACC_RDWR)
                 *ret_intent = H5F_ACC_RDWR;
@@ -2508,15 +2511,15 @@ H5_daos_file_get(void *_item, H5VL_file_get_t get_type, hid_t H5VL_DAOS_UNUSED d
         /* H5Fget_name */
         case H5VL_FILE_GET_NAME:
         {
-            H5I_type_t  obj_type = va_arg(arguments, H5I_type_t);
-            size_t      name_buf_size = va_arg(arguments, size_t);
-            char       *name_buf = va_arg(arguments, char *);
-            ssize_t    *ret_size = va_arg(arguments, ssize_t *);
+            H5I_type_t  obj_type = get_args->args.get_name.type;
+            size_t      name_buf_size = get_args->args.get_name.buf_size;
+            char       *name_buf = get_args->args.get_name.buf;
+            size_t     *ret_size = get_args->args.get_name.file_name_len;
 
             if(H5I_FILE != obj_type)
                 file = file->item.file;
 
-            *ret_size = (ssize_t) strlen(file->file_name);
+            *ret_size = strlen(file->file_name);
 
             if(name_buf) {
                 strncpy(name_buf, file->file_name, name_buf_size - 1);
@@ -2529,8 +2532,8 @@ H5_daos_file_get(void *_item, H5VL_file_get_t get_type, hid_t H5VL_DAOS_UNUSED d
         /* H5Fget_obj_count */
         case H5VL_FILE_GET_OBJ_COUNT:
         {
-            unsigned obj_types = va_arg(arguments, unsigned);
-            ssize_t *ret_val = va_arg(arguments, ssize_t *);
+            unsigned obj_types = get_args->args.get_obj_count.types;
+            size_t *ret_val = get_args->args.get_obj_count.count;
             get_obj_count_udata_t udata;
 
             udata.obj_count = 0;
@@ -2561,10 +2564,10 @@ H5_daos_file_get(void *_item, H5VL_file_get_t get_type, hid_t H5VL_DAOS_UNUSED d
         /* H5Fget_obj_ids */
         case H5VL_FILE_GET_OBJ_IDS:
         {
-            unsigned obj_types = va_arg(arguments, unsigned);
-            size_t max_ids = va_arg(arguments, size_t);
-            hid_t *oid_list = va_arg(arguments, hid_t *);
-            ssize_t *ret_val = va_arg(arguments, ssize_t *);
+            unsigned obj_types = get_args->args.get_obj_ids.types;
+            size_t max_ids = get_args->args.get_obj_ids.max_objs;
+            hid_t *oid_list = get_args->args.get_obj_ids.oid_list;
+            size_t *ret_val = get_args->args.get_obj_ids.count;
             get_obj_ids_udata_t udata;
 
             udata.max_objs = max_ids;
@@ -2591,7 +2594,7 @@ H5_daos_file_get(void *_item, H5VL_file_get_t get_type, hid_t H5VL_DAOS_UNUSED d
                         D_GOTO_ERROR(H5E_FILE, H5E_BADITER, FAIL, "failed to iterate over file's open attribute IDs");
             }
 
-            *ret_val = (ssize_t)udata.obj_count;
+            *ret_val = udata.obj_count;
 
             break;
         } /* H5VL_FILE_GET_OBJ_IDS */
@@ -2619,8 +2622,8 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
-    hid_t dxpl_id, void **req, va_list arguments)
+H5_daos_file_specific(void *item, H5VL_file_specific_args_t *specific_args,
+    hid_t dxpl_id, void **req)
 {
     H5_daos_file_t *file = NULL;
     H5_daos_acc_params_t faccess_info = {{0}, {0}};
@@ -2630,17 +2633,21 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
     tse_task_t *dep_task = NULL;
     MPI_Comm file_delete_comm = MPI_COMM_NULL;
     MPI_Info file_delete_info = MPI_INFO_NULL;
+    herr_t file_delete_status = SUCCEED;
     int ret;
     herr_t ret_value = SUCCEED;    /* Return value */
 
     H5_daos_inc_api_cnt();
+
+    if(!specific_args)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "Invalid operation arguments");
 
     if(item) {
         file = ((H5_daos_item_t *)item)->file;
         H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
     }
 
-    switch (specific_type) {
+    switch (specific_args->op_type) {
         /* H5Fflush */
         case H5VL_FILE_FLUSH:
         {
@@ -2661,7 +2668,7 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
         case H5VL_FILE_REOPEN:
         {
             unsigned reopen_flags = file->flags;
-            void **ret_file = va_arg(arguments, void **);
+            void **ret_file = specific_args->args.reopen.file;
 
             /* Strip any file creation-related flags */
             reopen_flags &= ~(H5F_ACC_TRUNC | H5F_ACC_EXCL | H5F_ACC_CREAT);
@@ -2671,25 +2678,18 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
             break;
         } /* H5VL_FILE_REOPEN */
 
-        /* H5Fmount */
-        case H5VL_FILE_MOUNT:
-        /* H5Fmount */
-        case H5VL_FILE_UNMOUNT:
-            D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "invalid or unsupported file specific operation");
-            break;
-
         /* H5Fis_accessible */
         case H5VL_FILE_IS_ACCESSIBLE:
         {
-            hid_t file_fapl = va_arg(arguments, hid_t);
-            const char *filename = va_arg(arguments, const char *);
-            htri_t *ret_is_accessible = va_arg(arguments, htri_t *);
+            hid_t file_fapl = specific_args->args.is_accessible.fapl_id;
+            const char *filename = specific_args->args.is_accessible.filename;
+            hbool_t *ret_is_accessible = specific_args->args.is_accessible.accessible;
             struct duns_attr_t duns_attr;
 
             memset(&duns_attr, 0, sizeof(struct duns_attr_t));
 
             /* Initialize returned value in case we fail */
-            *ret_is_accessible = FAIL;
+            *ret_is_accessible = FALSE;
 
             if(NULL == filename)
                 D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, FAIL, "filename is NULL");
@@ -2732,13 +2732,9 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
         /* H5Fdelete */
         case H5VL_FILE_DELETE:
         {
-            hid_t fapl_id = va_arg(arguments, hid_t);
-            const char *filename = va_arg(arguments, const char *);
-            herr_t *delete_ret = va_arg(arguments, herr_t *);
+            hid_t fapl_id = specific_args->args.del.fapl_id;
+            const char *filename = specific_args->args.del.filename;
             int mpi_rank, mpi_size;
-
-            /* Initialize returned value in case we fail */
-            *delete_ret = FAIL;
 
             /* Start H5 operation */
             if(NULL == (int_req = H5_daos_req_create(NULL, "file delete", NULL, NULL, NULL, H5I_INVALID_HID)))
@@ -2754,7 +2750,7 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
                 D_GOTO_ERROR(H5E_FILE, H5E_CANTGET, FAIL, "can't get HDF5 MPI information");
 
             if((mpi_rank == 0) && H5_daos_file_delete(filename, &faccess_info,
-                    FALSE, delete_ret, int_req, &first_task, &dep_task) < 0) {
+                    FALSE, &file_delete_status, int_req, &first_task, &dep_task) < 0) {
                 /* Make sure to participate in following broadcast if needed */
                 if(mpi_size > 1)
                     D_DONE_ERROR(H5E_FILE, H5E_CANTDELETE, FAIL, "can't delete file");
@@ -2768,11 +2764,11 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
                     D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "failed to allocate buffer for MPI broadcast user data");
                 bcast_info->req = int_req;
                 bcast_info->obj = NULL;
-                bcast_info->buffer = delete_ret;
-                bcast_info->buffer_len = bcast_info->count = (int)sizeof(delete_ret);
+                bcast_info->buffer = &file_delete_status;
+                bcast_info->buffer_len = bcast_info->count = (int)sizeof(file_delete_status);
                 bcast_info->comm = file_delete_comm;
 
-                if(H5_daos_mpi_ibcast(bcast_info, NULL, sizeof(delete_ret), FALSE, NULL,
+                if(H5_daos_mpi_ibcast(bcast_info, NULL, sizeof(file_delete_status), FALSE, NULL,
                         H5_daos_file_delete_status_bcast_comp_cb, int_req, &first_task, &dep_task) < 0)
                     D_GOTO_ERROR(H5E_FILE, H5E_CANTDELETE, FAIL, "can't broadcast file deletion status");
             }
@@ -2783,8 +2779,8 @@ H5_daos_file_specific(void *item, H5VL_file_specific_t specific_type,
         /* Check if two files are the same */
         case H5VL_FILE_IS_EQUAL:
         {
-            H5_daos_file_t *file2 = (H5_daos_file_t *)va_arg(arguments, void *);
-            hbool_t *is_equal = va_arg(arguments, hbool_t *);
+            H5_daos_file_t *file2 = (H5_daos_file_t *)specific_args->args.is_equal.obj2;
+            hbool_t *is_equal = specific_args->args.is_equal.same_file;
 
             if(file2->item.type != H5I_FILE)
                 D_GOTO_ERROR(H5E_FILE, H5E_BADVALUE, FAIL, "object is not a file!");
@@ -2825,11 +2821,11 @@ done:
          * use WRITE_ORDERED so all previous operations complete before the
          * flush and all subsequent operations start after the flush (this is
          * where we implement the barrier semantics for flush). */
-        if(specific_type == H5VL_FILE_FLUSH) {
+        if(specific_args->op_type == H5VL_FILE_FLUSH) {
             op_type = H5_DAOS_OP_TYPE_WRITE_ORDERED;
         }
         else {
-            assert(specific_type == H5VL_FILE_DELETE);
+            assert(specific_args->op_type == H5VL_FILE_DELETE);
             op_type = H5_DAOS_OP_TYPE_WRITE;
         }
 
@@ -2923,8 +2919,8 @@ H5_daos_file_delete(const char *file_path, H5_daos_acc_params_t *file_acc_params
     if(H5_daos_bypass_duns_g) {
         uuid_t uuid;
 
-	H5_daos_hash128(file_path, &uuid);
-	uuid_unparse(uuid, destroy_udata->u.cont_delete_info.cont);
+        H5_daos_hash128(file_path, &uuid);
+        uuid_unparse(uuid, destroy_udata->u.cont_delete_info.cont);
     }
 
     /* Create tasks to connect to container's pool and destroy the DUNS path/DAOS container. */
@@ -2983,7 +2979,7 @@ H5_daos_file_delete_status_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED
 
     /* Get private data */
     if(NULL == (udata = tse_task_get_priv(task)))
-        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for dataset info broadcast task");
+        D_GOTO_ERROR(H5E_FILE, H5E_CANTINIT, -H5_DAOS_DAOS_GET_ERROR, "can't get private data for file deletion status broadcast task");
 
     assert(udata->req);
 
@@ -2994,6 +2990,11 @@ H5_daos_file_delete_status_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED
             && udata->req->status >= -H5_DAOS_SHORT_CIRCUIT) {
         udata->req->status = task->dt_result;
         udata->req->failed_task = "MPI_Ibcast file deletion status";
+    } /* end if */
+    else if(*((herr_t *)udata->buffer) < 0) {
+        /* Handle lead rank failing during file deletion */
+        if(udata->req->file->my_rank != 0)
+            D_GOTO_ERROR(H5E_FILE, H5E_CANTDELETEFILE, -H5_DAOS_REMOTE_ERROR, "lead process failed to delete file");
     } /* end if */
 
 done:
@@ -3010,7 +3011,7 @@ done:
 
         /* Release our reference to req */
         if(H5_daos_req_free_int(udata->req) < 0)
-            D_DONE_ERROR(H5E_DATASET, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
+            D_DONE_ERROR(H5E_FILE, H5E_CLOSEERROR, -H5_DAOS_FREE_ERROR, "can't free request");
 
         /* Return task to task list */
         if(H5_daos_task_list_put(H5_daos_task_list_g, udata->bcast_metatask) < 0)

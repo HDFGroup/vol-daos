@@ -584,7 +584,8 @@ static int open_objects(hid_t file) {
         for(j = 0; j < ARRAY_DTYPE_RANK; j++) {
             if(array_dtype_dims[j] != (unsigned)(k + 1)) {
                 H5_FAILED(); AT();
-                printf("wrong dimension of the array datatype: array_dtype_dims[%d]=%llu\n", j, array_dtype_dims[j]);
+                printf("wrong dimension of the array datatype: array_dtype_dims[%d]=%llu\n",
+                        j, (unsigned long long)array_dtype_dims[j]);
                 goto error;
             }
         }

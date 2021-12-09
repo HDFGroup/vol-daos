@@ -116,7 +116,7 @@ typedef struct H5_daos_object_exists_ud_t {
     const char *link_name;
     size_t link_name_len;
     hbool_t link_exists;
-    htri_t *oexists_ret;
+    hbool_t *oexists_ret;
 } H5_daos_object_exists_ud_t;
 
 /* Task user data for object token lookup */
@@ -243,7 +243,7 @@ static int H5_daos_dset_copy_data_end_task(tse_task_t *task);
 
 static int H5_daos_object_lookup_task(tse_task_t *task);
 static herr_t H5_daos_object_exists(H5_daos_group_t *target_grp, const char *link_name,
-    size_t link_name_len, htri_t *oexists_ret,
+    size_t link_name_len, hbool_t *oexists_ret,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 static int H5_daos_object_exists_finish(tse_task_t *task);
 static int H5_daos_object_visit_task(tse_task_t *task);
@@ -3090,8 +3090,7 @@ done:
  */
 herr_t
 H5_daos_object_get(void *_item, const H5VL_loc_params_t *loc_params,
-    H5VL_object_get_t get_type, hid_t dxpl_id, void **req,
-    va_list H5VL_DAOS_UNUSED arguments)
+    H5VL_object_get_args_t *get_args, hid_t dxpl_id, void **req)
 {
     H5_daos_item_t *item = (H5_daos_item_t *) _item;
     H5_daos_obj_t  *target_obj = NULL;
@@ -3108,6 +3107,8 @@ H5_daos_object_get(void *_item, const H5VL_loc_params_t *loc_params,
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
     if(!loc_params)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "location parameters object is NULL");
+    if(!get_args)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "Invalid operation arguments");
 
     H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
 
@@ -3116,10 +3117,10 @@ H5_daos_object_get(void *_item, const H5VL_loc_params_t *loc_params,
             item->open_req, NULL, NULL, dxpl_id)))
         D_GOTO_ERROR(H5E_OBJECT, H5E_CANTALLOC, FAIL, "can't create DAOS request");
 
-    switch (get_type) {
+    switch (get_args->op_type) {
         case H5VL_OBJECT_GET_FILE:
         {
-            void **ret_file = va_arg(arguments, void **);
+            void **ret_file = get_args->args.get_file.file;
 
             if(H5VL_OBJECT_BY_SELF != loc_params->type)
                 D_GOTO_ERROR(H5E_OBJECT, H5E_UNSUPPORTED, FAIL, "unsupported object operation location parameters type");
@@ -3136,7 +3137,7 @@ H5_daos_object_get(void *_item, const H5VL_loc_params_t *loc_params,
         case H5VL_OBJECT_GET_TYPE:
         {
             daos_obj_id_t oid;
-            H5O_type_t *obj_type = va_arg(arguments, H5O_type_t *);
+            H5O_type_t *obj_type = get_args->args.get_type.obj_type;
             H5I_type_t obj_itype;
 
             int_req->op_name = "get object type";
@@ -3191,8 +3192,8 @@ H5_daos_object_get(void *_item, const H5VL_loc_params_t *loc_params,
         /* H5Oget_info(_by_name|_by_idx)3 */
         case H5VL_OBJECT_GET_INFO:
         {
-            H5O_info2_t *oinfo = va_arg(arguments, H5O_info2_t *);
-            unsigned fields = va_arg(arguments, unsigned);
+            H5O_info2_t *oinfo = get_args->args.get_info.oinfo;
+            unsigned fields = get_args->args.get_info.fields;
             H5_daos_obj_t ***target_obj_p = NULL;
 
             int_req->op_name = "get object info";
@@ -3404,8 +3405,7 @@ done:
  */
 herr_t
 H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
-    H5VL_object_specific_t specific_type, hid_t dxpl_id, void **req,
-    va_list arguments)
+    H5VL_object_specific_args_t *specific_args, hid_t dxpl_id, void **req)
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_object_lookup_ud_t *lookup_udata = NULL;
@@ -3434,6 +3434,8 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
     if(!loc_params)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "location parameters object is NULL");
+    if(!specific_args)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "Invalid operation arguments");
 
     H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
 
@@ -3444,12 +3446,12 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
     lapl_id = (H5VL_OBJECT_BY_NAME == loc_params->type) ? loc_params->loc_data.loc_by_name.lapl_id :
               (H5VL_OBJECT_BY_IDX == loc_params->type)  ? loc_params->loc_data.loc_by_idx.lapl_id :
                                                           H5P_LINK_ACCESS_DEFAULT;
-    if(specific_type == H5VL_OBJECT_FLUSH)
+    if(specific_args->op_type == H5VL_OBJECT_FLUSH)
         collective = FALSE;
     else {
         H5_DAOS_GET_METADATA_IO_MODES(item->file, lapl_id, H5P_LINK_ACCESS_DEFAULT,
                 collective_md_read, collective_md_write, H5E_OBJECT, FAIL);
-        if(specific_type == H5VL_OBJECT_CHANGE_REF_COUNT)
+        if(specific_args->op_type == H5VL_OBJECT_CHANGE_REF_COUNT)
             collective = collective_md_write;
         else
             collective = collective_md_read;
@@ -3475,7 +3477,7 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
          * as the path may point to a soft link that doesn't resolve. In that case,
          * H5_daos_object_open_helper would fail.
          */
-        if(H5VL_OBJECT_EXISTS == specific_type) {
+        if(H5VL_OBJECT_EXISTS == specific_args->op_type) {
 #ifdef H5_DAOS_USE_TRANSACTIONS
             /* Start transaction */
             if(0 != (ret = daos_tx_open(item->file->coh, &int_req->th, DAOS_TF_RDONLY, NULL /*event*/)))
@@ -3523,11 +3525,11 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
     else
         D_GOTO_ERROR(H5E_OBJECT, H5E_UNSUPPORTED, FAIL, "unsupported object operation location parameters type");
 
-    switch (specific_type) {
+    switch (specific_args->op_type) {
         /* H5Oincr_refcount/H5Odecr_refcount */
         case H5VL_OBJECT_CHANGE_REF_COUNT:
         {
-            int update_ref = va_arg(arguments, int);
+            int update_ref = specific_args->args.change_rc.delta;
 
             assert(loc_params->type == H5VL_OBJECT_BY_SELF);
             assert(target_obj);
@@ -3558,7 +3560,7 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
         /* H5Oexists_by_name */
         case H5VL_OBJECT_EXISTS:
         {
-            htri_t *oexists_ret = va_arg(arguments, htri_t *);
+            hbool_t *oexists_ret = specific_args->args.exists.exists;
 
             assert(target_obj);
 
@@ -3581,7 +3583,7 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
 
         case H5VL_OBJECT_LOOKUP:
         {
-            H5O_token_t *token = va_arg(arguments, H5O_token_t *);
+            H5O_token_t *token = specific_args->args.lookup.token_ptr;
             tse_task_t *lookup_task = NULL;
 
             int_req->op_name = "object lookup";
@@ -3620,20 +3622,17 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
         /* H5Ovisit(_by_name) */
         case H5VL_OBJECT_VISIT:
         {
+            H5VL_object_visit_args_t *visit_args = &specific_args->args.visit;
             H5_daos_iter_data_t iter_data;
-            H5_index_t idx_type = (H5_index_t) va_arg(arguments, int);
-            H5_iter_order_t iter_order = (H5_iter_order_t) va_arg(arguments, int);
-            H5O_iterate2_t iter_op = va_arg(arguments, H5O_iterate_t);
-            void *op_data = va_arg(arguments, void *);
-            unsigned fields = va_arg(arguments, unsigned);
 
             int_req->op_name = "object visit";
 
             /* Initialize iteration data */
-            H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_OBJ, idx_type, iter_order,
-                    FALSE, NULL, H5I_INVALID_HID, op_data, &ret_value, int_req);
-            iter_data.u.obj_iter_data.fields = fields;
-            iter_data.u.obj_iter_data.u.obj_iter_op = iter_op;
+            H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_OBJ, visit_args->idx_type,
+                    visit_args->order, FALSE, NULL, H5I_INVALID_HID, visit_args->op_data,
+                    &ret_value, int_req);
+            iter_data.u.obj_iter_data.fields = visit_args->fields;
+            iter_data.u.obj_iter_data.u.obj_iter_op = visit_args->op;
             iter_data.u.obj_iter_data.obj_name = ".";
 
             if(H5_daos_object_visit(target_obj_p, target_obj, &iter_data,
@@ -3746,13 +3745,13 @@ done:
         /* Add the request to the object's request queue.  This will add the
          * dependency on the object open if necessary. */
         if(H5_daos_req_enqueue(int_req, first_task, item,
-                specific_type == H5VL_OBJECT_CHANGE_REF_COUNT || specific_type == H5VL_OBJECT_FLUSH
+                specific_args->op_type == H5VL_OBJECT_CHANGE_REF_COUNT || specific_args->op_type == H5VL_OBJECT_FLUSH
                 ? H5_DAOS_OP_TYPE_WRITE_ORDERED : H5_DAOS_OP_TYPE_READ,
                 H5_DAOS_OP_SCOPE_OBJ, must_coll_req, !req) < 0)
             D_DONE_ERROR(H5E_OBJECT, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
         /* Check for external async.  Disabled for H5Ovisit for now. */
-        if(0 && req && specific_type != H5VL_OBJECT_VISIT) {
+        if(req && specific_args->op_type != H5VL_OBJECT_VISIT) {
             /* Return int_req as req */
             *req = int_req;
 
@@ -3977,7 +3976,7 @@ done:
  */
 static herr_t
 H5_daos_object_exists(H5_daos_group_t *target_grp, const char *link_name,
-    size_t link_name_len, htri_t *oexists_ret, H5_daos_req_t *req,
+    size_t link_name_len, hbool_t *oexists_ret, H5_daos_req_t *req,
     tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_object_exists_ud_t *exists_udata = NULL;
@@ -4071,7 +4070,7 @@ H5_daos_object_exists_finish(tse_task_t *task)
     /* Handle errors in previous tasks */
     H5_DAOS_PREP_REQ(udata->req, H5E_OBJECT);
 
-    *udata->oexists_ret = udata->link_exists ? TRUE : FALSE;
+    *udata->oexists_ret = udata->link_exists;
 
 done:
     if(udata) {
@@ -4634,8 +4633,8 @@ H5_daos_object_get_info_task(tse_task_t *task)
         uuid_t cuuid;
         uint8_t *uuid_p;
 
-	uuid_parse((*udata->target_obj_p)->item.file->cont, cuuid);
-	uuid_p = (uint8_t *)&cuuid;
+        uuid_parse((*udata->target_obj_p)->item.file->cont, cuuid);
+        uuid_p = (uint8_t *)&cuuid;
 
         /* Use the lower <sizeof(unsigned long)> bytes of the file uuid
          * as the fileno.  Ideally we would write separate 32 and 64 bit

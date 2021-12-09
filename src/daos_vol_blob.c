@@ -268,7 +268,7 @@ done:
  */
 herr_t
 H5_daos_blob_specific(void *_file, void *blob_id,
-    H5VL_blob_specific_t specific_type, va_list arguments)
+    H5VL_blob_specific_args_t *specific_args)
 {
     H5_daos_file_t *file = (H5_daos_file_t *)_file;
     int ret;
@@ -279,25 +279,17 @@ H5_daos_blob_specific(void *_file, void *blob_id,
     /* Check parameters */
     if(!blob_id)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "blob id is NULL");
+    if(!specific_args)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "Invalid operation arguments");
     if(!file)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "file object is NULL");
 
     H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
 
-    switch(specific_type) {
-        case H5VL_BLOB_GETSIZE:
-            {
-                /* This callback probably doesn't need to exist DSINC */
-                /* If we decide to implement this we must remove the code which
-                 * prevents writing 0 size blobs */
-                D_GOTO_ERROR(H5E_VOL, H5E_UNSUPPORTED, FAIL, "unsupported blob specific operation");
-
-                break;
-            }
-
+    switch(specific_args->op_type) {
         case H5VL_BLOB_ISNULL:
             {
-                hbool_t *isnull = va_arg(arguments, hbool_t *);
+                hbool_t *isnull = specific_args->args.is_null.isnull;
                 uint8_t nul_buf[H5_DAOS_BLOB_ID_SIZE];
 
                 /* Check parameters */

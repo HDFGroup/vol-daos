@@ -1786,25 +1786,43 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_datatype_get(void *_dtype, H5VL_datatype_get_t get_type,
-    hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req, va_list arguments)
+H5_daos_datatype_get(void *_dtype, H5VL_datatype_get_args_t *get_args,
+    hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_dtype_t *dtype = (H5_daos_dtype_t *)_dtype;
-    herr_t       ret_value = SUCCEED;    /* Return value */
+    herr_t           ret_value = SUCCEED;    /* Return value */
 
     H5_daos_inc_api_cnt();
 
     if(!_dtype)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
+    if(!get_args)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "Invalid operation arguments");
 
     H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
 
-    switch (get_type) {
+    switch (get_args->op_type) {
+        case H5VL_DATATYPE_GET_BINARY_SIZE:
+            {
+                size_t *binary_size = get_args->args.get_binary_size.size;
+
+                /* Wait for the datatype to open if necessary */
+                if(!dtype->obj.item.created && dtype->obj.item.open_req->status != 0) {
+                    if(H5_daos_progress(dtype->obj.item.open_req, H5_DAOS_PROGRESS_WAIT) < 0)
+                        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't progress scheduler");
+                    if(dtype->obj.item.open_req->status != 0)
+                        D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTOPENOBJ, FAIL, "group open failed");
+                } /* end if */
+
+                if(H5Tencode(dtype->type_id, NULL, binary_size) < 0)
+                    D_GOTO_ERROR(H5E_DATATYPE, H5E_BADTYPE, FAIL, "can't determine serialized length of datatype");
+
+                break;
+            } /* end block */
         case H5VL_DATATYPE_GET_BINARY:
             {
-                ssize_t *nalloc = va_arg(arguments, ssize_t *);
-                void *buf = va_arg(arguments, void *);
-                size_t size = va_arg(arguments, size_t);
+                void *buf = get_args->args.get_binary.buf;
+                size_t size = get_args->args.get_binary.buf_size;
 
                 /* Wait for the datatype to open if necessary */
                 if(!dtype->obj.item.created && dtype->obj.item.open_req->status != 0) {
@@ -1817,12 +1835,11 @@ H5_daos_datatype_get(void *_dtype, H5VL_datatype_get_t get_type,
                 if(H5Tencode(dtype->type_id, buf, &size) < 0)
                     D_GOTO_ERROR(H5E_DATATYPE, H5E_BADTYPE, FAIL, "can't determine serialized length of datatype");
 
-                *nalloc = (ssize_t)size;
                 break;
             } /* end block */
         case H5VL_DATATYPE_GET_TCPL:
             {
-                hid_t *plist_id = va_arg(arguments, hid_t *);
+                hid_t *plist_id = &get_args->args.get_tcpl.tcpl_id;
 
                 /* Wait for the datatype to open if necessary */
                 if(!dtype->obj.item.created && dtype->obj.item.open_req->status != 0) {
@@ -1865,26 +1882,28 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_datatype_specific(void *_item, H5VL_datatype_specific_t specific_type,
-    hid_t H5VL_DAOS_UNUSED dxpl_id, void **req, va_list H5VL_DAOS_UNUSED arguments)
+H5_daos_datatype_specific(void *_item, H5VL_datatype_specific_args_t *specific_args,
+    hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
 {
     H5_daos_dtype_t *dtype = (H5_daos_dtype_t *)_item;
     tse_task_t *first_task = NULL;
     tse_task_t *dep_task = NULL;
     H5_daos_req_t *int_req = NULL;
     int ret;
-    herr_t           ret_value = SUCCEED;
+    herr_t ret_value = SUCCEED;
 
     H5_daos_inc_api_cnt();
 
     if(!_item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
+    if(!specific_args)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "Invalid operation arguments");
     if(H5I_DATATYPE != dtype->obj.item.type)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a datatype");
 
     H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
 
-    switch (specific_type) {
+    switch (specific_args->op_type) {
         case H5VL_DATATYPE_FLUSH:
         {
             /* Start H5 operation */
@@ -1931,7 +1950,7 @@ done:
          * use WRITE_ORDERED so all previous operations complete before the
          * flush and all subsequent operations start after the flush (this is
          * where we implement the barrier semantics for flush). */
-        assert(specific_type == H5VL_DATATYPE_FLUSH);
+        assert(specific_args->op_type == H5VL_DATATYPE_FLUSH);
         if(H5_daos_req_enqueue(int_req, first_task, &dtype->obj.item,
                 H5_DAOS_OP_TYPE_WRITE_ORDERED, H5_DAOS_OP_SCOPE_OBJ, FALSE, !req) < 0)
             D_DONE_ERROR(H5E_DATATYPE, H5E_CANTINIT, FAIL, "can't add request to request queue");

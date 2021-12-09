@@ -471,8 +471,7 @@ server. Refer to
 \href{https://daos-stack.github.io/admin/installation/}{DAOS Software Installation}
 for more information on the setup process for this. For the \dvc{}
 to correctly interact with a \acrshort{daos} server instance, the server must be \hyperref[sec:daos_serv_start]{running} and it must be passed the UUID of the
-\acrshort{daos} pool to use and a list of \acrshort{daos} pool service list ranks, as detailed in the
-following sections.
+\acrshort{daos} pool to use and an optional DAOS server system name to use when connecting to the pool. This is detailed in the following sections.
 
 \subsubsection{Starting the DAOS Server}
 \label{sec:daos_serv_start}
@@ -482,22 +481,19 @@ Instructions for starting a \acrshort{daos} Server can be found in the \href{htt
 \subsubsection{With the DAOS VOL connector as a dynamically-loaded plugin}
 
 If the \dvc{} is dynamically loaded by \acrshort{hdf5}, the \acrshort{daos} pool UUID and
-\acrshort{daos} pool service rank list are passed via the two environment variables below.
+\acrshort{daos} server system name are passed via the two environment variables below.
 
 \begin{verbatim}
 DAOS_POOL - The UUID of the DAOS pool to use.
 
-DAOS_POOL_GROUP - Process set name of the servers managing the DAOS pool.
-
-DAOS_SVCL - A comma-separated list of server ranks used for
-            daos_pool_connect(). Generated from daos_pool_create().
+DAOS_SYS - Process set name of the servers managing the DAOS pool.
 \end{verbatim}
 
 \subsubsection{Without the connector as a dynamically-loaded plugin}
 
 If the \dvc{} is not being dynamically loaded, the \acrshort{daos} pool UUID
-and \acrshort{daos} pool service rank list should be passed via the call to
-\hyperref[ref:h5daos_init]{H5daos\_init()} within the application.
+and \acrshort{daos} server system name should be passed via the call to
+\hyperref[ref:h5pset_fapl_daos]{H5Pset\_fapl\_daos()} within the application.
 
 \subsubsection{Example Applications}
 

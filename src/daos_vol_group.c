@@ -191,8 +191,8 @@ H5_daos_group_traverse(H5_daos_item_t *item, const char *path,
                     D_GOTO_ERROR(H5E_SYM, H5E_CANTALLOC, NULL, "can't create DAOS request");
 
                 /* Allocate the group object that is returned to the user */
-		if(NULL == (obj = H5FL_CALLOC(H5_daos_group_t)))
-			D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate DAOS group struct");
+                if(NULL == (obj = H5FL_CALLOC(H5_daos_group_t)))
+                    D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, NULL, "can't allocate DAOS group struct");
 
                 /* Open next group in path */
                 if(H5_daos_group_open_helper(item->file, (H5_daos_group_t *)obj,
@@ -1615,8 +1615,8 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_group_get(void *_item, H5VL_group_get_t get_type, hid_t dxpl_id,
-    void **req, va_list arguments)
+H5_daos_group_get(void *_item, H5VL_group_get_args_t *get_args, hid_t dxpl_id,
+    void **req)
 {
     H5_daos_group_t *grp = (H5_daos_group_t *)_item;
     H5_daos_req_t   *int_req = NULL;
@@ -1629,6 +1629,8 @@ H5_daos_group_get(void *_item, H5VL_group_get_t get_type, hid_t dxpl_id,
 
     if(!_item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
+    if(!get_args)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "Invalid operation arguments");
     if(H5I_FILE != grp->obj.item.type && H5I_GROUP != grp->obj.item.type)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a file or group");
 
@@ -1641,11 +1643,11 @@ H5_daos_group_get(void *_item, H5VL_group_get_t get_type, hid_t dxpl_id,
     int_req->th_open = TRUE;
 #endif /* H5_DAOS_USE_TRANSACTIONS */
 
-    switch (get_type) {
+    switch (get_args->op_type) {
         /* H5Gget_create_plist */
         case H5VL_GROUP_GET_GCPL:
         {
-            hid_t *ret_id = va_arg(arguments, hid_t *);
+            hid_t *ret_id = &get_args->args.get_gcpl.gcpl_id;
 
             /* Wait for the group to open if necessary */
             if(!grp->obj.item.created && grp->obj.item.open_req->status != 0) {
@@ -1668,8 +1670,8 @@ H5_daos_group_get(void *_item, H5VL_group_get_t get_type, hid_t dxpl_id,
         /* H5Gget_info(_by_name/by_idx) */
         case H5VL_GROUP_GET_INFO:
         {
-            const H5VL_loc_params_t *loc_params = va_arg(arguments, const H5VL_loc_params_t *);
-            H5G_info_t *group_info = va_arg(arguments, H5G_info_t *);
+            const H5VL_loc_params_t *loc_params = &get_args->args.get_info.loc_params;
+            H5G_info_t *group_info = get_args->args.get_info.ginfo;
 
             /* Start H5 operation */
             if(NULL == (int_req = H5_daos_req_create(grp->obj.item.file, "group get info",
@@ -1751,26 +1753,28 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_group_specific(void *_item, H5VL_group_specific_t specific_type,
-    hid_t H5VL_DAOS_UNUSED dxpl_id, void **req, va_list H5VL_DAOS_UNUSED arguments)
+H5_daos_group_specific(void *_item, H5VL_group_specific_args_t *specific_args,
+    hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
 {
     H5_daos_group_t *grp = (H5_daos_group_t *)_item;
     tse_task_t *first_task = NULL;
     tse_task_t *dep_task = NULL;
     H5_daos_req_t *int_req = NULL;
     int ret;
-    herr_t           ret_value = SUCCEED;
+    herr_t ret_value = SUCCEED;
 
     H5_daos_inc_api_cnt();
 
     if(!_item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
+    if(!specific_args)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "Invalid operation arguments");
     if(H5I_FILE != grp->obj.item.type && H5I_GROUP != grp->obj.item.type)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a file or group");
 
     H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
 
-    switch (specific_type) {
+    switch (specific_args->op_type) {
         /* H5Gflush */
         case H5VL_GROUP_FLUSH:
         {
@@ -1817,7 +1821,7 @@ done:
          * use WRITE_ORDERED so all previous operations complete before the
          * flush and all subsequent operations start after the flush (this is
          * where we implement the barrier semantics for flush). */
-        assert(specific_type == H5VL_GROUP_FLUSH);
+        assert(specific_args->op_type == H5VL_GROUP_FLUSH);
         if(H5_daos_req_enqueue(int_req, first_task, &grp->obj.item,
                 H5_DAOS_OP_TYPE_WRITE_ORDERED, H5_DAOS_OP_SCOPE_OBJ, FALSE, !req) < 0)
             D_DONE_ERROR(H5E_SYM, H5E_CANTINIT, FAIL, "can't add request to request queue");
@@ -2131,7 +2135,7 @@ H5_daos_group_get_info_task(tse_task_t *task)
 
     /* Verify opened objec tis a group */
     if(udata->opened_type != H5I_GROUP)
-        D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, FAIL, "opened object is not a group");
+        D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, -H5_DAOS_BAD_VALUE, "opened object is not a group");
 
     /* Retrieve the group's info */
     udata->group_info->storage_type = H5G_STORAGE_TYPE_UNKNOWN;
@@ -2151,7 +2155,7 @@ H5_daos_group_get_info_task(tse_task_t *task)
 
     /* Retrieve the number of links in the group. */
     if(H5_daos_group_get_num_links((H5_daos_group_t *)udata->target_obj, &udata->group_info->nlinks, udata->req, &first_task, &dep_task) < 0)
-        D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, FAIL, "can't get the number of links in group");
+        D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, -H5_DAOS_DAOS_GET_ERROR, "can't get the number of links in group");
 
 done:
     /* Clean up */
@@ -2460,7 +2464,7 @@ H5_daos_group_gnl_task(tse_task_t *task)
 
         /* Register id for grp */
         if((target_grp_id = H5VLwrap_register((H5_daos_group_t *)udata->md_rw_cb_ud.obj, H5I_GROUP)) < 0)
-            D_GOTO_ERROR(H5E_ID, H5E_CANTREGISTER, FAIL, "unable to atomize object handle");
+            D_GOTO_ERROR(H5E_ID, H5E_CANTREGISTER, -H5_DAOS_SETUP_ERROR, "unable to atomize object handle");
         udata->md_rw_cb_ud.obj->item.rc++;
 
         /* Initialize iteration data */
@@ -2473,7 +2477,7 @@ H5_daos_group_gnl_task(tse_task_t *task)
          * incremented or are copied, so we can free udata in this function
          * without waiting */
         if(H5_daos_link_iterate((H5_daos_group_t *)udata->md_rw_cb_ud.obj, &iter_data, &first_task, &dep_task) < 0)
-            D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, FAIL, "can't retrieve the number of links in group");
+            D_GOTO_ERROR(H5E_SYM, H5E_CANTGET, -H5_DAOS_SETUP_ERROR, "can't retrieve the number of links in group");
 
         /* Create metatask to complete this task after dep_task if necessary */
         if(dep_task) {
@@ -2494,7 +2498,7 @@ done:
     /* Close group ID.  No need to mark as nonblocking close since the ID rc
      * shouldn't drop to 0. */
     if((target_grp_id >= 0) && (H5Idec_ref(target_grp_id) < 0))
-        D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, FAIL, "can't close group ID");
+        D_DONE_ERROR(H5E_SYM, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close group ID");
 
     /* Schedule first task */
     if(first_task && 0 != (ret = tse_task_schedule(first_task, false)))

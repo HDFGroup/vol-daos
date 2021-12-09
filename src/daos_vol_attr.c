@@ -245,12 +245,12 @@ static herr_t H5_daos_attribute_get_info_inplace(H5_daos_attr_get_info_ud_t *get
 static int H5_daos_attribute_get_info_task(tse_task_t *task);
 static int H5_daos_attribute_get_info_comp_cb(tse_task_t *task, void *args);
 static herr_t H5_daos_attribute_delete(H5_daos_obj_t *attr_container_obj, const H5VL_loc_params_t *loc_params,
-    const char *attr_name, hbool_t collective, H5_daos_req_t *req,
+    const H5VL_attr_specific_args_t *delete_args, hbool_t collective, H5_daos_req_t *req,
     tse_task_t **first_task, tse_task_t **dep_task);
 static int H5_daos_attribute_delete_prep_cb(tse_task_t *task, void *args);
 static int H5_daos_attribute_delete_comp_cb(tse_task_t *task, void *args);
 static herr_t H5_daos_attribute_remove_from_crt_idx(H5_daos_obj_t *target_obj,
-    const H5VL_loc_params_t *loc_params, const char *attr_name,
+    const H5VL_attr_specific_args_t *delete_args, const char *attr_name,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 static herr_t H5_daos_attribute_remove_from_crt_idx_name_cb(hid_t loc_id, const char *attr_name,
     const H5A_info_t *attr_info, void *op_data);
@@ -3832,8 +3832,8 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
-    hid_t H5VL_DAOS_UNUSED dxpl_id, void **req, va_list arguments)
+H5_daos_attribute_get(void *_item, H5VL_attr_get_args_t *get_args,
+    hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_op_pool_scope_t op_scope = H5_DAOS_OP_SCOPE_OBJ;
@@ -3847,14 +3847,15 @@ H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
 
     if(!item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
+    if(!get_args)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "Invalid operation arguments");
 
     H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
 
-    switch (get_type) {
+    switch (get_args->op_type) {
         /* H5Aget_space */
         case H5VL_ATTR_GET_SPACE:
             {
-                hid_t *ret_id = va_arg(arguments, hid_t *);
                 H5_daos_attr_t *attr = (H5_daos_attr_t *)_item;
 
                 op_scope = H5_DAOS_OP_SCOPE_ATTR;
@@ -3868,14 +3869,13 @@ H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
                 } /* end if */
 
                 /* Retrieve the attribute's dataspace */
-                if((*ret_id = H5Scopy(attr->space_id)) < 0)
+                if((get_args->args.get_space.space_id = H5Scopy(attr->space_id)) < 0)
                     D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get dataspace ID of attribute");
                 break;
             } /* end block */
         /* H5Aget_type */
         case H5VL_ATTR_GET_TYPE:
             {
-                hid_t *ret_id = va_arg(arguments, hid_t *);
                 H5_daos_attr_t *attr = (H5_daos_attr_t *)_item;
 
                 op_scope = H5_DAOS_OP_SCOPE_ATTR;
@@ -3889,14 +3889,13 @@ H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
                 } /* end if */
 
                 /* Retrieve the attribute's datatype */
-                if((*ret_id = H5Tcopy(attr->type_id)) < 0)
+                if((get_args->args.get_type.type_id = H5Tcopy(attr->type_id)) < 0)
                     D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get datatype ID of attribute");
                 break;
             } /* end block */
         /* H5Aget_create_plist */
         case H5VL_ATTR_GET_ACPL:
             {
-                hid_t *ret_id = va_arg(arguments, hid_t *);
                 H5_daos_attr_t *attr = (H5_daos_attr_t *)_item;
 
                 op_scope = H5_DAOS_OP_SCOPE_ATTR;
@@ -3910,19 +3909,16 @@ H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
                 } /* end if */
 
                 /* Retrieve the attribute's creation property list */
-                if((*ret_id = H5Pcopy(attr->acpl_id)) < 0)
+                if((get_args->args.get_acpl.acpl_id = H5Pcopy(attr->acpl_id)) < 0)
                     D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute creation property list");
                 break;
             } /* end block */
         /* H5Aget_name(_by_idx) */
         case H5VL_ATTR_GET_NAME:
             {
-                H5VL_loc_params_t *loc_params = va_arg(arguments, H5VL_loc_params_t *);
-                size_t buf_size = va_arg(arguments, size_t);
-                char *buf = va_arg(arguments, char *);
-                ssize_t *ret_size = va_arg(arguments, ssize_t *);
+                H5VL_attr_get_name_args_t *get_name_args = &get_args->args.get_name;
 
-                if(loc_params->type == H5VL_OBJECT_BY_SELF)
+                if(get_name_args->loc_params.type == H5VL_OBJECT_BY_SELF)
                     op_scope = H5_DAOS_OP_SCOPE_ATTR;
 
                 /* Wait for the item to open if necessary */
@@ -3941,8 +3937,8 @@ H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
                 /* Pass ret_size as size_t * - this should be fine since if the call
                  * fails the HDF5 library will assign -1 to the return value anyways
                  */
-                if(H5_daos_attribute_get_name((H5_daos_obj_t *)_item, loc_params,
-                        buf, buf_size, (size_t *)ret_size,
+                if(H5_daos_attribute_get_name((H5_daos_obj_t *)_item, &get_name_args->loc_params,
+                        get_name_args->buf, get_name_args->buf_size, get_name_args->attr_name_len,
                         int_req, &first_task, &dep_task) < 0)
                     D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute name");
 
@@ -3951,12 +3947,11 @@ H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
         /* H5Aget_info */
         case H5VL_ATTR_GET_INFO:
             {
-                H5VL_loc_params_t *loc_params = va_arg(arguments, H5VL_loc_params_t *);
-                H5A_info_t *attr_info = va_arg(arguments, H5A_info_t *);
-                const char *attr_name = (H5VL_OBJECT_BY_NAME == loc_params->type) ?
-                        va_arg(arguments, const char *) : NULL;
+                H5VL_attr_get_info_args_t *get_info_args = &get_args->args.get_info;
+                const char *attr_name = (H5VL_OBJECT_BY_NAME == get_info_args->loc_params.type) ?
+                                        get_info_args->attr_name : NULL;
 
-                if(loc_params->type == H5VL_OBJECT_BY_SELF)
+                if(get_info_args->loc_params.type == H5VL_OBJECT_BY_SELF)
                     op_scope = H5_DAOS_OP_SCOPE_ATTR;
 
                 /* Start H5 operation */
@@ -3965,8 +3960,8 @@ H5_daos_attribute_get(void *_item, H5VL_attr_get_t get_type,
                     D_GOTO_ERROR(H5E_ATTR, H5E_CANTALLOC, FAIL, "can't create DAOS request");
 
                 /* Get attribute info and give the comp_cb a reference to req */
-                if(H5_daos_attribute_get_info(_item, loc_params, attr_name, attr_info,
-                        NULL, H5_daos_attribute_get_info_comp_cb,
+                if(H5_daos_attribute_get_info(_item, &get_info_args->loc_params, attr_name,
+                        get_info_args->ainfo, NULL, H5_daos_attribute_get_info_comp_cb,
                         int_req, &first_task, &dep_task) < 0)
                     D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute info");
                 int_req->rc++;
@@ -4046,8 +4041,7 @@ done:
  */
 herr_t
 H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
-    H5VL_attr_specific_t specific_type, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req,
-    va_list arguments)
+    H5VL_attr_specific_args_t *specific_args, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
 {
     H5_daos_item_t *item = (H5_daos_item_t *)_item;
     H5_daos_obj_t *target_obj = NULL;
@@ -4072,6 +4066,8 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "VOL object is NULL");
     if(!loc_params)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "location parameters object is NULL");
+    if(!specific_args)
+        D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "Invalid operation arguments");
 
     H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
 
@@ -4160,12 +4156,11 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
                 H5E_ATTR, H5E_CANTINIT, FAIL);
     } /* end if */
 
-    switch (specific_type) {
+    switch (specific_args->op_type) {
         /* H5Adelete(_by_name/_by_idx) */
         case H5VL_ATTR_DELETE:
+        case H5VL_ATTR_DELETE_BY_IDX:
             {
-                const char *attr_name = va_arg(arguments, const char *);
-
                 int_req->op_name = "attribute delete";
 
                 /* Wait for the object to open if necessary */
@@ -4178,7 +4173,7 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
 
                 collective = collective_md_write;
                 op_type = H5_DAOS_OP_TYPE_WRITE;
-                if(H5_daos_attribute_delete(target_obj, loc_params, attr_name,
+                if(H5_daos_attribute_delete(target_obj, loc_params, specific_args,
                         collective, int_req, &first_task, &dep_task) < 0)
                     D_GOTO_ERROR(H5E_ATTR, H5E_CANTDELETE, FAIL, "unable to delete attribute");
 
@@ -4188,8 +4183,8 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
         /* H5Aexists(_by_name) */
         case H5VL_ATTR_EXISTS:
             {
-                const char *attr_name = va_arg(arguments, const char *);
-                H5_DAOS_ATTR_EXISTS_OUT_TYPE *attr_exists = va_arg(arguments, H5_DAOS_ATTR_EXISTS_OUT_TYPE *);
+                const char *attr_name = specific_args->args.exists.name;
+                H5_DAOS_ATTR_EXISTS_OUT_TYPE *attr_exists = specific_args->args.exists.exists;
 
                 int_req->op_name = "attribute existence check";
 
@@ -4204,12 +4199,8 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
 
         case H5VL_ATTR_ITER:
             {
+                H5VL_attr_iterate_args_t *iter_args = &specific_args->args.iterate;
                 H5_daos_iter_data_t iter_data;
-                H5_index_t idx_type = (H5_index_t)va_arg(arguments, int);
-                H5_iter_order_t iter_order = (H5_iter_order_t)va_arg(arguments, int);
-                hsize_t *idx_p = va_arg(arguments, hsize_t *);
-                H5A_operator2_t iter_op = va_arg(arguments, H5A_operator2_t);
-                void *op_data = va_arg(arguments, void *);
 
                 int_req->op_name = "attribute iterate";
 
@@ -4222,9 +4213,10 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
                 } /* end if */
 
                 /* Initialize iteration data */
-                H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_ATTR, idx_type, iter_order,
-                        FALSE, idx_p, H5I_INVALID_HID, op_data, &ret_value, int_req);
-                iter_data.u.attr_iter_data.u.attr_iter_op = iter_op;
+                H5_DAOS_ITER_DATA_INIT(iter_data, H5_DAOS_ITER_TYPE_ATTR, iter_args->idx_type,
+                        iter_args->order, FALSE, iter_args->idx, H5I_INVALID_HID, iter_args->op_data,
+                        &ret_value, int_req);
+                iter_data.u.attr_iter_data.u.attr_iter_op = iter_args->op;
 
                 /* Handle iteration return value (TODO: how to handle if called
                  * async? */
@@ -4243,8 +4235,8 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
         /* H5Arename(_by_name) */
         case H5VL_ATTR_RENAME:
             {
-                const char *cur_attr_name = va_arg(arguments, const char *);
-                const char *new_attr_name = va_arg(arguments, const char *);
+                const char *cur_attr_name = specific_args->args.rename.old_name;
+                const char *new_attr_name = specific_args->args.rename.new_name;
 
                 int_req->op_name = "attribute rename";
 
@@ -4293,7 +4285,7 @@ done:
             D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't add request to request queue");
 
         /* Check for external async (disabled for iterate currently) */
-        if(req && specific_type != H5VL_ATTR_ITER) {
+        if(req && specific_args->op_type != H5VL_ATTR_ITER) {
             /* Return int_req as req */
             *req = int_req;
 
@@ -4316,7 +4308,7 @@ done:
 
             /* Set return value for attribute iteration, unless this function failed but
              * the iteration did not */
-            if(specific_type == H5VL_ATTR_ITER && !(ret_value < 0 && iter_ret >= 0))
+            if(specific_args->op_type == H5VL_ATTR_ITER && !(ret_value < 0 && iter_ret >= 0))
                 ret_value = iter_ret;
         } /* end else */
     } /* end if */
@@ -4965,7 +4957,7 @@ done:
  */
 static herr_t
 H5_daos_attribute_delete(H5_daos_obj_t *attr_container_obj, const H5VL_loc_params_t *loc_params,
-    const char *attr_name, hbool_t collective, H5_daos_req_t *req,
+    const H5VL_attr_specific_args_t *delete_args, hbool_t collective, H5_daos_req_t *req,
     tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_attr_delete_ud_t *delete_udata = NULL;
@@ -4975,11 +4967,10 @@ H5_daos_attribute_delete(H5_daos_obj_t *attr_container_obj, const H5VL_loc_param
 
     assert(attr_container_obj);
     assert(loc_params);
+    assert(delete_args);
     assert(req);
     assert(first_task);
     assert(dep_task);
-    if(H5VL_OBJECT_BY_IDX != loc_params->type)
-        assert(attr_name);
 
     if(!collective || (attr_container_obj->item.file->my_rank == 0)) {
         /* Allocate argument struct for deletion task */
@@ -4992,10 +4983,10 @@ H5_daos_attribute_delete(H5_daos_obj_t *attr_container_obj, const H5VL_loc_param
         /* Set up dkey */
         daos_const_iov_set((d_const_iov_t *)&delete_udata->dkey, H5_daos_attr_key_g, H5_daos_attr_key_size_g);
 
-        if(H5VL_OBJECT_BY_IDX == loc_params->type) {
+        if(H5VL_ATTR_DELETE_BY_IDX == delete_args->op_type) {
             if(H5_daos_attribute_get_name_by_idx_alloc(attr_container_obj,
-                    loc_params->loc_data.loc_by_idx.idx_type, loc_params->loc_data.loc_by_idx.order,
-                    (uint64_t)loc_params->loc_data.loc_by_idx.n, &delete_udata->target_attr_name,
+                    delete_args->args.delete_by_idx.idx_type, delete_args->args.delete_by_idx.order,
+                    (uint64_t)delete_args->args.delete_by_idx.n, &delete_udata->target_attr_name,
                     &delete_udata->target_attr_name_len, &delete_udata->attr_name_buf,
                     NULL, req, first_task, dep_task) < 0)
                 D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "can't get attribute name");
@@ -5003,7 +4994,7 @@ H5_daos_attribute_delete(H5_daos_obj_t *attr_container_obj, const H5VL_loc_param
             H5_DAOS_WAIT_ON_ASYNC_CHAIN(req, *first_task, *dep_task, H5E_ATTR, H5E_CANTINIT, FAIL);
         } /* end if */
         else
-            delete_udata->target_attr_name = attr_name;
+            delete_udata->target_attr_name = delete_args->args.del.name;
 
         /* If attribute creation order is tracked for the attribute's parent
          * object, create some extra tasks to do creation order-related
@@ -5021,7 +5012,7 @@ H5_daos_attribute_delete(H5_daos_obj_t *attr_container_obj, const H5VL_loc_param
                 D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to update number of attributes attached to object");
 
             /* Remove the attribute from the object's attribute creation order index */
-            if(H5_daos_attribute_remove_from_crt_idx(delete_udata->attr_parent_obj, loc_params,
+            if(H5_daos_attribute_remove_from_crt_idx(delete_udata->attr_parent_obj, delete_args,
                     delete_udata->target_attr_name, req, first_task, dep_task) < 0)
                 D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to remove attribute from object's creation order index");
         } /* end if */
@@ -5197,7 +5188,7 @@ done:
  */
 static herr_t
 H5_daos_attribute_remove_from_crt_idx(H5_daos_obj_t *target_obj,
-    const H5VL_loc_params_t *loc_params, const char *attr_name,
+    const H5VL_attr_specific_args_t *delete_args, const char *attr_name,
     H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     daos_key_t dkey;
@@ -5210,7 +5201,7 @@ H5_daos_attribute_remove_from_crt_idx(H5_daos_obj_t *target_obj,
     herr_t ret_value = SUCCEED;
 
     assert(target_obj);
-    assert(loc_params);
+    assert(delete_args);
     assert(attr_name);
     assert(req);
     assert(first_task);
@@ -5226,16 +5217,16 @@ H5_daos_attribute_remove_from_crt_idx(H5_daos_obj_t *target_obj,
             H5E_ATTR, H5E_CANTINIT, FAIL);
 
     /* Determine the index value of the attribute to be removed */
-    if(H5VL_OBJECT_BY_IDX == loc_params->type) {
+    if(H5VL_ATTR_DELETE_BY_IDX == delete_args->op_type) {
         /* DSINC - no check for safe cast here */
         /*
          * Note that this assumes this routine is always called after an attribute's
          * akeys are punched during deletion, so the number of attributes attached to
          * the object should reflect the number after the attribute has been removed.
          */
-        delete_idx = (H5_ITER_DEC == loc_params->loc_data.loc_by_idx.order) ?
-                (uint64_t)obj_nattrs_remaining - (uint64_t)loc_params->loc_data.loc_by_idx.n :
-                (uint64_t)loc_params->loc_data.loc_by_idx.n;
+        delete_idx = (H5_ITER_DEC == delete_args->args.delete_by_idx.order) ?
+                (uint64_t)obj_nattrs_remaining - (uint64_t)delete_args->args.delete_by_idx.n :
+                (uint64_t)delete_args->args.delete_by_idx.n;
     } /* end if */
     else {
         H5_daos_attr_crt_idx_iter_ud_t iter_cb_ud;
@@ -5781,7 +5772,8 @@ H5_daos_attr_exists_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         else if(attr_missing)
             *udata->exists = FALSE;
         else
-            D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, FAIL, "attribute exists in inconsistent state (metadata missing)");
+            D_GOTO_ERROR(H5E_ATTR, H5E_CANTGET, -H5_DAOS_DAOS_GET_ERROR,
+                    "attribute exists in inconsistent state (metadata missing)");
     } /* end if */
 
 done:
@@ -6256,7 +6248,7 @@ H5_daos_attribute_iterate_by_name_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSE
                     tmp_char = p[udata->u.name_order_data.kds[i].kd_key_len];
                     p[udata->u.name_order_data.kds[i].kd_key_len] = '\0';
 
-		    H5_DAOS_WAIT_ON_ASYNC_CHAIN(udata->req, first_task, dep_task, H5E_ATTR, H5E_CANTINIT, FAIL);
+                    H5_DAOS_WAIT_ON_ASYNC_CHAIN(udata->req, first_task, dep_task, H5E_ATTR, H5E_CANTINIT, -H5_DAOS_SETUP_ERROR);
 
                     /* Create task to call user-supplied operator callback function */
                     if(H5_daos_attribute_get_iter_op_task(udata, &p[2],
@@ -6737,6 +6729,7 @@ H5_daos_attribute_rename(H5_daos_obj_t *attr_container_obj, const char *cur_attr
     const char *new_attr_name, hbool_t collective, H5_daos_req_t *req,
     tse_task_t **first_task, tse_task_t **dep_task)
 {
+    H5VL_attr_specific_args_t delete_args;
     H5VL_loc_params_t sub_loc_params;
     H5_daos_attr_t *cur_attr = NULL;
     H5_daos_attr_t *new_attr = NULL;
@@ -6836,7 +6829,9 @@ H5_daos_attribute_rename(H5_daos_obj_t *attr_container_obj, const char *cur_attr
     } /* end if */
 
     /* Delete the old attribute */
-    if(H5_daos_attribute_delete(attr_container_obj, &sub_loc_params, cur_attr_name,
+    delete_args.op_type = H5VL_ATTR_DELETE;
+    delete_args.args.del.name = cur_attr_name;
+    if(H5_daos_attribute_delete(attr_container_obj, &sub_loc_params, &delete_args,
             collective, req, first_task, dep_task) < 0)
         D_GOTO_ERROR(H5E_ATTR, H5E_CANTDELETE, FAIL, "can't delete old attribute");
 
@@ -7152,7 +7147,7 @@ H5_daos_attribute_get_name_by_name_order(H5_daos_attr_get_name_by_idx_ud_t *get_
      */
     if(H5_daos_create_task(H5_daos_attribute_gnbno_no_attrs_check_task, *dep_task ? 1 : 0, *dep_task ? dep_task : NULL,
             NULL, NULL, get_name_udata, &no_attrs_check_task) < 0)
-        D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to check for no attributes on object");
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to check for no attributes on object");
 
     /* Schedule attribute count check task (or save it to be scheduled later) and
      * give it a reference to req */
@@ -7530,7 +7525,7 @@ H5_daos_attribute_get_name_by_idx_free_udata(H5_daos_attr_get_name_by_idx_ud_t *
     /* Create task for freeing udata */
     if(H5_daos_create_task(H5_daos_attribute_get_name_by_idx_free_udata_task, *dep_task ? 1 : 0,
             *dep_task ? dep_task : NULL, NULL, NULL, udata, &free_task) < 0)
-        D_DONE_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to free attribute name retrieval udata");
+        D_GOTO_ERROR(H5E_ATTR, H5E_CANTINIT, FAIL, "can't create task to free attribute name retrieval udata");
 
     /* Schedule attribute name retrieval udata free task (or save it to be scheduled later) and
      * give it a reference to req and target_obj */

@@ -2655,7 +2655,11 @@ H5_daos_oid_encode(daos_obj_id_t *oid, uint64_t oidx, H5I_type_t obj_type,
     hid_t crt_plist_id, const char *oclass_prop_name, H5_daos_file_t *file)
 {
     daos_oclass_id_t object_class = OC_UNKNOWN;
+#if CHECK_DAOS_API_VERSION(2, 0)
+    enum daos_otype_t object_type;
+#else
     daos_ofeat_t object_feats;
+#endif
     herr_t ret_value = SUCCEED;
 
     /* Initialize oid.lo to oidx */
@@ -2677,9 +2681,15 @@ H5_daos_oid_encode(daos_obj_id_t *oid, uint64_t oidx, H5I_type_t obj_type,
 
     /* Set the object feature flags */
     if(H5I_GROUP == obj_type)
+#if CHECK_DAOS_API_VERSION(2, 0)
+        object_type = DAOS_OT_MULTI_LEXICAL;
+    else
+        object_type = DAOS_OT_AKEY_LEXICAL;
+#else
         object_feats = DAOS_OF_DKEY_LEXICAL | DAOS_OF_AKEY_LEXICAL;
     else
         object_feats = DAOS_OF_DKEY_HASHED | DAOS_OF_AKEY_LEXICAL;
+#endif
 
     /* Check for object class set on crt_plist_id */
     /* Note we do not copy the oclass_str in the property callbacks (there is no
@@ -2706,11 +2716,6 @@ H5_daos_oid_encode(daos_obj_id_t *oid, uint64_t oidx, H5I_type_t obj_type,
         object_class = file->fapl_cache.default_object_class;
 
     /* Generate oid */
-#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
-    if(object_class == OC_UNKNOWN)
-        object_class = (obj_type == H5I_DATASET) ? OC_SX : OC_S1;
-    daos_obj_generate_id(oid, object_feats, object_class, 0);
-#else
     daos_oclass_hints_t hints = 0;
 
     /** if user does not set default object class, use DAOS default, but set a large oclass for
@@ -2721,6 +2726,10 @@ H5_daos_oid_encode(daos_obj_id_t *oid, uint64_t oidx, H5I_type_t obj_type,
         else
             hints = DAOS_OCH_SHD_DEF;
     }
+#if CHECK_DAOS_API_VERSION(2, 0)
+    if (daos_obj_generate_oid(file->coh, oid, object_type, object_class, hints, 0) != 0)
+        D_GOTO_ERROR(H5E_VOL, H5E_CANTSET, FAIL, "Can't set object class");
+#else
     if (daos_obj_generate_oid(file->coh, oid, object_feats, object_class, hints, 0) != 0)
         D_GOTO_ERROR(H5E_VOL, H5E_CANTSET, FAIL, "Can't set object class");
 #endif

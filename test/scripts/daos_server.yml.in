@@ -1,7 +1,7 @@
 access_points: ['localhost']
 provider: @DAOS_SERVER_TRANSPORT@
 socket_dir: @DAOS_SERVER_SOCKET_DIR@
-nr_hugepages: 4096
+nr_hugepages: -1
 control_log_mask: INFO
 control_log_file: @DAOS_LOG_DIR@/daos_control.log
 transport_config:
@@ -34,8 +34,8 @@ engines:
   -
     # When scm_class is set to ram, tmpfs will be used to emulate SCM.
     # The size of ram is specified by scm_size in GB units.
-    scm_mount: @DAOS_SERVER_SCM_MNT@ # map to -s @DAOS_SERVER_SCM_MNT@
     class: ram
+    scm_mount: @DAOS_SERVER_SCM_MNT@ # map to -s @DAOS_SERVER_SCM_MNT@
     scm_size: @DAOS_SERVER_SCM_SIZE@
 
 # -

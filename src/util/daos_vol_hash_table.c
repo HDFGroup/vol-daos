@@ -1,3 +1,9 @@
+/**
+ * Copyright (c) 2018-2022 The HDF Group.
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
 /*
 
 Copyright (c) 2005-2008, Simon Howard

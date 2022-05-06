@@ -1,29 +1,17 @@
-/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
- * Copyright by The HDF Group.                                               *
- * All rights reserved.                                                      *
- *                                                                           *
- * This file is part of the HDF5 DAOS VOL connector. The full copyright      *
- * notice, including terms governing use, modification, and redistribution,  *
- * is contained in the COPYING file, which can be found at the root of the   *
- * source code distribution tree.                                            *
- * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+/**
+ * Copyright (c) 2018-2022 The HDF Group.
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
 
-/*
+/**
  * Purpose: Tests the recovery mechanism of DAOS
  */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <time.h>
-#include <string.h>
-#include <unistd.h>
-#include <getopt.h>
-#include <hdf5.h>
-
-#include "daos_vol_public.h"
 #include "h5daos_test.h"
 
-#include "daos.h"
+#include "daos_vol.h"
+
 #include "daos_mgmt.h"
 #include <cart/types.h>
 

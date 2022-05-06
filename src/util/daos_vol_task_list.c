@@ -1,14 +1,10 @@
-/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
- * Copyright by The HDF Group.                                               *
- * All rights reserved.                                                      *
- *                                                                           *
- * This file is part of the HDF5 DAOS VOL connector. The full copyright      *
- * notice, including terms governing use, modification, and redistribution,  *
- * is contained in the COPYING file, which can be found at the root of the   *
- * source code distribution tree.                                            *
- * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+/**
+ * Copyright (c) 2018-2022 The HDF Group.
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
 
-/*
+/**
  * Purpose: Implements a task list that keeps track of created DAOS/TSE tasks
  *          which can be reused with the tse_task_reset/daos_task_reset API,
  *          avoiding the need to create new tasks. Typical usage would be as
@@ -38,7 +34,7 @@
  *          H5_daos_task_list_safe.
  */
 
-#include "daos_vol.h"
+#include "daos_vol_private.h"
 #include "daos_vol_err.h"
 #include "daos_vol_mem.h"
 #include "daos_vol_task_list.h"

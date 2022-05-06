@@ -143,5 +143,5 @@ Additional information can be found either in the DAOS VOL developer's guide,
 under _docs/developers_guide.pdf_. DAOS installation and usage instructions can
 also be found on the DAOS website: https://daos-stack.github.io/
 
-[vol-daos-release-svg]: https://img.shields.io/github/release/HDFGroup/vol-daos.svg
-[vol-daos-release-link]: https://github.com/HDFGroup/vol-daos/releases/latest
+[vol-daos-release-svg]: https://img.shields.io/github/release/HDFGroup/vol-daos/all.svg
+[vol-daos-release-link]: https://github.com/HDFGroup/vol-daos/releases

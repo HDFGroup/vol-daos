@@ -120,6 +120,25 @@ if(HDF5_VOL_DAOS_ENABLE_DEBUG)
   )
 endif()
 
+#-----------------------------------------------------------------------------
+# Specify project header files to be installed
+#-----------------------------------------------------------------------------
+set(HDF5_VOL_DAOS_PUBLIC_HEADERS
+  ${CMAKE_CURRENT_BINARY_DIR}/daos_vol_config.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/daos_vol.h
+)
+
+#------------------------------------------------------------------------------
+# Specify project private header files
+#------------------------------------------------------------------------------
+set(HDF5_VOL_DAOS_PRIVATE_HEADERS
+  ${CMAKE_CURRENT_SOURCE_DIR}/daos_vol_private.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/util/daos_vol_mem.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/util/daos_vol_err.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/util/daos_vol_hash_table.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/util/daos_vol_task_list.h
+)
+
 #------------------------------------------------------------------------------
 # Libraries
 #------------------------------------------------------------------------------
@@ -132,7 +151,9 @@ foreach(item ${HDF5_VOL_DAOS_SYSTEM_INCLUDE_PATH})
 endforeach()
 
 # HDF5 DAOS
-add_library(hdf5_vol_daos ${HDF5_VOL_DAOS_SRCS})
+add_library(hdf5_vol_daos ${HDF5_VOL_DAOS_SRCS}
+  ${HDF5_VOL_DAOS_PUBLIC_HEADERS} ${HDF5_VOL_DAOS_PRIVATE_HEADERS}
+)
 target_include_directories(hdf5_vol_daos
   PUBLIC  "$<BUILD_INTERFACE:${HDF5_VOL_DAOS_BUILD_INCLUDE_DEPENDENCIES}>"
           $<INSTALL_INTERFACE:${HDF5_VOL_DAOS_INSTALL_INCLUDE_INTERFACE}>
@@ -149,28 +170,11 @@ hdf5_vol_daos_set_lib_options(hdf5_vol_daos "hdf5_vol_daos" ${HDF5_VOL_DAOS_LIBT
 if(HDF5_VOL_DAOS_ENABLE_COVERAGE)
   set_coverage_flags(hdf5_vol_daos)
 endif()
+set_target_properties(hdf5_vol_daos PROPERTIES
+  PUBLIC_HEADER "${HDF5_VOL_DAOS_PUBLIC_HEADERS}"
+)
 
 set(HDF5_VOL_DAOS_EXPORTED_LIBS hdf5_vol_daos ${HDF5_VOL_DAOS_EXPORTED_LIBS})
-
-#-----------------------------------------------------------------------------
-# Specify project header files to be installed
-#-----------------------------------------------------------------------------
-set(HDF5_VOL_DAOS_HEADERS
-  ${CMAKE_CURRENT_BINARY_DIR}/daos_vol_config.h
-  ${CMAKE_CURRENT_SOURCE_DIR}/daos_vol_public.h
-)
-
-#-----------------------------------------------------------------------------
-# Add file(s) to CMake Install
-#-----------------------------------------------------------------------------
-install(
-  FILES
-    ${HDF5_VOL_DAOS_HEADERS}
-  DESTINATION
-    ${HDF5_VOL_DAOS_INSTALL_INCLUDE_DIR}
-  COMPONENT
-    headers
-)
 
 #-----------------------------------------------------------------------------
 # Add Target(s) to CMake Install
@@ -182,6 +186,7 @@ install(
     ${HDF5_VOL_DAOS_EXPORTED_TARGETS}
   LIBRARY DESTINATION ${HDF5_VOL_DAOS_INSTALL_LIB_DIR}
   ARCHIVE DESTINATION ${HDF5_VOL_DAOS_INSTALL_LIB_DIR}
+  PUBLIC_HEADER DESTINATION  ${HDF5_VOL_DAOS_INSTALL_INCLUDE_DIR}
   RUNTIME DESTINATION ${HDF5_VOL_DAOS_INSTALL_BIN_DIR}
 )
 

@@ -1,14 +1,10 @@
-/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
- * Copyright by The HDF Group.                                               *
- * All rights reserved.                                                      *
- *                                                                           *
- * This file is part of the HDF5 DAOS VOL connector. The full copyright      *
- * notice, including terms governing use, modification, and redistribution,  *
- * is contained in the COPYING file, which can be found at the root of the   *
- * source code distribution tree.                                            *
- * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+/**
+ * Copyright (c) 2018-2022 The HDF Group.
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
 
- /*
+ /**
  * Purpose: Contains macros to facilitate testing the DAOS VOL plugin.
  */
 
@@ -16,7 +12,16 @@
 #define H5DAOS_TEST_H
 
 /* Public headers needed by this file */
+#include <assert.h>
+#include <getopt.h>
+#include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include <unistd.h>
+
+#include <uuid/uuid.h>
 
 #define MAINPROCESS (!mpi_rank)
 

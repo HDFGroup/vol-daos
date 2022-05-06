@@ -1,19 +1,15 @@
-/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
- * Copyright by The HDF Group.                                               *
- * All rights reserved.                                                      *
- *                                                                           *
- * This file is part of the HDF5 DAOS VOL connector. The full copyright      *
- * notice, including terms governing use, modification, and redistribution,  *
- * is contained in the COPYING file, which can be found at the root of the   *
- * source code distribution tree.                                            *
- * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+/**
+ * Copyright (c) 2018-2022 The HDF Group.
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
 
-/*
+/**
  * Purpose: Routines used for testing the DAOS VOL connector from an
  *          external HDF5 application.
  */
 
-#include "daos_vol.h"           /* DAOS connector                          */
+#include "daos_vol_private.h"           /* DAOS connector                          */
 #include "util/daos_vol_err.h"  /* DAOS connector error handling           */
 
 

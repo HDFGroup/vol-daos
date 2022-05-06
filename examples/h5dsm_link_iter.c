@@ -1,3 +1,9 @@
+/**
+ * Copyright (c) 2018-2022 The HDF Group.
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
 #include "h5dsm_example.h"
 
 int od_test_g;

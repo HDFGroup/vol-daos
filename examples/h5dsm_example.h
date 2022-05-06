@@ -1,4 +1,10 @@
-#include <daos_vol_public.h>
+/**
+ * Copyright (c) 2018-2022 The HDF Group.
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
+#include <daos_vol.h>
 #include <daos.h>
 
 #include <stdio.h>

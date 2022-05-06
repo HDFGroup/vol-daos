@@ -224,7 +224,7 @@ endfunction()
 # Avoid explicitly including system include paths
 set(HDF5_VOL_DAOS_SYSTEM_INCLUDE_PATH ${CMAKE_SYSTEM_INCLUDE_PATH}
   ${CMAKE_C_IMPLICIT_INCLUDE_DIRECTORIES})
-  set(HDF5_VOL_DAOS_SYSTEM_INCLUDE_PATH /usr/include ${HDF5_VOL_DAOS_SYSTEM_INCLUDE_PATH})
+set(HDF5_VOL_DAOS_SYSTEM_INCLUDE_PATH /usr/include ${HDF5_VOL_DAOS_SYSTEM_INCLUDE_PATH})
 
 #-----------------------------------------------------------------------------
 # Coverage
@@ -340,6 +340,7 @@ install(
 # CPack
 #-----------------------------------------------------------------------------
 if(NOT HDF5_VOL_DAOS_EXTERNALLY_CONFIGURED)
+  set(CPACK_GENERATOR "TBZ2")
   set(CPACK_PACKAGE_DESCRIPTION_FILE ${HDF5_VOL_DAOS_SOURCE_DIR}/README.md)
   set(CPACK_RESOURCE_FILE_LICENSE ${HDF5_VOL_DAOS_SOURCE_DIR}/COPYING)
   set(CPACK_PACKAGE_DESCRIPTION_SUMMARY ${HDF5_VOL_DAOS_PACKAGE_DESCRIPTION})
@@ -348,9 +349,29 @@ if(NOT HDF5_VOL_DAOS_EXTERNALLY_CONFIGURED)
   set(CPACK_PACKAGE_VERSION_MAJOR ${HDF5_VOL_DAOS_VERSION_MAJOR})
   set(CPACK_PACKAGE_VERSION_MINOR ${HDF5_VOL_DAOS_VERSION_MINOR})
   set(CPACK_PACKAGE_VERSION_PATCH ${HDF5_VOL_DAOS_VERSION_PATCH})
-  set(CPACK_GENERATOR "TBZ2")
+  set(CPACK_SOURCE_GENERATOR "TBZ2")
   set(CPACK_SOURCE_PACKAGE_FILE_NAME ${HDF5_VOL_DAOS_PACKAGE}-${HDF5_VOL_DAOS_VERSION_FULL})
-  set(CPACK_SOURCE_IGNORE_FILES ".git*;/GitSetup/;/.git/;.swp$;.#;/#;.*~")
+  set(CPACK_SOURCE_IGNORE_FILES
+    # Files specific to version control
+    "/\\\\.git/"
+    "/\\\\.git$"
+    "/\\\\.gitattributes$"
+    "/\\\\.github/"
+    "/\\\\.gitignore$"
+    "/\\\\.gitmodules$"
+
+    # IDE files
+    "/\\\\.vscode/"
+
+    # Build
+    "/build/"
+
+    # Temporary files
+    "\\\\.swp$"
+    "\\\\.#"
+    "/#"
+    "~$"
+  )
   set(CPACK_SOURCE_STRIP_FILES "")
   include(CPack)
 endif()

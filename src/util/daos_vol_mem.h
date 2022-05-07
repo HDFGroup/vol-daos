@@ -7,6 +7,8 @@
 #ifndef daos_vol_mem_H
 #define daos_vol_mem_H
 
+#include <stdlib.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif

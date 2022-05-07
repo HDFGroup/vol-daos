@@ -4,10 +4,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "daos_vol_private.h"
 #include "daos_vol_err.h"
+#include "daos_vol_private.h"
 
-
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_err_to_string
  *
@@ -21,7 +20,7 @@
  *
  *-------------------------------------------------------------------------
  */
-const char*
+const char *
 H5_daos_err_to_string(int ret)
 {
     switch (ret) {
@@ -34,7 +33,8 @@ H5_daos_err_to_string(int ret)
         case -H5_DAOS_INCOMPLETE:
             return "object open incomplete (should not see this) (H5_DAOS_INCOMPLETE)";
         case -H5_DAOS_SHORT_CIRCUIT:
-            return "operation completed successfully earlier than expected (should not see this) (H5_DAOS_SHORT_CIRCUIT)";
+            return "operation completed successfully earlier than expected (should not see this) "
+                   "(H5_DAOS_SHORT_CIRCUIT)";
         case -H5_DAOS_PRE_ERROR:
             return "error in earlier task (should not see this) (H5_DAOS_PRE_ERROR)";
         case -H5_DAOS_CANCELED:
@@ -120,7 +120,8 @@ H5_daos_err_to_string(int ret)
         case -DER_NOSPACE:
             return "no space on storage target (DER_NOSPACE)";
         case -DER_ALREADY:
-            return "already initialized (DER_ALREADY)"; /* TODO: may not always refer to library initialization */
+            return "already initialized (DER_ALREADY)"; /* TODO: may not always refer to library
+                                                           initialization */
         case -DER_NOMEM:
             return "out of memory (DER_NOMEM)";
         case -DER_NOSYS:

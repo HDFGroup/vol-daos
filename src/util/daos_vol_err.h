@@ -24,25 +24,28 @@ extern hid_t dv_async_err_g;
 #define DAOS_VOL_ERR_LIB_NAME "DAOS VOL"
 #define DAOS_VOL_ERR_VER      "1.0.0"
 
-#define H5E_OBJECT dv_obj_err_maj_g
+#define H5E_OBJECT     dv_obj_err_maj_g
 #define H5E_DAOS_ASYNC (dv_async_err_g)
 
 #define SUCCEED 0
 #define FAIL    (-1)
 
 #ifndef FALSE
-  #define FALSE false
+#define FALSE false
 #endif
 #ifndef TRUE
-  #define TRUE true
+#define TRUE true
 #endif
 
 /* Private error codes for asynchronous operations */
 typedef enum {
-    H5_DAOS_INCOMPLETE = 1,       /* Operation has not yet completed (should only be in the item struct) (must be first) */
-    H5_DAOS_SHORT_CIRCUIT,        /* Operation completed successfully earlier than expected (but has not finished yet internally) (must be second) */
-    H5_DAOS_CANCELED,             /* Operation canceled by application (must be third) */
-    H5_DAOS_PRE_ERROR,            /* A precursor to this task failed (should only be used as the task return value) (must be fourth) */
+    H5_DAOS_INCOMPLETE =
+        1, /* Operation has not yet completed (should only be in the item struct) (must be first) */
+    H5_DAOS_SHORT_CIRCUIT, /* Operation completed successfully earlier than expected (but has not finished yet
+                              internally) (must be second) */
+    H5_DAOS_CANCELED,      /* Operation canceled by application (must be third) */
+    H5_DAOS_PRE_ERROR, /* A precursor to this task failed (should only be used as the task return value) (must
+                          be fourth) */
     H5_DAOS_PREREQ_ERROR,         /* A prerequisite operation failed */
     H5_DAOS_H5_OPEN_ERROR,        /* Failed to open HDF5 object */
     H5_DAOS_H5_CLOSE_ERROR,       /* Failed to close HDF5 object */
@@ -85,26 +88,26 @@ typedef enum {
  * and then goto the "done" label, which should appear inside the
  * function. (v2 errors only)
  */
-#define D_GOTO_ERROR(err_major, err_minor, ret_val, ...)                           \
-do {                                                                               \
-    H5E_auto2_t err_func;                                                          \
-                                                                                   \
-    /* Check whether automatic error reporting has been disabled */                \
-    (void)H5Eget_auto2(H5E_DEFAULT, &err_func, NULL);                              \
-    if (err_func) {                                                                \
-        if (dv_err_stack_g >= 0 && dv_err_class_g >= 0) {                          \
-            H5Epush2(dv_err_stack_g, __FILE__, __func__, __LINE__,                 \
-                    dv_err_class_g, err_major, err_minor, __VA_ARGS__);            \
-        }                                                                          \
-        else {                                                                     \
-            fprintf(stderr, __VA_ARGS__);                                          \
-            fprintf(stderr, "\n");                                                 \
-        }                                                                          \
-    }                                                                              \
-                                                                                   \
-    ret_value = ret_val;                                                           \
-    goto done;                                                                     \
-} while(0)
+#define D_GOTO_ERROR(err_major, err_minor, ret_val, ...)                                                     \
+    do {                                                                                                     \
+        H5E_auto2_t err_func;                                                                                \
+                                                                                                             \
+        /* Check whether automatic error reporting has been disabled */                                      \
+        (void)H5Eget_auto2(H5E_DEFAULT, &err_func, NULL);                                                    \
+        if (err_func) {                                                                                      \
+            if (dv_err_stack_g >= 0 && dv_err_class_g >= 0) {                                                \
+                H5Epush2(dv_err_stack_g, __FILE__, __func__, __LINE__, dv_err_class_g, err_major, err_minor, \
+                         __VA_ARGS__);                                                                       \
+            }                                                                                                \
+            else {                                                                                           \
+                fprintf(stderr, __VA_ARGS__);                                                                \
+                fprintf(stderr, "\n");                                                                       \
+            }                                                                                                \
+        }                                                                                                    \
+                                                                                                             \
+        ret_value = ret_val;                                                                                 \
+        goto done;                                                                                           \
+    } while (0)
 
 /*
  * Macro to push the current function to the current error stack
@@ -113,42 +116,42 @@ do {                                                                            
  * function so that an infinite loop does not occur where goto
  * continually branches back to the label. (v2 errors only)
  */
-#define D_DONE_ERROR(err_major, err_minor, ret_val, ...)                           \
-do {                                                                               \
-    H5E_auto2_t err_func;                                                          \
-                                                                                   \
-    /* Check whether automatic error reporting has been disabled */                \
-    (void)H5Eget_auto2(H5E_DEFAULT, &err_func, NULL);                              \
-    if (err_func) {                                                                \
-        if (dv_err_stack_g >= 0 && dv_err_class_g >= 0)                            \
-            H5Epush2(dv_err_stack_g, __FILE__, __func__, __LINE__,                 \
-                    dv_err_class_g, err_major, err_minor, __VA_ARGS__);            \
-        else {                                                                     \
-            fprintf(stderr, __VA_ARGS__);                                          \
-            fprintf(stderr, "\n");                                                 \
-        }                                                                          \
-    }                                                                              \
-                                                                                   \
-    ret_value = ret_val;                                                           \
-} while(0)
+#define D_DONE_ERROR(err_major, err_minor, ret_val, ...)                                                     \
+    do {                                                                                                     \
+        H5E_auto2_t err_func;                                                                                \
+                                                                                                             \
+        /* Check whether automatic error reporting has been disabled */                                      \
+        (void)H5Eget_auto2(H5E_DEFAULT, &err_func, NULL);                                                    \
+        if (err_func) {                                                                                      \
+            if (dv_err_stack_g >= 0 && dv_err_class_g >= 0)                                                  \
+                H5Epush2(dv_err_stack_g, __FILE__, __func__, __LINE__, dv_err_class_g, err_major, err_minor, \
+                         __VA_ARGS__);                                                                       \
+            else {                                                                                           \
+                fprintf(stderr, __VA_ARGS__);                                                                \
+                fprintf(stderr, "\n");                                                                       \
+            }                                                                                                \
+        }                                                                                                    \
+                                                                                                             \
+        ret_value = ret_val;                                                                                 \
+    } while (0)
 
 /*
  * Macro to print out the VOL connector's current error stack
  * and then clear it for future use. (v2 errors only)
  */
-#define PRINT_ERROR_STACK                                                          \
-do {                                                                               \
-    H5E_auto2_t err_func;                                                          \
-                                                                                   \
-    /* Check whether automatic error reporting has been disabled */                \
-    (void)H5Eget_auto2(H5E_DEFAULT, &err_func, NULL);                              \
-    if (err_func) {                                                                \
-        if ((dv_err_stack_g >= 0) && (H5Eget_num(dv_err_stack_g) > 0)) {           \
-            H5Eprint2(dv_err_stack_g, NULL);                                       \
-            H5Eclear2(dv_err_stack_g);                                             \
-        }                                                                          \
-    }                                                                              \
-} while(0)
+#define PRINT_ERROR_STACK                                                                                    \
+    do {                                                                                                     \
+        H5E_auto2_t err_func;                                                                                \
+                                                                                                             \
+        /* Check whether automatic error reporting has been disabled */                                      \
+        (void)H5Eget_auto2(H5E_DEFAULT, &err_func, NULL);                                                    \
+        if (err_func) {                                                                                      \
+            if ((dv_err_stack_g >= 0) && (H5Eget_num(dv_err_stack_g) > 0)) {                                 \
+                H5Eprint2(dv_err_stack_g, NULL);                                                             \
+                H5Eclear2(dv_err_stack_g);                                                                   \
+            }                                                                                                \
+        }                                                                                                    \
+    } while (0)
 
 #else
 
@@ -157,38 +160,37 @@ do {                                                                            
  * and then goto the "done" label, which should appear inside the
  * function. (compatible with v1 and v2 errors)
  */
-#define D_GOTO_ERROR(err_major, err_minor, ret_val, ...)                           \
-do {                                                                               \
-    unsigned is_v2_err;                                                            \
-    union {                                                                        \
-        H5E_auto1_t err_func_v1;                                                   \
-        H5E_auto2_t err_func_v2;                                                   \
-    } err_func;                                                                    \
-                                                                                   \
-    /* Determine version of error */                                               \
-    (void)H5Eauto_is_v2(H5E_DEFAULT, &is_v2_err);                                  \
-                                                                                   \
-    if (is_v2_err)                                                                 \
-        (void)H5Eget_auto2(H5E_DEFAULT, &err_func.err_func_v2, NULL);              \
-    else                                                                           \
-        (void)H5Eget_auto1(&err_func.err_func_v1, NULL);                           \
-                                                                                   \
-    /* Check whether automatic error reporting has been disabled */                \
-    if (  (is_v2_err && err_func.err_func_v2) ||                                   \
-         (!is_v2_err && err_func.err_func_v1) ) {                                  \
-        if (dv_err_stack_g >= 0 && dv_err_class_g >= 0) {                          \
-            H5Epush2(dv_err_stack_g, __FILE__, __func__, __LINE__,                 \
-                    dv_err_class_g, err_major, err_minor, __VA_ARGS__);            \
-        }                                                                          \
-        else {                                                                     \
-            fprintf(stderr, __VA_ARGS__);                                          \
-            fprintf(stderr, "\n");                                                 \
-        }                                                                          \
-    }                                                                              \
-                                                                                   \
-    ret_value = ret_val;                                                           \
-    goto done;                                                                     \
-} while(0)
+#define D_GOTO_ERROR(err_major, err_minor, ret_val, ...)                                                     \
+    do {                                                                                                     \
+        unsigned is_v2_err;                                                                                  \
+        union {                                                                                              \
+            H5E_auto1_t err_func_v1;                                                                         \
+            H5E_auto2_t err_func_v2;                                                                         \
+        } err_func;                                                                                          \
+                                                                                                             \
+        /* Determine version of error */                                                                     \
+        (void)H5Eauto_is_v2(H5E_DEFAULT, &is_v2_err);                                                        \
+                                                                                                             \
+        if (is_v2_err)                                                                                       \
+            (void)H5Eget_auto2(H5E_DEFAULT, &err_func.err_func_v2, NULL);                                    \
+        else                                                                                                 \
+            (void)H5Eget_auto1(&err_func.err_func_v1, NULL);                                                 \
+                                                                                                             \
+        /* Check whether automatic error reporting has been disabled */                                      \
+        if ((is_v2_err && err_func.err_func_v2) || (!is_v2_err && err_func.err_func_v1)) {                   \
+            if (dv_err_stack_g >= 0 && dv_err_class_g >= 0) {                                                \
+                H5Epush2(dv_err_stack_g, __FILE__, __func__, __LINE__, dv_err_class_g, err_major, err_minor, \
+                         __VA_ARGS__);                                                                       \
+            }                                                                                                \
+            else {                                                                                           \
+                fprintf(stderr, __VA_ARGS__);                                                                \
+                fprintf(stderr, "\n");                                                                       \
+            }                                                                                                \
+        }                                                                                                    \
+                                                                                                             \
+        ret_value = ret_val;                                                                                 \
+        goto done;                                                                                           \
+    } while (0)
 
 /*
  * Macro to push the current function to the current error stack
@@ -198,67 +200,65 @@ do {                                                                            
  * continually branches back to the label. (compatible with v1
  * and v2 errors)
  */
-#define D_DONE_ERROR(err_major, err_minor, ret_val, ...)                           \
-do {                                                                               \
-    unsigned is_v2_err;                                                            \
-    union {                                                                        \
-        H5E_auto1_t err_func_v1;                                                   \
-        H5E_auto2_t err_func_v2;                                                   \
-    } err_func;                                                                    \
-                                                                                   \
-    /* Determine version of error */                                               \
-    (void)H5Eauto_is_v2(H5E_DEFAULT, &is_v2_err);                                  \
-                                                                                   \
-    if (is_v2_err)                                                                 \
-        (void)H5Eget_auto2(H5E_DEFAULT, &err_func.err_func_v2, NULL);              \
-    else                                                                           \
-        (void)H5Eget_auto1(&err_func.err_func_v1, NULL);                           \
-                                                                                   \
-    /* Check whether automatic error reporting has been disabled */                \
-    if (  (is_v2_err && err_func.err_func_v2) ||                                   \
-         (!is_v2_err && err_func.err_func_v1) ) {                                  \
-        if (dv_err_stack_g >= 0 && dv_err_class_g >= 0) {                          \
-            H5Epush2(dv_err_stack_g, __FILE__, __func__, __LINE__,                 \
-                    dv_err_class_g, err_major, err_minor, __VA_ARGS__);            \
-        }                                                                          \
-        else {                                                                     \
-            fprintf(stderr, __VA_ARGS__);                                          \
-            fprintf(stderr, "\n");                                                 \
-        }                                                                          \
-    }                                                                              \
-                                                                                   \
-    ret_value = ret_val;                                                           \
-} while(0)
+#define D_DONE_ERROR(err_major, err_minor, ret_val, ...)                                                     \
+    do {                                                                                                     \
+        unsigned is_v2_err;                                                                                  \
+        union {                                                                                              \
+            H5E_auto1_t err_func_v1;                                                                         \
+            H5E_auto2_t err_func_v2;                                                                         \
+        } err_func;                                                                                          \
+                                                                                                             \
+        /* Determine version of error */                                                                     \
+        (void)H5Eauto_is_v2(H5E_DEFAULT, &is_v2_err);                                                        \
+                                                                                                             \
+        if (is_v2_err)                                                                                       \
+            (void)H5Eget_auto2(H5E_DEFAULT, &err_func.err_func_v2, NULL);                                    \
+        else                                                                                                 \
+            (void)H5Eget_auto1(&err_func.err_func_v1, NULL);                                                 \
+                                                                                                             \
+        /* Check whether automatic error reporting has been disabled */                                      \
+        if ((is_v2_err && err_func.err_func_v2) || (!is_v2_err && err_func.err_func_v1)) {                   \
+            if (dv_err_stack_g >= 0 && dv_err_class_g >= 0) {                                                \
+                H5Epush2(dv_err_stack_g, __FILE__, __func__, __LINE__, dv_err_class_g, err_major, err_minor, \
+                         __VA_ARGS__);                                                                       \
+            }                                                                                                \
+            else {                                                                                           \
+                fprintf(stderr, __VA_ARGS__);                                                                \
+                fprintf(stderr, "\n");                                                                       \
+            }                                                                                                \
+        }                                                                                                    \
+                                                                                                             \
+        ret_value = ret_val;                                                                                 \
+    } while (0)
 
 /*
  * Macro to print out the VOL connector's current error stack
  * and then clear it for future use. (compatible with v1 and v2 errors)
  */
-#define PRINT_ERROR_STACK                                                          \
-do {                                                                               \
-    unsigned is_v2_err;                                                            \
-    union {                                                                        \
-        H5E_auto1_t err_func_v1;                                                   \
-        H5E_auto2_t err_func_v2;                                                   \
-    } err_func;                                                                    \
-                                                                                   \
-    /* Determine version of error */                                               \
-    (void)H5Eauto_is_v2(H5E_DEFAULT, &is_v2_err);                                  \
-                                                                                   \
-    if (is_v2_err)                                                                 \
-        (void)H5Eget_auto2(H5E_DEFAULT, &err_func.err_func_v2, NULL);              \
-    else                                                                           \
-        (void)H5Eget_auto1(&err_func.err_func_v1, NULL);                           \
-                                                                                   \
-    /* Check whether automatic error reporting has been disabled */                \
-    if (  (is_v2_err && err_func.err_func_v2) ||                                   \
-         (!is_v2_err && err_func.err_func_v1) ) {                                  \
-        if ((dv_err_stack_g >= 0) && (H5Eget_num(dv_err_stack_g) > 0)) {           \
-            H5Eprint2(dv_err_stack_g, NULL);                                       \
-            H5Eclear2(dv_err_stack_g);                                             \
-        }                                                                          \
-    }                                                                              \
-} while(0)
+#define PRINT_ERROR_STACK                                                                                    \
+    do {                                                                                                     \
+        unsigned is_v2_err;                                                                                  \
+        union {                                                                                              \
+            H5E_auto1_t err_func_v1;                                                                         \
+            H5E_auto2_t err_func_v2;                                                                         \
+        } err_func;                                                                                          \
+                                                                                                             \
+        /* Determine version of error */                                                                     \
+        (void)H5Eauto_is_v2(H5E_DEFAULT, &is_v2_err);                                                        \
+                                                                                                             \
+        if (is_v2_err)                                                                                       \
+            (void)H5Eget_auto2(H5E_DEFAULT, &err_func.err_func_v2, NULL);                                    \
+        else                                                                                                 \
+            (void)H5Eget_auto1(&err_func.err_func_v1, NULL);                                                 \
+                                                                                                             \
+        /* Check whether automatic error reporting has been disabled */                                      \
+        if ((is_v2_err && err_func.err_func_v2) || (!is_v2_err && err_func.err_func_v1)) {                   \
+            if ((dv_err_stack_g >= 0) && (H5Eget_num(dv_err_stack_g) > 0)) {                                 \
+                H5Eprint2(dv_err_stack_g, NULL);                                                             \
+                H5Eclear2(dv_err_stack_g);                                                                   \
+            }                                                                                                \
+        }                                                                                                    \
+    } while (0)
 
 #endif
 
@@ -267,11 +267,11 @@ do {                                                                            
  * setting ret_value to the given value. This is often used for
  * short circuiting in functions when certain conditions arise.
  */
-#define D_GOTO_DONE(ret_val)                                                       \
-do {                                                                               \
-    ret_value = ret_val;                                                           \
-    goto done;                                                                     \
-} while(0)
+#define D_GOTO_DONE(ret_val)                                                                                 \
+    do {                                                                                                     \
+        ret_value = ret_val;                                                                                 \
+        goto done;                                                                                           \
+    } while (0)
 
 /*
  * Macro to return from a top-level API function, printing
@@ -282,25 +282,25 @@ do {                                                                            
  * internally), the VOL connector's error stack will be
  * inconsistent/incoherent.
  */
-#define D_FUNC_LEAVE_API                                                           \
-do {                                                                               \
-    /* If at the top level of connector callbacks, make                            \
-     * all "unsafe" task list tasks available.                                     \
-     */                                                                            \
-    H5_daos_dec_api_cnt();                                                         \
-    if((H5_daos_api_count == 0) && H5_daos_task_list_g)                            \
-        H5_daos_task_list_safe(H5_daos_task_list_g);                               \
-    PRINT_ERROR_STACK;                                                             \
-    return ret_value;                                                              \
-} while(0)
+#define D_FUNC_LEAVE_API                                                                                     \
+    do {                                                                                                     \
+        /* If at the top level of connector callbacks, make                                                  \
+         * all "unsafe" task list tasks available.                                                           \
+         */                                                                                                  \
+        H5_daos_dec_api_cnt();                                                                               \
+        if ((H5_daos_api_count == 0) && H5_daos_task_list_g)                                                 \
+            H5_daos_task_list_safe(H5_daos_task_list_g);                                                     \
+        PRINT_ERROR_STACK;                                                                                   \
+        return ret_value;                                                                                    \
+    } while (0)
 
 /*
  * Macro to return from internal functions.
  */
-#define D_FUNC_LEAVE                                                               \
-do {                                                                               \
-    return ret_value;                                                              \
-} while(0)
+#define D_FUNC_LEAVE                                                                                         \
+    do {                                                                                                     \
+        return ret_value;                                                                                    \
+    } while (0)
 
 #ifdef __cplusplus
 }

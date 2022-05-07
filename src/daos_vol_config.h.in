@@ -22,13 +22,13 @@
 
 /* Visibility of symbols */
 #if defined(__GNUC__) && (__GNUC__ >= 4)
-# define H5VL_DAOS_DLL_IMPORT __attribute__((visibility("default")))
-# define H5VL_DAOS_DLL_EXPORT __attribute__((visibility("default")))
-# define H5VL_DAOS_DLL_HIDDEN __attribute__((visibility("hidden")))
+#define H5VL_DAOS_DLL_IMPORT __attribute__((visibility("default")))
+#define H5VL_DAOS_DLL_EXPORT __attribute__((visibility("default")))
+#define H5VL_DAOS_DLL_HIDDEN __attribute__((visibility("hidden")))
 #else
-# define H5VL_DAOS_DLL_IMPORT
-# define H5VL_DAOS_DLL_EXPORT
-# define H5VL_DAOS_DLL_HIDDEN
+#define H5VL_DAOS_DLL_IMPORT
+#define H5VL_DAOS_DLL_EXPORT
+#define H5VL_DAOS_DLL_HIDDEN
 #endif
 
 /* Inline macro */
@@ -36,23 +36,23 @@
 
 /* Fallthrough macro */
 #if defined(__GNUC__) && (__GNUC__ >= 7)
-# define H5VL_DAOS_FALLTHROUGH() __attribute__((fallthrough))
+#define H5VL_DAOS_FALLTHROUGH() __attribute__((fallthrough))
 #else
-# define H5VL_DAOS_FALLTHROUGH()
+#define H5VL_DAOS_FALLTHROUGH()
 #endif
 
 /* Shared libraries */
 #cmakedefine H5VL_DAOS_BUILD_SHARED_LIBS
 #ifdef H5VL_DAOS_BUILD_SHARED_LIBS
-# ifdef hdf5_vol_daos_EXPORTS
-#  define H5VL_DAOS_PUBLIC H5VL_DAOS_DLL_EXPORT
-# else
-#  define H5VL_DAOS_PUBLIC H5VL_DAOS_DLL_IMPORT
-# endif
-# define H5VL_DAOS_PRIVATE H5VL_DAOS_DLL_HIDDEN
+#ifdef hdf5_vol_daos_EXPORTS
+#define H5VL_DAOS_PUBLIC H5VL_DAOS_DLL_EXPORT
 #else
-# define H5VL_DAOS_PUBLIC
-# define H5VL_DAOS_PRIVATE
+#define H5VL_DAOS_PUBLIC H5VL_DAOS_DLL_IMPORT
+#endif
+#define H5VL_DAOS_PRIVATE H5VL_DAOS_DLL_HIDDEN
+#else
+#define H5VL_DAOS_PUBLIC
+#define H5VL_DAOS_PRIVATE
 #endif
 
 /* Build Options */

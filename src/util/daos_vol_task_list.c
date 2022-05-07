@@ -34,12 +34,13 @@
  *          H5_daos_task_list_safe.
  */
 
-#include "daos_vol_private.h"
-#include "daos_vol_err.h"
-#include "daos_vol_mem.h"
 #include "daos_vol_task_list.h"
 
-
+#include "daos_vol_private.h"
+
+#include "daos_vol_err.h"
+#include "daos_vol_mem.h"
+
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_task_list_create
  *
@@ -54,25 +55,25 @@
 herr_t
 H5_daos_task_list_create(H5_daos_task_list_t **task_list)
 {
-    H5_daos_task_list_t *list = NULL;
-    herr_t ret_value = SUCCEED;
+    H5_daos_task_list_t *list      = NULL;
+    herr_t               ret_value = SUCCEED;
 
     assert(task_list);
 
-    if(NULL == (list = DV_malloc(sizeof(H5_daos_task_list_t))))
+    if (NULL == (list = DV_malloc(sizeof(H5_daos_task_list_t))))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't create task list");
-    list->tasks = NULL;
-    list->num_tasks = 0;
+    list->tasks            = NULL;
+    list->num_tasks        = 0;
     list->num_unsafe_tasks = 0;
-    list->max_tasks = H5_DAOS_TASK_LIST_DEFAULT_NUM_TASKS;
+    list->max_tasks        = H5_DAOS_TASK_LIST_DEFAULT_NUM_TASKS;
 
-    if(NULL == (list->tasks = DV_malloc(H5_DAOS_TASK_LIST_DEFAULT_NUM_TASKS * sizeof(tse_task_t *))))
+    if (NULL == (list->tasks = DV_malloc(H5_DAOS_TASK_LIST_DEFAULT_NUM_TASKS * sizeof(tse_task_t *))))
         D_GOTO_ERROR(H5E_RESOURCE, H5E_CANTALLOC, FAIL, "can't allocate task list slots");
 
     *task_list = list;
 
 done:
-    if(ret_value < 0 && list) {
+    if (ret_value < 0 && list) {
         H5_daos_task_list_free(list);
         list = NULL;
     }
@@ -80,7 +81,6 @@ done:
     D_FUNC_LEAVE;
 } /* end H5_daos_task_list_create() */
 
-
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_task_list_free
  *
@@ -97,17 +97,17 @@ H5_daos_task_list_free(H5_daos_task_list_t *task_list)
 
     assert(task_list);
 
-    if(task_list->tasks) {
+    if (task_list->tasks) {
         /* Clear out all available tasks */
-        for(i = 0; i < task_list->num_tasks; i++)
-            if(task_list->tasks[i])
+        for (i = 0; i < task_list->num_tasks; i++)
+            if (task_list->tasks[i])
                 tse_task_decref(task_list->tasks[i]);
 
         /* Clear out all "unsafe" tasks */
-        if(task_list->num_unsafe_tasks) {
+        if (task_list->num_unsafe_tasks) {
             assert(i == task_list->num_tasks);
-            for(; i < task_list->num_tasks + task_list->num_unsafe_tasks; i++)
-                if(task_list->tasks[i])
+            for (; i < task_list->num_tasks + task_list->num_unsafe_tasks; i++)
+                if (task_list->tasks[i])
                     tse_task_decref(task_list->tasks[i]);
         }
 
@@ -118,7 +118,6 @@ H5_daos_task_list_free(H5_daos_task_list_t *task_list)
     DV_free(task_list);
 } /* end H5_daos_task_list_free() */
 
-
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_task_list_put
  *
@@ -141,12 +140,12 @@ H5_daos_task_list_put(H5_daos_task_list_t *task_list, tse_task_t *task)
 
     total_tasks = task_list->num_tasks + task_list->num_unsafe_tasks;
 
-    if(total_tasks == task_list->max_tasks) {
+    if (total_tasks == task_list->max_tasks) {
         void *tmp_realloc;
 
         /* Resize task list */
-        if(NULL == (tmp_realloc = DV_realloc((void *)task_list->tasks,
-                2 * task_list->max_tasks * sizeof(tse_task_t *))))
+        if (NULL == (tmp_realloc = DV_realloc((void *)task_list->tasks,
+                                              2 * task_list->max_tasks * sizeof(tse_task_t *))))
             D_GOTO_ERROR(H5E_VOL, H5E_CANTRESIZE, FAIL, "can't resize task list");
         task_list->tasks = tmp_realloc;
         task_list->max_tasks *= 2;
@@ -164,7 +163,6 @@ done:
     D_FUNC_LEAVE;
 } /* end H5_daos_task_list_put() */
 
-
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_task_list_get
  *
@@ -184,7 +182,7 @@ H5_daos_task_list_get(H5_daos_task_list_t *task_list, tse_task_t **task)
     assert(task_list);
     assert(task);
 
-    if(task_list->num_tasks == 0)
+    if (task_list->num_tasks == 0)
         D_GOTO_ERROR(H5E_VOL, H5E_CANTGET, FAIL, "task list has no available tasks");
 
     /* Grab task from head of safe task list */
@@ -193,15 +191,14 @@ H5_daos_task_list_get(H5_daos_task_list_t *task_list, tse_task_t **task)
     /* If there are any "unsafe" tasks, grab the head task
      * to fill the gap.
      */
-    if(task_list->num_unsafe_tasks)
+    if (task_list->num_unsafe_tasks)
         task_list->tasks[task_list->num_tasks] =
-                task_list->tasks[task_list->num_tasks + task_list->num_unsafe_tasks];
+            task_list->tasks[task_list->num_tasks + task_list->num_unsafe_tasks];
 
 done:
     D_FUNC_LEAVE;
 } /* end H5_daos_task_list_get() */
 
-
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_task_list_avail
  *
@@ -224,7 +221,6 @@ H5_daos_task_list_avail(H5_daos_task_list_t *task_list)
     D_FUNC_LEAVE;
 } /* end H5_daos_task_list_avail() */
 
-
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_task_list_safe
  *
@@ -244,7 +240,7 @@ H5_daos_task_list_safe(H5_daos_task_list_t *task_list)
 {
     assert(task_list);
 
-    if(task_list->num_unsafe_tasks) {
+    if (task_list->num_unsafe_tasks) {
         task_list->num_tasks += task_list->num_unsafe_tasks;
         task_list->num_unsafe_tasks = 0;
     }

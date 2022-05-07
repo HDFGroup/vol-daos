@@ -35,7 +35,7 @@ static herr_t iterate_func3(hid_t map_id, const void *key, void *op_data);
 static herr_t iterate_func4(hid_t map_id, const void *key, void *op_data);
 
 typedef struct delete_rank_0_test_info {
-    size_t key_count;
+    size_t  key_count;
     hbool_t second_pass;
 } delete_rank_0_test_info;
 
@@ -78,8 +78,9 @@ test_create_map_rank_0()
             goto error;
         }
 
-        if ((map_id = H5Mcreate(file_id, MAP_TEST_CREATE_RANK_0_ONLY_MAP_NAME, MAP_TEST_CREATE_RANK_0_ONLY_KEY_TYPE,
-                MAP_TEST_CREATE_RANK_0_ONLY_VAL_TYPE, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT)) < 0) {
+        if ((map_id = H5Mcreate(file_id, MAP_TEST_CREATE_RANK_0_ONLY_MAP_NAME,
+                                MAP_TEST_CREATE_RANK_0_ONLY_KEY_TYPE, MAP_TEST_CREATE_RANK_0_ONLY_VAL_TYPE,
+                                H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT)) < 0) {
             H5_FAILED();
             HDputs("    failed to create map");
             goto error;
@@ -142,11 +143,13 @@ test_create_map_rank_0()
     return 0;
 
 error:
-    H5E_BEGIN_TRY {
+    H5E_BEGIN_TRY
+    {
         H5Mclose(map_id);
         H5Pclose(fapl_id);
         H5Fclose(file_id);
-    } H5E_END_TRY;
+    }
+    H5E_END_TRY;
 
     return 1;
 }
@@ -191,7 +194,7 @@ test_create_map_all_ranks()
     }
 
     if ((map_id = H5Mcreate(file_id, MAP_TEST_CREATE_ALL_RANKS_MAP_NAME, MAP_TEST_CREATE_ALL_RANKS_KEY_TYPE,
-            MAP_TEST_CREATE_ALL_RANKS_VAL_TYPE, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT)) < 0) {
+                            MAP_TEST_CREATE_ALL_RANKS_VAL_TYPE, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT)) < 0) {
         H5_FAILED();
         HDputs("    failed to create map");
         goto error;
@@ -244,11 +247,13 @@ test_create_map_all_ranks()
     return 0;
 
 error:
-    H5E_BEGIN_TRY {
+    H5E_BEGIN_TRY
+    {
         H5Mclose(map_id);
         H5Pclose(fapl_id);
         H5Fclose(file_id);
-    } H5E_END_TRY;
+    }
+    H5E_END_TRY;
 
     return 1;
 }
@@ -267,8 +272,8 @@ test_insert_keys_one_rank()
 {
     MAP_TEST_INSERT_RANK_0_ONLY_KEY_C_TYPE key1, key2, key3;
     MAP_TEST_INSERT_RANK_0_ONLY_VAL_C_TYPE val1, val2, val3;
-    hid_t file_id = H5I_INVALID_HID, fapl_id = H5I_INVALID_HID;
-    hid_t map_id = H5I_INVALID_HID;
+    hid_t                                  file_id = H5I_INVALID_HID, fapl_id = H5I_INVALID_HID;
+    hid_t                                  map_id = H5I_INVALID_HID;
 
     TESTING_2("inserting keys on rank 0 then retrieving values on all ranks")
 
@@ -299,8 +304,9 @@ test_insert_keys_one_rank()
             goto error;
         }
 
-        if ((map_id = H5Mcreate(file_id, MAP_TEST_INSERT_RANK_0_ONLY_MAP_NAME, MAP_TEST_INSERT_RANK_0_ONLY_KEY_TYPE,
-                MAP_TEST_INSERT_RANK_0_ONLY_VAL_TYPE, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT)) < 0) {
+        if ((map_id = H5Mcreate(file_id, MAP_TEST_INSERT_RANK_0_ONLY_MAP_NAME,
+                                MAP_TEST_INSERT_RANK_0_ONLY_KEY_TYPE, MAP_TEST_INSERT_RANK_0_ONLY_VAL_TYPE,
+                                H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT)) < 0) {
             H5_FAILED();
             HDputs("    failed to create map");
             goto error;
@@ -309,22 +315,22 @@ test_insert_keys_one_rank()
         /*
          * Insert a few keys
          */
-        if (H5Mput(map_id, MAP_TEST_INSERT_RANK_0_ONLY_KEY_TYPE, &key1,
-                MAP_TEST_INSERT_RANK_0_ONLY_VAL_TYPE, &val1, H5P_DEFAULT)) {
+        if (H5Mput(map_id, MAP_TEST_INSERT_RANK_0_ONLY_KEY_TYPE, &key1, MAP_TEST_INSERT_RANK_0_ONLY_VAL_TYPE,
+                   &val1, H5P_DEFAULT)) {
             H5_FAILED();
             HDputs("    failed to set key-value pair in map");
             goto error;
         }
 
-        if (H5Mput(map_id, MAP_TEST_INSERT_RANK_0_ONLY_KEY_TYPE, &key2,
-                MAP_TEST_INSERT_RANK_0_ONLY_VAL_TYPE, &val2, H5P_DEFAULT)) {
+        if (H5Mput(map_id, MAP_TEST_INSERT_RANK_0_ONLY_KEY_TYPE, &key2, MAP_TEST_INSERT_RANK_0_ONLY_VAL_TYPE,
+                   &val2, H5P_DEFAULT)) {
             H5_FAILED();
             HDputs("    failed to set key-value pair in map");
             goto error;
         }
 
-        if (H5Mput(map_id, MAP_TEST_INSERT_RANK_0_ONLY_KEY_TYPE, &key3,
-                MAP_TEST_INSERT_RANK_0_ONLY_VAL_TYPE, &val3, H5P_DEFAULT)) {
+        if (H5Mput(map_id, MAP_TEST_INSERT_RANK_0_ONLY_KEY_TYPE, &key3, MAP_TEST_INSERT_RANK_0_ONLY_VAL_TYPE,
+                   &val3, H5P_DEFAULT)) {
             H5_FAILED();
             HDputs("    failed to set key-value pair in map");
             goto error;
@@ -370,8 +376,8 @@ test_insert_keys_one_rank()
     val1 = -1;
     val2 = -1;
     val3 = -1;
-    if (H5Mget(map_id, MAP_TEST_INSERT_RANK_0_ONLY_KEY_TYPE, &key1,
-            MAP_TEST_INSERT_RANK_0_ONLY_VAL_TYPE, &val1, H5P_DEFAULT) < 0) {
+    if (H5Mget(map_id, MAP_TEST_INSERT_RANK_0_ONLY_KEY_TYPE, &key1, MAP_TEST_INSERT_RANK_0_ONLY_VAL_TYPE,
+               &val1, H5P_DEFAULT) < 0) {
         H5_FAILED();
         HDputs("    failed to retrieve value by key from map");
         goto error;
@@ -383,8 +389,8 @@ test_insert_keys_one_rank()
         goto error;
     }
 
-    if (H5Mget(map_id, MAP_TEST_INSERT_RANK_0_ONLY_KEY_TYPE, &key2,
-            MAP_TEST_INSERT_RANK_0_ONLY_VAL_TYPE, &val2, H5P_DEFAULT) < 0) {
+    if (H5Mget(map_id, MAP_TEST_INSERT_RANK_0_ONLY_KEY_TYPE, &key2, MAP_TEST_INSERT_RANK_0_ONLY_VAL_TYPE,
+               &val2, H5P_DEFAULT) < 0) {
         H5_FAILED();
         HDputs("    failed to retrieve value by key from map");
         goto error;
@@ -396,8 +402,8 @@ test_insert_keys_one_rank()
         goto error;
     }
 
-    if (H5Mget(map_id, MAP_TEST_INSERT_RANK_0_ONLY_KEY_TYPE, &key3,
-            MAP_TEST_INSERT_RANK_0_ONLY_VAL_TYPE, &val3, H5P_DEFAULT) < 0) {
+    if (H5Mget(map_id, MAP_TEST_INSERT_RANK_0_ONLY_KEY_TYPE, &key3, MAP_TEST_INSERT_RANK_0_ONLY_VAL_TYPE,
+               &val3, H5P_DEFAULT) < 0) {
         H5_FAILED();
         HDputs("    failed to retrieve value by key from map");
         goto error;
@@ -432,11 +438,13 @@ test_insert_keys_one_rank()
     return 0;
 
 error:
-    H5E_BEGIN_TRY {
+    H5E_BEGIN_TRY
+    {
         H5Mclose(map_id);
         H5Pclose(fapl_id);
         H5Fclose(file_id);
-    } H5E_END_TRY;
+    }
+    H5E_END_TRY;
 
     return 1;
 }
@@ -455,26 +463,30 @@ error:
 static int
 test_insert_keys_all_ranks()
 {
-    MAP_TEST_INSERT_RANK_0_ONLY_KEY_C_TYPE *keys = NULL;
+    MAP_TEST_INSERT_RANK_0_ONLY_KEY_C_TYPE *keys           = NULL;
     MAP_TEST_INSERT_RANK_0_ONLY_KEY_C_TYPE *retrieved_keys = NULL;
-    MAP_TEST_INSERT_RANK_0_ONLY_VAL_C_TYPE *vals = NULL;
+    MAP_TEST_INSERT_RANK_0_ONLY_VAL_C_TYPE *vals           = NULL;
     MAP_TEST_INSERT_RANK_0_ONLY_VAL_C_TYPE *retrieved_vals = NULL;
 #ifndef NO_GET_MAP_COUNT
     hsize_t key_count;
 #endif
-    size_t  i;
-    hid_t   file_id = H5I_INVALID_HID, fapl_id = H5I_INVALID_HID;
-    hid_t   map_id = H5I_INVALID_HID;
+    size_t i;
+    hid_t  file_id = H5I_INVALID_HID, fapl_id = H5I_INVALID_HID;
+    hid_t  map_id = H5I_INVALID_HID;
 
     TESTING_2("inserting different keys on all ranks then retrieving values on all ranks")
 
-    if (NULL == (keys = (MAP_TEST_INSERT_ALL_RANKS_KEY_C_TYPE *) malloc(MAP_TEST_INSERT_ALL_RANKS_N_KEYS_PER_RANK * sizeof(MAP_TEST_INSERT_ALL_RANKS_KEY_C_TYPE)))) {
+    if (NULL ==
+        (keys = (MAP_TEST_INSERT_ALL_RANKS_KEY_C_TYPE *)malloc(
+             MAP_TEST_INSERT_ALL_RANKS_N_KEYS_PER_RANK * sizeof(MAP_TEST_INSERT_ALL_RANKS_KEY_C_TYPE)))) {
         H5_FAILED();
         HDputs("    failed to allocate buffer for map keys");
         goto error;
     }
 
-    if (NULL == (vals = (MAP_TEST_INSERT_ALL_RANKS_VAL_C_TYPE *) malloc(MAP_TEST_INSERT_ALL_RANKS_N_KEYS_PER_RANK * sizeof(MAP_TEST_INSERT_ALL_RANKS_VAL_C_TYPE)))) {
+    if (NULL ==
+        (vals = (MAP_TEST_INSERT_ALL_RANKS_VAL_C_TYPE *)malloc(
+             MAP_TEST_INSERT_ALL_RANKS_N_KEYS_PER_RANK * sizeof(MAP_TEST_INSERT_ALL_RANKS_VAL_C_TYPE)))) {
         H5_FAILED();
         HDputs("    failed to allocate buffer for map values");
         goto error;
@@ -505,7 +517,7 @@ test_insert_keys_all_ranks()
     }
 
     if ((map_id = H5Mcreate(file_id, MAP_TEST_INSERT_ALL_RANKS_MAP_NAME, MAP_TEST_INSERT_ALL_RANKS_KEY_TYPE,
-            MAP_TEST_INSERT_ALL_RANKS_VAL_TYPE, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT)) < 0) {
+                            MAP_TEST_INSERT_ALL_RANKS_VAL_TYPE, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT)) < 0) {
         H5_FAILED();
         HDputs("    failed to create map");
         goto error;
@@ -513,12 +525,15 @@ test_insert_keys_all_ranks()
 
     for (i = 0; i < MAP_TEST_INSERT_ALL_RANKS_N_KEYS_PER_RANK; i++) {
         /* Keys range from 0 to ((mpi_size * MAP_TEST_INSERT_ALL_RANKS_N_KEYS_PER_RANK) - 1) */
-        keys[i] = (MAP_TEST_INSERT_RANK_0_ONLY_KEY_C_TYPE) ((size_t) (mpi_rank * MAP_TEST_INSERT_ALL_RANKS_N_KEYS_PER_RANK) + i);
+        keys[i] =
+            (MAP_TEST_INSERT_RANK_0_ONLY_KEY_C_TYPE)((size_t)(mpi_rank *
+                                                              MAP_TEST_INSERT_ALL_RANKS_N_KEYS_PER_RANK) +
+                                                     i);
         /* Values simply determined by the current rank number */
         vals[i] = mpi_rank;
 
-        if (H5Mput(map_id, MAP_TEST_INSERT_ALL_RANKS_KEY_TYPE, &(keys[i]),
-                MAP_TEST_INSERT_ALL_RANKS_VAL_TYPE, &(vals[i]), H5P_DEFAULT) < 0) {
+        if (H5Mput(map_id, MAP_TEST_INSERT_ALL_RANKS_KEY_TYPE, &(keys[i]), MAP_TEST_INSERT_ALL_RANKS_VAL_TYPE,
+                   &(vals[i]), H5P_DEFAULT) < 0) {
             H5_FAILED();
             HDputs("    failed to set key-value pair in map");
             goto error;
@@ -559,47 +574,57 @@ test_insert_keys_all_ranks()
         goto error;
     }
 
-    if (key_count != (hsize_t) (mpi_size * MAP_TEST_INSERT_ALL_RANKS_N_KEYS_PER_RANK)) {
+    if (key_count != (hsize_t)(mpi_size * MAP_TEST_INSERT_ALL_RANKS_N_KEYS_PER_RANK)) {
         H5_FAILED();
-        printf("    map's key count of %lld did not match expected value %lld", (long long) key_count, (long long) (mpi_size * MAP_TEST_INSERT_ALL_RANKS_N_KEYS_PER_RANK));
+        printf("    map's key count of %lld did not match expected value %lld", (long long)key_count,
+               (long long)(mpi_size * MAP_TEST_INSERT_ALL_RANKS_N_KEYS_PER_RANK));
         goto error;
     }
 #endif
 
-    if (NULL == (retrieved_keys = (MAP_TEST_INSERT_ALL_RANKS_KEY_C_TYPE *) malloc((size_t) (MAP_TEST_INSERT_ALL_RANKS_N_KEYS_PER_RANK * mpi_size) * sizeof(MAP_TEST_INSERT_ALL_RANKS_KEY_C_TYPE)))) {
+    if (NULL == (retrieved_keys = (MAP_TEST_INSERT_ALL_RANKS_KEY_C_TYPE *)malloc(
+                     (size_t)(MAP_TEST_INSERT_ALL_RANKS_N_KEYS_PER_RANK * mpi_size) *
+                     sizeof(MAP_TEST_INSERT_ALL_RANKS_KEY_C_TYPE)))) {
         H5_FAILED();
         HDputs("    failed to allocate buffer for retrieved map keys");
         goto error;
     }
 
-    if (NULL == (retrieved_vals = (MAP_TEST_INSERT_ALL_RANKS_VAL_C_TYPE *) malloc((size_t) (MAP_TEST_INSERT_ALL_RANKS_N_KEYS_PER_RANK * mpi_size) * sizeof(MAP_TEST_INSERT_ALL_RANKS_VAL_C_TYPE)))) {
+    if (NULL == (retrieved_vals = (MAP_TEST_INSERT_ALL_RANKS_VAL_C_TYPE *)malloc(
+                     (size_t)(MAP_TEST_INSERT_ALL_RANKS_N_KEYS_PER_RANK * mpi_size) *
+                     sizeof(MAP_TEST_INSERT_ALL_RANKS_VAL_C_TYPE)))) {
         H5_FAILED();
         HDputs("    failed to allocate buffer for retrieved map values");
         goto error;
     }
 
-    for (i = 0; i < (size_t) mpi_size * MAP_TEST_INSERT_ALL_RANKS_N_KEYS_PER_RANK; i++) {
-        retrieved_keys[i] = (MAP_TEST_INSERT_RANK_0_ONLY_KEY_C_TYPE) i;
+    for (i = 0; i < (size_t)mpi_size * MAP_TEST_INSERT_ALL_RANKS_N_KEYS_PER_RANK; i++) {
+        retrieved_keys[i] = (MAP_TEST_INSERT_RANK_0_ONLY_KEY_C_TYPE)i;
         retrieved_vals[i] = -1;
 
         if (H5Mget(map_id, MAP_TEST_INSERT_ALL_RANKS_KEY_TYPE, &(retrieved_keys[i]),
-                MAP_TEST_INSERT_ALL_RANKS_VAL_TYPE, &(retrieved_vals[i]), H5P_DEFAULT) < 0) {
+                   MAP_TEST_INSERT_ALL_RANKS_VAL_TYPE, &(retrieved_vals[i]), H5P_DEFAULT) < 0) {
             H5_FAILED();
             HDputs("    failed to retrieve value by key from map");
             goto error;
         }
 
-        if (retrieved_vals[i] != (MAP_TEST_INSERT_ALL_RANKS_KEY_C_TYPE) (i / MAP_TEST_INSERT_ALL_RANKS_N_KEYS_PER_RANK)) {
+        if (retrieved_vals[i] !=
+            (MAP_TEST_INSERT_ALL_RANKS_KEY_C_TYPE)(i / MAP_TEST_INSERT_ALL_RANKS_N_KEYS_PER_RANK)) {
             H5_FAILED();
-            printf("    value for key %lld did not match expected value\n", (long long) i);
+            printf("    value for key %lld did not match expected value\n", (long long)i);
             goto error;
         }
     }
 
-    free(keys); keys = NULL;
-    free(retrieved_keys); retrieved_keys = NULL;
-    free(vals); vals = NULL;
-    free(retrieved_vals); retrieved_vals = NULL;
+    free(keys);
+    keys = NULL;
+    free(retrieved_keys);
+    retrieved_keys = NULL;
+    free(vals);
+    vals = NULL;
+    free(retrieved_vals);
+    retrieved_vals = NULL;
 
     if (H5Mclose(map_id) < 0) {
         H5_FAILED();
@@ -624,15 +649,21 @@ test_insert_keys_all_ranks()
     return 0;
 
 error:
-    H5E_BEGIN_TRY {
-        if (keys) free(keys);
-        if (retrieved_keys) free(retrieved_keys);
-        if (vals) free(vals);
-        if (retrieved_vals) free(retrieved_vals);
+    H5E_BEGIN_TRY
+    {
+        if (keys)
+            free(keys);
+        if (retrieved_keys)
+            free(retrieved_keys);
+        if (vals)
+            free(vals);
+        if (retrieved_vals)
+            free(retrieved_vals);
         H5Mclose(map_id);
         H5Pclose(fapl_id);
         H5Fclose(file_id);
-    } H5E_END_TRY;
+    }
+    H5E_END_TRY;
 
     return 1;
 }
@@ -680,8 +711,10 @@ test_insert_keys_one_rank_iterate_all_ranks()
         goto error;
     }
 
-    if ((map_id = H5Mcreate(file_id, MAP_TEST_INSERT_RANK_0_ITERATE_ALL_RANKS_MAP_NAME, MAP_TEST_INSERT_RANK_0_ITERATE_ALL_RANKS_KEY_TYPE,
-            MAP_TEST_INSERT_RANK_0_ITERATE_ALL_RANKS_VAL_TYPE, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT)) < 0) {
+    if ((map_id = H5Mcreate(file_id, MAP_TEST_INSERT_RANK_0_ITERATE_ALL_RANKS_MAP_NAME,
+                            MAP_TEST_INSERT_RANK_0_ITERATE_ALL_RANKS_KEY_TYPE,
+                            MAP_TEST_INSERT_RANK_0_ITERATE_ALL_RANKS_VAL_TYPE, H5P_DEFAULT, H5P_DEFAULT,
+                            H5P_DEFAULT)) < 0) {
         H5_FAILED();
         HDputs("    failed to create map");
         goto error;
@@ -693,18 +726,18 @@ test_insert_keys_one_rank_iterate_all_ranks()
     if (MAINPROCESS) {
         MAP_TEST_INSERT_RANK_0_ITERATE_ALL_RANKS_KEY_C_TYPE cur_key;
         MAP_TEST_INSERT_RANK_0_ITERATE_ALL_RANKS_VAL_C_TYPE cur_val;
-        size_t i;
+        size_t                                              i;
 
         for (i = 0; i < MAP_TEST_INSERT_RANK_0_ITERATE_ALL_RANKS_N_KEYS; i++) {
             /* Keys range from 0 to (MAP_TEST_INSERT_RANK_0_ITERATE_ALL_RANKS_N_KEYS - 1) */
-            cur_key = (MAP_TEST_INSERT_RANK_0_ONLY_KEY_C_TYPE) i;
+            cur_key = (MAP_TEST_INSERT_RANK_0_ONLY_KEY_C_TYPE)i;
             /* Values simply determined by 10 times the current iteration number */
-            cur_val = (MAP_TEST_INSERT_RANK_0_ONLY_KEY_C_TYPE) (i * 10);
+            cur_val = (MAP_TEST_INSERT_RANK_0_ONLY_KEY_C_TYPE)(i * 10);
 
             if (H5Mput(map_id, MAP_TEST_INSERT_RANK_0_ITERATE_ALL_RANKS_KEY_TYPE, &cur_key,
-                    MAP_TEST_INSERT_RANK_0_ITERATE_ALL_RANKS_VAL_TYPE, &cur_val, H5P_DEFAULT) < 0) {
+                       MAP_TEST_INSERT_RANK_0_ITERATE_ALL_RANKS_VAL_TYPE, &cur_val, H5P_DEFAULT) < 0) {
                 H5_FAILED();
-                printf("    failed to set key-value pair %lld in map\n", (long long) i);
+                printf("    failed to set key-value pair %lld in map\n", (long long)i);
                 goto error;
             }
         }
@@ -742,16 +775,17 @@ test_insert_keys_one_rank_iterate_all_ranks()
      * expected and that each key is a multiple of 10.
      */
     key_count = 0;
-    if (H5Miterate(map_id, NULL, MAP_TEST_INSERT_RANK_0_ITERATE_ALL_RANKS_KEY_TYPE,
-            iterate_func1, &key_count, H5P_DEFAULT) < 0) {
+    if (H5Miterate(map_id, NULL, MAP_TEST_INSERT_RANK_0_ITERATE_ALL_RANKS_KEY_TYPE, iterate_func1, &key_count,
+                   H5P_DEFAULT) < 0) {
         H5_FAILED();
         HDputs("    iteration over keys in map failed");
         goto error;
     }
 
-    if (key_count != (size_t) MAP_TEST_INSERT_RANK_0_ITERATE_ALL_RANKS_N_KEYS) {
+    if (key_count != (size_t)MAP_TEST_INSERT_RANK_0_ITERATE_ALL_RANKS_N_KEYS) {
         H5_FAILED();
-        printf("    after iteration, key count of %lld did not match expected value %lld\n", (long long) key_count, (long long) MAP_TEST_INSERT_RANK_0_ITERATE_ALL_RANKS_N_KEYS);
+        printf("    after iteration, key count of %lld did not match expected value %lld\n",
+               (long long)key_count, (long long)MAP_TEST_INSERT_RANK_0_ITERATE_ALL_RANKS_N_KEYS);
         goto error;
     }
 
@@ -778,11 +812,13 @@ test_insert_keys_one_rank_iterate_all_ranks()
     return 0;
 
 error:
-    H5E_BEGIN_TRY {
+    H5E_BEGIN_TRY
+    {
         H5Mclose(map_id);
         H5Pclose(fapl_id);
         H5Fclose(file_id);
-    } H5E_END_TRY;
+    }
+    H5E_END_TRY;
 
     return 1;
 }
@@ -802,9 +838,9 @@ test_insert_keys_all_ranks_iterate_all_ranks()
 {
     MAP_TEST_INSERT_ALL_RANKS_ITERATE_ALL_RANKS_KEY_C_TYPE cur_key;
     MAP_TEST_INSERT_ALL_RANKS_ITERATE_ALL_RANKS_VAL_C_TYPE cur_val;
-    size_t i, key_count;
-    hid_t  file_id = H5I_INVALID_HID, fapl_id = H5I_INVALID_HID;
-    hid_t  map_id = H5I_INVALID_HID;
+    size_t                                                 i, key_count;
+    hid_t file_id = H5I_INVALID_HID, fapl_id = H5I_INVALID_HID;
+    hid_t map_id = H5I_INVALID_HID;
 
     TESTING_2("insert keys on all ranks - iterate over keys on all ranks")
 
@@ -832,8 +868,10 @@ test_insert_keys_all_ranks_iterate_all_ranks()
         goto error;
     }
 
-    if ((map_id = H5Mcreate(file_id, MAP_TEST_INSERT_ALL_RANKS_ITERATE_ALL_RANKS_MAP_NAME, MAP_TEST_INSERT_ALL_RANKS_ITERATE_ALL_RANKS_KEY_TYPE,
-            MAP_TEST_INSERT_ALL_RANKS_ITERATE_ALL_RANKS_VAL_TYPE, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT)) < 0) {
+    if ((map_id = H5Mcreate(file_id, MAP_TEST_INSERT_ALL_RANKS_ITERATE_ALL_RANKS_MAP_NAME,
+                            MAP_TEST_INSERT_ALL_RANKS_ITERATE_ALL_RANKS_KEY_TYPE,
+                            MAP_TEST_INSERT_ALL_RANKS_ITERATE_ALL_RANKS_VAL_TYPE, H5P_DEFAULT, H5P_DEFAULT,
+                            H5P_DEFAULT)) < 0) {
         H5_FAILED();
         HDputs("    failed to create map");
         goto error;
@@ -844,14 +882,17 @@ test_insert_keys_all_ranks_iterate_all_ranks()
      */
     for (i = 0; i < MAP_TEST_INSERT_ALL_RANKS_ITERATE_ALL_RANKS_N_KEYS; i++) {
         /* Keys range from 0 to ((mpi_size * MAP_TEST_INSERT_ALL_RANKS_ITERATE_ALL_RANKS_N_KEYS) - 1) */
-        cur_key = (MAP_TEST_INSERT_RANK_0_ONLY_KEY_C_TYPE) ((size_t) (mpi_rank * MAP_TEST_INSERT_ALL_RANKS_ITERATE_ALL_RANKS_N_KEYS) + i);
+        cur_key =
+            (MAP_TEST_INSERT_RANK_0_ONLY_KEY_C_TYPE)((size_t)(mpi_rank *
+                                                              MAP_TEST_INSERT_ALL_RANKS_ITERATE_ALL_RANKS_N_KEYS) +
+                                                     i);
         /* Values simply determined by 5 times the current rank number */
         cur_val = mpi_rank * 5;
 
         if (H5Mput(map_id, MAP_TEST_INSERT_ALL_RANKS_ITERATE_ALL_RANKS_KEY_TYPE, &cur_key,
-                MAP_TEST_INSERT_ALL_RANKS_ITERATE_ALL_RANKS_VAL_TYPE, &cur_val, H5P_DEFAULT) < 0) {
+                   MAP_TEST_INSERT_ALL_RANKS_ITERATE_ALL_RANKS_VAL_TYPE, &cur_val, H5P_DEFAULT) < 0) {
             H5_FAILED();
-            printf("    failed to set key-value pair %lld in map\n", (long long) i);
+            printf("    failed to set key-value pair %lld in map\n", (long long)i);
             goto error;
         }
     }
@@ -888,17 +929,18 @@ test_insert_keys_all_ranks_iterate_all_ranks()
      * expected and that each key is a multiple of 5.
      */
     key_count = 0;
-    if (H5Miterate(map_id, NULL, MAP_TEST_INSERT_ALL_RANKS_ITERATE_ALL_RANKS_KEY_TYPE,
-            iterate_func2, &key_count, H5P_DEFAULT) < 0) {
+    if (H5Miterate(map_id, NULL, MAP_TEST_INSERT_ALL_RANKS_ITERATE_ALL_RANKS_KEY_TYPE, iterate_func2,
+                   &key_count, H5P_DEFAULT) < 0) {
         H5_FAILED();
         HDputs("    iteration over keys in map failed");
         goto error;
     }
 
-    if (key_count != (size_t) (mpi_size * MAP_TEST_INSERT_ALL_RANKS_ITERATE_ALL_RANKS_N_KEYS)) {
+    if (key_count != (size_t)(mpi_size * MAP_TEST_INSERT_ALL_RANKS_ITERATE_ALL_RANKS_N_KEYS)) {
         H5_FAILED();
-        printf("    after iteration, key count of %lld did not match expected value %lld\n", (long long) key_count,
-                (long long) (mpi_size * MAP_TEST_INSERT_ALL_RANKS_ITERATE_ALL_RANKS_N_KEYS));
+        printf("    after iteration, key count of %lld did not match expected value %lld\n",
+               (long long)key_count,
+               (long long)(mpi_size * MAP_TEST_INSERT_ALL_RANKS_ITERATE_ALL_RANKS_N_KEYS));
         goto error;
     }
 
@@ -925,11 +967,13 @@ test_insert_keys_all_ranks_iterate_all_ranks()
     return 0;
 
 error:
-    H5E_BEGIN_TRY {
+    H5E_BEGIN_TRY
+    {
         H5Mclose(map_id);
         H5Pclose(fapl_id);
         H5Fclose(file_id);
-    } H5E_END_TRY;
+    }
+    H5E_END_TRY;
 
     return 1;
 }
@@ -951,10 +995,10 @@ test_delete_keys_one_rank_iterate_all_ranks()
 {
     MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_KEY_C_TYPE cur_key;
     MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_VAL_C_TYPE cur_val;
-    delete_rank_0_test_info test_info;
-    size_t i;
-    hid_t  file_id = H5I_INVALID_HID, fapl_id = H5I_INVALID_HID;
-    hid_t  map_id = H5I_INVALID_HID;
+    delete_rank_0_test_info                             test_info;
+    size_t                                              i;
+    hid_t                                               file_id = H5I_INVALID_HID, fapl_id = H5I_INVALID_HID;
+    hid_t                                               map_id = H5I_INVALID_HID;
 
     TESTING_2("delete keys on rank 0 - iterate over keys on all ranks")
 
@@ -982,8 +1026,10 @@ test_delete_keys_one_rank_iterate_all_ranks()
         goto error;
     }
 
-    if ((map_id = H5Mcreate(file_id, MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_MAP_NAME, MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_KEY_TYPE,
-            MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_VAL_TYPE, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT)) < 0) {
+    if ((map_id = H5Mcreate(file_id, MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_MAP_NAME,
+                            MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_KEY_TYPE,
+                            MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_VAL_TYPE, H5P_DEFAULT, H5P_DEFAULT,
+                            H5P_DEFAULT)) < 0) {
         H5_FAILED();
         HDputs("    failed to create map");
         goto error;
@@ -994,14 +1040,17 @@ test_delete_keys_one_rank_iterate_all_ranks()
      */
     for (i = 0; i < MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_N_KEYS; i++) {
         /* Keys range from 0 to ((mpi_size * MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_N_KEYS) - 1) */
-        cur_key = (MAP_TEST_INSERT_RANK_0_ONLY_KEY_C_TYPE) ((size_t) (mpi_rank * MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_N_KEYS) + i);
+        cur_key =
+            (MAP_TEST_INSERT_RANK_0_ONLY_KEY_C_TYPE)((size_t)(mpi_rank *
+                                                              MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_N_KEYS) +
+                                                     i);
         /* Values simply determined by 5 times the current rank number */
         cur_val = mpi_rank * 5;
 
         if (H5Mput(map_id, MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_KEY_TYPE, &cur_key,
-                MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_VAL_TYPE, &cur_val, H5P_DEFAULT) < 0) {
+                   MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_VAL_TYPE, &cur_val, H5P_DEFAULT) < 0) {
             H5_FAILED();
-            printf("    failed to set key-value pair %lld in map\n", (long long) i);
+            printf("    failed to set key-value pair %lld in map\n", (long long)i);
             goto error;
         }
     }
@@ -1037,19 +1086,20 @@ test_delete_keys_one_rank_iterate_all_ranks()
      * Iterate over all keys, making sure that the count matches what is
      * expected and that each key is a multiple of 5.
      */
-    test_info.key_count = 0;
+    test_info.key_count   = 0;
     test_info.second_pass = 0;
-    if (H5Miterate(map_id, NULL, MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_KEY_TYPE,
-            iterate_func3, &test_info, H5P_DEFAULT) < 0) {
+    if (H5Miterate(map_id, NULL, MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_KEY_TYPE, iterate_func3, &test_info,
+                   H5P_DEFAULT) < 0) {
         H5_FAILED();
         HDputs("    iteration over keys in map failed");
         goto error;
     }
 
-    if (test_info.key_count != (size_t) (mpi_size * MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_N_KEYS)) {
+    if (test_info.key_count != (size_t)(mpi_size * MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_N_KEYS)) {
         H5_FAILED();
-        printf("    after first iteration, key count of %lld did not match expected value %lld\n", (long long) test_info.key_count,
-                (long long) (mpi_size * MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_N_KEYS));
+        printf("    after first iteration, key count of %lld did not match expected value %lld\n",
+               (long long)test_info.key_count,
+               (long long)(mpi_size * MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_N_KEYS));
         goto error;
     }
 
@@ -1065,11 +1115,15 @@ test_delete_keys_one_rank_iterate_all_ranks()
      */
     if (MAINPROCESS) {
         for (i = 0; i < MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_N_KEYS; i++) {
-            cur_key = (MAP_TEST_INSERT_RANK_0_ONLY_KEY_C_TYPE) ((size_t) (mpi_rank * MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_N_KEYS) + i);
+            cur_key =
+                (MAP_TEST_INSERT_RANK_0_ONLY_KEY_C_TYPE)((size_t)(mpi_rank *
+                                                                  MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_N_KEYS) +
+                                                         i);
 
-            if (H5Mdelete(map_id, MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_KEY_TYPE, &cur_key, H5P_DEFAULT) < 0) {
+            if (H5Mdelete(map_id, MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_KEY_TYPE, &cur_key, H5P_DEFAULT) <
+                0) {
                 H5_FAILED();
-                printf("    failed to delete key %lld in map\n", (long long) i);
+                printf("    failed to delete key %lld in map\n", (long long)i);
                 goto error;
             }
         }
@@ -1102,19 +1156,22 @@ test_delete_keys_one_rank_iterate_all_ranks()
         goto error;
     }
 
-    test_info.key_count = 0;
+    test_info.key_count   = 0;
     test_info.second_pass = 1;
-    if (H5Miterate(map_id, NULL, MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_KEY_TYPE,
-            iterate_func3, &test_info, H5P_DEFAULT) < 0) {
+    if (H5Miterate(map_id, NULL, MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_KEY_TYPE, iterate_func3, &test_info,
+                   H5P_DEFAULT) < 0) {
         H5_FAILED();
         HDputs("    iteration over keys in map failed");
         goto error;
     }
 
-    if (test_info.key_count != (size_t) ((mpi_size * MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_N_KEYS) - MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_N_KEYS)) {
+    if (test_info.key_count != (size_t)((mpi_size * MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_N_KEYS) -
+                                        MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_N_KEYS)) {
         H5_FAILED();
-        printf("    after second iteration, key count of %lld did not match expected value %lld\n", (long long) test_info.key_count,
-                (long long) ((mpi_size * MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_N_KEYS) - MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_N_KEYS));
+        printf("    after second iteration, key count of %lld did not match expected value %lld\n",
+               (long long)test_info.key_count,
+               (long long)((mpi_size * MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_N_KEYS) -
+                           MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_N_KEYS));
         goto error;
     }
 
@@ -1141,11 +1198,13 @@ test_delete_keys_one_rank_iterate_all_ranks()
     return 0;
 
 error:
-    H5E_BEGIN_TRY {
+    H5E_BEGIN_TRY
+    {
         H5Mclose(map_id);
         H5Pclose(fapl_id);
         H5Fclose(file_id);
-    } H5E_END_TRY;
+    }
+    H5E_END_TRY;
 
     return 1;
 }
@@ -1169,10 +1228,10 @@ test_delete_keys_all_ranks_iterate_all_ranks()
 {
     MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_KEY_C_TYPE cur_key;
     MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_VAL_C_TYPE cur_val;
-    delete_all_ranks_test_info test_info;
-    size_t i;
-    hid_t  file_id = H5I_INVALID_HID, fapl_id = H5I_INVALID_HID;
-    hid_t  map_id = H5I_INVALID_HID;
+    delete_all_ranks_test_info                             test_info;
+    size_t                                                 i;
+    hid_t file_id = H5I_INVALID_HID, fapl_id = H5I_INVALID_HID;
+    hid_t map_id = H5I_INVALID_HID;
 
     TESTING_2("delete keys on all ranks - iterate over keys on all ranks")
 
@@ -1200,8 +1259,10 @@ test_delete_keys_all_ranks_iterate_all_ranks()
         goto error;
     }
 
-    if ((map_id = H5Mcreate(file_id, MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_MAP_NAME, MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_KEY_TYPE,
-            MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_VAL_TYPE, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT)) < 0) {
+    if ((map_id = H5Mcreate(file_id, MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_MAP_NAME,
+                            MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_KEY_TYPE,
+                            MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_VAL_TYPE, H5P_DEFAULT, H5P_DEFAULT,
+                            H5P_DEFAULT)) < 0) {
         H5_FAILED();
         HDputs("    failed to create map");
         goto error;
@@ -1212,15 +1273,18 @@ test_delete_keys_all_ranks_iterate_all_ranks()
      */
     for (i = 0; i < MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_N_KEYS; i++) {
         /* Keys range from 0 to ((mpi_size * MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_N_KEYS) - 1) */
-        cur_key = (MAP_TEST_INSERT_RANK_0_ONLY_KEY_C_TYPE) ((size_t) (mpi_rank * MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_N_KEYS) + i);
+        cur_key =
+            (MAP_TEST_INSERT_RANK_0_ONLY_KEY_C_TYPE)((size_t)(mpi_rank *
+                                                              MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_N_KEYS) +
+                                                     i);
         /* Values simply determined by the current iteration number. Therefore each rank has N keys
          * with values ranging from 0 to (N keys - 1) */
-        cur_val = (MAP_TEST_INSERT_RANK_0_ONLY_KEY_C_TYPE) i;
+        cur_val = (MAP_TEST_INSERT_RANK_0_ONLY_KEY_C_TYPE)i;
 
         if (H5Mput(map_id, MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_KEY_TYPE, &cur_key,
-                MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_VAL_TYPE, &cur_val, H5P_DEFAULT) < 0) {
+                   MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_VAL_TYPE, &cur_val, H5P_DEFAULT) < 0) {
             H5_FAILED();
-            printf("    failed to set key-value pair %lld in map\n", (long long) i);
+            printf("    failed to set key-value pair %lld in map\n", (long long)i);
             goto error;
         }
     }
@@ -1262,19 +1326,20 @@ test_delete_keys_all_ranks_iterate_all_ranks()
      * Iterate over all keys, making sure that the count matches what is
      * expected and that the key values range from 0 to the number of keys inserted.
      */
-    test_info.key_count = 0;
+    test_info.key_count   = 0;
     test_info.pass_number = 0;
-    if (H5Miterate(map_id, NULL, MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_KEY_TYPE,
-            iterate_func4, &test_info, H5P_DEFAULT) < 0) {
+    if (H5Miterate(map_id, NULL, MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_KEY_TYPE, iterate_func4,
+                   &test_info, H5P_DEFAULT) < 0) {
         H5_FAILED();
         HDputs("    iteration over keys in map failed");
         goto error;
     }
 
-    if (test_info.key_count != (size_t) (mpi_size * MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_N_KEYS)) {
+    if (test_info.key_count != (size_t)(mpi_size * MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_N_KEYS)) {
         H5_FAILED();
-        printf("    after first iteration, key count of %lld did not match expected value %lld\n", (long long) test_info.key_count,
-                (long long) (mpi_size * MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_N_KEYS));
+        printf("    after first iteration, key count of %lld did not match expected value %lld\n",
+               (long long)test_info.key_count,
+               (long long)(mpi_size * MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_N_KEYS));
         goto error;
     }
 
@@ -1291,9 +1356,13 @@ test_delete_keys_all_ranks_iterate_all_ranks()
     for (i = 0; i < MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_N_KEYS; i++) {
         size_t expected_key_count;
 
-        cur_key = (MAP_TEST_INSERT_RANK_0_ONLY_KEY_C_TYPE) ((size_t) (mpi_rank * MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_N_KEYS) + i);
+        cur_key =
+            (MAP_TEST_INSERT_RANK_0_ONLY_KEY_C_TYPE)((size_t)(mpi_rank *
+                                                              MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_N_KEYS) +
+                                                     i);
 
-        if (H5Mdelete(map_id, MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_KEY_TYPE, &cur_key, H5P_DEFAULT) < 0) {
+        if (H5Mdelete(map_id, MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_KEY_TYPE, &cur_key, H5P_DEFAULT) <
+            0) {
             H5_FAILED();
             HDputs("    failed to delete key in map\n");
             goto error;
@@ -1320,7 +1389,8 @@ test_delete_keys_all_ranks_iterate_all_ranks()
             goto error;
         }
 
-        if ((map_id = H5Mopen(file_id, MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_MAP_NAME, H5P_DEFAULT)) < 0) {
+        if ((map_id = H5Mopen(file_id, MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_MAP_NAME, H5P_DEFAULT)) <
+            0) {
             H5_FAILED();
             HDputs("    failed to open map");
             goto error;
@@ -1332,23 +1402,21 @@ test_delete_keys_all_ranks_iterate_all_ranks()
          * properly, the values of the remaining keys should always
          * be greater than or equal to the pass number.
          */
-        test_info.key_count = 0;
+        test_info.key_count   = 0;
         test_info.pass_number = i;
-        if (H5Miterate(map_id, NULL, MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_KEY_TYPE,
-                iterate_func4, &test_info, H5P_DEFAULT) < 0) {
+        if (H5Miterate(map_id, NULL, MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_KEY_TYPE, iterate_func4,
+                       &test_info, H5P_DEFAULT) < 0) {
             H5_FAILED();
             HDputs("    iteration over keys in map failed");
             goto error;
         }
 
-        expected_key_count = (size_t) (
-                                (mpi_size * MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_N_KEYS)
-                              - (((int)i + 1) * mpi_size)
-                             );
+        expected_key_count = (size_t)((mpi_size * MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_N_KEYS) -
+                                      (((int)i + 1) * mpi_size));
         if (test_info.key_count != expected_key_count) {
             H5_FAILED();
             printf("    after iteration %lld, key count of %lld did not match expected value %lld\n",
-                    (long long) i, (long long) test_info.key_count, (long long) expected_key_count);
+                   (long long)i, (long long)test_info.key_count, (long long)expected_key_count);
             goto error;
         }
 
@@ -1382,11 +1450,13 @@ test_delete_keys_all_ranks_iterate_all_ranks()
     return 0;
 
 error:
-    H5E_BEGIN_TRY {
+    H5E_BEGIN_TRY
+    {
         H5Mclose(map_id);
         H5Pclose(fapl_id);
         H5Fclose(file_id);
-    } H5E_END_TRY;
+    }
+    H5E_END_TRY;
 
     return 1;
 }
@@ -1408,9 +1478,9 @@ test_update_keys_rank_0_only_read_all_ranks()
 {
     MAP_TEST_UPDATE_RANK_0_READ_ALL_RANKS_KEY_C_TYPE cur_key;
     MAP_TEST_UPDATE_RANK_0_READ_ALL_RANKS_VAL_C_TYPE cur_val;
-    size_t i;
-    hid_t  file_id = H5I_INVALID_HID, fapl_id = H5I_INVALID_HID;
-    hid_t  map_id = H5I_INVALID_HID;
+    size_t                                           i;
+    hid_t                                            file_id = H5I_INVALID_HID, fapl_id = H5I_INVALID_HID;
+    hid_t                                            map_id = H5I_INVALID_HID;
 
     TESTING_2("continually update keys on rank 0 - read and verify keys on all ranks")
 
@@ -1438,8 +1508,10 @@ test_update_keys_rank_0_only_read_all_ranks()
         goto error;
     }
 
-    if ((map_id = H5Mcreate(file_id, MAP_TEST_UPDATE_RANK_0_READ_ALL_RANKS_MAP_NAME, MAP_TEST_UPDATE_RANK_0_READ_ALL_RANKS_KEY_TYPE,
-            MAP_TEST_UPDATE_RANK_0_READ_ALL_RANKS_VAL_TYPE, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT)) < 0) {
+    if ((map_id = H5Mcreate(file_id, MAP_TEST_UPDATE_RANK_0_READ_ALL_RANKS_MAP_NAME,
+                            MAP_TEST_UPDATE_RANK_0_READ_ALL_RANKS_KEY_TYPE,
+                            MAP_TEST_UPDATE_RANK_0_READ_ALL_RANKS_VAL_TYPE, H5P_DEFAULT, H5P_DEFAULT,
+                            H5P_DEFAULT)) < 0) {
         H5_FAILED();
         HDputs("    failed to create map");
         goto error;
@@ -1450,14 +1522,20 @@ test_update_keys_rank_0_only_read_all_ranks()
      */
     for (i = 0; i < MAP_TEST_UPDATE_RANK_0_READ_ALL_RANKS_N_KEYS; i++) {
         /* Keys range from 0 to ((mpi_size * MAP_TEST_INSERT_ALL_RANKS_ITERATE_ALL_RANKS_N_KEYS) - 1) */
-        cur_key = (MAP_TEST_INSERT_RANK_0_ONLY_KEY_C_TYPE) ((size_t) (mpi_rank * MAP_TEST_UPDATE_RANK_0_READ_ALL_RANKS_N_KEYS) + i);
+        cur_key =
+            (MAP_TEST_INSERT_RANK_0_ONLY_KEY_C_TYPE)((size_t)(mpi_rank *
+                                                              MAP_TEST_UPDATE_RANK_0_READ_ALL_RANKS_N_KEYS) +
+                                                     i);
         /* Values range from 0 to ((mpi_size * MAP_TEST_INSERT_ALL_RANKS_ITERATE_ALL_RANKS_N_KEYS) - 1) */
-        cur_val = (MAP_TEST_INSERT_RANK_0_ONLY_KEY_C_TYPE) ((size_t) (mpi_rank * MAP_TEST_UPDATE_RANK_0_READ_ALL_RANKS_N_KEYS) + i);
+        cur_val =
+            (MAP_TEST_INSERT_RANK_0_ONLY_KEY_C_TYPE)((size_t)(mpi_rank *
+                                                              MAP_TEST_UPDATE_RANK_0_READ_ALL_RANKS_N_KEYS) +
+                                                     i);
 
         if (H5Mput(map_id, MAP_TEST_UPDATE_RANK_0_READ_ALL_RANKS_KEY_TYPE, &cur_key,
-                MAP_TEST_UPDATE_RANK_0_READ_ALL_RANKS_VAL_TYPE, &cur_val, H5P_DEFAULT) < 0) {
+                   MAP_TEST_UPDATE_RANK_0_READ_ALL_RANKS_VAL_TYPE, &cur_val, H5P_DEFAULT) < 0) {
             H5_FAILED();
-            printf("    failed to set key-value pair %lld in map\n", (long long) i);
+            printf("    failed to set key-value pair %lld in map\n", (long long)i);
             goto error;
         }
     }
@@ -1489,16 +1567,16 @@ test_update_keys_rank_0_only_read_all_ranks()
         goto error;
     }
 
-    for (i = 0; i < (size_t) MAP_TEST_UPDATE_RANK_0_READ_ALL_RANKS_N_ITERS; i++) {
+    for (i = 0; i < (size_t)MAP_TEST_UPDATE_RANK_0_READ_ALL_RANKS_N_ITERS; i++) {
         size_t j;
 
         /* Update all the keys to have a value of 1 more than before. */
         if (MAINPROCESS) {
-            for (j = 0; j < (size_t) (mpi_size * MAP_TEST_UPDATE_RANK_0_READ_ALL_RANKS_N_KEYS); j++) {
-                cur_key = (MAP_TEST_INSERT_RANK_0_ONLY_KEY_C_TYPE) j;
+            for (j = 0; j < (size_t)(mpi_size * MAP_TEST_UPDATE_RANK_0_READ_ALL_RANKS_N_KEYS); j++) {
+                cur_key = (MAP_TEST_INSERT_RANK_0_ONLY_KEY_C_TYPE)j;
 
                 if (H5Mget(map_id, MAP_TEST_UPDATE_RANK_0_READ_ALL_RANKS_KEY_TYPE, &cur_key,
-                        MAP_TEST_UPDATE_RANK_0_READ_ALL_RANKS_VAL_TYPE, &cur_val, H5P_DEFAULT) < 0) {
+                           MAP_TEST_UPDATE_RANK_0_READ_ALL_RANKS_VAL_TYPE, &cur_val, H5P_DEFAULT) < 0) {
                     H5_FAILED();
                     HDputs("    failed to retrieved key's value from map");
                     goto error;
@@ -1507,9 +1585,9 @@ test_update_keys_rank_0_only_read_all_ranks()
                 cur_val++;
 
                 if (H5Mput(map_id, MAP_TEST_UPDATE_RANK_0_READ_ALL_RANKS_KEY_TYPE, &cur_key,
-                        MAP_TEST_UPDATE_RANK_0_READ_ALL_RANKS_VAL_TYPE, &cur_val, H5P_DEFAULT) < 0) {
+                           MAP_TEST_UPDATE_RANK_0_READ_ALL_RANKS_VAL_TYPE, &cur_val, H5P_DEFAULT) < 0) {
                     H5_FAILED();
-                    printf("    failed to set key-value pair %lld in map\n", (long long) j);
+                    printf("    failed to set key-value pair %lld in map\n", (long long)j);
                     goto error;
                 }
             }
@@ -1551,20 +1629,20 @@ test_update_keys_rank_0_only_read_all_ranks()
         /*
          * Check that all the keys were updated.
          */
-        for (j = 0; j < (size_t) (mpi_size * MAP_TEST_UPDATE_RANK_0_READ_ALL_RANKS_N_KEYS); j++) {
-            cur_key = (MAP_TEST_INSERT_RANK_0_ONLY_KEY_C_TYPE) j;
+        for (j = 0; j < (size_t)(mpi_size * MAP_TEST_UPDATE_RANK_0_READ_ALL_RANKS_N_KEYS); j++) {
+            cur_key = (MAP_TEST_INSERT_RANK_0_ONLY_KEY_C_TYPE)j;
 
             if (H5Mget(map_id, MAP_TEST_UPDATE_RANK_0_READ_ALL_RANKS_KEY_TYPE, &cur_key,
-                    MAP_TEST_UPDATE_RANK_0_READ_ALL_RANKS_VAL_TYPE, &cur_val, H5P_DEFAULT) < 0) {
+                       MAP_TEST_UPDATE_RANK_0_READ_ALL_RANKS_VAL_TYPE, &cur_val, H5P_DEFAULT) < 0) {
                 H5_FAILED();
                 HDputs("    failed to retrieved key's value from map");
                 goto error;
             }
 
-            if (cur_val != (MAP_TEST_UPDATE_RANK_0_READ_ALL_RANKS_VAL_C_TYPE) ((size_t) cur_key + i + 1)) {
+            if (cur_val != (MAP_TEST_UPDATE_RANK_0_READ_ALL_RANKS_VAL_C_TYPE)((size_t)cur_key + i + 1)) {
                 H5_FAILED();
-                printf("    value %lld of key %lld did not match expected value %lld\n",
-                        (long long) cur_val, (long long) j, (long long) ((size_t) cur_key + i + 1));
+                printf("    value %lld of key %lld did not match expected value %lld\n", (long long)cur_val,
+                       (long long)j, (long long)((size_t)cur_key + i + 1));
                 goto error;
             }
         }
@@ -1599,11 +1677,13 @@ test_update_keys_rank_0_only_read_all_ranks()
     return 0;
 
 error:
-    H5E_BEGIN_TRY {
+    H5E_BEGIN_TRY
+    {
         H5Mclose(map_id);
         H5Pclose(fapl_id);
         H5Fclose(file_id);
-    } H5E_END_TRY;
+    }
+    H5E_END_TRY;
 
     return 1;
 }
@@ -1625,9 +1705,9 @@ test_update_keys_all_ranks_read_all_ranks()
 {
     MAP_TEST_UPDATE_ALL_RANKS_READ_ALL_RANKS_KEY_C_TYPE cur_key;
     MAP_TEST_UPDATE_ALL_RANKS_READ_ALL_RANKS_VAL_C_TYPE cur_val;
-    size_t i;
-    hid_t  file_id = H5I_INVALID_HID, fapl_id = H5I_INVALID_HID;
-    hid_t  map_id = H5I_INVALID_HID;
+    size_t                                              i;
+    hid_t                                               file_id = H5I_INVALID_HID, fapl_id = H5I_INVALID_HID;
+    hid_t                                               map_id = H5I_INVALID_HID;
 
     TESTING_2("continually update keys on all ranks - read and verify keys on all ranks")
 
@@ -1655,8 +1735,10 @@ test_update_keys_all_ranks_read_all_ranks()
         goto error;
     }
 
-    if ((map_id = H5Mcreate(file_id, MAP_TEST_UPDATE_ALL_RANKS_READ_ALL_RANKS_MAP_NAME, MAP_TEST_UPDATE_ALL_RANKS_READ_ALL_RANKS_KEY_TYPE,
-            MAP_TEST_UPDATE_ALL_RANKS_READ_ALL_RANKS_VAL_TYPE, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT)) < 0) {
+    if ((map_id = H5Mcreate(file_id, MAP_TEST_UPDATE_ALL_RANKS_READ_ALL_RANKS_MAP_NAME,
+                            MAP_TEST_UPDATE_ALL_RANKS_READ_ALL_RANKS_KEY_TYPE,
+                            MAP_TEST_UPDATE_ALL_RANKS_READ_ALL_RANKS_VAL_TYPE, H5P_DEFAULT, H5P_DEFAULT,
+                            H5P_DEFAULT)) < 0) {
         H5_FAILED();
         HDputs("    failed to create map");
         goto error;
@@ -1667,14 +1749,20 @@ test_update_keys_all_ranks_read_all_ranks()
      */
     for (i = 0; i < MAP_TEST_UPDATE_ALL_RANKS_READ_ALL_RANKS_N_KEYS; i++) {
         /* Keys range from 0 to ((mpi_size * MAP_TEST_INSERT_ALL_RANKS_ITERATE_ALL_RANKS_N_KEYS) - 1) */
-        cur_key = (MAP_TEST_INSERT_RANK_0_ONLY_KEY_C_TYPE) ((size_t) (mpi_rank * MAP_TEST_UPDATE_ALL_RANKS_READ_ALL_RANKS_N_KEYS) + i);
+        cur_key =
+            (MAP_TEST_INSERT_RANK_0_ONLY_KEY_C_TYPE)((size_t)(mpi_rank *
+                                                              MAP_TEST_UPDATE_ALL_RANKS_READ_ALL_RANKS_N_KEYS) +
+                                                     i);
         /* Values range from 0 to ((mpi_size * MAP_TEST_INSERT_ALL_RANKS_ITERATE_ALL_RANKS_N_KEYS) - 1) */
-        cur_val = (MAP_TEST_INSERT_RANK_0_ONLY_KEY_C_TYPE) ((size_t) (mpi_rank * MAP_TEST_UPDATE_ALL_RANKS_READ_ALL_RANKS_N_KEYS) + i);
+        cur_val =
+            (MAP_TEST_INSERT_RANK_0_ONLY_KEY_C_TYPE)((size_t)(mpi_rank *
+                                                              MAP_TEST_UPDATE_ALL_RANKS_READ_ALL_RANKS_N_KEYS) +
+                                                     i);
 
         if (H5Mput(map_id, MAP_TEST_UPDATE_ALL_RANKS_READ_ALL_RANKS_KEY_TYPE, &cur_key,
-                MAP_TEST_UPDATE_ALL_RANKS_READ_ALL_RANKS_VAL_TYPE, &cur_val, H5P_DEFAULT) < 0) {
+                   MAP_TEST_UPDATE_ALL_RANKS_READ_ALL_RANKS_VAL_TYPE, &cur_val, H5P_DEFAULT) < 0) {
             H5_FAILED();
-            printf("    failed to set key-value pair %lld in map\n", (long long) i);
+            printf("    failed to set key-value pair %lld in map\n", (long long)i);
             goto error;
         }
     }
@@ -1706,15 +1794,18 @@ test_update_keys_all_ranks_read_all_ranks()
         goto error;
     }
 
-    for (i = 0; i < (size_t) MAP_TEST_UPDATE_ALL_RANKS_READ_ALL_RANKS_N_ITERS; i++) {
+    for (i = 0; i < (size_t)MAP_TEST_UPDATE_ALL_RANKS_READ_ALL_RANKS_N_ITERS; i++) {
         size_t j;
 
         /* Update all the keys to have a value of 1 more than before. */
-        for (j = 0; j < (size_t) MAP_TEST_UPDATE_ALL_RANKS_READ_ALL_RANKS_N_KEYS; j++) {
-            cur_key = (MAP_TEST_INSERT_RANK_0_ONLY_KEY_C_TYPE) ((size_t) (mpi_rank * MAP_TEST_UPDATE_ALL_RANKS_READ_ALL_RANKS_N_KEYS) + j);
+        for (j = 0; j < (size_t)MAP_TEST_UPDATE_ALL_RANKS_READ_ALL_RANKS_N_KEYS; j++) {
+            cur_key =
+                (MAP_TEST_INSERT_RANK_0_ONLY_KEY_C_TYPE)((size_t)(mpi_rank *
+                                                                  MAP_TEST_UPDATE_ALL_RANKS_READ_ALL_RANKS_N_KEYS) +
+                                                         j);
 
             if (H5Mget(map_id, MAP_TEST_UPDATE_ALL_RANKS_READ_ALL_RANKS_KEY_TYPE, &cur_key,
-                    MAP_TEST_UPDATE_ALL_RANKS_READ_ALL_RANKS_VAL_TYPE, &cur_val, H5P_DEFAULT) < 0) {
+                       MAP_TEST_UPDATE_ALL_RANKS_READ_ALL_RANKS_VAL_TYPE, &cur_val, H5P_DEFAULT) < 0) {
                 H5_FAILED();
                 HDputs("    failed to retrieved key's value from map");
                 goto error;
@@ -1723,9 +1814,9 @@ test_update_keys_all_ranks_read_all_ranks()
             cur_val++;
 
             if (H5Mput(map_id, MAP_TEST_UPDATE_ALL_RANKS_READ_ALL_RANKS_KEY_TYPE, &cur_key,
-                    MAP_TEST_UPDATE_ALL_RANKS_READ_ALL_RANKS_VAL_TYPE, &cur_val, H5P_DEFAULT) < 0) {
+                       MAP_TEST_UPDATE_ALL_RANKS_READ_ALL_RANKS_VAL_TYPE, &cur_val, H5P_DEFAULT) < 0) {
                 H5_FAILED();
-                printf("    failed to set key-value pair %lld in map\n", (long long) j);
+                printf("    failed to set key-value pair %lld in map\n", (long long)j);
                 goto error;
             }
         }
@@ -1766,20 +1857,20 @@ test_update_keys_all_ranks_read_all_ranks()
         /*
          * Check that all the keys were updated.
          */
-        for (j = 0; j < (size_t) (mpi_size * MAP_TEST_UPDATE_ALL_RANKS_READ_ALL_RANKS_N_KEYS); j++) {
-            cur_key = (MAP_TEST_INSERT_RANK_0_ONLY_KEY_C_TYPE) j;
+        for (j = 0; j < (size_t)(mpi_size * MAP_TEST_UPDATE_ALL_RANKS_READ_ALL_RANKS_N_KEYS); j++) {
+            cur_key = (MAP_TEST_INSERT_RANK_0_ONLY_KEY_C_TYPE)j;
 
             if (H5Mget(map_id, MAP_TEST_UPDATE_ALL_RANKS_READ_ALL_RANKS_KEY_TYPE, &cur_key,
-                    MAP_TEST_UPDATE_ALL_RANKS_READ_ALL_RANKS_VAL_TYPE, &cur_val, H5P_DEFAULT) < 0) {
+                       MAP_TEST_UPDATE_ALL_RANKS_READ_ALL_RANKS_VAL_TYPE, &cur_val, H5P_DEFAULT) < 0) {
                 H5_FAILED();
                 HDputs("    failed to retrieved key's value from map");
                 goto error;
             }
 
-            if (cur_val != (MAP_TEST_UPDATE_ALL_RANKS_READ_ALL_RANKS_VAL_C_TYPE) ((size_t) cur_key + i + 1)) {
+            if (cur_val != (MAP_TEST_UPDATE_ALL_RANKS_READ_ALL_RANKS_VAL_C_TYPE)((size_t)cur_key + i + 1)) {
                 H5_FAILED();
-                printf("    value %lld of key %lld did not match expected value %lld\n",
-                        (long long) cur_val, (long long) j, (long long) ((size_t) cur_key + i + 1));
+                printf("    value %lld of key %lld did not match expected value %lld\n", (long long)cur_val,
+                       (long long)j, (long long)((size_t)cur_key + i + 1));
                 goto error;
             }
         }
@@ -1814,11 +1905,13 @@ test_update_keys_all_ranks_read_all_ranks()
     return 0;
 
 error:
-    H5E_BEGIN_TRY {
+    H5E_BEGIN_TRY
+    {
         H5Mclose(map_id);
         H5Pclose(fapl_id);
         H5Fclose(file_id);
-    } H5E_END_TRY;
+    }
+    H5E_END_TRY;
 
     return 1;
 }
@@ -1832,11 +1925,11 @@ static herr_t
 iterate_func1(hid_t map_id, const void *key, void *op_data)
 {
     MAP_TEST_INSERT_RANK_0_ITERATE_ALL_RANKS_VAL_C_TYPE retrieved_val;
-    size_t *counter = (size_t *) op_data;
-    herr_t ret_val = H5_ITER_CONT;
+    size_t *                                            counter = (size_t *)op_data;
+    herr_t                                              ret_val = H5_ITER_CONT;
 
     if (H5Mget(map_id, MAP_TEST_INSERT_RANK_0_ITERATE_ALL_RANKS_KEY_TYPE, key,
-            MAP_TEST_INSERT_RANK_0_ITERATE_ALL_RANKS_VAL_TYPE, &retrieved_val, H5P_DEFAULT)) {
+               MAP_TEST_INSERT_RANK_0_ITERATE_ALL_RANKS_VAL_TYPE, &retrieved_val, H5P_DEFAULT)) {
         H5_FAILED();
         HDputs("    failed to retrieved key's value from map");
         ret_val = H5_ITER_ERROR;
@@ -1845,7 +1938,7 @@ iterate_func1(hid_t map_id, const void *key, void *op_data)
 
     if (retrieved_val % 10 != 0) {
         H5_FAILED();
-        printf("    key value was expected to be a multiple of 10, but was %lld\n", (long long) retrieved_val);
+        printf("    key value was expected to be a multiple of 10, but was %lld\n", (long long)retrieved_val);
         ret_val = H5_ITER_ERROR;
         goto done;
     }
@@ -1866,11 +1959,11 @@ static herr_t
 iterate_func2(hid_t map_id, const void *key, void *op_data)
 {
     MAP_TEST_INSERT_ALL_RANKS_ITERATE_ALL_RANKS_VAL_C_TYPE retrieved_val;
-    size_t *counter = (size_t *) op_data;
-    herr_t ret_val = H5_ITER_CONT;
+    size_t *                                               counter = (size_t *)op_data;
+    herr_t                                                 ret_val = H5_ITER_CONT;
 
     if (H5Mget(map_id, MAP_TEST_INSERT_ALL_RANKS_ITERATE_ALL_RANKS_KEY_TYPE, key,
-            MAP_TEST_INSERT_ALL_RANKS_ITERATE_ALL_RANKS_VAL_TYPE, &retrieved_val, H5P_DEFAULT)) {
+               MAP_TEST_INSERT_ALL_RANKS_ITERATE_ALL_RANKS_VAL_TYPE, &retrieved_val, H5P_DEFAULT)) {
         H5_FAILED();
         HDputs("    failed to retrieved key's value from map");
         ret_val = H5_ITER_ERROR;
@@ -1879,7 +1972,7 @@ iterate_func2(hid_t map_id, const void *key, void *op_data)
 
     if (retrieved_val % 5 != 0) {
         H5_FAILED();
-        printf("    key value was expected to be a multiple of 5, but was %lld\n", (long long) retrieved_val);
+        printf("    key value was expected to be a multiple of 5, but was %lld\n", (long long)retrieved_val);
         ret_val = H5_ITER_ERROR;
         goto done;
     }
@@ -1901,11 +1994,12 @@ static herr_t
 iterate_func3(hid_t map_id, const void *key, void *op_data)
 {
     MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_VAL_C_TYPE retrieved_val;
-    delete_rank_0_test_info *test_info = (delete_rank_0_test_info *) op_data;
-    hbool_t key_exists = 0;
-    herr_t ret_val = H5_ITER_CONT;
+    delete_rank_0_test_info *                           test_info  = (delete_rank_0_test_info *)op_data;
+    hbool_t                                             key_exists = 0;
+    herr_t                                              ret_val    = H5_ITER_CONT;
 
-    if (H5Mexists(map_id, MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_KEY_TYPE, key, &key_exists, H5P_DEFAULT) < 0) {
+    if (H5Mexists(map_id, MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_KEY_TYPE, key, &key_exists, H5P_DEFAULT) <
+        0) {
         H5_FAILED();
         HDputs("    failed to determine if key exists in map");
         ret_val = H5_ITER_ERROR;
@@ -1914,7 +2008,7 @@ iterate_func3(hid_t map_id, const void *key, void *op_data)
 
     if (key_exists) {
         if (H5Mget(map_id, MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_KEY_TYPE, key,
-                MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_VAL_TYPE, &retrieved_val, H5P_DEFAULT)) {
+                   MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_VAL_TYPE, &retrieved_val, H5P_DEFAULT)) {
             H5_FAILED();
             HDputs("    failed to retrieved key's value from map");
             ret_val = H5_ITER_ERROR;
@@ -1923,7 +2017,8 @@ iterate_func3(hid_t map_id, const void *key, void *op_data)
 
         if (retrieved_val % 5 != 0) {
             H5_FAILED();
-            printf("    key value was expected to be a multiple of 5, but was %lld\n", (long long) retrieved_val);
+            printf("    key value was expected to be a multiple of 5, but was %lld\n",
+                   (long long)retrieved_val);
             ret_val = H5_ITER_ERROR;
             goto done;
         }
@@ -1957,11 +2052,12 @@ static herr_t
 iterate_func4(hid_t map_id, const void *key, void *op_data)
 {
     MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_VAL_C_TYPE retrieved_val;
-    delete_all_ranks_test_info *test_info = (delete_all_ranks_test_info *) op_data;
-    hbool_t key_exists = 0;
-    herr_t ret_val = H5_ITER_CONT;
+    delete_all_ranks_test_info *                           test_info  = (delete_all_ranks_test_info *)op_data;
+    hbool_t                                                key_exists = 0;
+    herr_t                                                 ret_val    = H5_ITER_CONT;
 
-    if (H5Mexists(map_id, MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_KEY_TYPE, key, &key_exists, H5P_DEFAULT) < 0) {
+    if (H5Mexists(map_id, MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_KEY_TYPE, key, &key_exists,
+                  H5P_DEFAULT) < 0) {
         H5_FAILED();
         HDputs("    failed to determine if key exists in map");
         ret_val = H5_ITER_ERROR;
@@ -1970,17 +2066,18 @@ iterate_func4(hid_t map_id, const void *key, void *op_data)
 
     if (key_exists) {
         if (H5Mget(map_id, MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_KEY_TYPE, key,
-                MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_VAL_TYPE, &retrieved_val, H5P_DEFAULT)) {
+                   MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_VAL_TYPE, &retrieved_val, H5P_DEFAULT)) {
             H5_FAILED();
             HDputs("    failed to retrieved key's value from map");
             ret_val = H5_ITER_ERROR;
             goto done;
         }
 
-        if (retrieved_val < (MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_VAL_C_TYPE) test_info->pass_number) {
+        if (retrieved_val < (MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_VAL_C_TYPE)test_info->pass_number) {
             H5_FAILED();
-            printf("    key value was expected to be greater than or equal to the current iteration number %lld, but was %lld\n",
-                    (long long) test_info->pass_number, (long long) retrieved_val);
+            printf("    key value was expected to be greater than or equal to the current iteration number "
+                   "%lld, but was %lld\n",
+                   (long long)test_info->pass_number, (long long)retrieved_val);
             ret_val = H5_ITER_ERROR;
             goto done;
         }
@@ -2008,17 +2105,19 @@ main(int argc, char **argv)
      */
     H5open();
 
-    srand((unsigned) time(NULL));
+    srand((unsigned)time(NULL));
 
     if (MAINPROCESS) {
         if ((file_id = H5Fcreate(PARALLEL_FILENAME, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT)) < 0) {
-            HDputs("    failed to create file"); AT();
+            HDputs("    failed to create file");
+            AT();
             nerrors++;
             goto error;
         }
 
         if (H5Fclose(file_id) < 0) {
-            HDputs("    failed to close file"); AT();
+            HDputs("    failed to close file");
+            AT();
             nerrors++;
             goto error;
         }
@@ -2041,16 +2140,19 @@ main(int argc, char **argv)
     nerrors += test_update_keys_rank_0_only_read_all_ranks();
     nerrors += test_update_keys_all_ranks_read_all_ranks();
 
-    if (nerrors) goto error;
+    if (nerrors)
+        goto error;
 
-    if (MAINPROCESS) puts("All DAOS Parallel Map tests passed");
+    if (MAINPROCESS)
+        puts("All DAOS Parallel Map tests passed");
 
     MPI_Finalize();
 
     return 0;
 
 error:
-    if (MAINPROCESS) printf("*** %d TEST%s FAILED ***\n", nerrors, (!nerrors || nerrors > 1) ? "S" : "");
+    if (MAINPROCESS)
+        printf("*** %d TEST%s FAILED ***\n", nerrors, (!nerrors || nerrors > 1) ? "S" : "");
 
     MPI_Finalize();
 

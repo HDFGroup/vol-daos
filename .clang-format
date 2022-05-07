@@ -1,0 +1,16 @@
+---
+BasedOnStyle: LLVM
+UseTab: Never
+ColumnLimit: 110
+IndentWidth: 4
+TabWidth: 4
+BreakBeforeBraces: Stroustrup
+IndentCaseLabels: true
+IndentGotoLabels: false
+AlignConsecutiveAssignments: true
+AlignConsecutiveDeclarations: true
+AlignConsecutiveMacros: true
+AlwaysBreakAfterReturnType: AllDefinitions
+AllowShortFunctionsOnASingleLine: None
+BreakStringLiterals: true
+...

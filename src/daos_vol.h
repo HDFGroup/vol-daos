@@ -14,10 +14,10 @@
 #include "daos_vol_config.h"
 
 /* Public headers needed by this file */
+#include <daos.h>
 #include <hdf5.h>
 #include <mpi.h>
 #include <uuid/uuid.h>
-#include <daos.h>
 
 /*****************/
 /* Public Macros */
@@ -27,12 +27,12 @@
  * connector. They can be helpful when working with plugins and for passing
  * to the HDF5 command-line tools.
  */
-#define H5_DAOS_CONNECTOR_NAME      "daos"
-#define H5_DAOS_CONNECTOR_NAME_LEN  4
+#define H5_DAOS_CONNECTOR_NAME     "daos"
+#define H5_DAOS_CONNECTOR_NAME_LEN 4
 
-#define H5_DAOS_CONNECTOR_VALUE     ((H5VL_class_value_t)4004)
+#define H5_DAOS_CONNECTOR_VALUE ((H5VL_class_value_t)4004)
 
-#define H5_DAOS_SNAP_ID_INVAL (uint64_t)(int64_t)-1
+#define H5_DAOS_SNAP_ID_INVAL (uint64_t)(int64_t) - 1
 
 /*******************/
 /* Public Typedefs */
@@ -67,8 +67,7 @@ extern "C" {
  *
  * \return Non-negative on success/Negative on failure
  */
-H5VL_DAOS_PUBLIC herr_t
-H5Pset_fapl_daos(hid_t fapl_id, const char *pool, const char *sys_name);
+H5VL_DAOS_PUBLIC herr_t H5Pset_fapl_daos(hid_t fapl_id, const char *pool, const char *sys_name);
 
 /**
  * Sets DAOS properties on the file creation property list when creating a container.  This allows
@@ -80,8 +79,7 @@ H5Pset_fapl_daos(hid_t fapl_id, const char *pool, const char *sys_name);
  *
  * \return Non-negative on success/Negative on failure
  */
-H5VL_DAOS_PUBLIC herr_t
-H5daos_set_prop(hid_t fcpl_id, const char *prop_str);
+H5VL_DAOS_PUBLIC herr_t H5daos_set_prop(hid_t fcpl_id, const char *prop_str);
 
 /**
  * Sets the provided DAOS object class on the given property list.
@@ -108,8 +106,7 @@ H5daos_set_prop(hid_t fcpl_id, const char *prop_str);
  *
  * \return Non-negative on success/Negative on failure
  */
-H5VL_DAOS_PUBLIC herr_t
-H5daos_set_object_class(hid_t plist_id, char *object_class);
+H5VL_DAOS_PUBLIC herr_t H5daos_set_object_class(hid_t plist_id, char *object_class);
 
 /**
  * Retrieves the DAOS object class set on the given property list.
@@ -120,8 +117,7 @@ H5daos_set_object_class(hid_t plist_id, char *object_class);
  *
  * \return Length of object class string (excluding null terminator) on success/Negative on failure
  */
-H5VL_DAOS_PUBLIC ssize_t
-H5daos_get_object_class(hid_t plist_id, char *object_class, size_t size);
+H5VL_DAOS_PUBLIC ssize_t H5daos_get_object_class(hid_t plist_id, char *object_class, size_t size);
 
 /**
  * Sets the DAOS object class to use for opening the root group
@@ -134,8 +130,7 @@ H5daos_get_object_class(hid_t plist_id, char *object_class, size_t size);
  *
  * \return Non-negative on success/Negative on failure
  */
-H5VL_DAOS_PUBLIC herr_t
-H5daos_set_root_open_object_class(hid_t fapl_id, char *object_class);
+H5VL_DAOS_PUBLIC herr_t H5daos_set_root_open_object_class(hid_t fapl_id, char *object_class);
 
 /**
  * Retrieves the DAOS object class for opening the root group of a file
@@ -147,8 +142,7 @@ H5daos_set_root_open_object_class(hid_t fapl_id, char *object_class);
  *
  * \return Length of object class string (excluding null terminator) on success/Negative on failure
  */
-H5VL_DAOS_PUBLIC ssize_t
-H5daos_get_root_open_object_class(hid_t fapl_id, char *object_class, size_t size);
+H5VL_DAOS_PUBLIC ssize_t H5daos_get_root_open_object_class(hid_t fapl_id, char *object_class, size_t size);
 
 /**
  * Modifies the given access property list to indicate that all
@@ -161,8 +155,7 @@ H5daos_get_root_open_object_class(hid_t fapl_id, char *object_class, size_t size
  *
  * \return Non-negative on success/Negative on failure
  */
-H5VL_DAOS_PUBLIC herr_t
-H5daos_set_all_ind_metadata_ops(hid_t accpl_id, hbool_t is_independent);
+H5VL_DAOS_PUBLIC herr_t H5daos_set_all_ind_metadata_ops(hid_t accpl_id, hbool_t is_independent);
 
 /**
  * Retrieves the independent metadata I/O setting from the given
@@ -173,16 +166,13 @@ H5daos_set_all_ind_metadata_ops(hid_t accpl_id, hbool_t is_independent);
  *
  * \return Non-negative on success/Negative on failure
  */
-H5VL_DAOS_PUBLIC herr_t
-H5daos_get_all_ind_metadata_ops(hid_t accpl_id, hbool_t *is_independent);
+H5VL_DAOS_PUBLIC herr_t H5daos_get_all_ind_metadata_ops(hid_t accpl_id, hbool_t *is_independent);
 
 #ifdef DSINC
-H5VL_DAOS_PUBLIC herr_t H5daos_snap_create(hid_t loc_id,
-    H5_daos_snap_id_t *snap_id);
+H5VL_DAOS_PUBLIC herr_t H5daos_snap_create(hid_t loc_id, H5_daos_snap_id_t *snap_id);
 #endif
 #ifdef DV_HAVE_SNAP_OPEN_ID
-H5VL_DAOS_PUBLIC herr_t H5Pset_daos_snap_open(hid_t fapl_id,
-    H5_daos_snap_id_t snap_id);
+H5VL_DAOS_PUBLIC herr_t H5Pset_daos_snap_open(hid_t fapl_id, H5_daos_snap_id_t snap_id);
 #endif
 
 /**

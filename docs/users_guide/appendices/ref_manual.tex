@@ -11,7 +11,8 @@
 \paragraph{Synopsis:}
 \begin{flushleft}%
 \begin{minted}[breaklines=true,fontsize=\small]{hdf5-c-lexer.py:HDF5CLexer -x}
-herr_t H5Pset_fapl_daos(hid_t fapl_id, const char *pool, const char *daos_sys);
+herr_t H5Pset_fapl_daos(hid_t fapl_id, const char *pool,
+                        const char *daos_sys);
 \end{minted}
 \end{flushleft}%
 
@@ -28,7 +29,7 @@ DAOS VOL connector.
 \texttt{pool} identifies the label or UUID of the DAOS pool to connect to.
 
 \texttt{daos\_sys} identifies the DAOS system name to use when connecting to
-the DAOS pool. This may be NULL, in which case a default system name is used.
+the DAOS pool. This may be \texttt{NULL}, in which case a default system name is used.
 \end{flushleft}%
 
 \paragraph{Parameters:}
@@ -63,7 +64,7 @@ Sets DAOS property entries for the DAOS container corresponding to the HDF5 file
 property entries include the Redundancy Factor of the container, container label, etc.
 
 The property string should be of the format: 
-prop_entry_name1:value1;prop_entry_name2:value2;prop_entry_name3:value3;
+\texttt{prop\_entry\_name1:value1;prop\_entry\_name2:value2;prop\_entry\_name3:value3;}
 
 \end{flushleft}%
 

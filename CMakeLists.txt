@@ -250,7 +250,9 @@ endif()
 #-----------------------------------------------------------------------------
 # Source
 #-----------------------------------------------------------------------------
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/src)
+if (NOT HDF5_VOL_DAOS_PACKAGE_SOURCE) # skip when packaging source
+  add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/src)
+endif()
 
 #-----------------------------------------------------------------------------
 # Build doxygen documentation.

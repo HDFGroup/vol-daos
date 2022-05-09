@@ -27,7 +27,7 @@ jobs:
         shell: bash
         working-directory: ${{github.workspace}}/build
         run: |
-          cmake $GITHUB_WORKSPACE
+          cmake -D HDF5_VOL_DAOS_PACKAGE_SOURCE=1 $GITHUB_WORKSPACE
           make package_source
 
       - name: Create Release

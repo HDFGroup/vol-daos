@@ -11,6 +11,8 @@
     * [Connector options](#Connector-options)
 3. [Testing and Usage](#3-Testing-And-Usage)
 4. [More information](#4-More-Information)
+    * [DAOS VOL](#DAOS-VOL)
+    * [DAOS](#DAOS)
 
 ## 1. Description
 
@@ -139,10 +141,16 @@ refer to the DAOS VOL User's Guide under _docs/users_guide.pdf_.
 
 ## 4. More Information
 
+### DAOS VOL
 Design documentation for the DAOS VOL can be found under _docs/design_doc.pdf_.
 
+Journal paper:
+* J. Soumagne, J. Henderson, M. Chaarawi, N. Fortner, S. Breitenfeld, S. Lu, D. Robinson, E. Pourmal, J. Lombardi, "__Accelerating HDF5 I/O for Exascale Using DAOS__," in _IEEE Transactions on Parallel and Distributed Systems_, vol. 33, no. 4, pp. 903-914, April 2022. | [paper][doi_paper] |
+
+### DAOS
 DAOS installation and usage instructions can
-be found on the DAOS website: https://daos-stack.github.io/
+be found on the DAOS website: https://docs.daos.io/
 
 [vol-daos-release-svg]: https://img.shields.io/github/release/HDFGroup/vol-daos/all.svg
 [vol-daos-release-link]: https://github.com/HDFGroup/vol-daos/releases
+[doi_paper]: https://dx.doi.org/10.1109/TPDS.2021.3097884

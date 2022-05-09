@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+    paths-ignore:
+      - 'ACKNOWLEDGMENTS'
+      - 'AUTHORS'
+      - 'COPYING'
+      - 'COPYING_ADDENDUM'
+      - 'docs/**'
+      - 'README.md'
+  pull_request:
+    branches:
+      - master
+    paths-ignore:
+      - 'ACKNOWLEDGMENTS'
+      - 'AUTHORS'
+      - 'COPYING'
+      - 'COPYING_ADDENDUM'
+      - 'docs/**'
+      - 'README.md'
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+
+    env:
+      CLANG_FORMAT_VERSION: 12
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+          submodules: true
+
+      - name: Install package dependencies
+        run: sudo apt-get install -y clang-format-${{ env.CLANG_FORMAT_VERSION }}
+
+      - name: Set git configuration
+        run: git config --global clangFormat.binary clang-format-${{ env.CLANG_FORMAT_VERSION }}
+
+      - name: Check formatting (push to feature branch)
+        if: github.ref != 'refs/heads/master' && github.event_name == 'push'
+        run: test/scripts/gh_format.sh origin/master
+
+      - name: Check formatting (push to master branch or pull request merge)
+        if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+        run: test/scripts/gh_format.sh ${{ github.event.before }}
+
+      - name: Check formatting (pull request)
+        if: github.event_name == 'pull_request'
+        run: test/scripts/gh_format.sh origin/${{ github.base_ref }}
+

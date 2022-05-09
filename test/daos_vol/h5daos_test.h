@@ -29,8 +29,10 @@
  * Print the current location on the standard output stream.
  */
 #define AT()                                                                                                 \
-    if (MAINPROCESS)                                                                                         \
-        printf("   at %s:%d in %s()...\n", __FILE__, __LINE__, __func__);
+    do {                                                                                                     \
+        if (MAINPROCESS)                                                                                     \
+            printf("   at %s:%d in %s()...\n", __FILE__, __LINE__, __func__);                                \
+    } while (0)
 
 /*
  * The name of the test is printed by saying TESTING("something") which will
@@ -41,42 +43,42 @@
  * spaces.
  */
 #define TESTING(S)                                                                                           \
-    {                                                                                                        \
+    do {                                                                                                     \
         if (MAINPROCESS)                                                                                     \
             printf("Testing %-66s", S);                                                                      \
         fflush(stdout);                                                                                      \
-    }
+    } while (0)
 #define TESTING_2(S)                                                                                         \
-    {                                                                                                        \
+    do {                                                                                                     \
         if (MAINPROCESS)                                                                                     \
             printf("    Testing %-62s", S);                                                                  \
         fflush(stdout);                                                                                      \
-    }
+    } while (0)
 #define PASSED()                                                                                             \
-    {                                                                                                        \
+    do {                                                                                                     \
         if (MAINPROCESS)                                                                                     \
             puts("PASSED");                                                                                  \
         fflush(stdout);                                                                                      \
-    }
+    } while (0)
 #define H5_FAILED()                                                                                          \
-    {                                                                                                        \
+    do {                                                                                                     \
         if (MAINPROCESS)                                                                                     \
             puts("*FAILED*");                                                                                \
         fflush(stdout);                                                                                      \
-    }
+    } while (0)
 #define SKIPPED()                                                                                            \
-    {                                                                                                        \
+    do {                                                                                                     \
         if (MAINPROCESS)                                                                                     \
             puts("- SKIPPED -");                                                                             \
         fflush(stdout);                                                                                      \
-    }
+    } while (0)
 #define HDputs(S) puts(S)
 #define TEST_ERROR                                                                                           \
-    {                                                                                                        \
+    do {                                                                                                     \
         H5_FAILED();                                                                                         \
         AT();                                                                                                \
         goto error;                                                                                          \
-    }
+    } while (0)
 
 /*
  * Global variables

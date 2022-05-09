@@ -156,7 +156,7 @@ test_create_map(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t valu
     ssize_t ssize_ret;
 
     if (print_msg)
-        TESTING_2("creation of map object")
+        TESTING_2("creation of map object");
 
     if ((map_id = H5Mcreate(file_id, map_name, key_dtype, value_dtype, H5P_DEFAULT, mcpl_id, mapl_id)) < 0) {
         H5_FAILED();
@@ -173,7 +173,7 @@ test_create_map(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t valu
         goto error;
     } /* end if */
     if ((ids_equal = H5Tequal(id_out, key_dtype)) < 0)
-        TEST_ERROR
+        TEST_ERROR;
     if (!ids_equal) {
         H5_FAILED();
         AT();
@@ -181,7 +181,7 @@ test_create_map(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t valu
         goto error;
     } /* end if */
     if (H5Tclose(id_out) < 0)
-        TEST_ERROR
+        TEST_ERROR;
 
     /* Test H5Mget_val_type() */
     if ((id_out = H5Mget_val_type(map_id)) < 0) {
@@ -191,7 +191,7 @@ test_create_map(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t valu
         goto error;
     } /* end if */
     if ((ids_equal = H5Tequal(id_out, value_dtype)) < 0)
-        TEST_ERROR
+        TEST_ERROR;
     if (!ids_equal) {
         H5_FAILED();
         AT();
@@ -199,7 +199,7 @@ test_create_map(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t valu
         goto error;
     } /* end if */
     if (H5Tclose(id_out) < 0)
-        TEST_ERROR
+        TEST_ERROR;
 
     /* Test H5Mget_create_plist() */
     /* Note we must copy the object class property or the lists will compare as
@@ -211,7 +211,7 @@ test_create_map(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t valu
         goto error;
     } /* end if */
     if ((ssize_ret = H5daos_get_object_class(id_out, object_class, sizeof(object_class))) < 0)
-        TEST_ERROR
+        TEST_ERROR;
     if ((size_t)ssize_ret >= sizeof(object_class)) {
         H5_FAILED();
         AT();
@@ -219,11 +219,11 @@ test_create_map(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t valu
         goto error;
     } /* end if */
     if ((copied_mcpl = H5Pcopy(mcpl_id)) < 0)
-        TEST_ERROR
+        TEST_ERROR;
     if (H5daos_set_object_class(copied_mcpl, object_class) < 0)
-        TEST_ERROR
+        TEST_ERROR;
     if ((ids_equal = H5Pequal(id_out, copied_mcpl)) < 0)
-        TEST_ERROR
+        TEST_ERROR;
     if (!ids_equal) {
         H5_FAILED();
         AT();
@@ -231,9 +231,9 @@ test_create_map(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t valu
         goto error;
     } /* end if */
     if (H5Pclose(copied_mcpl) < 0)
-        TEST_ERROR
+        TEST_ERROR;
     if (H5Pclose(id_out) < 0)
-        TEST_ERROR
+        TEST_ERROR;
 
     /* Test H5Mget_access_plist() */
     if ((id_out = H5Mget_access_plist(map_id)) < 0) {
@@ -243,7 +243,7 @@ test_create_map(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t valu
         goto error;
     } /* end if */
     if ((ids_equal = H5Pequal(id_out, mapl_id)) < 0)
-        TEST_ERROR
+        TEST_ERROR;
     if (!ids_equal) {
         H5_FAILED();
         AT();
@@ -251,10 +251,10 @@ test_create_map(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t valu
         goto error;
     } /* end if */
     if (H5Pclose(id_out) < 0)
-        TEST_ERROR
+        TEST_ERROR;
 
     if (H5Mclose(map_id) < 0)
-        TEST_ERROR
+        TEST_ERROR;
 
     if (print_msg) {
         PASSED();
@@ -288,7 +288,7 @@ test_open_map(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t value_
     ssize_t ssize_ret;
 
     if (print_msg)
-        TESTING_2("open of map object")
+        TESTING_2("open of map object");
 
     if ((map_id = H5Mopen(file_id, map_name, mapl_id)) < 0) {
         H5_FAILED();
@@ -305,7 +305,7 @@ test_open_map(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t value_
         goto error;
     } /* end if */
     if ((ids_equal = H5Tequal(id_out, key_dtype)) < 0)
-        TEST_ERROR
+        TEST_ERROR;
     if (!ids_equal) {
         H5_FAILED();
         AT();
@@ -313,7 +313,7 @@ test_open_map(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t value_
         goto error;
     } /* end if */
     if (H5Tclose(id_out) < 0)
-        TEST_ERROR
+        TEST_ERROR;
 
     /* Test H5Mget_val_type() */
     if ((id_out = H5Mget_val_type(map_id)) < 0) {
@@ -323,7 +323,7 @@ test_open_map(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t value_
         goto error;
     } /* end if */
     if ((ids_equal = H5Tequal(id_out, value_dtype)) < 0)
-        TEST_ERROR
+        TEST_ERROR;
     if (!ids_equal) {
         H5_FAILED();
         AT();
@@ -331,7 +331,7 @@ test_open_map(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t value_
         goto error;
     } /* end if */
     if (H5Tclose(id_out) < 0)
-        TEST_ERROR
+        TEST_ERROR;
 
     /* Test H5Mget_create_plist() */
     /* Note we must copy the object class property or the lists will compare as
@@ -343,7 +343,7 @@ test_open_map(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t value_
         goto error;
     } /* end if */
     if ((ssize_ret = H5daos_get_object_class(id_out, object_class, sizeof(object_class))) < 0)
-        TEST_ERROR
+        TEST_ERROR;
     if ((size_t)ssize_ret >= sizeof(object_class)) {
         H5_FAILED();
         AT();
@@ -351,11 +351,11 @@ test_open_map(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t value_
         goto error;
     } /* end if */
     if ((copied_mcpl = H5Pcopy(mcpl_id)) < 0)
-        TEST_ERROR
+        TEST_ERROR;
     if (H5daos_set_object_class(copied_mcpl, object_class) < 0)
-        TEST_ERROR
+        TEST_ERROR;
     if ((ids_equal = H5Pequal(id_out, copied_mcpl)) < 0)
-        TEST_ERROR
+        TEST_ERROR;
     if (!ids_equal) {
         H5_FAILED();
         AT();
@@ -363,9 +363,9 @@ test_open_map(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t value_
         goto error;
     } /* end if */
     if (H5Pclose(copied_mcpl) < 0)
-        TEST_ERROR
+        TEST_ERROR;
     if (H5Pclose(id_out) < 0)
-        TEST_ERROR
+        TEST_ERROR;
 
     /* Test H5Mget_access_plist() */
     if ((id_out = H5Mget_access_plist(map_id)) < 0) {
@@ -375,7 +375,7 @@ test_open_map(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t value_
         goto error;
     } /* end if */
     if ((ids_equal = H5Pequal(id_out, mapl_id)) < 0)
-        TEST_ERROR
+        TEST_ERROR;
     if (!ids_equal) {
         H5_FAILED();
         AT();
@@ -383,10 +383,10 @@ test_open_map(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t value_
         goto error;
     } /* end if */
     if (H5Pclose(id_out) < 0)
-        TEST_ERROR
+        TEST_ERROR;
 
     if (H5Mclose(map_id) < 0)
-        TEST_ERROR
+        TEST_ERROR;
 
     if (print_msg) {
         PASSED();
@@ -415,10 +415,10 @@ test_map_set(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t value_d
     int   i;
 
     if (print_msg)
-        TESTING_2("map set with keys and values")
+        TESTING_2("map set with keys and values");
 
     if ((map_id = H5Mopen(file_id, map_name, H5P_DEFAULT)) < 0)
-        TEST_ERROR
+        TEST_ERROR;
 
     if (!strcmp(map_name, MAP_INT_INT_NAME) ||
         !strncmp(map_name, "map_large_name_", strlen("map_large_name_"))) {
@@ -546,7 +546,7 @@ test_map_set(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t value_d
     } /* end if */
 
     if (H5Mclose(map_id) < 0)
-        TEST_ERROR
+        TEST_ERROR;
 
     if (print_msg) {
         PASSED();
@@ -575,10 +575,10 @@ test_map_get(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t value_d
     int   i;
 
     if (print_msg)
-        TESTING_2("map get with keys and values")
+        TESTING_2("map get with keys and values");
 
     if ((map_id = H5Mopen(file_id, map_name, H5P_DEFAULT)) < 0)
-        TEST_ERROR
+        TEST_ERROR;
 
     /* Get the values and check that they are correct */
     if (!strcmp(map_name, MAP_INT_INT_NAME) ||
@@ -911,7 +911,7 @@ test_map_get(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t value_d
     } /* end if */
 
     if (H5Mclose(map_id) < 0)
-        TEST_ERROR
+        TEST_ERROR;
 
     if (print_msg) {
         PASSED();
@@ -940,10 +940,10 @@ test_map_nonexistent_key(hid_t file_id, const char *map_name, hid_t key_dtype, h
     herr_t error;
     int    i;
 
-    TESTING_2("map with a non-existent key")
+    TESTING_2("map with a non-existent key");
 
     if ((map_id = H5Mopen(file_id, map_name, H5P_DEFAULT)) < 0)
-        TEST_ERROR
+        TEST_ERROR;
 
     /* Get or delete a key that doesn't exist */
     if (!strcmp(map_name, MAP_INT_INT_NAME)) {
@@ -1798,7 +1798,7 @@ test_map_nonexistent_key(hid_t file_id, const char *map_name, hid_t key_dtype, h
     } /* end if */
 
     if (H5Mclose(map_id) < 0)
-        TEST_ERROR
+        TEST_ERROR;
 
     PASSED();
     fflush(stdout);
@@ -1824,10 +1824,10 @@ test_map_update(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t valu
     hid_t map_id = -1;
     int   i;
 
-    TESTING_2("map update with keys and values")
+    TESTING_2("map update with keys and values");
 
     if ((map_id = H5Mopen(file_id, map_name, H5P_DEFAULT)) < 0)
-        TEST_ERROR
+        TEST_ERROR;
 
     for (i = 0; i < NUMB_KEYS; i++) {
         enum_enum_keys[i] = i;
@@ -2205,7 +2205,7 @@ test_map_update(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t valu
     } /* end if */
 
     if (H5Mclose(map_id) < 0)
-        TEST_ERROR
+        TEST_ERROR;
 
     PASSED();
     fflush(stdout);
@@ -2232,10 +2232,10 @@ test_map_exists(hid_t file_id, const char *map_name, hid_t key_dtype)
     hbool_t exists;
     int     i;
 
-    TESTING_2("map exists with the keys and values")
+    TESTING_2("map exists with the keys and values");
 
     if ((map_id = H5Mopen(file_id, map_name, H5P_DEFAULT)) < 0)
-        TEST_ERROR
+        TEST_ERROR;
 
     if (!strcmp(map_name, MAP_INT_INT_NAME)) {
         int nonexist_key_int;
@@ -2674,7 +2674,7 @@ test_map_exists(hid_t file_id, const char *map_name, hid_t key_dtype)
     } /* end if */
 
     if (H5Mclose(map_id) < 0)
-        TEST_ERROR
+        TEST_ERROR;
 
     PASSED();
     fflush(stdout);
@@ -2932,10 +2932,10 @@ test_map_iterate(hid_t file_id, const char *map_name, hid_t key_dtype)
     int          ret;
     int          i;
 
-    TESTING_2("iterating over keys in map")
+    TESTING_2("iterating over keys in map");
 
     if ((map_id = H5Mopen(file_id, map_name, H5P_DEFAULT)) < 0)
-        TEST_ERROR
+        TEST_ERROR;
 
     /* Reset iterate_cb */
     memset(&iterate_ud, 0, sizeof(iterate_ud));
@@ -3084,7 +3084,7 @@ test_map_iterate(hid_t file_id, const char *map_name, hid_t key_dtype)
         iterate_ud.keys_visited = NULL;
     }
     if (H5Mclose(map_id) < 0)
-        TEST_ERROR
+        TEST_ERROR;
 
     PASSED();
     fflush(stdout);
@@ -3258,13 +3258,13 @@ test_map_delete_key(hid_t file_id, const char *map_name, hid_t key_dtype)
     int           ret;
     int           i;
 
-    TESTING_2("removing an entry by the key")
+    TESTING_2("removing an entry by the key");
 
     /* Reset iterate_ud */
     memset(&iterate_ud, 0, sizeof(iterate_ud));
 
     if ((map_id = H5Mopen(file_id, map_name, H5P_DEFAULT)) < 0)
-        TEST_ERROR
+        TEST_ERROR;
 
     /* Check if the existing keys exist (should all be TRUE) */
     if (!strcmp(map_name, MAP_INT_INT_NAME)) {
@@ -3770,7 +3770,7 @@ test_map_delete_key(hid_t file_id, const char *map_name, hid_t key_dtype)
     }
 
     if (H5Mclose(map_id) < 0)
-        TEST_ERROR
+        TEST_ERROR;
 
     PASSED();
     fflush(stdout);
@@ -3800,10 +3800,10 @@ test_map_get_count(hid_t file_id, const char *map_name, hsize_t expected_count, 
     hsize_t count;
 
     if (print_msg)
-        TESTING_2("H5Mget_count()")
+        TESTING_2("H5Mget_count()");
 
     if ((map_id = H5Mopen(file_id, map_name, H5P_DEFAULT)) < 0)
-        TEST_ERROR
+        TEST_ERROR;
 
     if (H5Mget_count(map_id, &count, H5P_DEFAULT) < 0) {
         H5_FAILED();
@@ -3820,7 +3820,7 @@ test_map_get_count(hid_t file_id, const char *map_name, hsize_t expected_count, 
     } /* end if */
 
     if (H5Mclose(map_id) < 0)
-        TEST_ERROR
+        TEST_ERROR;
 
     if (print_msg) {
         PASSED();
@@ -4483,7 +4483,7 @@ test_many_maps(hid_t file_id)
     if ((mapl_id = H5Pcreate(H5P_MAP_ACCESS)) < 0)
         goto error;
 
-    TESTING_2("creation of map object")
+    TESTING_2("creation of map object");
     for (i = 0; i < LARGE_NUMB_MAPS; i++) {
         sprintf(map_name, "map_large_name_%d", i);
         nerrors +=
@@ -4499,7 +4499,7 @@ test_many_maps(hid_t file_id)
     PASSED();
     fflush(stdout);
 
-    TESTING_2("open of map object")
+    TESTING_2("open of map object");
     for (i = 0; i < LARGE_NUMB_MAPS; i++) {
         sprintf(map_name, "map_large_name_%d", i);
         nerrors += test_open_map(file_id, map_name, H5T_NATIVE_INT, H5T_NATIVE_INT, mcpl_id, mapl_id, FALSE);
@@ -4514,7 +4514,7 @@ test_many_maps(hid_t file_id)
     PASSED();
     fflush(stdout);
 
-    TESTING_2("map set with keys and values")
+    TESTING_2("map set with keys and values");
     for (i = 0; i < LARGE_NUMB_MAPS; i++) {
         sprintf(map_name, "map_large_name_%d", i);
         nerrors += test_map_set(file_id, map_name, H5T_NATIVE_INT, H5T_NATIVE_INT, FALSE);
@@ -4538,7 +4538,7 @@ test_many_maps(hid_t file_id)
     PASSED();
     fflush(stdout);
 
-    TESTING_2("map get with keys and values")
+    TESTING_2("map get with keys and values");
     for (i = 0; i < LARGE_NUMB_MAPS; i++) {
         sprintf(map_name, "map_large_name_%d", i);
         nerrors += test_map_get(file_id, map_name, H5T_NATIVE_INT, H5T_NATIVE_INT, FALSE);
@@ -4572,7 +4572,7 @@ test_nonexistent_map(hid_t file_id)
 {
     hid_t map_id = -1;
 
-    TESTING("opening a non-existent map object")
+    TESTING("opening a non-existent map object");
 
     H5E_BEGIN_TRY
     {

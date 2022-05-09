@@ -57,7 +57,7 @@ test_create_map_rank_0()
     hid_t file_id = H5I_INVALID_HID, fapl_id = H5I_INVALID_HID;
     hid_t map_id = H5I_INVALID_HID;
 
-    TESTING_2("creation of map object on rank 0 only - reopen on all ranks")
+    TESTING_2("creation of map object on rank 0 only - reopen on all ranks");
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0) {
         H5_FAILED();
@@ -167,7 +167,7 @@ test_create_map_all_ranks()
     hid_t file_id = H5I_INVALID_HID, fapl_id = H5I_INVALID_HID;
     hid_t map_id = H5I_INVALID_HID;
 
-    TESTING_2("creation of map object on all ranks - reopen on all ranks")
+    TESTING_2("creation of map object on all ranks - reopen on all ranks");
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0) {
         H5_FAILED();
@@ -275,7 +275,7 @@ test_insert_keys_one_rank()
     hid_t                                  file_id = H5I_INVALID_HID, fapl_id = H5I_INVALID_HID;
     hid_t                                  map_id = H5I_INVALID_HID;
 
-    TESTING_2("inserting keys on rank 0 then retrieving values on all ranks")
+    TESTING_2("inserting keys on rank 0 then retrieving values on all ranks");
 
     key1 = 0;
     key2 = 1;
@@ -474,7 +474,7 @@ test_insert_keys_all_ranks()
     hid_t  file_id = H5I_INVALID_HID, fapl_id = H5I_INVALID_HID;
     hid_t  map_id = H5I_INVALID_HID;
 
-    TESTING_2("inserting different keys on all ranks then retrieving values on all ranks")
+    TESTING_2("inserting different keys on all ranks then retrieving values on all ranks");
 
     if (NULL ==
         (keys = (MAP_TEST_INSERT_ALL_RANKS_KEY_C_TYPE *)malloc(
@@ -685,7 +685,7 @@ test_insert_keys_one_rank_iterate_all_ranks()
     hid_t  file_id = H5I_INVALID_HID, fapl_id = H5I_INVALID_HID;
     hid_t  map_id = H5I_INVALID_HID;
 
-    TESTING_2("insert keys on rank 0 - iterate over keys on all ranks")
+    TESTING_2("insert keys on rank 0 - iterate over keys on all ranks");
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0) {
         H5_FAILED();
@@ -842,7 +842,7 @@ test_insert_keys_all_ranks_iterate_all_ranks()
     hid_t file_id = H5I_INVALID_HID, fapl_id = H5I_INVALID_HID;
     hid_t map_id = H5I_INVALID_HID;
 
-    TESTING_2("insert keys on all ranks - iterate over keys on all ranks")
+    TESTING_2("insert keys on all ranks - iterate over keys on all ranks");
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0) {
         H5_FAILED();
@@ -1000,7 +1000,7 @@ test_delete_keys_one_rank_iterate_all_ranks()
     hid_t                                               file_id = H5I_INVALID_HID, fapl_id = H5I_INVALID_HID;
     hid_t                                               map_id = H5I_INVALID_HID;
 
-    TESTING_2("delete keys on rank 0 - iterate over keys on all ranks")
+    TESTING_2("delete keys on rank 0 - iterate over keys on all ranks");
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0) {
         H5_FAILED();
@@ -1233,7 +1233,7 @@ test_delete_keys_all_ranks_iterate_all_ranks()
     hid_t file_id = H5I_INVALID_HID, fapl_id = H5I_INVALID_HID;
     hid_t map_id = H5I_INVALID_HID;
 
-    TESTING_2("delete keys on all ranks - iterate over keys on all ranks")
+    TESTING_2("delete keys on all ranks - iterate over keys on all ranks");
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0) {
         H5_FAILED();
@@ -1482,7 +1482,7 @@ test_update_keys_rank_0_only_read_all_ranks()
     hid_t                                            file_id = H5I_INVALID_HID, fapl_id = H5I_INVALID_HID;
     hid_t                                            map_id = H5I_INVALID_HID;
 
-    TESTING_2("continually update keys on rank 0 - read and verify keys on all ranks")
+    TESTING_2("continually update keys on rank 0 - read and verify keys on all ranks");
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0) {
         H5_FAILED();
@@ -1709,7 +1709,7 @@ test_update_keys_all_ranks_read_all_ranks()
     hid_t                                               file_id = H5I_INVALID_HID, fapl_id = H5I_INVALID_HID;
     hid_t                                               map_id = H5I_INVALID_HID;
 
-    TESTING_2("continually update keys on all ranks - read and verify keys on all ranks")
+    TESTING_2("continually update keys on all ranks - read and verify keys on all ranks");
 
     if ((fapl_id = H5Pcreate(H5P_FILE_ACCESS)) < 0) {
         H5_FAILED();

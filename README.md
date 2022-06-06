@@ -134,8 +134,14 @@ install the connector by simply doing:
   compiler, including the name of the executable.
 
 ## 3. Testing and Usage
+In the connector, each chunk is stored in a different DAOS dkey, and data in a single dkey is stored in a single DAOS storage target. Therefore, splitting the data into different chunks stripes the data across different dkeys and different storage targets. This improves I/O performance by allowing DAOS to read from or write to multiple storage targets at once.
 
-For information on how to use the DAOS VOL connector with an HDF5 application,
+
+The bandwidth improvement from using different storage targets is so vital that, if *h5pset_chunk*() is not used, i.e., contiguous datasets, the connector will automatically set a chunk size. The connector, by default, tries to size these chunks to approximately 1 MiB.
+
+The environment variable **HDF5_DAOS_CHUNK_TARGET_SIZE** (in bytes) sets the automatics chunk target size. Setting this variable to 0 disables automatic chunking, and contiguous datasets will stay contiguous (and will therefore only be stored on a single storage target). Better performance may be obtained by choosing a larger chunk target size, such as 4-8 MiB.
+
+For further information on how to use the DAOS VOL connector with an HDF5 application,
 as well as how to test that the VOL connector is functioning properly, please
 refer to the DAOS VOL User's Guide under _docs/users_guide.pdf_.
 

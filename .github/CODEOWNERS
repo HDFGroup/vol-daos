@@ -1,6 +1,6 @@
 # These owners will be the default owners for everything in
 # the repo. Unless a later match takes precedence,
-*       @soumagne @jhendersonHDF
+*       @fortnern @soumagne @jhendersonHDF
 
 # Order is important; the last matching pattern takes the most
 # precedence. When someone opens a pull request that only

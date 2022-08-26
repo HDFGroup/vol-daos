@@ -569,7 +569,11 @@ herr_t
 H5_daos_set_oclass_from_oid(hid_t plist_id, daos_obj_id_t oid)
 {
     daos_oclass_id_t oc_id;
-    char             oclass_str[10]; /* DAOS uses a size of 10 internally for these calls */
+#if CHECK_DAOS_API_VERSION(2, 3)
+    char             oclass_str[MAX_OBJ_CLASS_NAME_LEN];
+#else
+    char             oclass_str[24];
+#endif
     herr_t           ret_value = SUCCEED;
 
     /* Get object class id from oid */

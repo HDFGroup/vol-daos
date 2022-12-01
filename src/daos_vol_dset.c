@@ -1425,7 +1425,7 @@ H5_daos_dset_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
             /* Open dataset */
             if (0 != (ret = daos_obj_open(
                           udata->bcast_udata.obj->item.file->coh, udata->bcast_udata.obj->oid,
-                          udata->bcast_udata.obj->item.file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO,
+                          udata->bcast_udata.obj->item.file->flags & H5F_ACC_RDWR ? DAOS_OO_RW : DAOS_OO_RO,
                           &udata->bcast_udata.obj->obj_oh, NULL /*event*/)))
                 D_GOTO_ERROR(H5E_DATASET, H5E_CANTOPENOBJ, ret, "can't open dataset: %s",
                              H5_daos_err_to_string(ret));
@@ -1995,7 +1995,7 @@ H5_daos_dataset_open_helper(H5_daos_file_t *file, hid_t dapl_id, hbool_t collect
 
         /* Open dataset object */
         if (H5_daos_obj_open(file, req, &dset->obj.oid,
-                             (file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO), &dset->obj.obj_oh,
+                             (file->flags & H5F_ACC_RDWR ? DAOS_OO_RW : DAOS_OO_RO), &dset->obj.obj_oh,
                              "dataset object open", first_task, dep_task) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTOPENOBJ, NULL, "can't open dataset object");
 

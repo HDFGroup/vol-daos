@@ -1660,7 +1660,7 @@ H5_daos_file_open(const char *name, unsigned flags, hid_t fapl_id, hid_t H5VL_DA
         D_GOTO_ERROR(H5E_FILE, H5E_CANTENCODE, NULL, "can't encode global metadata object ID");
 
     /* Open global metadata object */
-    if (H5_daos_obj_open(file, int_req, &file->glob_md_oid, flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO,
+    if (H5_daos_obj_open(file, int_req, &file->glob_md_oid, flags & H5F_ACC_RDWR ? DAOS_OO_RW : DAOS_OO_RO,
                          &file->glob_md_oh, "global metadata object open", &first_task, &dep_task) < 0)
         D_GOTO_ERROR(H5E_FILE, H5E_CANTOPENOBJ, NULL, "can't open global metadata object");
 

@@ -767,7 +767,7 @@ H5_daos_map_open_helper(H5_daos_file_t *file, hid_t mapl_id, hbool_t collective,
 
         /* Open map object */
         if (H5_daos_obj_open(file, req, &map->obj.oid,
-                             (file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO), &map->obj.obj_oh,
+                             (file->flags & H5F_ACC_RDWR ? DAOS_OO_RW : DAOS_OO_RO), &map->obj.obj_oh,
                              "map object open", first_task, dep_task) < 0)
             D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, NULL, "can't open map object");
 
@@ -1246,7 +1246,7 @@ H5_daos_map_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
             if (0 !=
                 (ret = daos_obj_open(
                      udata->bcast_udata.obj->item.file->coh, udata->bcast_udata.obj->oid,
-                     (udata->bcast_udata.obj->item.file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO),
+                     (udata->bcast_udata.obj->item.file->flags & H5F_ACC_RDWR ? DAOS_OO_RW : DAOS_OO_RO),
                      &udata->bcast_udata.obj->obj_oh, NULL /*event*/)))
                 D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, ret, "can't open map: %s", H5_daos_err_to_string(ret));
 

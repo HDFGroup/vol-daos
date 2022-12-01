@@ -1191,7 +1191,7 @@ H5_daos_datatype_open_helper(H5_daos_file_t *file, hid_t tapl_id, hbool_t collec
 
         /* Open datatype object */
         if (H5_daos_obj_open(file, req, &dtype->obj.oid,
-                             (file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO), &dtype->obj.obj_oh,
+                             (file->flags & H5F_ACC_RDWR ? DAOS_OO_RW : DAOS_OO_RO), &dtype->obj.obj_oh,
                              "datatype object open", first_task, dep_task) < 0)
             D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTOPENOBJ, NULL, "can't open datatype object");
 
@@ -1522,7 +1522,7 @@ H5_daos_datatype_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args
             if (0 !=
                 (ret = daos_obj_open(
                      udata->bcast_udata.obj->item.file->coh, udata->bcast_udata.obj->oid,
-                     (udata->bcast_udata.obj->item.file->flags & H5F_ACC_RDWR ? DAOS_COO_RW : DAOS_COO_RO),
+                     (udata->bcast_udata.obj->item.file->flags & H5F_ACC_RDWR ? DAOS_OO_RW : DAOS_OO_RO),
                      &udata->bcast_udata.obj->obj_oh, NULL /*event*/)))
                 D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTOPENOBJ, ret, "can't open datatype: %s",
                              H5_daos_err_to_string(ret));

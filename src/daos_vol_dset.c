@@ -3479,11 +3479,17 @@ done:
  *
  *-------------------------------------------------------------------------
  */
+#if H5VL_VERSION >= 3
+herr_t
+H5_daos_dataset_read(size_t count, void *_dset[], hid_t mem_type_id[], hid_t mem_space_id[], hid_t file_space_id[],
+                     hid_t dxpl_id, void *buf[], void **req)
+#else
 herr_t
 H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id, hid_t file_space_id, hid_t dxpl_id,
                      void *buf, void **req)
+#endif
 {
-    H5_daos_dset_t *      dset       = (H5_daos_dset_t *)_dset;
+    H5_daos_dset_t *      dset       = NULL;
     H5_daos_io_task_ud_t *task_ud    = NULL;
     tse_task_t *          io_task    = NULL;
     tse_task_t *          first_task = NULL;
@@ -3491,15 +3497,39 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id, hid_t f
     H5_daos_req_t *       int_req    = NULL;
     htri_t                need_tconv = FALSE;
     hid_t                 req_dxpl_id;
+    hid_t                 local_mem_type_id = H5I_INVALID_HID;
+    hid_t                 local_mem_space_id = H5I_INVALID_HID;
+    hid_t                 local_file_space_id = H5I_INVALID_HID;
+    void *                local_buf = NULL;
     int                   ret;
     herr_t                ret_value = SUCCEED;
 
     H5_daos_inc_api_cnt();
 
-    if (!_dset)
+    /* Set convenience variables to handle VOL structure versioning */
+#if H5VL_VERSION >= 3
+    dset                = (H5_daos_dset_t *)_dset[0];
+    local_mem_type_id   = mem_type_id[0];
+    local_mem_space_id  = mem_space_id[0];
+    local_file_space_id = file_space_id[0];
+    local_buf           = buf[0];
+#else
+    dset                = (H5_daos_dset_t *)_dset;
+    local_mem_type_id   = mem_type_id;
+    local_mem_space_id  = mem_space_id;
+    local_file_space_id = file_space_id;
+    local_buf           = buf;
+#endif
+
+    if (!dset)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "dataset object is NULL");
     if (H5I_DATASET != dset->obj.item.type)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a dataset");
+
+#if H5VL_VERSION >= 3
+    if (count != 1)
+        D_GOTO_ERROR(H5E_DATASET, H5E_UNSUPPORTED, FAIL, "multi-dataset I/O is currently unsupported");
+#endif
 
     H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
 
@@ -3507,7 +3537,7 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id, hid_t f
      */
     if (dset->obj.item.open_req->status == 0 || dset->obj.item.created) {
         /* Check if datatype conversion is needed */
-        if ((need_tconv = H5_daos_need_tconv(dset->file_type_id, mem_type_id)) < 0)
+        if ((need_tconv = H5_daos_need_tconv(dset->file_type_id, local_mem_type_id)) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOMPARE, FAIL, "can't check if type conversion is needed");
         req_dxpl_id = need_tconv ? dxpl_id : H5P_DATASET_XFER_DEFAULT;
     } /* end if */
@@ -3523,8 +3553,8 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id, hid_t f
      * must be complete and there must not be an in-flight set_extent. */
     if ((dset->obj.item.open_req->status == 0) && (dset->cur_set_extent_space_id == H5I_INVALID_HID)) {
         /* Call internal routine */
-        if (H5_daos_dataset_read_int(dset, mem_type_id, mem_space_id, file_space_id, need_tconv, buf, NULL,
-                                     int_req, &first_task, &dep_task) < 0)
+        if (H5_daos_dataset_read_int(dset, local_mem_type_id, local_mem_space_id, local_file_space_id,
+                                     need_tconv, local_buf, NULL, int_req, &first_task, &dep_task) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_READERROR, FAIL, "failed to read data from dataset");
     } /* end if */
     else {
@@ -3537,18 +3567,18 @@ H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id, hid_t f
         task_ud->mem_type_id   = H5I_INVALID_HID;
         task_ud->mem_space_id  = H5I_INVALID_HID;
         task_ud->file_space_id = H5I_INVALID_HID;
-        task_ud->buf.rbuf      = buf;
+        task_ud->buf.rbuf      = local_buf;
 
         /* Copy dataspaces and datatype */
-        if ((task_ud->mem_type_id = H5Tcopy(mem_type_id)) < 0)
+        if ((task_ud->mem_type_id = H5Tcopy(local_mem_type_id)) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, FAIL, "can't copy memory type ID");
-        if (mem_space_id == H5S_ALL)
+        if (local_mem_space_id == H5S_ALL)
             task_ud->mem_space_id = H5S_ALL;
-        else if ((task_ud->mem_space_id = H5Scopy(mem_space_id)) < 0)
+        else if ((task_ud->mem_space_id = H5Scopy(local_mem_space_id)) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, FAIL, "can't copy memory space ID");
-        if (file_space_id == H5S_ALL)
+        if (local_file_space_id == H5S_ALL)
             task_ud->file_space_id = H5S_ALL;
-        else if ((task_ud->file_space_id = H5Scopy(file_space_id)) < 0)
+        else if ((task_ud->file_space_id = H5Scopy(local_file_space_id)) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, FAIL, "can't copy file space ID");
 
         /* Create end task for reading data */
@@ -3815,11 +3845,17 @@ done:
  *
  *-------------------------------------------------------------------------
  */
+#if H5VL_VERSION >= 3
+herr_t
+H5_daos_dataset_write(size_t count, void *_dset[], hid_t mem_type_id[], hid_t mem_space_id[], hid_t file_space_id[],
+                      hid_t dxpl_id, const void *buf[], void **req)
+#else
 herr_t
 H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id, hid_t file_space_id, hid_t dxpl_id,
                       const void *buf, void **req)
+#endif
 {
-    H5_daos_dset_t *      dset       = (H5_daos_dset_t *)_dset;
+    H5_daos_dset_t *      dset       = NULL;
     H5_daos_io_task_ud_t *task_ud    = NULL;
     tse_task_t *          io_task    = NULL;
     tse_task_t *          first_task = NULL;
@@ -3827,15 +3863,39 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id, hid_t 
     H5_daos_req_t *       int_req    = NULL;
     htri_t                need_tconv = FALSE;
     hid_t                 req_dxpl_id;
+    hid_t                 local_mem_type_id = H5I_INVALID_HID;
+    hid_t                 local_mem_space_id = H5I_INVALID_HID;
+    hid_t                 local_file_space_id = H5I_INVALID_HID;
+    const void *          local_buf = NULL;
     int                   ret;
     herr_t                ret_value = SUCCEED;
 
     H5_daos_inc_api_cnt();
 
-    if (!_dset)
+    /* Set convenience variables to handle VOL structure versioning */
+#if H5VL_VERSION >= 3
+    dset                = (H5_daos_dset_t *)_dset[0];
+    local_mem_type_id   = mem_type_id[0];
+    local_mem_space_id  = mem_space_id[0];
+    local_file_space_id = file_space_id[0];
+    local_buf           = buf[0];
+#else
+    dset                = (H5_daos_dset_t *)_dset;
+    local_mem_type_id   = mem_type_id;
+    local_mem_space_id  = mem_space_id;
+    local_file_space_id = file_space_id;
+    local_buf           = buf;
+#endif
+
+    if (!dset)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "dataset object is NULL");
     if (H5I_DATASET != dset->obj.item.type)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, FAIL, "object is not a dataset");
+
+#if H5VL_VERSION >= 3
+    if (count != 1)
+        D_GOTO_ERROR(H5E_DATASET, H5E_UNSUPPORTED, FAIL, "multi-dataset I/O is currently unsupported");
+#endif
 
     H5_DAOS_MAKE_ASYNC_PROGRESS(FAIL);
 
@@ -3847,7 +3907,7 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id, hid_t 
      */
     if (dset->obj.item.open_req->status == 0 || dset->obj.item.created) {
         /* Check if datatype conversion is needed */
-        if ((need_tconv = H5_daos_need_tconv(dset->file_type_id, mem_type_id)) < 0)
+        if ((need_tconv = H5_daos_need_tconv(dset->file_type_id, local_mem_type_id)) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOMPARE, FAIL, "can't check if type conversion is needed");
         req_dxpl_id = need_tconv ? dxpl_id : H5P_DATASET_XFER_DEFAULT;
     } /* end if */
@@ -3863,8 +3923,8 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id, hid_t 
      * must be complete and there must not be an in-flight set_extent. */
     if ((dset->obj.item.open_req->status == 0) && (dset->cur_set_extent_space_id == H5I_INVALID_HID)) {
         /* Call internal routine */
-        if (H5_daos_dataset_write_int(dset, mem_type_id, mem_space_id, file_space_id, need_tconv, buf, NULL,
-                                      int_req, &first_task, &dep_task) < 0)
+        if (H5_daos_dataset_write_int(dset, local_mem_type_id, local_mem_space_id, local_file_space_id,
+                                      need_tconv, local_buf, NULL, int_req, &first_task, &dep_task) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_WRITEERROR, FAIL, "failed to write data to dataset");
     } /* end if */
     else {
@@ -3877,18 +3937,18 @@ H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id, hid_t 
         task_ud->mem_type_id   = H5I_INVALID_HID;
         task_ud->mem_space_id  = H5I_INVALID_HID;
         task_ud->file_space_id = H5I_INVALID_HID;
-        task_ud->buf.wbuf      = buf;
+        task_ud->buf.wbuf      = local_buf;
 
         /* Copy dataspaces and datatype */
-        if ((task_ud->mem_type_id = H5Tcopy(mem_type_id)) < 0)
+        if ((task_ud->mem_type_id = H5Tcopy(local_mem_type_id)) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, FAIL, "can't copy memory type ID");
-        if (mem_space_id == H5S_ALL)
+        if (local_mem_space_id == H5S_ALL)
             task_ud->mem_space_id = H5S_ALL;
-        else if ((task_ud->mem_space_id = H5Scopy(mem_space_id)) < 0)
+        else if ((task_ud->mem_space_id = H5Scopy(local_mem_space_id)) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, FAIL, "can't copy memory space ID");
-        if (file_space_id == H5S_ALL)
+        if (local_file_space_id == H5S_ALL)
             task_ud->file_space_id = H5S_ALL;
-        else if ((task_ud->file_space_id = H5Scopy(file_space_id)) < 0)
+        else if ((task_ud->file_space_id = H5Scopy(local_file_space_id)) < 0)
             D_GOTO_ERROR(H5E_DATASET, H5E_CANTCOPY, FAIL, "can't copy file space ID");
 
         /* Create end task for writing data */

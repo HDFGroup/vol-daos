@@ -89,7 +89,13 @@ static herr_t H5_daos_fill_def_plist_cache(void);
 static void * H5_daos_faccess_info_copy(const void *_old_fa);
 static herr_t H5_daos_faccess_info_free(void *_fa);
 static herr_t H5_daos_get_conn_cls(void *item, H5VL_get_conn_lvl_t lvl, const H5VL_class_t **conn_cls);
-static herr_t H5_daos_get_cap_flags(const void *info, unsigned *cap_flags);
+
+#if H5VL_VERSION >= 3
+    static herr_t H5_daos_get_cap_flags(const void *info, uint64_t *cap_flags);
+#else
+    static herr_t H5_daos_get_cap_flags(const void *info, unsigned *cap_flags);
+#endif
+
 static herr_t H5_daos_opt_query(void *item, H5VL_subclass_t cls, int opt_type,
                                 H5_DAOS_OPT_QUERY_OUT_TYPE *supported);
 static herr_t H5_daos_optional(void *item, H5VL_optional_args_t *opt_args, hid_t dxpl_id, void **req);
@@ -113,6 +119,28 @@ static int    H5_daos_task_wait_task(tse_task_t *task);
 static int H5_daos_collective_error_check_prep_cb(tse_task_t *task, void *args);
 static int H5_daos_collective_error_check_comp_cb(tse_task_t *task, void *args);
 
+#if H5VL_VERSION >= 3
+
+#define H5VL_DAOS_CAP_FLAGS                                                                                  \
+    (H5VL_CAP_FLAG_ASYNC | H5VL_CAP_FLAG_ATTR_BASIC | H5VL_CAP_FLAG_ATTR_MORE |                              \
+     H5VL_CAP_FLAG_DATASET_BASIC | H5VL_CAP_FLAG_DATASET_MORE | H5VL_CAP_FLAG_FILE_BASIC |                   \
+     H5VL_CAP_FLAG_FILE_MORE | H5VL_CAP_FLAG_GROUP_BASIC | H5VL_CAP_FLAG_GROUP_MORE |                        \
+     H5VL_CAP_FLAG_LINK_BASIC | H5VL_CAP_FLAG_LINK_MORE | H5VL_CAP_FLAG_MAP_BASIC |                          \
+     H5VL_CAP_FLAG_MAP_MORE | H5VL_CAP_FLAG_OBJECT_BASIC | H5VL_CAP_FLAG_OBJECT_MORE |                       \
+     H5VL_CAP_FLAG_REF_BASIC | H5VL_CAP_FLAG_REF_MORE | H5VL_CAP_FLAG_OBJ_REF |  \
+     H5VL_CAP_FLAG_REG_REF | H5VL_CAP_FLAG_ATTR_REF | H5VL_CAP_FLAG_STORED_DATATYPES |                       \
+     H5VL_CAP_FLAG_CREATION_ORDER | H5VL_CAP_FLAG_ITERATE | H5VL_CAP_FLAG_STORAGE_SIZE |                     \
+     H5VL_CAP_FLAG_BY_IDX | H5VL_CAP_FLAG_GET_PLIST | H5VL_CAP_FLAG_FLUSH_REFRESH |                          \
+     H5VL_CAP_FLAG_EXTERNAL_LINKS | H5VL_CAP_FLAG_HARD_LINKS | H5VL_CAP_FLAG_SOFT_LINKS |                    \
+     H5VL_CAP_FLAG_UD_LINKS | H5VL_CAP_FLAG_TRACK_TIMES | H5VL_CAP_FLAG_FILL_VALUES)
+
+#else
+
+#define H5VL_DAOS_CAP_FLAGS H5VL_CAP_FLAG_NONE
+
+#endif
+
+
 /*******************/
 /* Local Variables */
 /*******************/
@@ -125,9 +153,9 @@ static const H5VL_class_t H5_daos_g = {
 #if H5VL_VERSION >= 1
     HDF5_VOL_DAOS_VERSION_1, /* Connector Version number */
 #endif
-    H5VL_CAP_FLAG_NONE, /* Connector capability flags */
-    H5_daos_init,       /* Connector initialize */
-    H5_daos_term,       /* Connector terminate */
+    H5VL_DAOS_CAP_FLAGS, /* Connector capability flags */
+    H5_daos_init,        /* Connector initialize */
+    H5_daos_term,        /* Connector terminate */
     {
         sizeof(H5_daos_acc_params_t), /* Connector Info size */
         H5_daos_faccess_info_copy,    /* Connector Info copy */
@@ -1865,7 +1893,13 @@ done:
  *---------------------------------------------------------------------------
  */
 static herr_t
-H5_daos_get_cap_flags(const void H5VL_DAOS_UNUSED *info, unsigned *cap_flags)
+H5_daos_get_cap_flags(const void H5VL_DAOS_UNUSED *info,
+#if H5VL_VERSION >= 3
+    uint64_t *cap_flags
+#else
+    unsigned *cap_flags
+#endif
+)
 {
     herr_t ret_value = SUCCEED;
 

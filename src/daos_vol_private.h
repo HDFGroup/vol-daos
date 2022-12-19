@@ -57,7 +57,7 @@ typedef d_sg_list_t daos_sg_list_t;
 #endif
 
 /* Check for unknown H5VL_VERSION */
-#if H5VL_VERSION > 2
+#if H5VL_VERSION > 3
 #error Unknown H5VL_VERSION - HDF5 library is probably too new or connector is too old
 #endif
 
@@ -1264,11 +1264,23 @@ H5VL_DAOS_PRIVATE void * H5_daos_dataset_create(void *_item, const H5VL_loc_para
                                                 hid_t dcpl_id, hid_t dapl_id, hid_t dxpl_id, void **req);
 H5VL_DAOS_PRIVATE void * H5_daos_dataset_open(void *_item, const H5VL_loc_params_t *loc_params,
                                               const char *name, hid_t dapl_id, hid_t dxpl_id, void **req);
-H5VL_DAOS_PRIVATE herr_t H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
-                                              hid_t file_space_id, hid_t dxpl_id, void *buf, void **req);
-H5VL_DAOS_PRIVATE herr_t H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id,
-                                               hid_t file_space_id, hid_t dxpl_id, const void *buf,
-                                               void **req);
+
+#if H5VL_VERSION >= 3
+herr_t
+H5_daos_dataset_read(size_t count, void *_dset[], hid_t mem_type_id[], hid_t mem_space_id[], hid_t file_space_id[],
+                     hid_t dxpl_id, void *buf[], void **req);
+herr_t
+H5_daos_dataset_write(size_t count, void *_dset[], hid_t mem_type_id[], hid_t mem_space_id[], hid_t file_space_id[],
+                      hid_t dxpl_id, const void *buf[], void **req);
+#else
+herr_t
+H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id, hid_t file_space_id, hid_t dxpl_id,
+                     void *buf, void **req);
+herr_t
+H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id, hid_t file_space_id, hid_t dxpl_id,
+                      const void *buf, void **req);
+#endif
+
 H5VL_DAOS_PRIVATE herr_t H5_daos_dataset_get(void *_dset, H5VL_dataset_get_args_t *get_args, hid_t dxpl_id,
                                              void **req);
 H5VL_DAOS_PRIVATE herr_t H5_daos_dataset_specific(void *_item, H5VL_dataset_specific_args_t *specific_args,

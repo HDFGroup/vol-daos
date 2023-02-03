@@ -2567,8 +2567,7 @@ H5_daos_attr_io_int_end_task(tse_task_t *task)
 
     /* Close attribute */
     if (H5_daos_attribute_close_real(udata->attr) < 0)
-        D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR,
-                     "can't close attribute used for I/O");
+        D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR, "can't close attribute used for I/O");
 
     /* Handle errors in this function */
     /* Do not place any code that can issue errors after this block, except for

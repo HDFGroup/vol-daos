@@ -1087,7 +1087,7 @@ H5_daos_map_open_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         assert(udata->bcast_udata.obj->item.file->my_rank == 0);
         assert(udata->bcast_udata.obj->item.type == H5I_MAP);
 
-        /* Reissue bcast if necesary */
+        /* Reissue bcast if necessary */
         if (udata->bcast_udata.buffer_len != udata->bcast_udata.count) {
             tse_task_t *bcast_task;
 
@@ -1213,7 +1213,7 @@ H5_daos_map_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         minfo_len = (size_t)ktype_buf_len + (size_t)vtype_buf_len + (size_t)mcpl_buf_len +
                     H5_DAOS_ENCODED_OID_SIZE + 3 * sizeof(uint64_t);
 
-        /* Reissue bcast if necesary */
+        /* Reissue bcast if necessary */
         if (minfo_len > (size_t)udata->bcast_udata.count) {
             tse_task_t *bcast_task;
 

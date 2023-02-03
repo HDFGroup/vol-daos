@@ -485,14 +485,14 @@ create_objects(hid_t file)
         if (H5Aclose(attr1_id) < 0) {
             H5_FAILED();
             AT();
-            printf("failed to close the first attribure\n");
+            printf("failed to close the first attribute\n");
             goto error;
         }
 
         if (H5Aclose(attr2_id) < 0) {
             H5_FAILED();
             AT();
-            printf("failed to close the second attribure\n");
+            printf("failed to close the second attribute\n");
             goto error;
         }
 
@@ -750,7 +750,7 @@ open_objects(hid_t file)
         if (H5Aclose(attr1_id) < 0) {
             H5_FAILED();
             AT();
-            printf("failed to close the first attribure\n");
+            printf("failed to close the first attribute\n");
             goto error;
         }
 
@@ -800,11 +800,11 @@ usage(void)
     printf("\t1   - objects for open: group, dtype, map, dset, attr\n");
     printf("\t1   - objects for read: map, dset, attr\n");
     printf("\t1   - objects for close: group, dtype, map, dset, attr\n");
-    printf("    [-m --collMetadata]: mode of parallel - indepedent or collective (only collective is "
+    printf("    [-m --collMetadata]: mode of parallel - independent or collective (only collective is "
            "supported now)\n");
     printf("    [-n --nFaultInjects]: number of servers to kill and exclude\n");
     printf("    [-r --daosObjClass]: object class, e.g. S1, S2, RP_2G1, RP_3G1\n");
-    printf("    [-s --daosServerRanks]: the rank of the servers to be killed (at most 2 servers, seperated "
+    printf("    [-s --daosServerRanks]: the rank of the servers to be killed (at most 2 servers, separated "
            "by comma), e.g. 0,2\n");
     printf("\n");
 }

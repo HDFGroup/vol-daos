@@ -445,7 +445,7 @@ H5_daos_handles_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
     } /* end if */
     else if (task->dt_result == 0) {
         if (udata->req->file->my_rank == 0) {
-            /* Reissue bcast if necesary */
+            /* Reissue bcast if necessary */
             if (udata->buffer_len != udata->count) {
                 tse_task_t *bcast_task;
 
@@ -930,7 +930,7 @@ H5_daos_file_create(const char *name, unsigned flags, hid_t fcpl_id, hid_t fapl_
          * the root group's object class through
          * H5daos_set_root_open_object_class(), but eventually we will allow the
          * user to skip this by storing the root group OID in the global metadata
-         * object (as below), and, if the intial root group open fails, reading the
+         * object (as below), and, if the initial root group open fails, reading the
          * stored root group OID and using that to open the root group.  DSINC */
 #if 0
     /* Encode root group OID */

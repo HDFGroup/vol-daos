@@ -1362,7 +1362,7 @@ H5_daos_datatype_open_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *arg
         assert(udata->bcast_udata.obj->item.file->my_rank == 0);
         assert(udata->bcast_udata.obj->item.type == H5I_DATATYPE);
 
-        /* Reissue bcast if necesary */
+        /* Reissue bcast if necessary */
         if (udata->bcast_udata.buffer_len != udata->bcast_udata.count) {
             tse_task_t *bcast_task;
 
@@ -1489,7 +1489,7 @@ H5_daos_datatype_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args
         tinfo_len =
             (size_t)type_buf_len + (size_t)tcpl_buf_len + H5_DAOS_ENCODED_OID_SIZE + 2 * sizeof(uint64_t);
 
-        /* Reissue bcast if necesary */
+        /* Reissue bcast if necessary */
         if (tinfo_len > (size_t)udata->bcast_udata.count) {
             tse_task_t *bcast_task;
 

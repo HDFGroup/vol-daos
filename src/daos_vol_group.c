@@ -805,7 +805,7 @@ H5_daos_group_open_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         assert(udata->bcast_udata.obj->item.file->my_rank == 0);
         assert(udata->bcast_udata.obj->item.type == H5I_GROUP);
 
-        /* Reissue bcast if necesary */
+        /* Reissue bcast if necessary */
         if (udata->bcast_udata.buffer_len != udata->bcast_udata.count) {
             tse_task_t *bcast_task;
 
@@ -929,7 +929,7 @@ H5_daos_group_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         /* Calculate data length */
         ginfo_len = (size_t)gcpl_len + 3 * sizeof(uint64_t);
 
-        /* Reissue bcast if necesary */
+        /* Reissue bcast if necessary */
         if (ginfo_len > (size_t)udata->bcast_udata.count) {
             tse_task_t *bcast_task;
 
@@ -2163,7 +2163,7 @@ H5_daos_group_get_info_task(tse_task_t *task)
     /* Handle errors in previous tasks */
     H5_DAOS_PREP_REQ(udata->req, H5E_SYM);
 
-    /* Verify opened objec tis a group */
+    /* Verify opened object is a group */
     if (udata->opened_type != H5I_GROUP)
         D_GOTO_ERROR(H5E_SYM, H5E_BADVALUE, -H5_DAOS_BAD_VALUE, "opened object is not a group");
 
@@ -2591,7 +2591,7 @@ done:
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_group_gnl_comp_cb
  *
- * Purpose:     Completion callback fo rgroup get num links fetch (from
+ * Purpose:     Completion callback for group get num links fetch (from
  *              creation order data)
  *
  * Return:      Success:        0

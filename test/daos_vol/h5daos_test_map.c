@@ -541,7 +541,7 @@ test_map_set(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t value_d
     else {
         H5_FAILED();
         AT();
-        printf("unknwon map type\n");
+        printf("unknown map type\n");
         goto error;
     } /* end if */
 
@@ -906,7 +906,7 @@ test_map_get(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t value_d
     else {
         H5_FAILED();
         AT();
-        printf("unknwon map type\n");
+        printf("unknown map type\n");
         goto error;
     } /* end if */
 
@@ -1793,7 +1793,7 @@ test_map_nonexistent_key(hid_t file_id, const char *map_name, hid_t key_dtype, h
     else {
         H5_FAILED();
         AT();
-        printf("unknwon map type\n");
+        printf("unknown map type\n");
         goto error;
     } /* end if */
 
@@ -2200,7 +2200,7 @@ test_map_update(hid_t file_id, const char *map_name, hid_t key_dtype, hid_t valu
     else {
         H5_FAILED();
         AT();
-        printf("unknwon map type\n");
+        printf("unknown map type\n");
         goto error;
     } /* end if */
 
@@ -2669,7 +2669,7 @@ test_map_exists(hid_t file_id, const char *map_name, hid_t key_dtype)
     else {
         H5_FAILED();
         AT();
-        printf("unknwon map type\n");
+        printf("unknown map type\n");
         goto error;
     } /* end if */
 
@@ -2908,7 +2908,7 @@ map_iterate_cb(hid_t map_id, const void *_key, void *_iterate_ud)
     else {
         H5_FAILED();
         AT();
-        printf("unknwon map type\n");
+        printf("unknown map type\n");
         goto error;
     } /* end if */
 
@@ -3235,7 +3235,7 @@ map_iterate_cb2(hid_t map_id, const void *_key, void *_iterate_ud)
     else {
         H5_FAILED();
         AT();
-        printf("unknwon map type\n");
+        printf("unknown map type\n");
         goto error;
     } /* end if */
 
@@ -3721,7 +3721,7 @@ test_map_delete_key(hid_t file_id, const char *map_name, hid_t key_dtype)
     else {
         H5_FAILED();
         AT();
-        printf("unknwon map type\n");
+        printf("unknown map type\n");
         goto error;
     } /* end if */
 

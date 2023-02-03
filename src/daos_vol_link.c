@@ -1077,7 +1077,7 @@ done:
  * Function:    H5_daos_link_write_end_task
  *
  * Purpose:     Finishes the link write task.  Only called if writing
- *              creation order info.  Adds ths info to the update task,
+ *              creation order info.  Adds this info to the update task,
  *              schedules it, and cleans up.
  *
  * Return:      Success:        0
@@ -2469,7 +2469,7 @@ H5_daos_link_copy_move_task(tse_task_t *task)
                      "can't get private data for link copy task");
 
     /* Assign req convenience pointer.  We do this so we can still handle errors
-     * after transfering ownership of udata.  This should be safe since we
+     * after transferring ownership of udata.  This should be safe since we
      * increase the ref count on req when we transfer ownership. */
     req = udata->req;
 
@@ -3750,7 +3750,7 @@ H5_daos_link_follow_task(tse_task_t *task)
     assert(udata->follow_task == task);
 
     /* Assign req convenience pointer.  We do this so we can still handle errors
-     * after transfering ownership of udata.  This should be safe since we
+     * after transferring ownership of udata.  This should be safe since we
      * increase the ref count on req when we transfer ownership. */
     req = udata->req;
 
@@ -4113,7 +4113,7 @@ H5_daos_link_get_info_end_task(tse_task_t *task)
     assert(udata->target_obj->item.type == H5I_GROUP);
     if (((H5_daos_group_t *)udata->target_obj)->gcpl_cache.track_corder) {
         /* Note that this function increments ref counts on target_obj and req,
-         * and target_name points into path_buf which wont be freed until after
+         * and target_name points into path_buf which won't be freed until after
          * this function's task(s), so we can free udata in this function
          * without waiting */
         if (H5_daos_link_get_crt_order_by_name(
@@ -4912,7 +4912,7 @@ H5_daos_link_iterate_list_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
                      "can't get private data for operation finalize task");
 
     /* Assign req convenience pointer.  We do this so we can still handle errors
-     * after transfering ownership of udata.  This should be safe since the
+     * after transferring ownership of udata.  This should be safe since the
      * iteration metatask holds a reference to req until all iteration is
      * complete at this level. */
     req = udata->iter_data->req;
@@ -5105,7 +5105,7 @@ H5_daos_link_iterate_op_task(tse_task_t *task)
     } /* end if */
 
     /* Assign req convenience pointer.  We do this so we can still handle errors
-     * after transfering ownership of udata.  This should be safe since the
+     * after transferring ownership of udata.  This should be safe since the
      * iteration metatask holds a reference to req until all iteration is
      * complete at this level. */
     req = udata->iter_ud->iter_data->req;
@@ -7924,7 +7924,7 @@ H5_daos_link_delete_rc_task(tse_task_t *task)
     assert(udata->rc_task == task);
 
     /* Assign req convenience pointer.  We do this so we can still handle errors
-     * after transfering ownership of udata.  This should be safe since we
+     * after transferring ownership of udata.  This should be safe since we
      * increase the ref count on req when we transfer ownership. */
     req = udata->req;
 

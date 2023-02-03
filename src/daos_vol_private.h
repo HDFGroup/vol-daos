@@ -186,7 +186,7 @@ typedef d_sg_list_t daos_sg_list_t;
 #define H5_DAOS_OIDX_ROOT       1ull
 #define H5_DAOS_OIDX_FIRST_USER 2ull
 
-/* Bits of oid.lo and oid.hi that are added to compacted adresses */
+/* Bits of oid.lo and oid.hi that are added to compacted addresses */
 #define H5_DAOS_ADDR_OIDLO_MASK 0x000000003fffffffll
 #define H5_DAOS_ADDR_OIDHI_MASK 0xffffffffc0000000ll
 

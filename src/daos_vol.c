@@ -4775,7 +4775,7 @@ done:
  *              finishes) or without one (in which case it waits until all
  *              tasks in the file are complete.  Can be run with timeout
  *              set to H5_DAOS_PROGRESS_KICK in which case it makes
- *              non-blocking progress then exits immediately, with timout
+ *              non-blocking progress then exits immediately, with timeout
  *              set to H5_DAOS_PROGRESS_WAIT in which case it waits as
  *              long as it takes, or with timeout set to a value in
  *              nanoseconds in which case it waits up to that amount of
@@ -4934,7 +4934,7 @@ H5_daos_task_wait(tse_task_t **first_task, tse_task_t **dep_task)
         *first_task = NULL;
         *dep_task   = NULL;
 
-        /* Loop until the task is compelte */
+        /* Loop until the task is complete */
         while (!task_complete) {
             /* Progress MPI if there is a task in flight */
             if (H5_daos_mpi_task_g) {

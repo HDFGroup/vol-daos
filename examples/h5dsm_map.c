@@ -180,7 +180,7 @@ main(int argc, char *argv[])
         ret   = H5Mget(map3, H5T_NATIVE_INT, &i, H5T_NATIVE_INT, &value, H5P_DEFAULT);
 
         if (value != 1000 + i) {
-            printf("Key %d: Value recieved = %d\n", i, value);
+            printf("Key %d: Value received = %d\n", i, value);
             ERROR;
         }
     }

@@ -62,7 +62,7 @@ H5_daos_err_to_string(int ret)
         case -H5_DAOS_H5_UNSUPPORTED_ERROR:
             return "Unsupported HDF5 operation (H5_DAOS_H5_UNSUPPORTED_ERROR)";
         case -H5_DAOS_H5_ITER_ERROR:
-            return "error occured during iteration (H5_DAOS_H5_ITER_ERROR)";
+            return "error occurred during iteration (H5_DAOS_H5_ITER_ERROR)";
         case -H5_DAOS_H5_SCATGATH_ERROR:
             return "error occurred during HDF5 scatter/gather operation (H5_DAOS_H5_SCATGATH_ERROR)";
         case -H5_DAOS_H5PSET_ERROR:

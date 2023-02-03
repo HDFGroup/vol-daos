@@ -2963,7 +2963,7 @@ H5_daos_dataset_copy_data_task(tse_task_t *task)
     assert(task == udata->data_copy_task);
 
     /* Assign req convenience pointer.  We do this so we can still handle errors
-     * after transfering ownership of udata.  This should be safe since we
+     * after transferring ownership of udata.  This should be safe since we
      * increment the reference count on req when we transfer ownership of udata.
      */
     req = udata->req;
@@ -3528,7 +3528,7 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
     } /* end else */
 
     /* Start H5 operation */
-    if (NULL == (int_req = H5_daos_req_create(item->file, "obejct specific", item ? item->open_req : NULL,
+    if (NULL == (int_req = H5_daos_req_create(item->file, "object specific", item ? item->open_req : NULL,
                                               NULL, NULL, dxpl_id)))
         D_GOTO_ERROR(H5E_OBJECT, H5E_CANTALLOC, FAIL, "can't create DAOS request");
 
@@ -4182,7 +4182,7 @@ done:
  *              specified object, calling the supplied callback function on
  *              each object.
  *
- *              Excatly one of target_obj_prev_out and target_obj must be
+ *              Exactly one of target_obj_prev_out and target_obj must be
  *              provided.  If target_obj_prev_out is provided it should be
  *              set to the location previously returned by the ret_obj_p
  *              parameter for H5_daos_object_open_helper() (this function
@@ -4594,7 +4594,7 @@ done:
  *
  *              If target_obj_p is provided it should point to the
  *              location of a H5_daos_obj_t * that will be valid for the
- *              target object while tasks scheduled by this funciton are
+ *              target object while tasks scheduled by this function are
  *              executed.  In this case this function will not close the
  *              object.
  *
@@ -4702,7 +4702,7 @@ H5_daos_object_get_info_task(tse_task_t *task)
     assert(task == udata->get_info_task);
 
     /* Assign req convenience pointer.  We do this so we can still handle errors
-     * after transfering ownership of udata.  This should be safe since we
+     * after transferring ownership of udata.  This should be safe since we
      * increase the ref count on req when we transfer ownership. */
     req = udata->req;
 
@@ -5634,7 +5634,7 @@ H5_daos_obj_write_rc_task(tse_task_t *task)
     assert(udata->req->file);
     assert(task == udata->op_task);
 
-    /* Assign req convenience pointer and take a refernce to it */
+    /* Assign req convenience pointer and take a reference to it */
     req = udata->req;
     req->rc++;
 

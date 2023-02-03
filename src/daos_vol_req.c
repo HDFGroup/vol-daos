@@ -139,7 +139,7 @@ done:
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_req_specific
  *
- * Purpose:     Perform a request specifc operation
+ * Purpose:     Perform a request specific operation
  *
  * Return:      Success:        0
  *              Failure:        -1
@@ -806,7 +806,7 @@ H5_daos_req_enqueue(H5_daos_req_t *req, tse_task_t *first_task, H5_daos_item_t *
                                  H5_daos_err_to_string(ret));
             } /* end for */
 
-            /* Pool is intialized, adjust op_gen */
+            /* Pool is initialized, adjust op_gen */
             tmp_pool->op_gens[0]++;
         } /* end if */
         else if (!tmp_pool->end_task) {

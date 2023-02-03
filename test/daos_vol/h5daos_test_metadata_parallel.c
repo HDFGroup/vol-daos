@@ -2396,7 +2396,7 @@ test_attribute(hid_t loc_id)
         if (H5Aclose(attr_id) < 0) {
             H5_FAILED();
             AT();
-            printf("failed to close the attribure\n");
+            printf("failed to close the attribute\n");
             goto error;
         }
 
@@ -2450,7 +2450,7 @@ test_attribute(hid_t loc_id)
         if (H5Aclose(attr_id) < 0) {
             H5_FAILED();
             AT();
-            printf("failed to close the attribure\n");
+            printf("failed to close the attribute\n");
             goto error;
         }
     }

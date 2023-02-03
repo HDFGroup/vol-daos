@@ -1259,7 +1259,7 @@ H5_daos_dset_open_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         assert(udata->bcast_udata.obj->item.file->my_rank == 0);
         assert(udata->bcast_udata.obj->item.type == H5I_DATASET);
 
-        /* Reissue bcast if necesary */
+        /* Reissue bcast if necessary */
         if (udata->bcast_udata.buffer_len != udata->bcast_udata.count) {
             tse_task_t *bcast_task;
 
@@ -1393,7 +1393,7 @@ H5_daos_dset_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         dinfo_len = (size_t)type_buf_len + (size_t)space_buf_len + (size_t)dcpl_buf_len +
                     (size_t)fill_val_len + 6 * sizeof(uint64_t);
 
-        /* Reissue bcast if necesary */
+        /* Reissue bcast if necessary */
         if (dinfo_len > (size_t)udata->bcast_udata.count) {
             tse_task_t *bcast_task;
 

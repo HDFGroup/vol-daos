@@ -1999,7 +1999,7 @@ H5_daos_attribute_open_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *ar
         assert(udata->bcast_ud.obj->item.file);
         assert(udata->bcast_ud.obj->item.file->my_rank == 0);
 
-        /* Reissue bcast if necesary */
+        /* Reissue bcast if necessary */
         if (udata->bcast_ud.buffer_len != udata->bcast_ud.count) {
             tse_task_t *bcast_task;
 
@@ -2123,7 +2123,7 @@ H5_daos_attribute_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *arg
         ainfo_len =
             (size_t)type_buf_len + (size_t)space_buf_len + (size_t)acpl_buf_len + 3 * sizeof(uint64_t);
 
-        /* Reissue bcast if necesary */
+        /* Reissue bcast if necessary */
         if (ainfo_len > (size_t)udata->bcast_ud.count) {
             tse_task_t *bcast_task;
 
@@ -2568,7 +2568,7 @@ H5_daos_attr_io_int_end_task(tse_task_t *task)
     /* Close attribute */
     if (H5_daos_attribute_close_real(udata->attr) < 0)
         D_DONE_ERROR(H5E_ATTR, H5E_CLOSEERROR, -H5_DAOS_H5_CLOSE_ERROR,
-                     "can't close attriubute used for I/O");
+                     "can't close attribute used for I/O");
 
     /* Handle errors in this function */
     /* Do not place any code that can issue errors after this block, except for
@@ -5889,7 +5889,7 @@ done:
         if (udata->bcast_ud.bcast_metatask) {
             assert(udata->bcast_ud.buffer == &udata->bcast_exists);
 
-            /* Propagate errors to folowing tasks */
+            /* Propagate errors to following tasks */
             if (ret_value < 0) {
                 udata->bcast_exists = FAIL;
             } /* end if */

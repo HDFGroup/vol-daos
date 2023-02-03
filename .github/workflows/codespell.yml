@@ -9,4 +9,4 @@ jobs:
       - uses: codespell-project/actions-codespell@master
         with:
           skip: ./AUTHORS
-          ignore_words_list: hdf5
+          ignore_words_list: hdf5, alph

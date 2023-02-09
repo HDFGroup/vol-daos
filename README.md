@@ -39,7 +39,7 @@ To build the DAOS VOL connector, the following libraries are required:
 
 + `libhdf5` - The [HDF5](https://www.hdfgroup.org/downloads/hdf5/) library.
             Minimum version required is 1.13.3, compiled with
-            support for both parallel I/O and map objects 
+            support for both [MPICH](https://www.mpich.org) parallel I/O and map objects 
             (i.e., `-DHDF5_ENABLE_MAP_API=ON` CMake option).
 
 + `libdaos` - The [DAOS](https://github.com/daos-stack/daos) library.

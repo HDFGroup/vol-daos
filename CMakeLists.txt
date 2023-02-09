@@ -276,7 +276,7 @@ endif()
 #-----------------------------------------------------------------------------
 # Testing
 #-----------------------------------------------------------------------------
-option(BUILD_TESTING "Build testing." OFF)
+option(BUILD_TESTING "Build testing." ON)
 if(NOT HDF5_VOL_DAOS_EXTERNALLY_CONFIGURED AND BUILD_TESTING)
   enable_testing()
   include(CTest)

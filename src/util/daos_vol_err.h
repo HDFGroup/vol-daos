@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2018-2022 The HDF Group.
+ * Copyright (c) 2018-2023 The HDF Group.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -22,7 +22,7 @@ extern hid_t dv_async_err_g;
 
 #define DAOS_VOL_ERR_CLS_NAME "DAOS VOL"
 #define DAOS_VOL_ERR_LIB_NAME "DAOS VOL"
-#define DAOS_VOL_ERR_VER      "1.0.0"
+#define DAOS_VOL_ERR_VER      "1.2.0"
 
 #define H5E_OBJECT     dv_obj_err_maj_g
 #define H5E_DAOS_ASYNC (dv_async_err_g)

@@ -39,15 +39,15 @@
 
 /* Udata type for H5Dscatter callback */
 typedef struct H5_daos_scatter_cb_ud_t {
-    void * buf;
+    void  *buf;
     size_t len;
 } H5_daos_scatter_cb_ud_t;
 
 /* Udata type for memory space H5Diterate callback */
 typedef struct {
-    daos_iod_t *    iods;
+    daos_iod_t     *iods;
     daos_sg_list_t *sgls;
-    daos_iov_t *    sg_iovs;
+    daos_iov_t     *sg_iovs;
     hbool_t         is_vl_str;
     size_t          base_type_size;
     uint64_t        offset;
@@ -56,7 +56,7 @@ typedef struct {
 
 /* Udata type for file space H5Diterate callback */
 typedef struct {
-    uint8_t **  akeys;
+    uint8_t   **akeys;
     daos_iod_t *iods;
     uint64_t    idx;
 } H5_daos_vl_file_ud_t;
@@ -69,7 +69,7 @@ typedef herr_t (*H5_daos_chunk_io_func)(H5_daos_select_chunk_info_t *chunk_info,
 
 /* Task user data for raw data I/O on a single chunk */
 typedef struct H5_daos_chunk_io_ud_t {
-    H5_daos_req_t * req;
+    H5_daos_req_t  *req;
     H5_daos_dset_t *dset;
     daos_key_t      dkey;
     uint8_t         dkey_buf[CHUNK_DKEY_BUF_SIZE];
@@ -77,36 +77,36 @@ typedef struct H5_daos_chunk_io_ud_t {
     daos_iod_t      iod;
     daos_sg_list_t  sgl;
     daos_recx_t     recx;
-    daos_recx_t *   recxs;
+    daos_recx_t    *recxs;
     daos_iov_t      sg_iov;
-    daos_iov_t *    sg_iovs;
+    daos_iov_t     *sg_iovs;
 
     /* Fields used for datatype conversion */
     struct {
         hssize_t              num_elem;
         hid_t                 mem_type_id;
         hid_t                 mem_space_id;
-        void *                buf;
+        void                 *buf;
         H5_daos_io_type_t     io_type;
         H5_daos_tconv_reuse_t reuse;
         hbool_t               fill_bkg;
         size_t                mem_type_size;
         size_t                file_type_size;
-        void *                tconv_buf;
-        void *                bkg_buf;
+        void                 *tconv_buf;
+        void                 *bkg_buf;
     } tconv;
 } H5_daos_chunk_io_ud_t;
 
 /* Task user data struct for I/O operations (API level) */
 typedef struct H5_daos_io_task_ud_t {
-    H5_daos_req_t *   req;
+    H5_daos_req_t    *req;
     H5_daos_io_type_t io_type;
-    H5_daos_dset_t *  dset;
+    H5_daos_dset_t   *dset;
     hid_t             mem_type_id;
     hid_t             mem_space_id;
     hid_t             file_space_id;
     union {
-        void *      rbuf;
+        void       *rbuf;
         const void *wbuf;
     } buf;
     tse_task_t *end_task;
@@ -114,10 +114,10 @@ typedef struct H5_daos_io_task_ud_t {
 
 /* Task user data struct for get operations */
 typedef struct H5_daos_dset_get_ud_t {
-    H5_daos_req_t *    req;
-    H5_daos_dset_t *   dset;
+    H5_daos_req_t     *req;
+    H5_daos_dset_t    *dset;
     H5VL_dataset_get_t get_type;
-    hsize_t *          hsize_out;
+    hsize_t           *hsize_out;
 } H5_daos_dset_get_ud_t;
 
 /* Task user data struct for set extent operations */
@@ -341,7 +341,7 @@ static herr_t
 H5_daos_bcast_fill_val(H5_daos_dset_t *dset, H5_daos_req_t *req, size_t fill_val_size,
                        tse_task_t **first_task, tse_task_t **dep_task)
 {
-    tse_task_t *             bcast_task;
+    tse_task_t              *bcast_task;
     H5_daos_mpi_ibcast_ud_t *bcast_udata = NULL;
     int                      ret;
     herr_t                   ret_value = SUCCEED;
@@ -413,16 +413,16 @@ H5_daos_dataset_create(void *_item, const H5VL_loc_params_t H5VL_DAOS_UNUSED *lo
 {
     H5_daos_item_t *item            = (H5_daos_item_t *)_item;
     H5_daos_dset_t *dset            = NULL;
-    H5_daos_obj_t * target_obj      = NULL;
-    H5_daos_req_t * int_req         = NULL;
-    tse_task_t *    first_task      = NULL;
-    tse_task_t *    dep_task        = NULL;
-    const char *    target_name     = NULL;
+    H5_daos_obj_t  *target_obj      = NULL;
+    H5_daos_req_t  *int_req         = NULL;
+    tse_task_t     *first_task      = NULL;
+    tse_task_t     *dep_task        = NULL;
+    const char     *target_name     = NULL;
     size_t          target_name_len = 0;
     hbool_t         collective      = FALSE;
-    char *          path_buf        = NULL;
+    char           *path_buf        = NULL;
     int             ret;
-    void *          ret_value = NULL;
+    void           *ret_value = NULL;
 
     H5_daos_inc_api_cnt();
 
@@ -586,16 +586,16 @@ H5_daos_dataset_create_helper(H5_daos_file_t *file, hid_t type_id, hid_t space_i
                               tse_task_t **dep_task)
 {
     H5_daos_md_rw_cb_ud_flex_t *update_cb_ud = NULL;
-    H5_daos_dset_t *            dset         = NULL;
-    tse_task_t *                dataset_metatask;
-    tse_task_t *                finalize_deps[3];
+    H5_daos_dset_t             *dset         = NULL;
+    tse_task_t                 *dataset_metatask;
+    tse_task_t                 *finalize_deps[3];
     hbool_t                     default_dcpl   = (dcpl_id == H5P_DATASET_CREATE_DEFAULT);
     htri_t                      is_vl_ref      = FALSE;
     hid_t                       tmp_dcpl_id    = H5I_INVALID_HID;
     size_t                      fill_val_size  = 0;
     int                         finalize_ndeps = 0;
     int                         ret;
-    void *                      ret_value = NULL;
+    void                       *ret_value = NULL;
 
     assert(file);
     assert(file->flags & H5F_ACC_RDWR);
@@ -746,10 +746,10 @@ H5_daos_dataset_create_helper(H5_daos_file_t *file, hid_t type_id, hid_t space_i
         size_t      type_size    = 0;
         size_t      space_size   = 0;
         size_t      dcpl_size    = 0;
-        void *      type_buf     = NULL;
-        void *      space_buf    = NULL;
-        void *      dcpl_buf     = NULL;
-        void *      fill_val_buf = NULL;
+        void       *type_buf     = NULL;
+        void       *space_buf    = NULL;
+        void       *dcpl_buf     = NULL;
+        void       *fill_val_buf = NULL;
         tse_task_t *update_task;
 
         /* Determine serialized datatype size */
@@ -1186,8 +1186,8 @@ H5_daos_dset_open_end(H5_daos_dset_t *dset, uint8_t *p, uint64_t type_buf_len, u
     else
         /* Check for missing fill value */
         if (dset->dcpl_cache.fill_status == H5D_FILL_VALUE_USER_DEFINED)
-        D_GOTO_ERROR(H5E_DATASET, H5E_BADVALUE, -H5_DAOS_BAD_VALUE,
-                     "fill value defined on property list but not found in metadata");
+            D_GOTO_ERROR(H5E_DATASET, H5E_BADVALUE, -H5_DAOS_BAD_VALUE,
+                         "fill value defined on property list but not found in metadata");
 
     /* Fill OCPL cache */
     if (H5_daos_fill_ocpl_cache(&dset->obj, dset->dcpl_id) < 0)
@@ -1498,7 +1498,7 @@ static int
 H5_daos_dinfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
     H5_daos_omd_fetch_ud_t *udata;
-    uint8_t *               p;
+    uint8_t                *p;
     int                     ret;
     int                     ret_value = 0;
 
@@ -1719,17 +1719,17 @@ H5_daos_dataset_open(void *_item, const H5VL_loc_params_t H5VL_DAOS_UNUSED *loc_
 {
     H5_daos_item_t *item       = (H5_daos_item_t *)_item;
     H5_daos_dset_t *dset       = NULL;
-    H5_daos_obj_t * target_obj = NULL;
+    H5_daos_obj_t  *target_obj = NULL;
     daos_obj_id_t   oid        = {0, 0};
     daos_obj_id_t **oid_ptr    = NULL;
-    H5_daos_req_t * int_req    = NULL;
-    tse_task_t *    first_task = NULL;
-    tse_task_t *    dep_task   = NULL;
+    H5_daos_req_t  *int_req    = NULL;
+    tse_task_t     *first_task = NULL;
+    tse_task_t     *dep_task   = NULL;
     hbool_t         collective = FALSE;
     hbool_t         must_bcast = FALSE;
-    char *          path_buf   = NULL;
+    char           *path_buf   = NULL;
     int             ret;
-    void *          ret_value = NULL;
+    void           *ret_value = NULL;
 
     H5_daos_inc_api_cnt();
 
@@ -1933,11 +1933,11 @@ H5_daos_dataset_open_helper(H5_daos_file_t *file, hid_t dapl_id, hbool_t collect
                             tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_mpi_ibcast_ud_flex_t *bcast_udata    = NULL;
-    H5_daos_omd_fetch_ud_t *      fetch_udata    = NULL;
-    H5_daos_dset_t *              dset           = NULL;
+    H5_daos_omd_fetch_ud_t       *fetch_udata    = NULL;
+    H5_daos_dset_t               *dset           = NULL;
     size_t                        dinfo_buf_size = 0;
     int                           ret;
-    H5_daos_dset_t *              ret_value = NULL;
+    H5_daos_dset_t               *ret_value = NULL;
 
     assert(file);
     assert(req);
@@ -1991,7 +1991,7 @@ H5_daos_dataset_open_helper(H5_daos_file_t *file, hid_t dapl_id, hbool_t collect
      * info from the leader */
     if (!collective || (file->my_rank == 0)) {
         tse_task_t *fetch_task = NULL;
-        uint8_t *   p;
+        uint8_t    *p;
 
         /* Open dataset object */
         if (H5_daos_obj_open(file, req, &dset->obj.oid,
@@ -2181,7 +2181,7 @@ H5_daos_sel_to_recx_iov(hid_t sel_iter_id, size_t type_size, void *buf, daos_rec
     hsize_t off[H5_DAOS_SEQ_LIST_LEN];
     size_t  len[H5_DAOS_SEQ_LIST_LEN];
     size_t  buf_len = 1;
-    void *  vp_ret;
+    void   *vp_ret;
     size_t  szi;
     herr_t  ret_value = SUCCEED;
 
@@ -2289,7 +2289,7 @@ static int
 H5_daos_chunk_io_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
     H5_daos_chunk_io_ud_t *udata;
-    daos_obj_rw_t *        update_args;
+    daos_obj_rw_t         *update_args;
     int                    ret_value = 0;
 
     /* Get private data */
@@ -2420,9 +2420,9 @@ H5_daos_dataset_io_types_equal(H5_daos_select_chunk_info_t *chunk_info, H5_daos_
     daos_opc_t             daos_op;
     size_t                 tot_nseq;
     size_t                 file_type_size;
-    tse_task_t *           io_task;
+    tse_task_t            *io_task;
     uint64_t               i;
-    uint8_t *              p;
+    uint8_t               *p;
     int                    ret;
     herr_t                 ret_value = SUCCEED;
 
@@ -2592,7 +2592,7 @@ static int
 H5_daos_chunk_io_tconv_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
     H5_daos_chunk_io_ud_t *udata;
-    daos_obj_rw_t *        update_args;
+    daos_obj_rw_t         *update_args;
     int                    ret_value = 0;
 
     /* Get private data */
@@ -2760,7 +2760,7 @@ static int
 H5_daos_chunk_fill_bkg_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
     H5_daos_chunk_io_ud_t *udata;
-    daos_obj_rw_t *        update_args;
+    daos_obj_rw_t         *update_args;
     int                    ret_value = 0;
 
     /* Get private data */
@@ -2873,10 +2873,10 @@ H5_daos_dataset_io_types_unequal(H5_daos_select_chunk_info_t *chunk_info, H5_dao
     daos_opc_t             daos_op;
     hbool_t                contig = FALSE;
     size_t                 tot_nseq;
-    tse_task_t *           io_task       = NULL;
-    tse_task_t *           fill_bkg_task = NULL;
+    tse_task_t            *io_task       = NULL;
+    tse_task_t            *fill_bkg_task = NULL;
     uint64_t               i;
-    uint8_t *              p;
+    uint8_t               *p;
     int                    ret;
     herr_t                 ret_value = SUCCEED;
 
@@ -2961,7 +2961,7 @@ H5_daos_dataset_io_types_unequal(H5_daos_select_chunk_info_t *chunk_info, H5_dao
                                &chunk_io_ud->tconv.file_type_size, (size_t)chunk_info->num_elem_sel_file,
                                FALSE, TRUE, &chunk_io_ud->tconv.tconv_buf, &chunk_io_ud->tconv.bkg_buf, NULL,
                                &chunk_io_ud->tconv.fill_bkg) < 0)
-        D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't initialize type conversion");
+            D_GOTO_ERROR(H5E_DATASET, H5E_CANTINIT, FAIL, "can't initialize type conversion");
 
     /* Set up iod */
     memset(&chunk_io_ud->iod, 0, sizeof(chunk_io_ud->iod));
@@ -3170,8 +3170,8 @@ static int
 H5_daos_dset_io_int_task(tse_task_t *task)
 {
     H5_daos_io_task_ud_t *udata      = NULL;
-    tse_task_t *          first_task = NULL;
-    tse_task_t *          dep_task   = NULL;
+    tse_task_t           *first_task = NULL;
+    tse_task_t           *dep_task   = NULL;
     htri_t                need_tconv;
     int                   ret;
     int                   ret_value = 0;
@@ -3334,8 +3334,8 @@ H5_daos_dataset_read_int(H5_daos_dset_t *dset, hid_t mem_type_id, hid_t mem_spac
     hid_t                        real_mem_space_id;
     int                          ndims;
     hssize_t                     num_elem_file = -1, num_elem_mem;
-    tse_task_t *                 io_task       = NULL;
-    tse_task_t *                 end_task      = _end_task;
+    tse_task_t                  *io_task       = NULL;
+    tse_task_t                  *end_task      = _end_task;
     int                          ret;
     herr_t                       ret_value = SUCCEED;
 
@@ -3481,26 +3481,26 @@ done:
  */
 #if H5VL_VERSION >= 3
 herr_t
-H5_daos_dataset_read(size_t count, void *_dset[], hid_t mem_type_id[], hid_t mem_space_id[], hid_t file_space_id[],
-                     hid_t dxpl_id, void *buf[], void **req)
+H5_daos_dataset_read(size_t count, void *_dset[], hid_t mem_type_id[], hid_t mem_space_id[],
+                     hid_t file_space_id[], hid_t dxpl_id, void *buf[], void **req)
 #else
 herr_t
 H5_daos_dataset_read(void *_dset, hid_t mem_type_id, hid_t mem_space_id, hid_t file_space_id, hid_t dxpl_id,
                      void *buf, void **req)
 #endif
 {
-    H5_daos_dset_t *      dset       = NULL;
+    H5_daos_dset_t       *dset       = NULL;
     H5_daos_io_task_ud_t *task_ud    = NULL;
-    tse_task_t *          io_task    = NULL;
-    tse_task_t *          first_task = NULL;
-    tse_task_t *          dep_task   = NULL;
-    H5_daos_req_t *       int_req    = NULL;
+    tse_task_t           *io_task    = NULL;
+    tse_task_t           *first_task = NULL;
+    tse_task_t           *dep_task   = NULL;
+    H5_daos_req_t        *int_req    = NULL;
     htri_t                need_tconv = FALSE;
     hid_t                 req_dxpl_id;
-    hid_t                 local_mem_type_id = H5I_INVALID_HID;
-    hid_t                 local_mem_space_id = H5I_INVALID_HID;
+    hid_t                 local_mem_type_id   = H5I_INVALID_HID;
+    hid_t                 local_mem_space_id  = H5I_INVALID_HID;
     hid_t                 local_file_space_id = H5I_INVALID_HID;
-    void *                local_buf = NULL;
+    void                 *local_buf           = NULL;
     int                   ret;
     herr_t                ret_value = SUCCEED;
 
@@ -3693,8 +3693,8 @@ H5_daos_dataset_write_int(H5_daos_dset_t *dset, hid_t mem_type_id, hid_t mem_spa
     hid_t                        real_mem_space_id;
     int                          ndims;
     hssize_t                     num_elem_file = -1, num_elem_mem;
-    tse_task_t *                 io_task       = NULL;
-    tse_task_t *                 end_task      = _end_task;
+    tse_task_t                  *io_task       = NULL;
+    tse_task_t                  *end_task      = _end_task;
     int                          ret;
     herr_t                       ret_value = SUCCEED;
 
@@ -3803,7 +3803,7 @@ H5_daos_dataset_write_int(H5_daos_dset_t *dset, hid_t mem_type_id, hid_t mem_spa
     for (i = 0; i < nchunks_sel; i++) {
         union {
             const void *const_buf;
-            void *      buf;
+            void       *buf;
         } safe_buf = {.const_buf = buf};
 
         io_task = *dep_task;
@@ -3847,26 +3847,26 @@ done:
  */
 #if H5VL_VERSION >= 3
 herr_t
-H5_daos_dataset_write(size_t count, void *_dset[], hid_t mem_type_id[], hid_t mem_space_id[], hid_t file_space_id[],
-                      hid_t dxpl_id, const void *buf[], void **req)
+H5_daos_dataset_write(size_t count, void *_dset[], hid_t mem_type_id[], hid_t mem_space_id[],
+                      hid_t file_space_id[], hid_t dxpl_id, const void *buf[], void **req)
 #else
 herr_t
 H5_daos_dataset_write(void *_dset, hid_t mem_type_id, hid_t mem_space_id, hid_t file_space_id, hid_t dxpl_id,
                       const void *buf, void **req)
 #endif
 {
-    H5_daos_dset_t *      dset       = NULL;
+    H5_daos_dset_t       *dset       = NULL;
     H5_daos_io_task_ud_t *task_ud    = NULL;
-    tse_task_t *          io_task    = NULL;
-    tse_task_t *          first_task = NULL;
-    tse_task_t *          dep_task   = NULL;
-    H5_daos_req_t *       int_req    = NULL;
+    tse_task_t           *io_task    = NULL;
+    tse_task_t           *first_task = NULL;
+    tse_task_t           *dep_task   = NULL;
+    H5_daos_req_t        *int_req    = NULL;
     htri_t                need_tconv = FALSE;
     hid_t                 req_dxpl_id;
-    hid_t                 local_mem_type_id = H5I_INVALID_HID;
-    hid_t                 local_mem_space_id = H5I_INVALID_HID;
+    hid_t                 local_mem_type_id   = H5I_INVALID_HID;
+    hid_t                 local_mem_space_id  = H5I_INVALID_HID;
     hid_t                 local_file_space_id = H5I_INVALID_HID;
-    const void *          local_buf = NULL;
+    const void           *local_buf           = NULL;
     int                   ret;
     herr_t                ret_value = SUCCEED;
 
@@ -4250,11 +4250,11 @@ herr_t
 H5_daos_dataset_get(void *_dset, H5VL_dataset_get_args_t *get_args, hid_t H5VL_DAOS_UNUSED dxpl_id,
                     void H5VL_DAOS_UNUSED **req)
 {
-    H5_daos_dset_t *       dset       = (H5_daos_dset_t *)_dset;
+    H5_daos_dset_t        *dset       = (H5_daos_dset_t *)_dset;
     H5_daos_dset_get_ud_t *get_udata  = NULL;
-    tse_task_t *           first_task = NULL;
-    tse_task_t *           dep_task   = NULL;
-    H5_daos_req_t *        int_req    = NULL;
+    tse_task_t            *first_task = NULL;
+    tse_task_t            *dep_task   = NULL;
+    H5_daos_req_t         *int_req    = NULL;
     int                    ret;
     herr_t                 ret_value = SUCCEED; /* Return value */
 
@@ -4588,9 +4588,9 @@ H5_daos_dataset_specific(void *_item, H5VL_dataset_specific_args_t *specific_arg
                          void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_dset_t *dset       = (H5_daos_dset_t *)_item;
-    H5_daos_req_t * int_req    = NULL;
-    tse_task_t *    first_task = NULL;
-    tse_task_t *    dep_task   = NULL;
+    H5_daos_req_t  *int_req    = NULL;
+    tse_task_t     *first_task = NULL;
+    tse_task_t     *dep_task   = NULL;
     hbool_t         collective_md_read;
     hbool_t         collective_md_write;
     hbool_t         must_coll_req = FALSE;
@@ -4839,11 +4839,11 @@ done:
 herr_t
 H5_daos_dataset_close(void *_dset, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
 {
-    H5_daos_dset_t *             dset       = (H5_daos_dset_t *)_dset;
+    H5_daos_dset_t              *dset       = (H5_daos_dset_t *)_dset;
     H5_daos_obj_close_task_ud_t *task_ud    = NULL;
-    tse_task_t *                 first_task = NULL;
-    tse_task_t *                 dep_task   = NULL;
-    H5_daos_req_t *              int_req    = NULL;
+    tse_task_t                  *first_task = NULL;
+    tse_task_t                  *dep_task   = NULL;
+    H5_daos_req_t               *int_req    = NULL;
     int                          ret;
     herr_t                       ret_value = SUCCEED;
 
@@ -5008,7 +5008,7 @@ static int
 H5_daos_dataset_refresh_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
     H5_daos_omd_fetch_ud_t *udata;
-    uint8_t *               p;
+    uint8_t                *p;
     int                     ret;
     int                     ret_value = 0;
 
@@ -5193,8 +5193,8 @@ H5_daos_dataset_refresh(H5_daos_dset_t *dset, hid_t H5VL_DAOS_UNUSED dxpl_id, H5
                         tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_omd_fetch_ud_t *fetch_udata    = NULL;
-    tse_task_t *            fetch_task     = NULL;
-    uint8_t *               space_buf      = NULL;
+    tse_task_t             *fetch_task     = NULL;
+    uint8_t                *space_buf      = NULL;
     size_t                  space_buf_size = 0;
     int                     ret;
     herr_t                  ret_value = SUCCEED;
@@ -5407,10 +5407,10 @@ H5_daos_dataset_set_extent(H5_daos_dset_t *dset, const hsize_t *size, hbool_t co
                            tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_dset_set_extent_ud_t *update_cb_ud = NULL;
-    tse_task_t *                  update_task  = NULL;
+    tse_task_t                   *update_task  = NULL;
     hsize_t                       maxdims[H5S_MAX_RANK];
     int                           ndims;
-    void *                        space_buf = NULL;
+    void                         *space_buf = NULL;
     int                           i;
     int                           ret;
     herr_t                        ret_value = SUCCEED;
@@ -5695,7 +5695,7 @@ H5_daos_get_selected_chunk_info(H5_daos_dcpl_cache_t *dcpl_cache, hid_t file_spa
     hssize_t                     num_sel_points;
     hssize_t                     chunk_file_space_adjust[H5O_LAYOUT_NDIMS];
     hsize_t                      file_space_dims[H5S_MAX_RANK], mem_space_dims[H5S_MAX_RANK];
-    hsize_t *                    chunk_dims;
+    hsize_t                     *chunk_dims;
     hsize_t                      curr_chunk_dims[H5S_MAX_RANK] = {0};
     hsize_t                      file_sel_start[H5S_MAX_RANK], file_sel_end[H5S_MAX_RANK];
     hsize_t                      mem_sel_start[H5S_MAX_RANK], mem_sel_end[H5S_MAX_RANK];

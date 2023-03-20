@@ -10,11 +10,11 @@
 int
 main(int argc, char *argv[])
 {
-    char *  daos_sys = NULL;
+    char   *daos_sys = NULL;
     hid_t   file = -1, dset = -1, fapl = -1;
     hid_t   nfile = -1, ndset = -1;
     hsize_t dims[1] = {256 * 1024};
-    int *   buf = NULL, *nbuf = NULL;
+    int    *buf = NULL, *nbuf = NULL;
 #ifdef DV_HAVE_SNAP_OPEN_ID
     H5_daos_snap_id_t snap_id;
 #endif

@@ -1925,7 +1925,7 @@ static herr_t
 iterate_func1(hid_t map_id, const void *key, void *op_data)
 {
     MAP_TEST_INSERT_RANK_0_ITERATE_ALL_RANKS_VAL_C_TYPE retrieved_val;
-    size_t *                                            counter = (size_t *)op_data;
+    size_t                                             *counter = (size_t *)op_data;
     herr_t                                              ret_val = H5_ITER_CONT;
 
     if (H5Mget(map_id, MAP_TEST_INSERT_RANK_0_ITERATE_ALL_RANKS_KEY_TYPE, key,
@@ -1959,7 +1959,7 @@ static herr_t
 iterate_func2(hid_t map_id, const void *key, void *op_data)
 {
     MAP_TEST_INSERT_ALL_RANKS_ITERATE_ALL_RANKS_VAL_C_TYPE retrieved_val;
-    size_t *                                               counter = (size_t *)op_data;
+    size_t                                                *counter = (size_t *)op_data;
     herr_t                                                 ret_val = H5_ITER_CONT;
 
     if (H5Mget(map_id, MAP_TEST_INSERT_ALL_RANKS_ITERATE_ALL_RANKS_KEY_TYPE, key,
@@ -1994,7 +1994,7 @@ static herr_t
 iterate_func3(hid_t map_id, const void *key, void *op_data)
 {
     MAP_TEST_DELETE_RANK_0_ITERATE_ALL_RANKS_VAL_C_TYPE retrieved_val;
-    delete_rank_0_test_info *                           test_info  = (delete_rank_0_test_info *)op_data;
+    delete_rank_0_test_info                            *test_info  = (delete_rank_0_test_info *)op_data;
     hbool_t                                             key_exists = 0;
     herr_t                                              ret_val    = H5_ITER_CONT;
 
@@ -2052,7 +2052,7 @@ static herr_t
 iterate_func4(hid_t map_id, const void *key, void *op_data)
 {
     MAP_TEST_DELETE_ALL_RANKS_ITERATE_ALL_RANKS_VAL_C_TYPE retrieved_val;
-    delete_all_ranks_test_info *                           test_info  = (delete_all_ranks_test_info *)op_data;
+    delete_all_ranks_test_info                            *test_info  = (delete_all_ranks_test_info *)op_data;
     hbool_t                                                key_exists = 0;
     herr_t                                                 ret_val    = H5_ITER_CONT;
 

@@ -2695,7 +2695,7 @@ error:
  * Tests iterating over all keys in a map object
  */
 typedef struct {
-    int * keys_visited;
+    int  *keys_visited;
     int   ncalls;
     int   stop_at;
     char *map_name;

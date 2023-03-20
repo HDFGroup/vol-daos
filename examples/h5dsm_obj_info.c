@@ -9,10 +9,10 @@
 int
 main(int argc, char *argv[])
 {
-    char *      daos_sys = NULL;
+    char       *daos_sys = NULL;
     hid_t       file = -1, obj = -1, fapl = -1;
     H5O_info2_t oinfo;
-    char *      obj_str = NULL;
+    char       *obj_str = NULL;
     size_t      i;
 #ifdef DV_HAVE_SNAP_OPEN_ID
     H5_daos_snap_id_t snap_id;

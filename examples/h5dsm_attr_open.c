@@ -9,11 +9,11 @@
 int
 main(int argc, char *argv[])
 {
-    char *  daos_sys = NULL;
+    char   *daos_sys = NULL;
     hid_t   file = -1, attr = -1, fapl = -1, space = -1, type = -1, acpl = -1, def_acpl = -1;
     int     ndims;
     hsize_t dims[2];
-    char *  name_buf      = NULL;
+    char   *name_buf      = NULL;
     size_t  name_buf_size = 0;
     ssize_t ssize_ret;
     htri_t  tri_ret;

@@ -203,7 +203,7 @@ H5_daos_need_bkg(hid_t src_type_id, hid_t dst_type_id, hbool_t dst_file, size_t 
 {
     hid_t       memb_type_id     = -1;
     hid_t       src_memb_type_id = -1;
-    char *      memb_name        = NULL;
+    char       *memb_name        = NULL;
     size_t      memb_size;
     H5T_class_t tclass;
     htri_t      ret_value = FALSE;
@@ -488,18 +488,18 @@ H5_daos_datatype_commit(void *_item, const H5VL_loc_params_t H5VL_DAOS_UNUSED *l
                         hid_t type_id, hid_t lcpl_id, hid_t tcpl_id, hid_t tapl_id,
                         hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
 {
-    H5_daos_item_t * item            = (H5_daos_item_t *)_item;
+    H5_daos_item_t  *item            = (H5_daos_item_t *)_item;
     H5_daos_dtype_t *dtype           = NULL;
-    H5_daos_obj_t *  target_obj      = NULL;
-    char *           path_buf        = NULL;
-    const char *     target_name     = NULL;
+    H5_daos_obj_t   *target_obj      = NULL;
+    char            *path_buf        = NULL;
+    const char      *target_name     = NULL;
     size_t           target_name_len = 0;
     hbool_t          collective      = FALSE;
-    H5_daos_req_t *  int_req         = NULL;
-    tse_task_t *     first_task      = NULL;
-    tse_task_t *     dep_task        = NULL;
+    H5_daos_req_t   *int_req         = NULL;
+    tse_task_t      *first_task      = NULL;
+    tse_task_t      *dep_task        = NULL;
     int              ret;
-    void *           ret_value = NULL;
+    void            *ret_value = NULL;
 
     H5_daos_inc_api_cnt();
 
@@ -665,13 +665,13 @@ H5_daos_datatype_commit_helper(H5_daos_file_t *file, hid_t type_id, hid_t tcpl_i
                                tse_task_t **dep_task)
 {
     H5_daos_md_rw_cb_ud_flex_t *update_cb_ud = NULL;
-    H5_daos_dtype_t *           dtype        = NULL;
-    tse_task_t *                datatype_metatask;
-    tse_task_t *                finalize_deps[2];
+    H5_daos_dtype_t            *dtype        = NULL;
+    tse_task_t                 *datatype_metatask;
+    tse_task_t                 *finalize_deps[2];
     hbool_t                     default_tcpl   = (tcpl_id == H5P_DATATYPE_CREATE_DEFAULT);
     int                         finalize_ndeps = 0;
     int                         ret;
-    void *                      ret_value = NULL;
+    void                       *ret_value = NULL;
 
     assert(file);
     assert(file->flags & H5F_ACC_RDWR);
@@ -707,8 +707,8 @@ H5_daos_datatype_commit_helper(H5_daos_file_t *file, hid_t type_id, hid_t tcpl_i
     if (!collective || (file->my_rank == 0)) {
         size_t      type_size = 0;
         size_t      tcpl_size = 0;
-        void *      type_buf  = NULL;
-        void *      tcpl_buf  = NULL;
+        void       *type_buf  = NULL;
+        void       *tcpl_buf  = NULL;
         tse_task_t *update_task;
 
         /* Create datatype */
@@ -924,19 +924,19 @@ void *
 H5_daos_datatype_open(void *_item, const H5VL_loc_params_t H5VL_DAOS_UNUSED *loc_params, const char *name,
                       hid_t tapl_id, hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req)
 {
-    H5_daos_item_t * item       = (H5_daos_item_t *)_item;
+    H5_daos_item_t  *item       = (H5_daos_item_t *)_item;
     H5_daos_dtype_t *dtype      = NULL;
-    H5_daos_obj_t *  target_obj = NULL;
+    H5_daos_obj_t   *target_obj = NULL;
     daos_obj_id_t    oid        = {0, 0};
-    daos_obj_id_t ** oid_ptr    = NULL;
-    H5_daos_req_t *  int_req    = NULL;
-    tse_task_t *     first_task = NULL;
-    tse_task_t *     dep_task   = NULL;
+    daos_obj_id_t  **oid_ptr    = NULL;
+    H5_daos_req_t   *int_req    = NULL;
+    tse_task_t      *first_task = NULL;
+    tse_task_t      *dep_task   = NULL;
     hbool_t          collective = FALSE;
     hbool_t          must_bcast = FALSE;
-    char *           path_buf   = NULL;
+    char            *path_buf   = NULL;
     int              ret;
-    void *           ret_value = NULL;
+    void            *ret_value = NULL;
 
     H5_daos_inc_api_cnt();
 
@@ -1138,11 +1138,11 @@ H5_daos_datatype_open_helper(H5_daos_file_t *file, hid_t tapl_id, hbool_t collec
                              tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_mpi_ibcast_ud_flex_t *bcast_udata    = NULL;
-    H5_daos_omd_fetch_ud_t *      fetch_udata    = NULL;
-    H5_daos_dtype_t *             dtype          = NULL;
+    H5_daos_omd_fetch_ud_t       *fetch_udata    = NULL;
+    H5_daos_dtype_t              *dtype          = NULL;
     size_t                        tinfo_buf_size = 0;
     int                           ret;
-    H5_daos_dtype_t *             ret_value = NULL;
+    H5_daos_dtype_t              *ret_value = NULL;
 
     assert(file);
     assert(req);
@@ -1187,7 +1187,7 @@ H5_daos_datatype_open_helper(H5_daos_file_t *file, hid_t tapl_id, hbool_t collec
      * info from the leader */
     if (!collective || (file->my_rank == 0)) {
         tse_task_t *fetch_task = NULL;
-        uint8_t *   p;
+        uint8_t    *p;
 
         /* Open datatype object */
         if (H5_daos_obj_open(file, req, &dtype->obj.oid,
@@ -1519,11 +1519,10 @@ H5_daos_datatype_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args
         } /* end if */
         else {
             /* Open datatype */
-            if (0 !=
-                (ret = daos_obj_open(
-                     udata->bcast_udata.obj->item.file->coh, udata->bcast_udata.obj->oid,
-                     (udata->bcast_udata.obj->item.file->flags & H5F_ACC_RDWR ? DAOS_OO_RW : DAOS_OO_RO),
-                     &udata->bcast_udata.obj->obj_oh, NULL /*event*/)))
+            if (0 != (ret = daos_obj_open(
+                          udata->bcast_udata.obj->item.file->coh, udata->bcast_udata.obj->oid,
+                          (udata->bcast_udata.obj->item.file->flags & H5F_ACC_RDWR ? DAOS_OO_RW : DAOS_OO_RO),
+                          &udata->bcast_udata.obj->obj_oh, NULL /*event*/)))
                 D_GOTO_ERROR(H5E_DATATYPE, H5E_CANTOPENOBJ, ret, "can't open datatype: %s",
                              H5_daos_err_to_string(ret));
 
@@ -1637,7 +1636,7 @@ static int
 H5_daos_tinfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
     H5_daos_omd_fetch_ud_t *udata;
-    uint8_t *               p;
+    uint8_t                *p;
     int                     ret;
     int                     ret_value = 0;
 
@@ -1864,7 +1863,7 @@ H5_daos_datatype_get(void *_dtype, H5VL_datatype_get_args_t *get_args, hid_t H5V
             break;
         } /* end block */
         case H5VL_DATATYPE_GET_BINARY: {
-            void * buf  = get_args->args.get_binary.buf;
+            void  *buf  = get_args->args.get_binary.buf;
             size_t size = get_args->args.get_binary.buf_size;
 
             /* Wait for the datatype to open if necessary */
@@ -1928,9 +1927,9 @@ H5_daos_datatype_specific(void *_item, H5VL_datatype_specific_args_t *specific_a
                           hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
 {
     H5_daos_dtype_t *dtype      = (H5_daos_dtype_t *)_item;
-    tse_task_t *     first_task = NULL;
-    tse_task_t *     dep_task   = NULL;
-    H5_daos_req_t *  int_req    = NULL;
+    tse_task_t      *first_task = NULL;
+    tse_task_t      *dep_task   = NULL;
+    H5_daos_req_t   *int_req    = NULL;
     int              ret;
     herr_t           ret_value = SUCCEED;
 
@@ -2092,11 +2091,11 @@ done:
 herr_t
 H5_daos_datatype_close(void *_dtype, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
 {
-    H5_daos_dtype_t *            dtype      = (H5_daos_dtype_t *)_dtype;
+    H5_daos_dtype_t             *dtype      = (H5_daos_dtype_t *)_dtype;
     H5_daos_obj_close_task_ud_t *task_ud    = NULL;
-    tse_task_t *                 first_task = NULL;
-    tse_task_t *                 dep_task   = NULL;
-    H5_daos_req_t *              int_req    = NULL;
+    tse_task_t                  *first_task = NULL;
+    tse_task_t                  *dep_task   = NULL;
+    H5_daos_req_t               *int_req    = NULL;
     int                          ret;
     herr_t                       ret_value = SUCCEED;
 

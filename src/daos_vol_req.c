@@ -438,10 +438,10 @@ H5_daos_req_enqueue(H5_daos_req_t *req, tse_task_t *first_task, H5_daos_item_t *
                     H5_daos_op_pool_type_t op_type, H5_daos_op_pool_scope_t scope, hbool_t collective,
                     hbool_t sync)
 {
-    H5_daos_op_pool_t **   parent_cur_op_pool[4] = {NULL};
-    H5_daos_op_pool_t *    tmp_pool              = NULL;
-    H5_daos_op_pool_t *    tmp_new_pool_alloc    = NULL;
-    H5_daos_op_pool_t *    tmp_new_pool_alloc_2  = NULL;
+    H5_daos_op_pool_t    **parent_cur_op_pool[4] = {NULL};
+    H5_daos_op_pool_t     *tmp_pool              = NULL;
+    H5_daos_op_pool_t     *tmp_new_pool_alloc    = NULL;
+    H5_daos_op_pool_t     *tmp_new_pool_alloc_2  = NULL;
     hbool_t                create_new_pool;
     hbool_t                init_pool;
     hbool_t                must_schedule_start_task = FALSE;

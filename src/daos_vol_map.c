@@ -32,13 +32,13 @@
  */
 typedef struct H5_daos_map_rw_ud_t {
     H5_daos_md_rw_cb_ud_t md_rw_cb_ud; /* Must be first */
-    const void *          key_buf;
-    void *                key_buf_alloc;
+    const void           *key_buf;
+    void                 *key_buf_alloc;
     size_t                key_size;
     htri_t                val_need_tconv;
-    void *                tconv_buf;
-    void *                bkg_buf;
-    void *                value_buf;
+    void                 *tconv_buf;
+    void                 *bkg_buf;
+    void                 *value_buf;
     hid_t                 val_mem_type_id;
     size_t                val_mem_type_size;
     size_t                val_file_type_size;
@@ -49,26 +49,26 @@ typedef struct H5_daos_map_rw_ud_t {
  */
 typedef struct H5_daos_map_exists_ud_t {
     H5_daos_md_rw_cb_ud_t md_rw_cb_ud; /* Must be first */
-    const void *          key_buf;
-    void *                key_buf_alloc;
+    const void           *key_buf;
+    void                 *key_buf_alloc;
     size_t                key_size;
-    hbool_t *             exists_ret;
+    hbool_t              *exists_ret;
 } H5_daos_map_exists_ud_t;
 
 /* A struct used to operate on a single key-value
  * pair during map iteration */
 typedef struct H5_daos_map_iter_op_ud_t {
     H5_daos_generic_cb_ud_t generic_ud; /* Must be first */
-    H5_daos_iter_ud_t *     iter_ud;
+    H5_daos_iter_ud_t      *iter_ud;
     H5_daos_vl_union_t      vl_union;
-    void *                  key_buf;
-    void *                  key_buf_alloc;
+    void                   *key_buf;
+    void                   *key_buf_alloc;
     size_t                  key_len;
     hid_t                   key_file_type_id;
     hid_t                   key_mem_type_id;
-    char *                  char_replace_loc;
+    char                   *char_replace_loc;
     char                    char_replace_char;
-    tse_task_t *            op_task;
+    tse_task_t             *op_task;
     /* Fields for querying for existence of Map Record
      * akey for map keys that share dkey with other metadata
      */
@@ -84,8 +84,8 @@ typedef struct H5_daos_map_delete_key_ud_t {
     daos_key_t     dkey;
     daos_key_t     akey;
     hbool_t        shared_dkey;
-    const void *   key_buf;
-    void *         key_buf_alloc;
+    const void    *key_buf;
+    void          *key_buf_alloc;
     size_t         key_size;
 } H5_daos_map_delete_key_ud_t;
 
@@ -141,11 +141,11 @@ H5_daos_map_create(void *_item, const H5VL_loc_params_t H5VL_DAOS_UNUSED *loc_pa
                    hid_t lcpl_id, hid_t ktype_id, hid_t vtype_id, hid_t mcpl_id, hid_t mapl_id,
                    hid_t H5VL_DAOS_UNUSED dxpl_id, void H5VL_DAOS_UNUSED **req)
 {
-    H5_daos_item_t *            item            = (H5_daos_item_t *)_item;
-    H5_daos_map_t *             map             = NULL;
-    H5_daos_obj_t *             target_obj      = NULL;
-    char *                      path_buf        = NULL;
-    const char *                target_name     = NULL;
+    H5_daos_item_t             *item            = (H5_daos_item_t *)_item;
+    H5_daos_map_t              *map             = NULL;
+    H5_daos_obj_t              *target_obj      = NULL;
+    char                       *path_buf        = NULL;
+    const char                 *target_name     = NULL;
     size_t                      target_name_len = 0;
     H5T_class_t                 ktype_class;
     htri_t                      has_vl_vlstr_ref;
@@ -153,13 +153,13 @@ H5_daos_map_create(void *_item, const H5VL_loc_params_t H5VL_DAOS_UNUSED *loc_pa
     hbool_t                     collective;
     H5_daos_md_rw_cb_ud_flex_t *update_cb_ud   = NULL;
     int                         finalize_ndeps = 0;
-    tse_task_t *                finalize_deps[2];
-    H5_daos_req_t *             int_req      = NULL;
-    tse_task_t *                first_task   = NULL;
-    tse_task_t *                dep_task     = NULL;
+    tse_task_t                 *finalize_deps[2];
+    H5_daos_req_t              *int_req      = NULL;
+    tse_task_t                 *first_task   = NULL;
+    tse_task_t                 *dep_task     = NULL;
     hbool_t                     default_mcpl = (mcpl_id == H5P_MAP_CREATE_DEFAULT);
     int                         ret;
-    void *                      ret_value = NULL;
+    void                       *ret_value = NULL;
 
     /* Make sure H5_DAOS_g is set. */
     H5_DAOS_G_INIT(NULL);
@@ -268,9 +268,9 @@ H5_daos_map_create(void *_item, const H5VL_loc_params_t H5VL_DAOS_UNUSED *loc_pa
         size_t      mcpl_size  = 0;
         size_t      ktype_size = 0;
         size_t      vtype_size = 0;
-        void *      ktype_buf  = NULL;
-        void *      vtype_buf  = NULL;
-        void *      mcpl_buf   = NULL;
+        void       *ktype_buf  = NULL;
+        void       *vtype_buf  = NULL;
+        void       *mcpl_buf   = NULL;
         tse_task_t *update_task;
 
         /* Determine serialized datatype sizes */
@@ -593,13 +593,13 @@ H5_daos_map_open(void *_item, const H5VL_loc_params_t *loc_params, const char *n
                  hid_t dxpl_id, void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_item_t *item       = (H5_daos_item_t *)_item;
-    H5_daos_map_t * map        = NULL;
-    H5_daos_req_t * int_req    = NULL;
-    tse_task_t *    first_task = NULL;
-    tse_task_t *    dep_task   = NULL;
+    H5_daos_map_t  *map        = NULL;
+    H5_daos_req_t  *int_req    = NULL;
+    tse_task_t     *first_task = NULL;
+    tse_task_t     *dep_task   = NULL;
     hbool_t         collective;
     int             ret;
-    void *          ret_value = NULL;
+    void           *ret_value = NULL;
 
     if (!_item)
         D_GOTO_ERROR(H5E_ARGS, H5E_BADVALUE, NULL, "map parent object is NULL");
@@ -708,11 +708,11 @@ H5_daos_map_open_helper(H5_daos_file_t *file, hid_t mapl_id, hbool_t collective,
                         tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_mpi_ibcast_ud_flex_t *bcast_udata    = NULL;
-    H5_daos_omd_fetch_ud_t *      fetch_udata    = NULL;
-    H5_daos_map_t *               map            = NULL;
+    H5_daos_omd_fetch_ud_t       *fetch_udata    = NULL;
+    H5_daos_map_t                *map            = NULL;
     size_t                        minfo_buf_size = 0;
     int                           ret;
-    H5_daos_map_t *               ret_value = NULL;
+    H5_daos_map_t                *ret_value = NULL;
 
     assert(file);
     assert(req);
@@ -763,12 +763,11 @@ H5_daos_map_open_helper(H5_daos_file_t *file, hid_t mapl_id, hbool_t collective,
      * info from the leader */
     if (!collective || (file->my_rank == 0)) {
         tse_task_t *fetch_task = NULL;
-        uint8_t *   p;
+        uint8_t    *p;
 
         /* Open map object */
-        if (H5_daos_obj_open(file, req, &map->obj.oid,
-                             (file->flags & H5F_ACC_RDWR ? DAOS_OO_RW : DAOS_OO_RO), &map->obj.obj_oh,
-                             "map object open", first_task, dep_task) < 0)
+        if (H5_daos_obj_open(file, req, &map->obj.oid, (file->flags & H5F_ACC_RDWR ? DAOS_OO_RW : DAOS_OO_RO),
+                             &map->obj.obj_oh, "map object open", first_task, dep_task) < 0)
             D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, NULL, "can't open map object");
 
         /* Allocate argument struct for fetch task */
@@ -926,13 +925,13 @@ H5_daos_map_open_int(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params, 
                      hid_t mapl_id, H5_daos_req_t *req, hbool_t collective, tse_task_t **first_task,
                      tse_task_t **dep_task)
 {
-    H5_daos_map_t * map        = NULL;
-    H5_daos_obj_t * target_obj = NULL;
+    H5_daos_map_t  *map        = NULL;
+    H5_daos_obj_t  *target_obj = NULL;
     daos_obj_id_t   oid        = {0, 0};
     daos_obj_id_t **oid_ptr    = NULL;
-    char *          path_buf   = NULL;
+    char           *path_buf   = NULL;
     hbool_t         must_bcast = FALSE;
-    H5_daos_map_t * ret_value  = NULL;
+    H5_daos_map_t  *ret_value  = NULL;
 
     assert(item);
     assert(loc_params);
@@ -1243,11 +1242,10 @@ H5_daos_map_open_recv_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         } /* end if */
         else {
             /* Open map */
-            if (0 !=
-                (ret = daos_obj_open(
-                     udata->bcast_udata.obj->item.file->coh, udata->bcast_udata.obj->oid,
-                     (udata->bcast_udata.obj->item.file->flags & H5F_ACC_RDWR ? DAOS_OO_RW : DAOS_OO_RO),
-                     &udata->bcast_udata.obj->obj_oh, NULL /*event*/)))
+            if (0 != (ret = daos_obj_open(
+                          udata->bcast_udata.obj->item.file->coh, udata->bcast_udata.obj->oid,
+                          (udata->bcast_udata.obj->item.file->flags & H5F_ACC_RDWR ? DAOS_OO_RW : DAOS_OO_RO),
+                          &udata->bcast_udata.obj->obj_oh, NULL /*event*/)))
                 D_GOTO_ERROR(H5E_MAP, H5E_CANTOPENOBJ, ret, "can't open map: %s", H5_daos_err_to_string(ret));
 
             /* Finish building map object */
@@ -1407,7 +1405,7 @@ static int
 H5_daos_minfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
     H5_daos_omd_fetch_ud_t *udata;
-    uint8_t *               p;
+    uint8_t                *p;
     int                     ret;
     int                     ret_value = 0;
 
@@ -1630,8 +1628,8 @@ H5_daos_map_key_conv(hid_t src_type_id, hid_t dst_type_id, const void *key, cons
     size_t  dst_type_size;
     hid_t   src_parent_type_id = H5I_INVALID_HID;
     hid_t   dst_parent_type_id = H5I_INVALID_HID;
-    void *  tconv_buf          = NULL;
-    void *  bkg_buf            = NULL;
+    void   *tconv_buf          = NULL;
+    void   *bkg_buf            = NULL;
     hbool_t fill_bkg           = FALSE;
     herr_t  ret_value          = SUCCEED;
 
@@ -1827,8 +1825,8 @@ H5_daos_map_key_conv_reverse(hid_t src_type_id, hid_t dst_type_id, void *key, si
     size_t  dst_type_size;
     hid_t   src_parent_type_id = H5I_INVALID_HID;
     hid_t   dst_parent_type_id = H5I_INVALID_HID;
-    void *  tconv_buf          = NULL;
-    void *  bkg_buf            = NULL;
+    void   *tconv_buf          = NULL;
+    void   *bkg_buf            = NULL;
     hbool_t fill_bkg           = FALSE;
     herr_t  ret_value          = SUCCEED;
 
@@ -2023,13 +2021,13 @@ herr_t
 H5_daos_map_get_val(void *_map, hid_t key_mem_type_id, const void *key, hid_t val_mem_type_id, void *value,
                     hid_t dxpl_id, void **req)
 {
-    H5_daos_map_rw_ud_t * get_val_udata = NULL;
+    H5_daos_map_rw_ud_t  *get_val_udata = NULL;
     H5_daos_tconv_reuse_t reuse         = H5_DAOS_TCONV_REUSE_NONE;
-    H5_daos_map_t *       map           = (H5_daos_map_t *)_map;
-    H5_daos_req_t *       int_req       = NULL;
-    tse_task_t *          first_task    = NULL;
-    tse_task_t *          dep_task      = NULL;
-    tse_task_t *          get_val_task  = NULL;
+    H5_daos_map_t        *map           = (H5_daos_map_t *)_map;
+    H5_daos_req_t        *int_req       = NULL;
+    tse_task_t           *first_task    = NULL;
+    tse_task_t           *dep_task      = NULL;
+    tse_task_t           *get_val_task  = NULL;
     hbool_t               fill_bkg      = FALSE;
     int                   ret;
     herr_t                ret_value = SUCCEED;
@@ -2333,16 +2331,16 @@ H5_daos_map_put(void *_map, hid_t key_mem_type_id, const void *key, hid_t val_me
                 hid_t dxpl_id, void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_map_rw_ud_t *write_udata = NULL;
-    H5_daos_map_t *      map         = (H5_daos_map_t *)_map;
+    H5_daos_map_t       *map         = (H5_daos_map_t *)_map;
     union {
         const void *const_buf;
-        void *      buf;
+        void       *buf;
     } safe_value                     = {.const_buf = value};
     H5_daos_req_t *int_req           = NULL;
-    tse_task_t *   first_task        = NULL;
-    tse_task_t *   dep_task          = NULL;
-    tse_task_t *   bkg_buf_fill_task = NULL;
-    tse_task_t *   write_task        = NULL;
+    tse_task_t    *first_task        = NULL;
+    tse_task_t    *dep_task          = NULL;
+    tse_task_t    *bkg_buf_fill_task = NULL;
+    tse_task_t    *write_task        = NULL;
     hbool_t        fill_bkg          = FALSE;
     int            ret;
     herr_t         ret_value = SUCCEED;
@@ -2726,11 +2724,11 @@ H5_daos_map_exists(void *_map, hid_t key_mem_type_id, const void *key, hbool_t *
                    void **req)
 {
     H5_daos_map_exists_ud_t *exists_udata    = NULL;
-    H5_daos_map_t *          map             = (H5_daos_map_t *)_map;
-    H5_daos_req_t *          int_req         = NULL;
-    tse_task_t *             first_task      = NULL;
-    tse_task_t *             dep_task        = NULL;
-    tse_task_t *             map_exists_task = NULL;
+    H5_daos_map_t           *map             = (H5_daos_map_t *)_map;
+    H5_daos_req_t           *int_req         = NULL;
+    tse_task_t              *first_task      = NULL;
+    tse_task_t              *dep_task        = NULL;
+    tse_task_t              *map_exists_task = NULL;
     int                      ret;
     herr_t                   ret_value = SUCCEED;
 
@@ -2882,7 +2880,7 @@ static int
 H5_daos_map_exists_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
     H5_daos_map_exists_ud_t *udata;
-    daos_obj_rw_t *          rw_args;
+    daos_obj_rw_t           *rw_args;
     int                      ret_value = 0;
 
     /* Get private data */
@@ -3007,8 +3005,8 @@ H5_daos_map_get(void *_map, H5VL_map_args_t *map_args, hid_t dxpl_id, void H5VL_
 {
     H5_daos_map_t *map        = (H5_daos_map_t *)_map;
     H5_daos_req_t *int_req    = NULL;
-    tse_task_t *   first_task = NULL;
-    tse_task_t *   dep_task   = NULL;
+    tse_task_t    *first_task = NULL;
+    tse_task_t    *dep_task   = NULL;
     hid_t          map_id     = H5I_INVALID_HID;
     int            ret;
     herr_t         ret_value = SUCCEED; /* Return value */
@@ -3093,7 +3091,7 @@ H5_daos_map_get(void *_map, H5VL_map_args_t *map_args, hid_t dxpl_id, void H5VL_
         } /* end block */
         case H5VL_MAP_GET_COUNT: {
             H5_daos_iter_data_t iter_data;
-            hsize_t *           count = &map_args->get.args.get_count.count;
+            hsize_t            *count = &map_args->get.args.get_count.count;
 
             /* Wait for the map to open if necessary */
             /* Needed because below code accesses map->key_type_id */
@@ -3227,11 +3225,11 @@ herr_t
 H5_daos_map_specific(void *_item, H5VL_map_args_t *map_args, hid_t dxpl_id, void **req)
 {
     H5_daos_item_t *item        = (H5_daos_item_t *)_item;
-    H5_daos_map_t * map         = NULL;
-    H5_daos_req_t * int_req     = NULL;
-    H5_daos_req_t * int_int_req = NULL;
-    tse_task_t *    first_task  = NULL;
-    tse_task_t *    dep_task    = NULL;
+    H5_daos_map_t  *map         = NULL;
+    H5_daos_req_t  *int_req     = NULL;
+    H5_daos_req_t  *int_int_req = NULL;
+    tse_task_t     *first_task  = NULL;
+    tse_task_t     *dep_task    = NULL;
     hbool_t         collective_md_read;
     hbool_t         collective_md_write;
     herr_t          iter_ret = 0;
@@ -3262,11 +3260,11 @@ H5_daos_map_specific(void *_item, H5VL_map_args_t *map_args, hid_t dxpl_id, void
         /* H5Miterate(_by_name) */
         case H5VL_MAP_ITER: {
             H5_daos_iter_data_t iter_data;
-            H5VL_loc_params_t * loc_params      = &map_args->specific.args.iterate.loc_params;
-            hsize_t *           idx             = &map_args->specific.args.iterate.idx;
+            H5VL_loc_params_t  *loc_params      = &map_args->specific.args.iterate.loc_params;
+            hsize_t            *idx             = &map_args->specific.args.iterate.idx;
             hid_t               key_mem_type_id = map_args->specific.args.iterate.key_mem_type_id;
             H5M_iterate_t       op              = map_args->specific.args.iterate.op;
-            void *              op_data         = map_args->specific.args.iterate.op_data;
+            void               *op_data         = map_args->specific.args.iterate.op_data;
 
             int_req->op_name = "map iterate";
 
@@ -3364,7 +3362,7 @@ H5_daos_map_specific(void *_item, H5VL_map_args_t *map_args, hid_t dxpl_id, void
         case H5VL_MAP_DELETE: {
             H5VL_loc_params_t *loc_params      = &map_args->specific.args.del.loc_params;
             hid_t              key_mem_type_id = map_args->specific.args.del.key_mem_type_id;
-            const void *       key             = map_args->specific.args.del.key;
+            const void        *key             = map_args->specific.args.del.key;
 
             int_req->op_name = "map key delete";
 
@@ -3551,12 +3549,12 @@ done:
 static int
 H5_daos_map_iterate_list_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
-    H5_daos_iter_ud_t *       udata         = NULL;
+    H5_daos_iter_ud_t        *udata         = NULL;
     H5_daos_map_iter_op_ud_t *iter_op_udata = NULL;
-    H5_daos_req_t *           req           = NULL;
-    tse_task_t *              query_task    = NULL;
-    tse_task_t *              first_task    = NULL;
-    tse_task_t *              dep_task      = NULL;
+    H5_daos_req_t            *req           = NULL;
+    tse_task_t               *query_task    = NULL;
+    tse_task_t               *first_task    = NULL;
+    tse_task_t               *dep_task      = NULL;
     int                       ret;
     int                       ret_value = 0;
 
@@ -3575,7 +3573,7 @@ H5_daos_map_iterate_list_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 
     /* Check for buffer not large enough */
     if (task->dt_result == -DER_REC2BIG) {
-        char * tmp_realloc = NULL;
+        char  *tmp_realloc = NULL;
         size_t key_buf_len = 2 * (udata->sg_iov.iov_buf_len + 1);
 
         /* Reallocate larger buffer */
@@ -3602,7 +3600,7 @@ H5_daos_map_iterate_list_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
         else if (task->dt_result == 0) {
             H5_daos_map_t *map = (H5_daos_map_t *)udata->target_obj;
             uint32_t       i;
-            char *         p = udata->sg_iov.iov_buf;
+            char          *p = udata->sg_iov.iov_buf;
 
             assert(map);
 
@@ -3819,9 +3817,9 @@ static int
 H5_daos_map_iterate_op_task(tse_task_t *task)
 {
     H5_daos_map_iter_op_ud_t *udata      = NULL;
-    H5_daos_req_t *           req        = NULL;
-    tse_task_t *              first_task = NULL;
-    tse_task_t *              dep_task   = NULL;
+    H5_daos_req_t            *req        = NULL;
+    tse_task_t               *first_task = NULL;
+    tse_task_t               *dep_task   = NULL;
     int                       ret;
     int                       ret_value = 0;
 
@@ -4041,7 +4039,7 @@ H5_daos_map_delete_key(H5_daos_map_t *map, hid_t key_mem_type_id, const void *ke
                        H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_map_delete_key_ud_t *delete_udata = NULL;
-    tse_task_t *                 delete_task;
+    tse_task_t                  *delete_task;
     int                          ret;
     herr_t                       ret_value = SUCCEED;
 
@@ -4147,7 +4145,7 @@ static int
 H5_daos_map_delete_key_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
     H5_daos_map_delete_key_ud_t *udata;
-    daos_obj_punch_t *           punch_args;
+    daos_obj_punch_t            *punch_args;
     int                          ret_value = 0;
 
     /* Get private data */
@@ -4320,11 +4318,11 @@ done:
 herr_t
 H5_daos_map_close(void *_map, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
 {
-    H5_daos_map_t *              map        = (H5_daos_map_t *)_map;
+    H5_daos_map_t               *map        = (H5_daos_map_t *)_map;
     H5_daos_obj_close_task_ud_t *task_ud    = NULL;
-    tse_task_t *                 first_task = NULL;
-    tse_task_t *                 dep_task   = NULL;
-    H5_daos_req_t *              int_req    = NULL;
+    tse_task_t                  *first_task = NULL;
+    tse_task_t                  *dep_task   = NULL;
+    H5_daos_req_t               *int_req    = NULL;
     int                          ret;
     herr_t                       ret_value = SUCCEED;
 

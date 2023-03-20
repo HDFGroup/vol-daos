@@ -51,11 +51,11 @@
 
 /* Task user data for pool connect */
 typedef struct H5_daos_pool_connect_ud_t {
-    H5_daos_req_t *   req;
-    const char *      pool;
-    daos_handle_t *   poh;
+    H5_daos_req_t    *req;
+    const char       *pool;
+    daos_handle_t    *poh;
     daos_pool_info_t *info;
-    const char *      sys;
+    const char       *sys;
     unsigned int      flags;
 } H5_daos_pool_connect_ud_t;
 
@@ -68,8 +68,8 @@ typedef struct H5_daos_pool_disconnect_ud_t {
 /* Task user data for DAOS object open */
 typedef struct H5_daos_obj_open_ud_t {
     H5_daos_generic_cb_ud_t generic_ud; /* Must be first */
-    H5_daos_file_t *        file;
-    daos_obj_id_t *         oid;
+    H5_daos_file_t         *file;
+    daos_obj_id_t          *oid;
 } H5_daos_obj_open_ud_t;
 
 /********************/
@@ -86,14 +86,14 @@ static int    H5_daos_bool_prop_compare(const void *_value1, const void *_value2
 static herr_t H5_daos_init(hid_t vipl_id);
 static herr_t H5_daos_term(void);
 static herr_t H5_daos_fill_def_plist_cache(void);
-static void * H5_daos_faccess_info_copy(const void *_old_fa);
+static void  *H5_daos_faccess_info_copy(const void *_old_fa);
 static herr_t H5_daos_faccess_info_free(void *_fa);
 static herr_t H5_daos_get_conn_cls(void *item, H5VL_get_conn_lvl_t lvl, const H5VL_class_t **conn_cls);
 
 #if H5VL_VERSION >= 3
-    static herr_t H5_daos_get_cap_flags(const void *info, uint64_t *cap_flags);
+static herr_t H5_daos_get_cap_flags(const void *info, uint64_t *cap_flags);
 #else
-    static herr_t H5_daos_get_cap_flags(const void *info, unsigned *cap_flags);
+static herr_t H5_daos_get_cap_flags(const void *info, unsigned *cap_flags);
 #endif
 
 static herr_t H5_daos_opt_query(void *item, H5VL_subclass_t cls, int opt_type,
@@ -125,21 +125,20 @@ static int H5_daos_collective_error_check_comp_cb(tse_task_t *task, void *args);
     (H5VL_CAP_FLAG_ASYNC | H5VL_CAP_FLAG_ATTR_BASIC | H5VL_CAP_FLAG_ATTR_MORE |                              \
      H5VL_CAP_FLAG_DATASET_BASIC | H5VL_CAP_FLAG_DATASET_MORE | H5VL_CAP_FLAG_FILE_BASIC |                   \
      H5VL_CAP_FLAG_FILE_MORE | H5VL_CAP_FLAG_GROUP_BASIC | H5VL_CAP_FLAG_GROUP_MORE |                        \
-     H5VL_CAP_FLAG_LINK_BASIC | H5VL_CAP_FLAG_LINK_MORE | H5VL_CAP_FLAG_MAP_BASIC |                          \
-     H5VL_CAP_FLAG_MAP_MORE | H5VL_CAP_FLAG_OBJECT_BASIC | H5VL_CAP_FLAG_OBJECT_MORE |                       \
-     H5VL_CAP_FLAG_REF_BASIC | H5VL_CAP_FLAG_REF_MORE | H5VL_CAP_FLAG_OBJ_REF |  \
-     H5VL_CAP_FLAG_REG_REF | H5VL_CAP_FLAG_ATTR_REF | H5VL_CAP_FLAG_STORED_DATATYPES |                       \
-     H5VL_CAP_FLAG_CREATION_ORDER | H5VL_CAP_FLAG_ITERATE | H5VL_CAP_FLAG_STORAGE_SIZE |                     \
-     H5VL_CAP_FLAG_BY_IDX | H5VL_CAP_FLAG_GET_PLIST | H5VL_CAP_FLAG_FLUSH_REFRESH |                          \
-     H5VL_CAP_FLAG_EXTERNAL_LINKS | H5VL_CAP_FLAG_HARD_LINKS | H5VL_CAP_FLAG_SOFT_LINKS |                    \
-     H5VL_CAP_FLAG_UD_LINKS | H5VL_CAP_FLAG_TRACK_TIMES | H5VL_CAP_FLAG_FILL_VALUES)
+     H5VL_CAP_FLAG_LINK_BASIC | H5VL_CAP_FLAG_LINK_MORE | H5VL_CAP_FLAG_MAP_BASIC | H5VL_CAP_FLAG_MAP_MORE | \
+     H5VL_CAP_FLAG_OBJECT_BASIC | H5VL_CAP_FLAG_OBJECT_MORE | H5VL_CAP_FLAG_REF_BASIC |                      \
+     H5VL_CAP_FLAG_REF_MORE | H5VL_CAP_FLAG_OBJ_REF | H5VL_CAP_FLAG_REG_REF | H5VL_CAP_FLAG_ATTR_REF |       \
+     H5VL_CAP_FLAG_STORED_DATATYPES | H5VL_CAP_FLAG_CREATION_ORDER | H5VL_CAP_FLAG_ITERATE |                 \
+     H5VL_CAP_FLAG_STORAGE_SIZE | H5VL_CAP_FLAG_BY_IDX | H5VL_CAP_FLAG_GET_PLIST |                           \
+     H5VL_CAP_FLAG_FLUSH_REFRESH | H5VL_CAP_FLAG_EXTERNAL_LINKS | H5VL_CAP_FLAG_HARD_LINKS |                 \
+     H5VL_CAP_FLAG_SOFT_LINKS | H5VL_CAP_FLAG_UD_LINKS | H5VL_CAP_FLAG_TRACK_TIMES |                         \
+     H5VL_CAP_FLAG_FILL_VALUES)
 
 #else
 
 #define H5VL_DAOS_CAP_FLAGS H5VL_CAP_FLAG_NONE
 
 #endif
-
 
 /*******************/
 /* Local Variables */
@@ -470,7 +469,7 @@ done:
 static herr_t
 H5_daos_set_prop(hid_t fcpl_id, const char *prop_str)
 {
-    char * copied_prop;
+    char  *copied_prop;
     htri_t prop_exists;
     herr_t ret_value = SUCCEED;
 
@@ -556,7 +555,7 @@ done:
 static herr_t
 H5_daos_set_object_class(hid_t plist_id, char *object_class)
 {
-    char * copied_object_class = NULL;
+    char  *copied_object_class = NULL;
     htri_t prop_exists;
     herr_t ret_value = SUCCEED;
 
@@ -598,11 +597,11 @@ H5_daos_set_oclass_from_oid(hid_t plist_id, daos_obj_id_t oid)
 {
     daos_oclass_id_t oc_id;
 #if CHECK_DAOS_API_VERSION(2, 3)
-    char             oclass_str[MAX_OBJ_CLASS_NAME_LEN];
+    char oclass_str[MAX_OBJ_CLASS_NAME_LEN];
 #else
-    char             oclass_str[24];
+    char oclass_str[24];
 #endif
-    herr_t           ret_value = SUCCEED;
+    herr_t ret_value = SUCCEED;
 
     /* Get object class id from oid */
 #if CHECK_DAOS_API_VERSION(1, 6)
@@ -644,7 +643,7 @@ done:
 ssize_t
 H5daos_get_object_class(hid_t plist_id, char *object_class, size_t size)
 {
-    char *  tmp_object_class = NULL;
+    char   *tmp_object_class = NULL;
     htri_t  prop_exists;
     size_t  len;
     ssize_t ret_value;
@@ -706,7 +705,7 @@ herr_t
 H5daos_set_root_open_object_class(hid_t fapl_id, char *object_class)
 {
     htri_t is_fapl;
-    char * copied_object_class = NULL;
+    char  *copied_object_class = NULL;
     htri_t prop_exists;
     herr_t ret_value = SUCCEED;
 
@@ -763,7 +762,7 @@ ssize_t
 H5daos_get_root_open_object_class(hid_t fapl_id, char *object_class, size_t size)
 {
     htri_t  is_fapl;
-    char *  tmp_object_class = NULL;
+    char   *tmp_object_class = NULL;
     htri_t  prop_exists;
     size_t  len;
     ssize_t ret_value;
@@ -1052,7 +1051,7 @@ H5daos_snap_create(hid_t loc_id, H5_daos_snap_id_t *snap_id)
 {
     H5_daos_item_t *item;
     H5_daos_file_t *file;
-    H5VL_object_t * obj       = NULL; /* object token of loc_id */
+    H5VL_object_t  *obj       = NULL; /* object token of loc_id */
     herr_t          ret_value = SUCCEED;
 
     H5_daos_inc_api_cnt();
@@ -1148,7 +1147,7 @@ H5_daos_init(hid_t H5VL_DAOS_UNUSED vipl_id)
 #ifdef DV_HAVE_SNAP_OPEN_ID
     H5_daos_snap_id_t snap_id_default;
 #endif
-    char * auto_chunk_str = NULL;
+    char  *auto_chunk_str = NULL;
     int    ret;
     herr_t ret_value = SUCCEED; /* Return value */
 
@@ -1420,7 +1419,7 @@ H5_daos_pool_connect(H5_daos_acc_params_t *pool_acc_params, unsigned int flags, 
                      tse_task_t **dep_task)
 {
     H5_daos_pool_connect_ud_t *connect_udata = NULL;
-    tse_task_t *               connect_task  = NULL;
+    tse_task_t                *connect_task  = NULL;
     int                        ret;
     herr_t                     ret_value = SUCCEED;
 
@@ -1491,7 +1490,7 @@ static int
 H5_daos_pool_connect_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
     H5_daos_pool_connect_ud_t *udata;
-    daos_pool_connect_t *      connect_args;
+    daos_pool_connect_t       *connect_args;
     int                        ret_value = 0;
 
     /* Get private data */
@@ -1619,7 +1618,7 @@ H5_daos_pool_disconnect(daos_handle_t *poh, H5_daos_req_t *req, tse_task_t **fir
                         tse_task_t **dep_task)
 {
     H5_daos_pool_disconnect_ud_t *disconnect_udata = NULL;
-    tse_task_t *                  disconnect_task  = NULL;
+    tse_task_t                   *disconnect_task  = NULL;
     int                           ret;
     herr_t                        ret_value = SUCCEED;
 
@@ -1685,7 +1684,7 @@ static int
 H5_daos_pool_disconnect_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
     H5_daos_pool_disconnect_ud_t *udata;
-    daos_pool_disconnect_t *      disconnect_args;
+    daos_pool_disconnect_t       *disconnect_args;
     int                           ret_value = 0;
 
     /* Get private data */
@@ -1795,8 +1794,8 @@ static void *
 H5_daos_faccess_info_copy(const void *_old_fa)
 {
     const H5_daos_acc_params_t *old_fa    = (const H5_daos_acc_params_t *)_old_fa;
-    H5_daos_acc_params_t *      new_fa    = NULL;
-    void *                      ret_value = NULL;
+    H5_daos_acc_params_t       *new_fa    = NULL;
+    void                       *ret_value = NULL;
 
     H5_daos_inc_api_cnt();
 
@@ -1895,9 +1894,9 @@ done:
 static herr_t
 H5_daos_get_cap_flags(const void H5VL_DAOS_UNUSED *info,
 #if H5VL_VERSION >= 3
-    uint64_t *cap_flags
+                      uint64_t *cap_flags
 #else
-    unsigned *cap_flags
+                      unsigned *cap_flags
 #endif
 )
 {
@@ -2083,7 +2082,7 @@ H5_daos_optional(void *item, H5VL_optional_args_t *opt_args, hid_t dxpl_id, void
             H5VL_map_args_t *map_args        = (H5VL_map_args_t *)opt_args->args;
             hid_t            key_mem_type_id = H5I_INVALID_HID;
             hid_t            val_mem_type_id = H5I_INVALID_HID;
-            void *           value           = NULL;
+            void            *value           = NULL;
 
             /* Check operation arguments pointer.  All other arguments will
              * be checked by H5_daos_map_get_val. */
@@ -2106,7 +2105,7 @@ H5_daos_optional(void *item, H5VL_optional_args_t *opt_args, hid_t dxpl_id, void
         case H5VL_MAP_EXISTS: {
             H5VL_map_args_t *map_args        = (H5VL_map_args_t *)opt_args->args;
             hid_t            key_mem_type_id = H5I_INVALID_HID;
-            hbool_t *        exists          = NULL;
+            hbool_t         *exists          = NULL;
 
             /* Check operation arguments pointer.  All other arguments will
              * be checked by H5_daos_map_exists. */
@@ -2214,9 +2213,9 @@ H5_daos_oidx_generate(uint64_t *oidx, H5_daos_file_t *file, hbool_t collective, 
                       tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_oidx_generate_ud_t *generate_udata = NULL;
-    tse_task_t *                generate_task  = NULL;
-    uint64_t *                  next_oidx      = collective ? &file->next_oidx_collective : &file->next_oidx;
-    uint64_t *                  max_oidx       = collective ? &file->max_oidx_collective : &file->max_oidx;
+    tse_task_t                 *generate_task  = NULL;
+    uint64_t                   *next_oidx      = collective ? &file->next_oidx_collective : &file->next_oidx;
+    uint64_t                   *max_oidx       = collective ? &file->max_oidx_collective : &file->max_oidx;
     int                         ret;
     herr_t                      ret_value = SUCCEED;
 
@@ -2307,7 +2306,7 @@ static int
 H5_daos_oidx_generate_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
     H5_daos_oidx_generate_ud_t *udata;
-    daos_cont_alloc_oids_t *    alloc_args;
+    daos_cont_alloc_oids_t     *alloc_args;
     int                         ret_value = 0;
 
     /* Get private data */
@@ -2363,8 +2362,8 @@ static int
 H5_daos_oidx_generate_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
     H5_daos_oidx_generate_ud_t *udata;
-    uint64_t *                  next_oidx;
-    uint64_t *                  max_oidx;
+    uint64_t                   *next_oidx;
+    uint64_t                   *max_oidx;
     int                         ret_value = 0;
 
     assert(H5_daos_task_list_g);
@@ -2446,7 +2445,7 @@ H5_daos_oidx_bcast(H5_daos_file_t *file, uint64_t *oidx_out, H5_daos_req_t *req,
                    tse_task_t **dep_task)
 {
     H5_daos_oidx_bcast_ud_t *oidx_bcast_udata = NULL;
-    tse_task_t *             bcast_task       = NULL;
+    tse_task_t              *bcast_task       = NULL;
     int                      ret;
     herr_t                   ret_value = SUCCEED;
 
@@ -2524,7 +2523,7 @@ static int
 H5_daos_oidx_bcast_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
     H5_daos_oidx_bcast_ud_t *udata;
-    uint8_t *                p;
+    uint8_t                 *p;
     int                      ret_value = 0;
 
     /* Get private data */
@@ -2575,8 +2574,8 @@ static int
 H5_daos_oidx_bcast_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
     H5_daos_oidx_bcast_ud_t *udata;
-    uint64_t *               next_oidx;
-    uint64_t *               max_oidx;
+    uint64_t                *next_oidx;
+    uint64_t                *max_oidx;
     int                      ret_value = 0;
 
     /* Get private data */
@@ -2833,7 +2832,7 @@ H5_daos_oid_generate(daos_obj_id_t *oid, hbool_t oidx_set, uint64_t oidx, H5I_ty
                      hbool_t collective, H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_oid_encode_ud_t *encode_udata = NULL;
-    tse_task_t *             encode_task  = NULL;
+    tse_task_t              *encode_task  = NULL;
     int                      ret;
     herr_t                   ret_value = SUCCEED;
 
@@ -3058,7 +3057,7 @@ void
 H5_daos_hash128(const char *name, void *hash)
 {
     const uint8_t *name_p = (const uint8_t *)name;
-    uint8_t *      hash_p = (uint8_t *)hash;
+    uint8_t       *hash_p = (uint8_t *)hash;
     uint64_t       name_lo;
     uint64_t       name_hi;
     /* Initialize hash value in accordance with the FNV algorithm */
@@ -3260,7 +3259,7 @@ H5_daos_h5op_finalize(tse_task_t *task)
 
         /* Abort transaction if opened */
         if (req->th_open) {
-            tse_task_t *     abort_task;
+            tse_task_t      *abort_task;
             daos_tx_abort_t *abort_args;
 
             /* Create task */
@@ -3295,7 +3294,7 @@ H5_daos_h5op_finalize(tse_task_t *task)
     else {
         /* Commit transaction if opened */
         if (req->th_open) {
-            tse_task_t *      commit_task;
+            tse_task_t       *commit_task;
             daos_tx_commit_t *commit_args;
 
             /* Create task */
@@ -3521,7 +3520,7 @@ int
 H5_daos_md_rw_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
     H5_daos_md_rw_cb_ud_t *udata;
-    daos_obj_rw_t *        update_args;
+    daos_obj_rw_t         *update_args;
     int                    ret_value = 0;
 
     /* Get private data */
@@ -3798,7 +3797,7 @@ static int
 H5_daos_list_key_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
     H5_daos_iter_ud_t *udata;
-    daos_obj_list_t *  list_args;
+    daos_obj_list_t   *list_args;
     int                ret_value = 0;
 
     /* Get private data */
@@ -3844,7 +3843,7 @@ static int
 H5_daos_list_key_finish(tse_task_t *task)
 {
     H5_daos_iter_ud_t *udata;
-    H5_daos_req_t *    req = NULL;
+    H5_daos_req_t     *req = NULL;
     int                ret;
     int                ret_value = 0;
 
@@ -3960,7 +3959,7 @@ H5_daos_list_key_start(H5_daos_iter_ud_t *iter_udata, daos_opc_t opc, tse_task_c
                        tse_task_t **first_task, tse_task_t **dep_task)
 {
     daos_obj_list_t *list_args;
-    tse_task_t *     list_task = NULL;
+    tse_task_t      *list_task = NULL;
     int              ret;
     int              ret_value = 0;
 
@@ -4057,7 +4056,7 @@ H5_daos_list_key_init(H5_daos_iter_data_t *iter_data, H5_daos_obj_t *target_obj,
                       size_t key_buf_size_init, tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_iter_ud_t *iter_udata = NULL;
-    char *             tmp_alloc  = NULL;
+    char              *tmp_alloc  = NULL;
     int                ret;
     int                ret_value = 0;
 
@@ -4226,7 +4225,7 @@ int
 H5_daos_obj_open_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
     H5_daos_obj_open_ud_t *udata;
-    daos_obj_open_t *      open_args;
+    daos_obj_open_t       *open_args;
     int                    ret_value = 0;
 
     /* Get private data */
@@ -4273,9 +4272,9 @@ herr_t
 H5_daos_obj_open(H5_daos_file_t *file, H5_daos_req_t *req, daos_obj_id_t *oid, unsigned mode,
                  daos_handle_t *oh, const char *task_name, tse_task_t **first_task, tse_task_t **dep_task)
 {
-    tse_task_t *           open_task;
+    tse_task_t            *open_task;
     H5_daos_obj_open_ud_t *open_udata = NULL;
-    daos_obj_open_t *      open_args;
+    daos_obj_open_t       *open_args;
     int                    ret;
     herr_t                 ret_value = SUCCEED; /* Return value */
 
@@ -4351,8 +4350,8 @@ H5_daos_mpi_ibcast(H5_daos_mpi_ibcast_ud_t *_bcast_udata, H5_daos_obj_t *obj, si
                    H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_mpi_ibcast_ud_t *bcast_udata = _bcast_udata;
-    H5_daos_item_t *         item        = (H5_daos_item_t *)obj;
-    tse_task_t *             bcast_task;
+    H5_daos_item_t          *item        = (H5_daos_item_t *)obj;
+    tse_task_t              *bcast_task;
     int                      ret;
     herr_t                   ret_value = SUCCEED;
 

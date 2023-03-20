@@ -38,7 +38,7 @@ struct dv_hash_table_entry {
 };
 
 struct dv_hash_table {
-    dv_hash_table_entry_t **        table;
+    dv_hash_table_entry_t         **table;
     uint64_t                        table_size;
     dv_hash_table_hash_func_t       hash_func;
     dv_hash_table_equal_func_t      equal_func;
@@ -173,7 +173,7 @@ dv_hash_table_free(dv_hash_table_t *hash_table)
 }
 
 void
-dv_hash_table_register_free_functions(dv_hash_table_t *               hash_table,
+dv_hash_table_register_free_functions(dv_hash_table_t                *hash_table,
                                       dv_hash_table_key_free_func_t   key_free_func,
                                       dv_hash_table_value_free_func_t value_free_func)
 {
@@ -187,8 +187,8 @@ hash_table_enlarge(dv_hash_table_t *hash_table)
     dv_hash_table_entry_t **old_table;
     uint64_t                old_table_size;
     uint64_t                old_prime_index;
-    dv_hash_table_entry_t * rover;
-    dv_hash_table_entry_t * next;
+    dv_hash_table_entry_t  *rover;
+    dv_hash_table_entry_t  *next;
     uint64_t                entry_index;
     uint64_t                i;
 
@@ -363,7 +363,7 @@ int
 dv_hash_table_remove(dv_hash_table_t *hash_table, dv_hash_table_key_t key)
 {
     dv_hash_table_entry_t **rover;
-    dv_hash_table_entry_t * entry;
+    dv_hash_table_entry_t  *entry;
     uint64_t                entry_index;
     int                     result;
 
@@ -451,7 +451,7 @@ dv_hash_table_value_t
 dv_hash_table_iter_next(dv_hash_table_iter_t *iterator)
 {
     dv_hash_table_entry_t *current_entry;
-    dv_hash_table_t *      hash_table;
+    dv_hash_table_t       *hash_table;
     dv_hash_table_value_t  result;
     uint64_t               chain;
 

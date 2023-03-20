@@ -29,10 +29,10 @@
 /* Task user data for creating an attribute */
 typedef struct H5_daos_attr_create_ud_t {
     H5_daos_md_rw_cb_ud_t md_rw_cb_ud;
-    H5_daos_req_t *       req;
-    H5_daos_attr_t *      attr;
+    H5_daos_req_t        *req;
+    H5_daos_attr_t       *attr;
     daos_key_t            akeys[4];
-    void *                akeys_buf;
+    void                 *akeys_buf;
     uint8_t               nattr_new_buf[H5_DAOS_ENCODED_NUM_ATTRS_SIZE];
     uint8_t               nattr_old_buf[H5_DAOS_ENCODED_NUM_ATTRS_SIZE + 1];
     uint8_t               max_corder_old_buf[H5_DAOS_ENCODED_CRT_ORDER_SIZE];
@@ -44,20 +44,20 @@ typedef struct H5_daos_attr_create_ud_t {
 typedef struct H5_daos_attr_open_ud_t {
     H5_daos_md_rw_cb_ud_t    md_rw_cb_ud; /* Must be first */
     H5_daos_mpi_ibcast_ud_t *bcast_udata;
-    tse_task_t *             fetch_metatask;
-    H5_daos_attr_t *         attr;
+    tse_task_t              *fetch_metatask;
+    H5_daos_attr_t          *attr;
     uint8_t                  flex_buf[];
 } H5_daos_attr_open_ud_t;
 
 typedef struct H5_daos_attr_ibcast_ud_t {
     H5_daos_mpi_ibcast_ud_t bcast_ud;
-    H5_daos_attr_t *        attr;
+    H5_daos_attr_t         *attr;
     uint8_t                 flex_buf[];
 } H5_daos_attr_ibcast_ud_t;
 
 typedef struct H5_daos_attr_io_ud_t {
     H5_daos_md_rw_cb_ud_t md_rw_cb_ud;
-    H5_daos_attr_t *      attr;
+    H5_daos_attr_t       *attr;
     uint64_t              attr_nelmts;
     size_t                mem_type_size;
     size_t                file_type_size;
@@ -67,23 +67,23 @@ typedef struct H5_daos_attr_io_ud_t {
     htri_t                need_tconv;
     hid_t                 mem_type_id;
     daos_key_t            akey;
-    void *                akey_buf;
+    void                 *akey_buf;
     H5_daos_io_type_t     io_type;
     union {
-        void *      rbuf;
+        void       *rbuf;
         const void *wbuf;
     } buf;
-    void *      tconv_buf;
-    void *      bkg_buf;
+    void       *tconv_buf;
+    void       *bkg_buf;
     tse_task_t *end_task;
 } H5_daos_attr_io_ud_t;
 
 /* Task user data for retrieving info about an attribute */
 typedef struct H5_daos_attr_get_info_ud_t {
-    H5_daos_req_t * req;
-    tse_task_t *    get_info_metatask;
+    H5_daos_req_t  *req;
+    tse_task_t     *get_info_metatask;
     H5_daos_attr_t *attr;
-    H5A_info_t *    info_out;
+    H5A_info_t     *info_out;
 } H5_daos_attr_get_info_ud_t;
 
 /* Task user data for deleting an attribute */
@@ -92,11 +92,11 @@ typedef struct H5_daos_attr_delete_ud_t {
     H5_daos_obj_t *attr_parent_obj;
     daos_key_t     dkey;
     daos_key_t     akeys[H5_DAOS_ATTR_NUM_AKEYS];
-    const char *   target_attr_name;
+    const char    *target_attr_name;
     size_t         target_attr_name_len;
     hsize_t        cur_num_attrs;
-    void *         akeys_buf;
-    char *         attr_name_buf;
+    void          *akeys_buf;
+    char          *attr_name_buf;
 } H5_daos_attr_delete_ud_t;
 
 /* User data struct for checking if an attribute exists */
@@ -108,15 +108,15 @@ typedef struct H5_daos_attr_exists_ud_t {
     daos_key_t                    akeys[H5_DAOS_ATTR_NUM_AKEYS - 1];
     daos_iod_t                    iod[H5_DAOS_ATTR_NUM_AKEYS - 1];
     unsigned                      nr;
-    void *                        akeys_buf;
+    void                         *akeys_buf;
 } H5_daos_attr_exists_ud_t;
 
 /* Task user data for iterating over attributes on an object */
 typedef struct H5_daos_attr_iterate_ud_t {
-    H5_daos_req_t *     req;
+    H5_daos_req_t      *req;
     H5_daos_iter_data_t iter_data;
-    H5_daos_obj_t *     attr_container_obj;
-    tse_task_t *        iterate_metatask;
+    H5_daos_obj_t      *attr_container_obj;
+    tse_task_t         *iterate_metatask;
 
     union {
         struct {
@@ -138,22 +138,22 @@ typedef struct H5_daos_attr_iterate_ud_t {
 typedef struct H5_daos_attr_iterate_op_ud_t {
     H5_daos_attr_get_info_ud_t get_info_ud;
     H5A_info_t                 attr_info;
-    H5_daos_iter_data_t *      iter_data;
+    H5_daos_iter_data_t       *iter_data;
 } H5_daos_attr_iterate_op_ud_t;
 
 /* User data struct for attribute get name by index
  * with automatic asynchronous name buffer allocation */
 typedef struct H5_daos_attr_gnbi_alloc_ud_t {
-    H5_daos_req_t * req;
-    tse_task_t *    gnbi_task;
-    H5_daos_obj_t * target_obj;
+    H5_daos_req_t  *req;
+    tse_task_t     *gnbi_task;
+    H5_daos_obj_t  *target_obj;
     H5_index_t      index_type;
     H5_iter_order_t iter_order;
     uint64_t        idx;
-    const char **   attr_name;
-    size_t *        attr_name_size;
-    char **         attr_name_buf;
-    size_t *        attr_name_buf_size;
+    const char    **attr_name;
+    size_t         *attr_name_size;
+    char          **attr_name_buf;
+    size_t         *attr_name_buf_size;
     size_t          cur_attr_name_size;
 } H5_daos_attr_gnbi_alloc_ud_t;
 
@@ -161,15 +161,15 @@ typedef struct H5_daos_attr_gnbi_alloc_ud_t {
  * by an index value according to name or creation order.
  */
 typedef struct H5_daos_attr_get_name_by_idx_ud_t {
-    H5_daos_req_t * req;
-    H5_daos_obj_t * target_obj;
+    H5_daos_req_t  *req;
+    H5_daos_obj_t  *target_obj;
     H5_index_t      index_type;
     H5_iter_order_t iter_order;
     uint64_t        idx;
     hsize_t         obj_nattrs;
-    char *          attr_name_out;
+    char           *attr_name_out;
     size_t          attr_name_out_size;
-    size_t *        attr_name_size_ret;
+    size_t         *attr_name_size_ret;
     union {
         struct {
             uint64_t cur_attr_idx;
@@ -189,7 +189,7 @@ typedef struct H5_daos_attr_get_name_by_idx_ud_t {
  */
 typedef struct H5_daos_attr_crt_idx_iter_ud_t {
     const char *target_attr_name;
-    uint64_t *  attr_idx_out;
+    uint64_t   *attr_idx_out;
 } H5_daos_attr_crt_idx_iter_ud_t;
 
 /********************/
@@ -208,7 +208,7 @@ static herr_t H5_daos_attribute_create_get_crt_order_info(H5_daos_attr_create_ud
                                                           tse_task_t **dep_task);
 static int    H5_daos_attribute_create_get_crt_order_info_prep_cb(tse_task_t *task, void *args);
 static int    H5_daos_attribute_create_get_crt_order_info_comp_cb(tse_task_t *task, void *args);
-static herr_t H5_daos_attribute_open_by_idx_helper(H5_daos_obj_t *          target_obj,
+static herr_t H5_daos_attribute_open_by_idx_helper(H5_daos_obj_t           *target_obj,
                                                    const H5VL_loc_params_t *loc_params,
                                                    H5_daos_attr_t *attr_out, H5_daos_req_t *req,
                                                    tse_task_t **first_task, tse_task_t **dep_task);
@@ -248,7 +248,7 @@ static herr_t H5_daos_attribute_delete(H5_daos_obj_t *attr_container_obj, const 
                                        H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task);
 static int    H5_daos_attribute_delete_prep_cb(tse_task_t *task, void *args);
 static int    H5_daos_attribute_delete_comp_cb(tse_task_t *task, void *args);
-static herr_t H5_daos_attribute_remove_from_crt_idx(H5_daos_obj_t *                  target_obj,
+static herr_t H5_daos_attribute_remove_from_crt_idx(H5_daos_obj_t                   *target_obj,
                                                     const H5VL_attr_specific_args_t *delete_args,
                                                     const char *attr_name, H5_daos_req_t *req,
                                                     tse_task_t **first_task, tse_task_t **dep_task);
@@ -328,8 +328,8 @@ H5_daos_attribute_get_akeys(const char *attr_name, daos_key_t *datatype_key, dao
 {
     size_t total_buf_len = 0;
     size_t attr_name_len = 0;
-    void * akey_buf      = NULL;
-    char * akey_buf_ptr  = NULL;
+    void  *akey_buf      = NULL;
+    char  *akey_buf_ptr  = NULL;
     herr_t ret_value     = SUCCEED;
 
     assert(attr_name);
@@ -417,7 +417,7 @@ static int
 H5_daos_attribute_md_rw_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
     H5_daos_attr_open_ud_t *udata;
-    daos_obj_rw_t *         op_args;
+    daos_obj_rw_t          *op_args;
     int                     ret_value = 0;
 
     /* Get private data */
@@ -480,12 +480,12 @@ H5_daos_attribute_create(void *_item, const H5VL_loc_params_t *loc_params, const
 {
     H5_daos_item_t *item       = (H5_daos_item_t *)_item;
     H5_daos_attr_t *attr       = NULL;
-    H5_daos_req_t * int_req    = NULL;
-    tse_task_t *    first_task = NULL;
-    tse_task_t *    dep_task   = NULL;
+    H5_daos_req_t  *int_req    = NULL;
+    tse_task_t     *first_task = NULL;
+    tse_task_t     *dep_task   = NULL;
     hbool_t         collective;
     int             ret;
-    void *          ret_value = NULL;
+    void           *ret_value = NULL;
 
     H5_daos_inc_api_cnt();
 
@@ -625,12 +625,12 @@ H5_daos_attribute_create_helper(H5_daos_item_t *item, const H5VL_loc_params_t *l
                                 tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_attr_create_ud_t *create_ud = NULL;
-    H5_daos_attr_t *          attr      = NULL;
-    tse_task_t *              update_task;
-    H5_daos_req_t *           int_int_req  = NULL;
+    H5_daos_attr_t           *attr      = NULL;
+    tse_task_t               *update_task;
+    H5_daos_req_t            *int_int_req  = NULL;
     hbool_t                   default_acpl = (acpl_id == H5P_ATTRIBUTE_CREATE_DEFAULT);
     int                       ret;
-    void *                    ret_value = NULL;
+    void                     *ret_value = NULL;
 
     assert(item);
     assert(item->file->flags & H5F_ACC_RDWR);
@@ -710,9 +710,9 @@ H5_daos_attribute_create_helper(H5_daos_item_t *item, const H5VL_loc_params_t *l
         size_t  type_size  = 0;
         size_t  space_size = 0;
         size_t  acpl_size  = 0;
-        void *  type_buf   = NULL;
-        void *  space_buf  = NULL;
-        void *  acpl_buf   = NULL;
+        void   *type_buf   = NULL;
+        void   *space_buf  = NULL;
+        void   *acpl_buf   = NULL;
         hbool_t may_track_acorder =
             !attr->parent || (attr->parent->item.open_req->status < 0 && !attr->parent->item.created) ||
             attr->parent->ocpl_cache.track_acorder;
@@ -898,7 +898,7 @@ done:
     if (NULL == ret_value) {
         /* Close attribute */
         if (attr) {
-            tse_task_t *                 close_task    = NULL;
+            tse_task_t                  *close_task    = NULL;
             H5_daos_obj_close_task_ud_t *close_task_ud = NULL;
 
             /* Must create asynchronous task to close attribute so an object open
@@ -976,7 +976,7 @@ static int
 H5_daos_attribute_create_helper_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
     H5_daos_attr_create_ud_t *udata;
-    daos_obj_rw_t *           update_args;
+    daos_obj_rw_t            *update_args;
     int                       ret_value = 0;
 
     /* Get private data */
@@ -1203,7 +1203,7 @@ static int
 H5_daos_attribute_create_get_crt_order_info_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
     H5_daos_attr_create_ud_t *udata;
-    daos_obj_rw_t *           update_args;
+    daos_obj_rw_t            *update_args;
     int                       ret_value = 0;
 
     /* Get private data */
@@ -1453,12 +1453,12 @@ H5_daos_attribute_open(void *_item, const H5VL_loc_params_t *loc_params, const c
 {
     H5_daos_item_t *item       = (H5_daos_item_t *)_item;
     H5_daos_attr_t *attr       = NULL;
-    H5_daos_req_t * int_req    = NULL;
-    tse_task_t *    first_task = NULL;
-    tse_task_t *    dep_task   = NULL;
+    H5_daos_req_t  *int_req    = NULL;
+    tse_task_t     *first_task = NULL;
+    tse_task_t     *dep_task   = NULL;
     hbool_t         collective;
     int             ret;
-    void *          ret_value = NULL;
+    void           *ret_value = NULL;
 
     H5_daos_inc_api_cnt();
 
@@ -1561,15 +1561,15 @@ H5_daos_attribute_open_helper(H5_daos_item_t *item, const H5VL_loc_params_t *loc
                               const char *attr_name, hid_t H5VL_DAOS_UNUSED aapl_id, hbool_t collective,
                               H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
-    H5_daos_attr_open_ud_t *  open_udata  = NULL;
+    H5_daos_attr_open_ud_t   *open_udata  = NULL;
     H5_daos_attr_ibcast_ud_t *bcast_udata = NULL;
-    H5_daos_attr_t *          attr        = NULL;
+    H5_daos_attr_t           *attr        = NULL;
     daos_key_t                akeys[3];
     size_t                    ainfo_buf_size = 0;
-    void *                    akeys_buf      = NULL;
-    H5_daos_req_t *           int_int_req    = NULL;
+    void                     *akeys_buf      = NULL;
+    H5_daos_req_t            *int_int_req    = NULL;
     int                       ret;
-    H5_daos_attr_t *          ret_value = NULL;
+    H5_daos_attr_t           *ret_value = NULL;
 
     assert(item);
     assert(loc_params);
@@ -1693,7 +1693,7 @@ H5_daos_attribute_open_helper(H5_daos_item_t *item, const H5VL_loc_params_t *loc
 
     if (!collective || (item->file->my_rank == 0)) {
         tse_task_t *fetch_task;
-        uint8_t *   p;
+        uint8_t    *p;
 
         /* Set up akey strings (attribute name prefixed with 'T-', 'S-' and 'P-' for
          * datatype, dataspace and ACPL, respectively) */
@@ -1878,11 +1878,11 @@ H5_daos_attribute_open_by_idx_helper(H5_daos_obj_t *target_obj, const H5VL_loc_p
                                      tse_task_t **dep_task)
 {
     H5VL_loc_params_t sub_loc_params;
-    H5_daos_obj_t *   attr_parent_obj      = NULL;
-    const char *      target_attr_name     = NULL;
+    H5_daos_obj_t    *attr_parent_obj      = NULL;
+    const char       *target_attr_name     = NULL;
     size_t            target_attr_name_len = 0;
-    char *            attr_name_buf        = NULL;
-    H5_daos_req_t *   int_int_req          = NULL;
+    char             *attr_name_buf        = NULL;
+    H5_daos_req_t    *int_int_req          = NULL;
     int               ret;
     herr_t            ret_value = SUCCEED;
 
@@ -2268,7 +2268,7 @@ static int
 H5_daos_ainfo_read_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
     H5_daos_attr_open_ud_t *udata;
-    uint8_t *               p;
+    uint8_t                *p;
     int                     ret;
     int                     ret_value = 0;
 
@@ -2457,8 +2457,8 @@ static int
 H5_daos_attr_io_int_task(tse_task_t *task)
 {
     H5_daos_attr_io_ud_t *udata      = NULL;
-    tse_task_t *          first_task = NULL;
-    tse_task_t *          dep_task   = NULL;
+    tse_task_t           *first_task = NULL;
+    tse_task_t           *dep_task   = NULL;
     int                   ret;
     int                   ret_value = 0;
 
@@ -2618,9 +2618,9 @@ H5_daos_attribute_read_int(H5_daos_attr_t *attr, hid_t mem_type_id, hbool_t coll
                            void *buf, H5_daos_attr_io_ud_t *_udata, H5_daos_req_t *req,
                            tse_task_t **first_task, tse_task_t **dep_task)
 {
-    H5_daos_attr_io_ud_t *   udata       = _udata;
+    H5_daos_attr_io_ud_t    *udata       = _udata;
     H5_daos_mpi_ibcast_ud_t *bcast_udata = NULL;
-    tse_task_t *             tconv_task  = NULL;
+    tse_task_t              *tconv_task  = NULL;
     int                      ndims;
     hsize_t                  dim[H5S_MAX_RANK];
     uint64_t                 attr_nelmts;
@@ -2628,8 +2628,8 @@ H5_daos_attribute_read_int(H5_daos_attr_t *attr, hid_t mem_type_id, hbool_t coll
     uint64_t                 i;
     size_t                   file_type_size = 0;
     size_t                   mem_type_size  = 0;
-    void *                   tconv_buf      = NULL;
-    void *                   bkg_buf        = NULL;
+    void                    *tconv_buf      = NULL;
+    void                    *bkg_buf        = NULL;
     int                      ret;
     herr_t                   ret_value = SUCCEED;
 
@@ -2904,11 +2904,11 @@ herr_t
 H5_daos_attribute_read(void *_attr, hid_t mem_type_id, void *buf, hid_t dxpl_id, void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_attr_io_ud_t *attr_read_udata = NULL;
-    H5_daos_attr_t *      attr            = (H5_daos_attr_t *)_attr;
-    H5_daos_req_t *       int_req         = NULL;
-    tse_task_t *          io_task         = NULL;
-    tse_task_t *          first_task      = NULL;
-    tse_task_t *          dep_task        = NULL;
+    H5_daos_attr_t       *attr            = (H5_daos_attr_t *)_attr;
+    H5_daos_req_t        *int_req         = NULL;
+    tse_task_t           *io_task         = NULL;
+    tse_task_t           *first_task      = NULL;
+    tse_task_t           *dep_task        = NULL;
     hbool_t               collective;
     htri_t                need_tconv;
     hid_t                 req_dxpl_id;
@@ -3332,12 +3332,12 @@ H5_daos_attribute_write_int(H5_daos_attr_t *attr, hid_t mem_type_id, hbool_t col
                             tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_attr_io_ud_t *udata       = _udata;
-    tse_task_t *          update_task = NULL;
+    tse_task_t           *update_task = NULL;
     int                   ndims;
     hsize_t               dim[H5S_MAX_RANK];
     uint64_t              attr_nelmts;
-    void *                tconv_buf      = NULL;
-    void *                bkg_buf        = NULL;
+    void                 *tconv_buf      = NULL;
+    void                 *bkg_buf        = NULL;
     size_t                mem_type_size  = 0;
     size_t                file_type_size = 0;
     hbool_t               fill_bkg       = FALSE;
@@ -3575,11 +3575,11 @@ H5_daos_attribute_write(void *_attr, hid_t mem_type_id, const void *buf, hid_t d
                         void H5VL_DAOS_UNUSED **req)
 {
     H5_daos_attr_io_ud_t *attr_write_udata = NULL;
-    H5_daos_attr_t *      attr             = (H5_daos_attr_t *)_attr;
-    H5_daos_req_t *       int_req          = NULL;
-    tse_task_t *          io_task          = NULL;
-    tse_task_t *          first_task       = NULL;
-    tse_task_t *          dep_task         = NULL;
+    H5_daos_attr_t       *attr             = (H5_daos_attr_t *)_attr;
+    H5_daos_req_t        *int_req          = NULL;
+    tse_task_t           *io_task          = NULL;
+    tse_task_t           *first_task       = NULL;
+    tse_task_t           *dep_task         = NULL;
     hbool_t               collective;
     htri_t                need_tconv;
     hid_t                 req_dxpl_id;
@@ -3904,11 +3904,11 @@ done:
 herr_t
 H5_daos_attribute_get(void *_item, H5VL_attr_get_args_t *get_args, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
 {
-    H5_daos_item_t *        item       = (H5_daos_item_t *)_item;
+    H5_daos_item_t         *item       = (H5_daos_item_t *)_item;
     H5_daos_op_pool_scope_t op_scope   = H5_DAOS_OP_SCOPE_OBJ;
-    H5_daos_req_t *         int_req    = NULL;
-    tse_task_t *            first_task = NULL;
-    tse_task_t *            dep_task   = NULL;
+    H5_daos_req_t          *int_req    = NULL;
+    tse_task_t             *first_task = NULL;
+    tse_task_t             *dep_task   = NULL;
     int                     ret;
     herr_t                  ret_value = SUCCEED; /* Return value */
 
@@ -4012,7 +4012,7 @@ H5_daos_attribute_get(void *_item, H5VL_attr_get_args_t *get_args, hid_t H5VL_DA
         /* H5Aget_info */
         case H5VL_ATTR_GET_INFO: {
             H5VL_attr_get_info_args_t *get_info_args = &get_args->args.get_info;
-            const char *               attr_name =
+            const char                *attr_name =
                 (H5VL_OBJECT_BY_NAME == get_info_args->loc_params.type) ? get_info_args->attr_name : NULL;
 
             if (get_info_args->loc_params.type == H5VL_OBJECT_BY_SELF)
@@ -4109,14 +4109,14 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
                            H5VL_attr_specific_args_t *specific_args, hid_t H5VL_DAOS_UNUSED dxpl_id,
                            void **req)
 {
-    H5_daos_item_t *         item       = (H5_daos_item_t *)_item;
-    H5_daos_obj_t *          target_obj = NULL;
+    H5_daos_item_t          *item       = (H5_daos_item_t *)_item;
+    H5_daos_obj_t           *target_obj = NULL;
     H5VL_loc_params_t        sub_loc_params;
     const H5VL_loc_params_t *sub_loc_params_p = NULL;
-    H5_daos_req_t *          int_req          = NULL;
-    H5_daos_req_t *          int_int_req      = NULL;
-    tse_task_t *             first_task       = NULL;
-    tse_task_t *             dep_task         = NULL;
+    H5_daos_req_t           *int_req          = NULL;
+    H5_daos_req_t           *int_int_req      = NULL;
+    tse_task_t              *first_task       = NULL;
+    tse_task_t              *dep_task         = NULL;
     hbool_t                  collective_md_read;
     hbool_t                  collective_md_write;
     H5_daos_op_pool_type_t   op_type    = H5_DAOS_OP_TYPE_READ;
@@ -4249,7 +4249,7 @@ H5_daos_attribute_specific(void *_item, const H5VL_loc_params_t *loc_params,
 
         /* H5Aexists(_by_name) */
         case H5VL_ATTR_EXISTS: {
-            const char *                  attr_name   = specific_args->args.exists.name;
+            const char                   *attr_name   = specific_args->args.exists.name;
             H5_DAOS_ATTR_EXISTS_OUT_TYPE *attr_exists = specific_args->args.exists.exists;
 
             int_req->op_name = "attribute existence check";
@@ -4459,11 +4459,11 @@ done:
 herr_t
 H5_daos_attribute_close(void *_attr, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
 {
-    H5_daos_attr_t *             attr       = (H5_daos_attr_t *)_attr;
+    H5_daos_attr_t              *attr       = (H5_daos_attr_t *)_attr;
     H5_daos_obj_close_task_ud_t *task_ud    = NULL;
-    tse_task_t *                 first_task = NULL;
-    tse_task_t *                 dep_task   = NULL;
-    H5_daos_req_t *              int_req    = NULL;
+    tse_task_t                  *first_task = NULL;
+    tse_task_t                  *dep_task   = NULL;
+    H5_daos_req_t               *int_req    = NULL;
     int                          ret;
     herr_t                       ret_value = SUCCEED;
 
@@ -4712,7 +4712,7 @@ H5_daos_attribute_get_info(H5_daos_item_t *item, const H5VL_loc_params_t *loc_pa
                            H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_attr_get_info_ud_t *get_info_udata = NULL;
-    H5_daos_req_t *             int_int_req    = NULL;
+    H5_daos_req_t              *int_int_req    = NULL;
     int                         ret;
     herr_t                      ret_value = SUCCEED;
 
@@ -5032,7 +5032,7 @@ H5_daos_attribute_delete(H5_daos_obj_t *attr_container_obj, const H5VL_loc_param
                          tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_attr_delete_ud_t *delete_udata = NULL;
-    tse_task_t *              delete_task;
+    tse_task_t               *delete_task;
     int                       ret;
     herr_t                    ret_value = SUCCEED;
 
@@ -5148,7 +5148,7 @@ static int
 H5_daos_attribute_delete_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
     H5_daos_attr_delete_ud_t *udata;
-    daos_obj_punch_t *        punch_args;
+    daos_obj_punch_t         *punch_args;
     int                       ret_value = 0;
 
     /* Get private data */
@@ -5274,7 +5274,7 @@ H5_daos_attribute_remove_from_crt_idx(H5_daos_obj_t *target_obj, const H5VL_attr
     daos_key_t crt_akey;
     uint64_t   delete_idx = 0;
     uint8_t    idx_buf[H5_DAOS_ENCODED_CRT_ORDER_SIZE + 1];
-    uint8_t *  p;
+    uint8_t   *p;
     hsize_t    obj_nattrs_remaining;
     int        ret;
     herr_t     ret_value = SUCCEED;
@@ -5468,16 +5468,16 @@ static herr_t
 H5_daos_attribute_shift_crt_idx_keys_down(H5_daos_obj_t *target_obj, uint64_t idx_begin, uint64_t idx_end)
 {
     daos_sg_list_t *sgls    = NULL;
-    daos_iod_t *    iods    = NULL;
-    daos_iov_t *    sg_iovs = NULL;
+    daos_iod_t     *iods    = NULL;
+    daos_iov_t     *sg_iovs = NULL;
     daos_key_t      dkey;
     daos_key_t      tail_akey;
     uint64_t        tmp_uint;
-    uint8_t *       crt_order_attr_name_buf = NULL;
-    uint8_t *       p;
+    uint8_t        *crt_order_attr_name_buf = NULL;
+    uint8_t        *p;
     size_t          nattrs_shift;
     size_t          i;
-    char *          tmp_buf = NULL;
+    char           *tmp_buf = NULL;
     int             ret;
     herr_t          ret_value = SUCCEED;
 
@@ -5612,7 +5612,7 @@ H5_daos_attribute_exists(H5_daos_obj_t *attr_container_obj, const char *attr_nam
                          tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_attr_exists_ud_t *attr_exists_ud = NULL;
-    tse_task_t *              fetch_task     = NULL;
+    tse_task_t               *fetch_task     = NULL;
     hbool_t                   must_bcast     = FALSE;
     int                       ret;
     herr_t                    ret_value = SUCCEED;
@@ -5758,7 +5758,7 @@ static int
 H5_daos_attr_exists_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
     H5_daos_attr_exists_ud_t *udata;
-    daos_obj_rw_t *           rw_args;
+    daos_obj_rw_t            *rw_args;
     int                       ret_value = 0;
 
     /* Get private data */
@@ -6096,12 +6096,12 @@ done:
  *-------------------------------------------------------------------------
  */
 static herr_t
-H5_daos_attribute_iterate_by_name_order(H5_daos_attr_iterate_ud_t *iterate_udata,
+H5_daos_attribute_iterate_by_name_order(H5_daos_attr_iterate_ud_t      *iterate_udata,
                                         H5_daos_req_t H5VL_DAOS_UNUSED *req, tse_task_t **first_task,
                                         tse_task_t **dep_task)
 {
     tse_task_t *list_akey_task;
-    char *      akey_buf = NULL;
+    char       *akey_buf = NULL;
     int         ret;
     herr_t      ret_value = SUCCEED;
 
@@ -6197,7 +6197,7 @@ static int
 H5_daos_attribute_iterate_by_name_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
     H5_daos_attr_iterate_ud_t *udata;
-    daos_obj_list_akey_t *     list_args;
+    daos_obj_list_akey_t      *list_args;
     int                        ret_value = 0;
 
     /* Get private data */
@@ -6271,8 +6271,8 @@ static int
 H5_daos_attribute_iterate_by_name_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
     H5_daos_attr_iterate_ud_t *udata;
-    tse_task_t *               first_task = NULL;
-    tse_task_t *               dep_task   = NULL;
+    tse_task_t                *first_task = NULL;
+    tse_task_t                *dep_task   = NULL;
     int                        ret;
     int                        ret_value = 0;
 
@@ -6292,7 +6292,7 @@ H5_daos_attribute_iterate_by_name_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSE
     /* Check for buffer not large enough */
     if (task->dt_result == -DER_KEY2BIG) {
         size_t akey_buf_len;
-        char * tmp_realloc;
+        char  *tmp_realloc;
 
         /* Allocate larger buffer */
         akey_buf_len = udata->u.name_order_data.md_rw_cb_ud.sg_iov[0].iov_buf_len * 2;
@@ -6333,7 +6333,7 @@ H5_daos_attribute_iterate_by_name_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSE
         } /* end if */
         else if (task->dt_result == 0) {
             uint32_t i;
-            char *   p;
+            char    *p;
 
             /* Loop over returned akeys */
             p = udata->u.name_order_data.md_rw_cb_ud.sg_iov[0].iov_buf;
@@ -6436,7 +6436,7 @@ H5_daos_attribute_iterate_by_crt_order(H5_daos_attr_iterate_ud_t *iterate_udata,
     uint64_t    cur_idx;
     const char *target_attr_name     = NULL;
     size_t      target_attr_name_len = 0;
-    char *      attr_name_buf        = NULL;
+    char       *attr_name_buf        = NULL;
     herr_t      ret_value            = SUCCEED;
 
     assert(iterate_udata);
@@ -6519,8 +6519,8 @@ H5_daos_attribute_get_iter_op_task(H5_daos_attr_iterate_ud_t *iterate_udata, con
 {
     H5_daos_attr_iterate_op_ud_t *op_udata = NULL;
     H5VL_loc_params_t             loc_params;
-    tse_task_t *                  iter_op_task;
-    H5_daos_req_t *               int_int_req = NULL;
+    tse_task_t                   *iter_op_task;
+    H5_daos_req_t                *int_int_req = NULL;
     int                           ret;
     herr_t                        ret_value = SUCCEED;
 
@@ -6626,9 +6626,9 @@ static int
 H5_daos_attribute_iterate_op_task(tse_task_t *task)
 {
     H5_daos_attr_iterate_op_ud_t *udata;
-    tse_task_t *                  metatask   = NULL;
-    tse_task_t *                  first_task = NULL;
-    tse_task_t *                  dep_task   = NULL;
+    tse_task_t                   *metatask   = NULL;
+    tse_task_t                   *first_task = NULL;
+    tse_task_t                   *dep_task   = NULL;
     int                           ret;
     int                           ret_value = 0;
 
@@ -6834,8 +6834,8 @@ done:
  *-------------------------------------------------------------------------
  */
 herr_t
-H5_daos_attribute_iterate_count_attrs_cb(hid_t H5VL_DAOS_UNUSED loc_id,
-                                         const char H5VL_DAOS_UNUSED *attr_name,
+H5_daos_attribute_iterate_count_attrs_cb(hid_t H5VL_DAOS_UNUSED             loc_id,
+                                         const char H5VL_DAOS_UNUSED       *attr_name,
                                          const H5A_info_t H5VL_DAOS_UNUSED *attr_info, void *op_data)
 {
     (*((hsize_t *)op_data))++;
@@ -6863,12 +6863,12 @@ H5_daos_attribute_rename(H5_daos_obj_t *attr_container_obj, const char *cur_attr
 {
     H5VL_attr_specific_args_t delete_args;
     H5VL_loc_params_t         sub_loc_params;
-    H5_daos_attr_t *          cur_attr = NULL;
-    H5_daos_attr_t *          new_attr = NULL;
+    H5_daos_attr_t           *cur_attr = NULL;
+    H5_daos_attr_t           *new_attr = NULL;
     hssize_t                  attr_space_nelmts;
     size_t                    attr_type_size;
-    void *                    attr_data_buf = NULL;
-    H5_daos_req_t *           int_int_req   = NULL;
+    void                     *attr_data_buf = NULL;
+    H5_daos_req_t            *int_int_req   = NULL;
     int                       ret;
     herr_t                    ret_value = SUCCEED;
 
@@ -7017,8 +7017,8 @@ static int
 H5_daos_attr_gnbi_alloc_task(tse_task_t *task)
 {
     H5_daos_attr_gnbi_alloc_ud_t *udata      = NULL;
-    tse_task_t *                  first_task = NULL;
-    tse_task_t *                  dep_task   = NULL;
+    tse_task_t                   *first_task = NULL;
+    tse_task_t                   *dep_task   = NULL;
     int                           ret_value  = 0;
 
     /* Get private data */
@@ -7268,7 +7268,7 @@ H5_daos_attribute_get_name_by_name_order(H5_daos_attr_get_name_by_idx_ud_t *get_
                                          H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_iter_data_t iter_data;
-    tse_task_t *        no_attrs_check_task = NULL;
+    tse_task_t         *no_attrs_check_task = NULL;
     int                 ret;
     herr_t              ret_value = 0;
 
@@ -7538,9 +7538,9 @@ static int
 H5_daos_attribute_get_name_by_crt_order_prep_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
     H5_daos_attr_get_name_by_idx_ud_t *udata;
-    daos_obj_rw_t *                    fetch_args;
+    daos_obj_rw_t                     *fetch_args;
     uint64_t                           fetch_idx = 0;
-    uint8_t *                          p;
+    uint8_t                           *p;
     int                                ret_value = 0;
 
     /* Get private data */
@@ -7772,8 +7772,8 @@ H5_daos_attribute_get_crt_order_by_name(H5_daos_obj_t *target_obj, const char *a
     daos_iov_t     sg_iov;
     uint64_t       crt_order_val;
     uint8_t        crt_order_buf[H5_DAOS_ENCODED_CRT_ORDER_SIZE];
-    uint8_t *      p;
-    void *         akeys_buf = NULL;
+    uint8_t       *p;
+    void          *akeys_buf = NULL;
     int            ret;
     herr_t         ret_value = SUCCEED;
 

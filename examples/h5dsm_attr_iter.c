@@ -29,7 +29,7 @@ error:
 int
 main(int argc, char *argv[])
 {
-    char *  daos_sys = NULL;
+    char   *daos_sys = NULL;
     hid_t   file = -1, fapl = -1;
     hsize_t num_attr = 0;
     herr_t  ret;

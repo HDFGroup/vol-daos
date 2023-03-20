@@ -12,7 +12,7 @@
 int
 main(int argc, char *argv[])
 {
-    char *      daos_sys = NULL;
+    char       *daos_sys = NULL;
     hid_t       file = -1, map1 = -1, map2 = -1, map3 = -1, fapl = -1;
     hid_t       dtid1, dtid2;
     const char *str_wdata[5] = {
@@ -21,7 +21,7 @@ main(int argc, char *argv[])
         "Now we are engaged in a great civil war,",
         "testing whether that nation or any nation so conceived and so dedicated can long endure.",
         "President Abraham Lincoln"}; /* Information to write */
-    char *  str_rdata[5];             /* Information read in */
+    char   *str_rdata[5];             /* Information read in */
     hvl_t   wdata[5];
     hvl_t   rdata[5];
     int     i, value, ret;

@@ -13,7 +13,7 @@ hbool_t verbose_g = 1;
 int
 main(int argc, char *argv[])
 {
-    char *      daos_sys = NULL;
+    char       *daos_sys = NULL;
     hid_t       file = -1, dset = -1, type1 = -1, type2 = -1, type3 = -1, space = -1, fapl = -1;
     hsize_t     dims[2] = {4, 2};
     H5O_info2_t oinfo;

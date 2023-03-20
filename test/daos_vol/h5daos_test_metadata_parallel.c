@@ -35,9 +35,9 @@ typedef struct {
     int     dset_dim2;
     int     chunk_dim1;
     int     chunk_dim2;
-    char *  dset_dtype;
-    char *  dset_layout;
-    char *  map_dtype;
+    char   *dset_dtype;
+    char   *dset_layout;
+    char   *map_dtype;
     int     attr_dim;
     int     numbOfMapEntries;
     int     numbOfNestedGroups;
@@ -58,7 +58,7 @@ typedef struct {
     hbool_t noGroupMember;
     hbool_t noWriteReadData;
     hbool_t noMapEntry;
-    char *  fileName;
+    char   *fileName;
 } handler_t;
 
 /* List of object operations */
@@ -171,20 +171,20 @@ int              mpi_rank;
 int              mpi_size;
 static handler_t hand;
 results_t        results;
-double *         op_time[ENTRY_NUM];
-double *         file_op_time[FILE_ENTRY_NUM];
+double          *op_time[ENTRY_NUM];
+double          *file_op_time[FILE_ENTRY_NUM];
 unsigned         tree_order;
 hid_t            file_id;
 hid_t            file_dspace, file_dspace_select, mem_space;
 hid_t            attr_space;
 hid_t            dcpl_id, gcpl_id, gapl_id;
-int *            map_keys, *map_vals, *map_vals_out;
-int *            wdata, *rdata;
-char *           wdata_char, *rdata_char;
-long long *      wdata_llong, *rdata_llong;
-float *          wdata_float, *rdata_float;
-double *         wdata_double, *rdata_double;
-int *            attr_write, *attr_read;
+int             *map_keys, *map_vals, *map_vals_out;
+int             *wdata, *rdata;
+char            *wdata_char, *rdata_char;
+long long       *wdata_llong, *rdata_llong;
+float           *wdata_float, *rdata_float;
+double          *wdata_double, *rdata_double;
+int             *attr_write, *attr_read;
 /* Keys and values for int-int map */
 int *map_keys, *map_vals, *map_vals_out;
 /* Keys and values for vls-vl map */
@@ -1231,8 +1231,8 @@ link_iter_cb(hid_t group_id, const char *name, const H5L_info2_t *info, void *op
 static int
 test_group(hid_t loc_id)
 {
-    hid_t *    gid, nested_gid;
-    hbool_t *  exists_arr = NULL;
+    hid_t     *gid, nested_gid;
+    hbool_t   *exists_arr = NULL;
     char       gname[NAME_LENGTH], nested_gname[NAME_LENGTH];
     H5G_info_t group_info;
     hsize_t    op_data;
@@ -1712,7 +1712,7 @@ error:
 static int
 test_dataset(hid_t loc_id)
 {
-    hid_t *     dset_id;
+    hid_t      *dset_id;
     char        dset_name[NAME_LENGTH];
     H5O_info2_t obj_info;
     int         i;
@@ -2670,7 +2670,7 @@ error:
 static int
 test_map(hid_t loc_id)
 {
-    hid_t * map_id = NULL;
+    hid_t  *map_id = NULL;
     char    map_name[NAME_LENGTH];
     int     i, j;
     double  start, end, time;

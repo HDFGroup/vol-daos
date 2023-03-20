@@ -123,7 +123,7 @@ error:
 int
 main(int argc, char *argv[])
 {
-    char *      daos_sys = NULL;
+    char       *daos_sys = NULL;
     hid_t       file = -1, dset_vla = -1, dset_vls = -1, attr_vla = -1, attr_vls = -1, space = -1, fapl = -1;
     hid_t       type_vla = -1, type_vls = -1;
     hid_t       space_contig = -1, space_ncontig = -1;
@@ -132,13 +132,13 @@ main(int argc, char *argv[])
     int         static_buf_vla[4][2][8];
     char        static_buf_vls[4][2][8];
     hvl_t       rbuf_vla[4][2];
-    char *      rbuf_vls[4][2];
+    char       *rbuf_vls[4][2];
     hvl_t       wbuf_vla[4][2];
-    char *      wbuf_vls[4][2];
+    char       *wbuf_vls[4][2];
     hvl_t       ebuf_vla[4][2];
-    char *      ebuf_vls[4][2];
+    char       *ebuf_vls[4][2];
     hvl_t       fbuf_vla[4][2];
-    char *      fbuf_vls[4][2];
+    char       *fbuf_vls[4][2];
     int         bogus_int           = -1;
     char        bogus_str[3]        = {'-', '1', '\0'};
     const hvl_t rbuf_vla_init[4][2] = {{{1, &bogus_int}, {1, &bogus_int}},

@@ -10,7 +10,7 @@
 int
 main(int argc, char *argv[])
 {
-    char *  daos_sys = NULL;
+    char   *daos_sys = NULL;
     hid_t   file = -1, dset = -1, space = -1, fapl = -1;
     hid_t   nfile = -1, ndset = -1;
     hsize_t dims[1] = {256 * 1024};

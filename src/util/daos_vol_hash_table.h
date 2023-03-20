@@ -92,7 +92,7 @@ typedef void *dv_hash_table_value_t;
  */
 
 struct dv_hash_table_iter {
-    dv_hash_table_t *      hash_table;
+    dv_hash_table_t       *hash_table;
     dv_hash_table_entry_t *next_entry;
     uint64_t               next_chain;
 };
@@ -165,7 +165,7 @@ void dv_hash_table_free(dv_hash_table_t *hash_table);
  * \param key_free_func        Function used to free keys.
  * \param value_free_func      Function used to free values.
  */
-void dv_hash_table_register_free_functions(dv_hash_table_t *               hash_table,
+void dv_hash_table_register_free_functions(dv_hash_table_t                *hash_table,
                                            dv_hash_table_key_free_func_t   key_free_func,
                                            dv_hash_table_value_free_func_t value_free_func);
 

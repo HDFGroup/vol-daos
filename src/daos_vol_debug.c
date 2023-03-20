@@ -76,8 +76,8 @@ H5_daos_dump_obj_keys(daos_handle_t obj)
     uint32_t       i, j;
     size_t         dkey_buf_len = 0;
     size_t         akey_buf_len = 0;
-    char *         dkey_buf     = NULL;
-    char *         akey_buf     = NULL;
+    char          *dkey_buf     = NULL;
+    char          *akey_buf     = NULL;
     int            ret;
     herr_t         ret_value = SUCCEED;
 
@@ -116,7 +116,7 @@ H5_daos_dump_obj_keys(daos_handle_t obj)
 
     do {
         daos_key_desc_t dkey_desc[H5_DAOS_ITER_LEN];
-        char *          dkey_p;
+        char           *dkey_p;
 
         /* Loop to retrieve keys (exit as soon as we get at least 1 key) */
         H5_DAOS_RETRIEVE_KEYS_LOOP(dkey_buf, dkey_buf_len, dkey_sg_iov, dkey_nr, H5_DAOS_ITER_LEN, H5E_VOL,
@@ -129,7 +129,7 @@ H5_daos_dump_obj_keys(daos_handle_t obj)
             daos_key_desc_t akey_desc[H5_DAOS_ITER_LEN];
             daos_anchor_t   akey_anchor;
             daos_key_t      dkey;
-            char *          akey_p;
+            char           *akey_p;
             char            tmp_char = '\0';
 
             /* Add null terminator temporarily */

@@ -67,10 +67,10 @@ H5_daos_blob_put(void *_file, const void *buf, size_t size, void *blob_id, void 
 {
     uuid_t          blob_uuid; /* Blob ID */
     H5_daos_file_t *file = (H5_daos_file_t *)_file;
-    daos_obj_rw_t * update_args;
-    tse_task_t *    update_task = NULL;
-    tse_task_t *    first_task  = NULL;
-    tse_task_t *    dep_task    = NULL;
+    daos_obj_rw_t  *update_args;
+    tse_task_t     *update_task = NULL;
+    tse_task_t     *first_task  = NULL;
+    tse_task_t     *dep_task    = NULL;
     daos_key_t      dkey;
     daos_iod_t      iod;
     daos_sg_list_t  sgl;
@@ -168,10 +168,10 @@ herr_t
 H5_daos_blob_get(void *_file, const void *blob_id, void *buf, size_t size, void H5VL_DAOS_UNUSED *_ctx)
 {
     H5_daos_file_t *file = (H5_daos_file_t *)_file;
-    daos_obj_rw_t * fetch_args;
-    tse_task_t *    fetch_task = NULL;
-    tse_task_t *    first_task = NULL;
-    tse_task_t *    dep_task   = NULL;
+    daos_obj_rw_t  *fetch_args;
+    tse_task_t     *fetch_task = NULL;
+    tse_task_t     *first_task = NULL;
+    tse_task_t     *dep_task   = NULL;
     daos_key_t      dkey;
     daos_iod_t      iod;
     daos_sg_list_t  sgl;

@@ -21,7 +21,7 @@
 /* User data struct for group get info */
 typedef struct H5_daos_group_get_info_ud_t {
     H5_daos_req_t *req;
-    H5G_info_t *   group_info;
+    H5G_info_t    *group_info;
     H5_daos_obj_t *target_obj;
     H5I_type_t     opened_type;
 } H5_daos_group_get_info_ud_t;
@@ -30,15 +30,15 @@ typedef struct H5_daos_group_get_info_ud_t {
 typedef struct H5_daos_group_gnl_ud_t {
     H5_daos_md_rw_cb_ud_t md_rw_cb_ud; /* Must be first */
     uint8_t               nlinks_buf[H5_DAOS_ENCODED_NUM_LINKS_SIZE];
-    tse_task_t *          gnl_task;
-    hsize_t *             nlinks;
+    tse_task_t           *gnl_task;
+    hsize_t              *nlinks;
 } H5_daos_group_gnl_ud_t;
 
 /* User data struct for group get max creation order */
 typedef struct H5_daos_group_gmco_ud_t {
     H5_daos_md_rw_cb_ud_t md_rw_cb_ud;
     uint8_t               max_corder_buf[H5_DAOS_ENCODED_CRT_ORDER_SIZE];
-    uint64_t *            max_corder;
+    uint64_t             *max_corder;
 } H5_daos_group_gmco_ud_t;
 
 /********************/
@@ -79,7 +79,7 @@ H5_daos_group_traverse(H5_daos_item_t *item, const char *path, hid_t lcpl_id, H5
                        tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_obj_t *obj          = NULL;
-    char *         tmp_path_buf = NULL;
+    char          *tmp_path_buf = NULL;
     H5_daos_req_t *int_int_req  = NULL;
     int            ret;
     H5_daos_obj_t *ret_value = NULL;
@@ -313,14 +313,14 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hbool_t is_root, hid_t gcpl_id
                             hbool_t collective, H5_daos_req_t *req, tse_task_t **first_task,
                             tse_task_t **dep_task)
 {
-    H5_daos_group_t *           grp          = NULL;
+    H5_daos_group_t            *grp          = NULL;
     H5_daos_md_rw_cb_ud_flex_t *update_cb_ud = NULL;
-    tse_task_t *                group_metatask;
+    tse_task_t                 *group_metatask;
     int                         gmt_ndeps = 0;
-    tse_task_t *                gmt_deps[2];
+    tse_task_t                 *gmt_deps[2];
     hbool_t default_gcpl = (gcpl_id == H5P_GROUP_CREATE_DEFAULT || gcpl_id == H5P_FILE_CREATE_DEFAULT);
     int     ret;
-    void *  ret_value = NULL;
+    void   *ret_value = NULL;
 
     assert(file);
     assert(file->flags & H5F_ACC_RDWR);
@@ -362,7 +362,7 @@ H5_daos_group_create_helper(H5_daos_file_t *file, hbool_t is_root, hid_t gcpl_id
     /* Create group and write metadata if this process should */
     if (!collective || (file->my_rank == 0)) {
         size_t      gcpl_size = 0;
-        void *      gcpl_buf  = NULL;
+        void       *gcpl_buf  = NULL;
         tse_task_t *update_task;
 
         /* Create group */
@@ -560,18 +560,18 @@ void *
 H5_daos_group_create(void *_item, const H5VL_loc_params_t H5VL_DAOS_UNUSED *loc_params, const char *name,
                      hid_t lcpl_id, hid_t gcpl_id, hid_t gapl_id, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
 {
-    H5_daos_item_t * item            = (H5_daos_item_t *)_item;
+    H5_daos_item_t  *item            = (H5_daos_item_t *)_item;
     H5_daos_group_t *grp             = NULL;
-    H5_daos_obj_t *  target_obj      = NULL;
-    char *           path_buf        = NULL;
-    const char *     target_name     = NULL;
+    H5_daos_obj_t   *target_obj      = NULL;
+    char            *path_buf        = NULL;
+    const char      *target_name     = NULL;
     size_t           target_name_len = 0;
     hbool_t          collective;
-    H5_daos_req_t *  int_req    = NULL;
-    tse_task_t *     first_task = NULL;
-    tse_task_t *     dep_task   = NULL;
+    H5_daos_req_t   *int_req    = NULL;
+    tse_task_t      *first_task = NULL;
+    tse_task_t      *dep_task   = NULL;
     int              ret;
-    void *           ret_value = NULL;
+    void            *ret_value = NULL;
 
     H5_daos_inc_api_cnt();
 
@@ -1227,7 +1227,7 @@ H5_daos_group_open_helper(H5_daos_file_t *file, H5_daos_group_t *grp, hid_t gapl
                           H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_mpi_ibcast_ud_flex_t *bcast_udata = NULL;
-    H5_daos_omd_fetch_ud_t *      fetch_udata = NULL;
+    H5_daos_omd_fetch_ud_t       *fetch_udata = NULL;
     int                           ret, ret_value = 0;
 
     assert(file);
@@ -1401,10 +1401,10 @@ H5_daos_group_open_int(H5_daos_item_t *item, const H5VL_loc_params_t *loc_params
                        tse_task_t **dep_task)
 {
     H5_daos_group_t *grp        = NULL;
-    H5_daos_obj_t *  target_obj = NULL;
+    H5_daos_obj_t   *target_obj = NULL;
     daos_obj_id_t    oid        = {0, 0};
-    daos_obj_id_t ** oid_ptr    = NULL;
-    char *           path_buf   = NULL;
+    daos_obj_id_t  **oid_ptr    = NULL;
+    char            *path_buf   = NULL;
     hbool_t          must_bcast = FALSE;
     H5_daos_group_t *ret_value  = NULL;
 
@@ -1536,14 +1536,14 @@ void *
 H5_daos_group_open(void *_item, const H5VL_loc_params_t *loc_params, const char *name, hid_t gapl_id,
                    hid_t dxpl_id, void H5VL_DAOS_UNUSED **req)
 {
-    H5_daos_item_t * item = (H5_daos_item_t *)_item;
+    H5_daos_item_t  *item = (H5_daos_item_t *)_item;
     H5_daos_group_t *grp  = NULL;
     hbool_t          collective;
-    H5_daos_req_t *  int_req    = NULL;
-    tse_task_t *     first_task = NULL;
-    tse_task_t *     dep_task   = NULL;
+    H5_daos_req_t   *int_req    = NULL;
+    tse_task_t      *first_task = NULL;
+    tse_task_t      *dep_task   = NULL;
     int              ret;
-    void *           ret_value = NULL;
+    void            *ret_value = NULL;
 
     H5_daos_inc_api_cnt();
 
@@ -1652,9 +1652,9 @@ herr_t
 H5_daos_group_get(void *_item, H5VL_group_get_args_t *get_args, hid_t dxpl_id, void **req)
 {
     H5_daos_group_t *grp        = (H5_daos_group_t *)_item;
-    H5_daos_req_t *  int_req    = NULL;
-    tse_task_t *     first_task = NULL;
-    tse_task_t *     dep_task   = NULL;
+    H5_daos_req_t   *int_req    = NULL;
+    tse_task_t      *first_task = NULL;
+    tse_task_t      *dep_task   = NULL;
     int              ret;
     herr_t           ret_value = SUCCEED;
 
@@ -1702,7 +1702,7 @@ H5_daos_group_get(void *_item, H5VL_group_get_args_t *get_args, hid_t dxpl_id, v
         /* H5Gget_info(_by_name/by_idx) */
         case H5VL_GROUP_GET_INFO: {
             const H5VL_loc_params_t *loc_params = &get_args->args.get_info.loc_params;
-            H5G_info_t *             group_info = get_args->args.get_info.ginfo;
+            H5G_info_t              *group_info = get_args->args.get_info.ginfo;
 
             /* Start H5 operation */
             if (NULL == (int_req = H5_daos_req_create(grp->obj.item.file, "group get info",
@@ -1789,9 +1789,9 @@ H5_daos_group_specific(void *_item, H5VL_group_specific_args_t *specific_args, h
                        void **req)
 {
     H5_daos_group_t *grp        = (H5_daos_group_t *)_item;
-    tse_task_t *     first_task = NULL;
-    tse_task_t *     dep_task   = NULL;
-    H5_daos_req_t *  int_req    = NULL;
+    tse_task_t      *first_task = NULL;
+    tse_task_t      *dep_task   = NULL;
+    H5_daos_req_t   *int_req    = NULL;
     int              ret;
     herr_t           ret_value = SUCCEED;
 
@@ -1953,11 +1953,11 @@ done:
 herr_t
 H5_daos_group_close(void *_grp, hid_t H5VL_DAOS_UNUSED dxpl_id, void **req)
 {
-    H5_daos_group_t *            grp        = (H5_daos_group_t *)_grp;
+    H5_daos_group_t             *grp        = (H5_daos_group_t *)_grp;
     H5_daos_obj_close_task_ud_t *task_ud    = NULL;
-    tse_task_t *                 first_task = NULL;
-    tse_task_t *                 dep_task   = NULL;
-    H5_daos_req_t *              int_req    = NULL;
+    tse_task_t                  *first_task = NULL;
+    tse_task_t                  *dep_task   = NULL;
+    H5_daos_req_t               *int_req    = NULL;
     int                          ret;
     herr_t                       ret_value = SUCCEED;
 
@@ -2149,9 +2149,9 @@ static int
 H5_daos_group_get_info_task(tse_task_t *task)
 {
     H5_daos_group_get_info_ud_t *udata      = NULL;
-    tse_task_t *                 metatask   = NULL;
-    tse_task_t *                 first_task = NULL;
-    tse_task_t *                 dep_task   = NULL;
+    tse_task_t                  *metatask   = NULL;
+    tse_task_t                  *first_task = NULL;
+    tse_task_t                  *dep_task   = NULL;
     int                          ret;
     int                          ret_value = 0;
 
@@ -2265,8 +2265,8 @@ H5_daos_group_get_info(H5_daos_group_t *grp, const H5VL_loc_params_t *loc_params
                        H5_daos_req_t *req, tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_group_get_info_ud_t *task_udata    = NULL;
-    tse_task_t *                 get_info_task = NULL;
-    H5_daos_req_t *              int_int_req   = NULL;
+    tse_task_t                  *get_info_task = NULL;
+    H5_daos_req_t               *int_int_req   = NULL;
     int                          ret;
     herr_t                       ret_value = SUCCEED;
 
@@ -2435,8 +2435,8 @@ H5_daos_group_gnl_task(tse_task_t *task)
 {
     H5_daos_group_gnl_ud_t *udata              = NULL;
     hid_t                   target_grp_id      = H5I_INVALID_HID;
-    tse_task_t *            first_task         = NULL;
-    tse_task_t *            dep_task           = NULL;
+    tse_task_t             *first_task         = NULL;
+    tse_task_t             *dep_task           = NULL;
     hbool_t                 metatask_scheduled = FALSE;
     int                     ret;
     int                     ret_value = 0;
@@ -2498,7 +2498,7 @@ H5_daos_group_gnl_task(tse_task_t *task)
         udata      = NULL;
     } /* end if */
     else {
-        tse_task_t *        metatask = NULL;
+        tse_task_t         *metatask = NULL;
         H5_daos_iter_data_t iter_data;
 
         /* Iterate through links */
@@ -2604,7 +2604,7 @@ H5_daos_group_gnl_comp_cb(tse_task_t *task, void H5VL_DAOS_UNUSED *args)
 {
     H5_daos_group_gnl_ud_t *udata    = NULL;
     uint64_t                nlinks64 = 0;
-    uint8_t *               p;
+    uint8_t                *p;
     int                     ret_value = 0;
 
     assert(H5_daos_task_list_g);
@@ -2841,7 +2841,7 @@ H5_daos_group_get_max_crt_order(H5_daos_group_t *target_grp, uint64_t *max_corde
                                 tse_task_t **first_task, tse_task_t **dep_task)
 {
     H5_daos_group_gmco_ud_t *fetch_udata = NULL;
-    tse_task_t *             fetch_task  = NULL;
+    tse_task_t              *fetch_task  = NULL;
     int                      ret;
     herr_t                   ret_value = SUCCEED;
 

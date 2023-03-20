@@ -62,8 +62,8 @@ typedef struct {
 
 typedef struct {
     d_rank_t *daos_server_ranks;
-    int *     fault_groups;
-    int *     fault_ops;
+    int      *fault_groups;
+    int      *fault_ops;
 } command_line_info_t;
 
 /*
@@ -72,9 +72,9 @@ typedef struct {
 char                       pool[DAOS_PROP_LABEL_MAX_LEN + 1];
 int                        mpi_rank;
 static int                 mpi_size;
-static int *               wdata, *rdata;
-static int *               map_keys, *map_vals, *map_vals_out;
-static int *               attr_write, *attr_read;
+static int                *wdata, *rdata;
+static int                *map_keys, *map_vals, *map_vals_out;
+static int                *attr_write, *attr_read;
 static hid_t               file_dspace, file_dspace_select, mem_space;
 static hid_t               attr_space;
 static handler_t           hand;

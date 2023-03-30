@@ -25,11 +25,11 @@ set(DAOS_SERVER_PREFLAGS
   "-genv DAOS_DISABLE_REQ_FWD 1"
 )
 
-# Postflags
 set(DAOS_SERVER_CONFIG_FILEPATH
   ${CMAKE_CURRENT_BINARY_DIR}/scripts/daos_server.yml
 )
 
+# Postflags
 set(DAOS_SERVER_POSTFLAGS
   "start"
   "--recreate-superblocks"

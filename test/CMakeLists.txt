@@ -105,6 +105,12 @@ find_program(DAOS_DMG_EXECUTABLE
 )
 mark_as_advanced(DAOS_DMG_EXECUTABLE)
 
+# SCM size
+set(DAOS_POOL_SIZE "4" CACHE STRING
+  "Size of pool created for testing in GB."
+)
+mark_as_advanced(DAOS_POOL_SIZE)
+
 # Dmg config
 configure_file(
   ${CMAKE_CURRENT_SOURCE_DIR}/scripts/daos_pool.sh.in
@@ -115,12 +121,6 @@ execute_process(COMMAND chmod u+x ${CMAKE_CURRENT_BINARY_DIR}/scripts/daos_pool.
 #------------------------------------------------------------------------------
 # DAOS client config
 #------------------------------------------------------------------------------
-
-# SCM size
-set(DAOS_POOL_SIZE "4" CACHE STRING
-  "Size of pool created for testing in GB."
-)
-mark_as_advanced(DAOS_POOL_SIZE)
 
 set(HDF5_VOL_TEST_PLUGIN_PATH ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
 set(HDF5_VOL_TEST_PLUGIN_NAME "daos")

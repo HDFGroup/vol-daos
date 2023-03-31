@@ -12,7 +12,7 @@
 
 #include "daos_vol.h"
 
-#define PARALLEL_FILENAME "h5_daos_test_map_parallel.h5"
+#define PARALLEL_FILENAME "h5daos_test_map_parallel.h5"
 
 /*
  * Currently unsupported functionality

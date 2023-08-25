@@ -257,7 +257,7 @@ done:
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_fill_val_bcast_comp_cb
  *
- * Purpose:     Complete callback for asynchronous MPI_ibcast for dataset
+ * Purpose:     Complete callback for asynchronous MPI_Ibcast for dataset
  *              fill value.
  *
  * Return:      Success:        0
@@ -1221,7 +1221,7 @@ done:
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_dset_open_bcast_comp_cb
  *
- * Purpose:     Complete callback for asynchronous MPI_ibcast for dataset
+ * Purpose:     Complete callback for asynchronous MPI_Ibcast for dataset
  *              opens (rank 0).
  *
  * Return:      Success:        0
@@ -1329,7 +1329,7 @@ done:
 /*-------------------------------------------------------------------------
  * Function:    H5_daos_dset_open_recv_comp_cb
  *
- * Purpose:     Complete callback for asynchronous MPI_ibcast for dataset
+ * Purpose:     Complete callback for asynchronous MPI_Ibcast for dataset
  *              opens (rank 1+).
  *
  * Return:      Success:        0

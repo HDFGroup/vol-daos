@@ -1,0 +1,35 @@
+Steps to using the DAOS VOL connector in Google Cloud:
+
+Move our blueprint ```dvc-build.yaml``` into Google Cloud Editor.
+
+#Using  ```dvc-build.yaml```, replace ```project_id:``` with your own project id. 
+
+#You can find a list of all your projects at https://console.cloud.google.com/.
+
+Use ```ghpc``` to create Terraform modules and Packer templates using the blueprint.
+
+```./ghpc create path_to_file/dvc-build.yaml  \
+    --vars project_id=<<PROJECT_ID>>```
+
+Use the following Terraform commands to deploy your DAOS instances on Google Cloud. You may deploy at any time after you first generate these files using the following commands.
+
+```terraform -chdir=dvc-hdf5/primary init
+   terraform -chdir=dvc-hdf5/primary validate
+   terraform -chdir=dvc-hdf5/primary apply```
+
+Verify your DAOS instances are running. If they are not starting up, you might be running into quota issues. 
+Connect to the VM through https://console.cloud.google.com/ or by SSHing into it. You may do the following:
+
+```gcloud compute ssh dvc-build-login0 --zone us-central1-c --project <walkthrough-project-id/>```
+
+Create a directory to create and keep your files. 
+
+```mkdir dvc-hdf5 && cd dvc-hdf5```
+
+Try out some of our test files.
+Link to some DVC test files that work in GCP.
+
+Make sure to destroy the cluster when you are done with your work. If you must be gone for extended periods of time, you should also destroy the cluster so as to not increase the amount you are billed for while idle. You can do this by doing:
+
+```terraform -chdir=dvc-hdf5/primary destroy```
+

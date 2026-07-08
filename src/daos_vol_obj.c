@@ -3266,6 +3266,8 @@ H5_daos_object_get(void *_item, const H5VL_loc_params_t *loc_params, H5VL_object
                      * item is a file */
                     if (item->type == H5I_FILE)
                         target_obj = (H5_daos_obj_t *)((H5_daos_file_t *)item)->root_grp;
+                    else if (item->type == H5I_ATTR)
+                        target_obj = ((H5_daos_attr_t *)item)->parent;
                     else
                         target_obj = (H5_daos_obj_t *)item;
                     target_obj->item.rc++;
@@ -3534,9 +3536,12 @@ H5_daos_object_specific(void *_item, const H5VL_loc_params_t *loc_params,
 
     /* Determine target object */
     if (loc_params->type == H5VL_OBJECT_BY_SELF) {
-        /* Use item as target object, or the root group if item is a file */
+        /* Use item as target object, or the root group if item is a file,
+         * or the attribute's parent object if item is an attribute */
         if (item->type == H5I_FILE)
             target_obj = (H5_daos_obj_t *)item->file->root_grp;
+        else if (item->type == H5I_ATTR)
+            target_obj = ((H5_daos_attr_t *)item)->parent;
         else
             target_obj = (H5_daos_obj_t *)item;
         target_obj->item.rc++;

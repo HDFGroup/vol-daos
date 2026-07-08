@@ -1,7 +1,18 @@
 access_points: ['localhost']
 provider: @DAOS_SERVER_TRANSPORT@
 socket_dir: @DAOS_SERVER_SOCKET_DIR@
-nr_hugepages: -1
+nr_hugepages: 0
+# Default (64 GiB) assumes a real production server; on small/CI hosts it
+# clamps to total RAM, leaving nothing for the SCM ramdisk.
+system_ram_reserved: 2
+# NOTE: tried ERROR here to silence a benign NOTICE-level false-positive
+# ("failed to take lock for pool svc update" matched H5VLTestDriver's
+# blanket "failed" substring check), but that also suppressed the routine
+# progress logging (SCM format, engine startup, etc.) that keeps
+# H5VLTestDriver's 100s *per-line* read timeout from firing - server
+# output went silent and the driver declared "server never started" even
+# though the server was fine. INFO's occasional false-positive is
+# preferable to ERROR's consistent false "never started".
 control_log_mask: INFO
 control_log_file: @DAOS_LOG_DIR@/daos_control.log
 transport_config:
@@ -10,7 +21,7 @@ transport_config:
 # single server instance per config file for now
 engines:
 -
-  targets: 4
+  targets: @DAOS_SERVER_TARGETS@
   first_core: 0
   nr_xs_helpers: 0
   fabric_iface: @DAOS_SERVER_IFACE@
@@ -21,6 +32,12 @@ engines:
   - ABT_ENV_MAX_NUM_XSTREAMS=100
   - ABT_MAX_NUM_XSTREAMS=100
   - DAOS_MD_CAP=1024
+  # DAOS_SERVER_TARGETS is configurable (see test/CMakeLists.txt), but the
+  # actual usable core count in a given environment (e.g. a CI container)
+  # isn't reliably discoverable, and giving the engine more targets than
+  # cores without this can make it hang during startup rather than fail
+  # fast, instead of just refusing to start as it does with too few cores.
+  - DAOS_TARGET_OVERSUBSCRIBE=1
   - CRT_CTX_SHARE_ADDR=0
   - CRT_TIMEOUT=30
   - FI_SOCKETS_MAX_CONN_RETRY=1
@@ -37,6 +54,7 @@ engines:
     class: ram
     scm_mount: @DAOS_SERVER_SCM_MNT@ # map to -s @DAOS_SERVER_SCM_MNT@
     scm_size: @DAOS_SERVER_SCM_SIZE@
+    scm_hugepages_disabled: true
 
 # -
     # Backend block device type. Force a SPDK driver to be used by this engine

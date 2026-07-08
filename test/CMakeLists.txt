@@ -30,15 +30,15 @@ set(DAOS_SERVER_CONFIG_FILEPATH
 )
 
 # Postflags
+# Storage is formatted explicitly via "dmg storage format" (see daos_pool.sh.in).
 set(DAOS_SERVER_POSTFLAGS
   "start"
-  "--recreate-superblocks"
   "-o ${DAOS_SERVER_CONFIG_FILEPATH}"
 )
 
 # Transport
-set(DAOS_SERVER_TRANSPORT "ofi+sockets" CACHE STRING
-  "Transport used by DAOS server for testing (sm, ofi+sockets)."
+set(DAOS_SERVER_TRANSPORT "ofi+tcp" CACHE STRING
+  "Transport used by DAOS server for testing (sm, ofi+tcp)."
 )
 mark_as_advanced(DAOS_SERVER_TRANSPORT)
 
@@ -53,6 +53,12 @@ set(DAOS_SERVER_SCM_SIZE "8" CACHE STRING
   "Size of RAM available for storage in GB."
 )
 mark_as_advanced(DAOS_SERVER_SCM_SIZE)
+
+# Engine targets
+set(DAOS_SERVER_TARGETS "4" CACHE STRING
+  "Number of storage targets for the DAOS server engine to use. Must not exceed the number of cores available on the host."
+)
+mark_as_advanced(DAOS_SERVER_TARGETS)
 
 # SCM mnt
 set(DAOS_SERVER_SCM_MNT "/mnt/daos" CACHE STRING

@@ -1321,10 +1321,10 @@ H5_daos_map_open_end(H5_daos_map_t *map, uint8_t *p, uint64_t ktype_buf_len, uin
     assert(vtype_buf_len > 0);
 
     /* Decode datatypes */
-    if ((map->key_type_id = H5Tdecode(p)) < 0)
+    if ((map->key_type_id = H5_DAOS_TDECODE(p, ktype_buf_len)) < 0)
         D_GOTO_ERROR(H5E_MAP, H5E_CANTDECODE, -H5_DAOS_H5_DECODE_ERROR, "can't deserialize datatype");
     p += ktype_buf_len;
-    if ((map->val_type_id = H5Tdecode(p)) < 0)
+    if ((map->val_type_id = H5_DAOS_TDECODE(p, vtype_buf_len)) < 0)
         D_GOTO_ERROR(H5E_MAP, H5E_CANTDECODE, -H5_DAOS_H5_DECODE_ERROR, "can't deserialize datatype");
     p += vtype_buf_len;
 

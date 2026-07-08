@@ -2223,7 +2223,7 @@ H5_daos_attribute_open_end(H5_daos_attr_t *attr, uint8_t *p, uint64_t type_buf_l
     assert(type_buf_len > 0);
 
     /* Decode datatype */
-    if ((attr->type_id = H5Tdecode(p)) < 0)
+    if ((attr->type_id = H5_DAOS_TDECODE(p, type_buf_len)) < 0)
         D_GOTO_ERROR(H5E_ARGS, H5E_CANTDECODE, -H5_DAOS_H5_DECODE_ERROR, "can't deserialize datatype");
     p += type_buf_len;
 

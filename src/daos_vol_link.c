@@ -2171,6 +2171,12 @@ H5_daos_link_create(H5VL_link_create_args_t *create_args, void *_item, const H5V
 
                 assert(target_loc_obj_hard);
 
+                /* Verify that source and destination files are the same, as
+                 * required by HDF5 hard link semantics (only soft/external
+                 * links may span files). */
+                if (memcmp(&item->file->coh, &target_loc_obj_hard->item.file->coh, sizeof(daos_handle_t)))
+                    D_GOTO_ERROR(H5E_LINK, H5E_BADVALUE, FAIL, "can't create hard links across files");
+
                 int_req->op_name = "hard link create";
 
                 /* Allocate task udata struct and give it a reference to

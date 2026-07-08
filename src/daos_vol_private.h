@@ -115,17 +115,33 @@ typedef d_sg_list_t daos_sg_list_t;
 #define H5_DAOS_LINK_EXISTS_OUT_TYPE htri_t
 #endif
 
+/* Versioning for H5Tdecode: HDF5 2.0 dropped the bare H5Tdecode() macro's
+ * default mapping to the 1-argument H5Tdecode1(buf), remapping it to the
+ * 2-argument H5Tdecode2(buf, buf_size) instead. */
+#if H5_VERSION_GE(2, 0, 0)
+#define H5_DAOS_TDECODE(buf, buf_size) H5Tdecode2(buf, buf_size)
+#else
+#define H5_DAOS_TDECODE(buf, buf_size) H5Tdecode(buf)
+#endif
+
 #define HDF5_VOL_DAOS_VERSION_1 (1) /* Version number of DAOS VOL connector */
 
 /* Macro to ensure H5_DAOS_g is initialized. H5_DAOS_g is only set if
  * the connector is manually initialized; if the connector has been
  * dynamically loaded, there are various places that this macro should
  * be used to check and set H5_DAOS_g if necessary.
+ *
+ * H5VLget_connector_id_by_value() returns a new reference, which in
+ * principle should be released with H5VLclose() once no longer needed
+ * (unlike the "peek" form, which returns the ID without taking a new
+ * reference). That release is intentionally NOT done in H5_daos_term():
+ * see the comment there for why, and for the known leak this leaves in
+ * an edge case (tracked in HDFGroup/vol-daos#74).
  */
 #define H5_DAOS_G_INIT(ERR)                                                                                  \
     do {                                                                                                     \
         if (H5_DAOS_g < 0)                                                                                   \
-            if ((H5_DAOS_g = H5VLpeek_connector_id_by_value(H5_DAOS_CONNECTOR_VALUE)) < 0)                   \
+            if ((H5_DAOS_g = H5VLget_connector_id_by_value(H5_DAOS_CONNECTOR_VALUE)) < 0)                    \
                 D_GOTO_ERROR(H5E_ID, H5E_CANTGET, ERR,                                                       \
                              "unable to get registered ID for DAOS VOL connector");                          \
     } while (0)
@@ -660,8 +676,6 @@ typedef struct H5_daos_dset_t {
 } H5_daos_dset_t;
 
 /* The datatype struct */
-/* Note we could speed things up a bit by caching the serialized datatype.  We
- * may also not need to keep the type_id around.  -NAF */
 typedef struct H5_daos_dtype_t {
     H5_daos_obj_t obj; /* Must be first */
     hid_t         type_id;

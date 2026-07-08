@@ -1095,7 +1095,7 @@ H5_daos_dset_open_end(H5_daos_dset_t *dset, uint8_t *p, uint64_t type_buf_len, u
     assert(type_buf_len > 0);
 
     /* Decode datatype */
-    if ((dset->type_id = H5Tdecode(p)) < 0)
+    if ((dset->type_id = H5_DAOS_TDECODE(p, type_buf_len)) < 0)
         D_GOTO_ERROR(H5E_ARGS, H5E_CANTDECODE, -H5_DAOS_H5_DECODE_ERROR, "can't deserialize datatype");
     p += type_buf_len;
 

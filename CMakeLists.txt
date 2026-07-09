@@ -281,6 +281,12 @@ if(NOT HDF5_VOL_DAOS_EXTERNALLY_CONFIGURED AND BUILD_TESTING)
   enable_testing()
   include(CTest)
   add_subdirectory(test)
+
+  # Relay HDF5_API_EXT_SERIAL_TESTS / HDF5_API_EXT_PARALLEL_TESTS out of this
+  # project's scope so they reach HDF5's own top-level scope when this
+  # connector is built inline as an HDF5_VOL_ALLOW_EXTERNAL subproject.
+  set(HDF5_API_EXT_SERIAL_TESTS ${HDF5_API_EXT_SERIAL_TESTS} PARENT_SCOPE)
+  set(HDF5_API_EXT_PARALLEL_TESTS ${HDF5_API_EXT_PARALLEL_TESTS} PARENT_SCOPE)
 endif()
 
 #-----------------------------------------------------------------------------

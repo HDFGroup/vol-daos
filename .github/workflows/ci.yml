@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      CLANG_FORMAT_VERSION: 13
+      CLANG_FORMAT_VERSION: 17
 
     steps:
       - name: Checkout source
@@ -35,7 +35,6 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
-          submodules: true
 
       - name: Install package dependencies
         run: sudo apt-get install -y clang-format-${{ env.CLANG_FORMAT_VERSION }}
@@ -54,4 +53,182 @@ jobs:
       - name: Check formatting (pull request)
         if: github.event_name == 'pull_request'
         run: test/scripts/gh_format.sh origin/${{ github.base_ref }}
+
+  daos-test:
+    runs-on: ubuntu-latest
+
+    container:
+      image: rockylinux:8
+      options: --privileged
+
+    continue-on-error: ${{ matrix.hdf5_ref == 'develop' }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        hdf5_ref: [hdf5_1.14.6, develop]
+
+    env:
+      DAOS_REPO_URL: https://packages.daos.io/v2.6/EL8/packages/x86_64/daos_packages.repo
+      DAOS_GPG_KEY_URL: https://packages.daos.io/RPM-GPG-KEY
+
+    steps:
+      - name: Install build prerequisites
+        run: |
+          dnf install -y epel-release
+          dnf groupinstall -y "Development Tools"
+          dnf install -y cmake git wget mpich mpich-devel libuuid-devel psmisc python3
+          echo "/usr/lib64/mpich/bin" >> "$GITHUB_PATH"
+          echo "LD_LIBRARY_PATH=/usr/lib64/mpich/lib:$LD_LIBRARY_PATH" >> "$GITHUB_ENV"
+
+      - name: Install DAOS (server, client, admin, devel)
+        run: |
+          wget -O /etc/yum.repos.d/daos-packages.repo "$DAOS_REPO_URL"
+          rpm --import "$DAOS_GPG_KEY_URL"
+          dnf install -y daos-server daos-client daos-admin daos-devel
+
+      - name: Disable transparent hugepages
+        run: |
+          echo "Before: $(cat /sys/kernel/mm/transparent_hugepage/enabled)"
+          echo never > /sys/kernel/mm/transparent_hugepage/enabled
+          echo "After:  $(cat /sys/kernel/mm/transparent_hugepage/enabled)"
+
+      - name: Mount /dev/hugepages
+        # We run with no NVMe/bdev tier and nr_hugepages=0, but daos_server's
+        # SPDK housekeeping still unconditionally tries to clean up hugepages
+        # at engine start/stop and logs a scary (but harmless) "ERROR:" line
+        # when /dev/hugepages doesn't exist.
+        run: |
+          mkdir -p /dev/hugepages
+          mount -t hugetlbfs none /dev/hugepages || true
+
+      - name: Checkout vol-daos
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          path: vol-daos
+
+      - name: Checkout HDF5 (${{ matrix.hdf5_ref }})
+        uses: actions/checkout@v3
+        with:
+          repository: HDFGroup/hdf5
+          ref: ${{ matrix.hdf5_ref }}
+          path: hdf5
+
+      # Builds HDF5 as the top-level project with vol-daos pulled in as an
+      # HDF5_VOL_ALLOW_EXTERNAL=LOCAL_DIR subproject, matching how HDF5's own
+      # CI tests other external VOL connectors (vol_async.yml, vol_cache.yml,
+      # vol_rest.yml in HDFGroup/hdf5). HDF5's test/API/CMakeLists.txt
+      # registers ctest entries for vol-daos automatically via
+      # HDF5_EXTERNAL_VOL_TARGETS -- vol-daos does not need its own API-test
+      # CMake wiring. See docs/api-tests-migration.md.
+      - name: Configure HDF5 with vol-daos as an external VOL connector
+        run: |
+          cmake -S hdf5 -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=ON \
+            -DBUILD_TESTING=ON \
+            -DHDF5_TEST_API=ON \
+            -DHDF5_ENABLE_PARALLEL=ON \
+            -DHDF5_ENABLE_MAP_API=ON \
+            -DMPIEXEC_MAX_NUMPROCS=2 \
+            -DHDF5_VOL_TEST_ENABLE_PARALLEL=ON \
+            -DHDF5_VOL_ALLOW_EXTERNAL=LOCAL_DIR \
+            -DHDF5_VOL_PATH01="$(pwd)/vol-daos" \
+            "-DHDF5_VOL_VOL-DAOS_NAME=daos" \
+            "-DHDF5_VOL_VOL-DAOS_TEST_PARALLEL=ON"
+
+      - name: Build HDF5 and vol-daos
+        run: cmake --build build -j"$(nproc)"
+
+      - name: Start DAOS server/agent and create pool
+        # Started once for the whole job (not per test), matching how HDF5's
+        # own CI starts REST VOL's HSDS server: a plain background process
+        # outside CMake/ctest, not through HDF5's own C++ test-API driver.
+        run: |
+          # Absolute paths: ctest runs these tests with a per-connector
+          # WORKING_DIRECTORY (set by HDF5's own test/API/CMakeLists.txt),
+          # not the directory these paths are computed relative to here, so
+          # a relative path would resolve to the wrong location downstream.
+          daos_server_yml=$(realpath "$(find build -name daos_server.yml -print -quit)")
+          daos_agent_sh=$(realpath "$(find build -name daos_agent.sh -print -quit)")
+          daos_pool_sh=$(realpath "$(find build -name daos_pool.sh -print -quit)")
+          echo "daos_server_yml=$daos_server_yml" >> "$GITHUB_ENV"
+          echo "daos_agent_sh=$daos_agent_sh" >> "$GITHUB_ENV"
+          echo "D_LOG_FILE=$(pwd)/daos_client.log" >> "$GITHUB_ENV"
+
+          mpiexec -n 1 -genv DAOS_DISABLE_REQ_FWD 1 \
+            daos_server start -o "$daos_server_yml" \
+            > daos_server.out 2>&1 &
+          for i in $(seq 1 60); do
+            grep -q "DAOS I/O Engine" daos_server.out && break
+            sleep 1
+          done
+          cat daos_server.out
+
+          "$daos_agent_sh" > daos_agent.out 2>&1 &
+          for i in $(seq 1 60); do
+            grep -q "listening on" daos_agent.out && break
+            sleep 1
+          done
+          cat daos_agent.out
+
+          "$daos_pool_sh" | tee daos_pool.out
+          pool_uuid=$(grep -oE '[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}' daos_pool.out | head -n1)
+          if [ -z "$pool_uuid" ]; then
+            echo "::error::failed to create DAOS pool, no UUID found in daos_pool_sh output"
+            exit 1
+          fi
+          echo "DAOS_POOL=$pool_uuid" >> "$GITHUB_ENV"
+
+      - name: Run tests
+        env:
+          D_LOG_MASK: ERR
+          CRT_PHY_ADDR_STR: ofi+tcp
+          OFI_INTERFACE: lo
+          HDF5_VOL_CONNECTOR: daos
+          # Disable automatic chunk sizing for the API tests
+          HDF5_DAOS_CHUNK_TARGET_SIZE: "1073741824"
+        # Excludes known, tracked connector gaps (not regressions) so CI
+        # stays green on everything actually verified so far. See
+        # docs/api-tests-migration.md for how these are tracked:
+        #   - h5_api_test_attribute: decreasing-order (H5_ITER_DEC) attribute
+        #     iteration is unsupported (daos_vol_attr.c).
+        #   - h5_api_test_testhdf5: its tattr.c subtest hits the same
+        #     paginated/by-idx attribute lookup gap while iterating hundreds
+        #     of attributes, cascading into enough diagnostic output to blow
+        #     past the ctest timeout rather than failing fast.
+        #   - h5_api_test_parallel_t_bigio: fails with DER_NOSPACE - the 4GB
+        #     test pool (DAOS_POOL_SIZE) is too small for this test's writes.
+        #   - h5_api_test_parallel_testphdf5: its h5oflusherror subtest
+        #     expects H5Oflush to fail (a native-VOL-only limitation); DAOS
+        #     correctly succeeds, but there's no per-subtest exclusion
+        #     available without HDF5's own C++ test-API driver, so the whole
+        #     binary is excluded.
+        run: |
+          # daos_agent_sh lives in test/scripts/; the agent socket it starts
+          # lives one level up, in test/.
+          daos_agent_dir=$(dirname "$(dirname "$daos_agent_sh")")
+          HDF5_PLUGIN_PATH="$(realpath "$(find build -name 'libhdf5_vol_daos*' -printf '%h\n' -quit)")" \
+          DAOS_AGENT_DRPC_DIR="$daos_agent_dir" \
+          ctest --test-dir build --output-on-failure --timeout 300 \
+            -R 'HDF5_VOL_vol-daos' \
+            -E '^HDF5_VOL_vol-daos-h5_api_test_attribute$|^HDF5_VOL_vol-daos-h5_api_test_testhdf5$|^HDF5_VOL_vol-daos-h5_api_test_parallel_t_bigio$|^HDF5_VOL_vol-daos-h5_api_test_parallel_testphdf5$'
+
+      - name: Stop DAOS server/agent
+        if: always()
+        run: |
+          killall -9 daos_server || true
+          killall daos_agent || true
+
+      - name: Dump DAOS logs
+        if: always()
+        run: |
+          for f in daos_server.out daos_agent.out daos_pool.out; do
+            [ -f "$f" ] && echo "=============== $f ===============" && cat "$f"
+          done
+          for f in $(find build -name '*.log' 2>/dev/null); do
+            echo "=============== $f ==============="
+            cat "$f"
+          done
 

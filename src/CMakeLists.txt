@@ -29,7 +29,12 @@ set(HDF5_VOL_DAOS_EXT_LIB_DEPENDENCIES
 find_package(HDF5 1.14.0 NO_MODULE NAMES hdf5 COMPONENTS C shared)
 if(HDF5_FOUND)
   set(HDF5_C_SHARED_LIBRARY hdf5-shared)
-  if(NOT TARGET ${HDF5_C_SHARED_LIBRARY})
+  # When built inline as an HDF5_VOL_ALLOW_EXTERNAL subproject, HDF5's own
+  # CMakeVOL.cmake pre-sets HDF5_FOUND/HDF5_LIBRARIES before HDF5's src/
+  # subdirectory (which actually creates the hdf5-shared target) has been
+  # added, so this target doesn't exist yet at this point in the configure
+  # pass -- it's still a valid forward reference for target_link_libraries.
+  if(NOT TARGET ${HDF5_C_SHARED_LIBRARY} AND NOT HDF5_VOL_ALLOW_EXTERNAL)
       message(FATAL_ERROR "Could not find hdf5 shared target, please make "
       "sure that HDF5 has ben compiled with shared libraries enabled.")
   endif()
@@ -204,8 +209,13 @@ install(
 
 #-----------------------------------------------------------------------------
 # Export all exported targets to the build tree for use by parent project
+#
+# Skipped when built inline as an HDF5_VOL_ALLOW_EXTERNAL subproject: this
+# target links against HDF5's own hdf5-shared target, which isn't part of
+# any export set until HDF5 itself is installed, so export() can't resolve
+# it mid-build.
 #-----------------------------------------------------------------------------
-if(NOT HDF5_VOL_DAOS_EXTERNALLY_CONFIGURED)
+if(NOT HDF5_VOL_DAOS_EXTERNALLY_CONFIGURED AND NOT HDF5_VOL_ALLOW_EXTERNAL)
   export(
     TARGETS
       ${HDF5_VOL_DAOS_EXPORTED_LIBS}

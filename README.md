@@ -43,7 +43,8 @@ To build the DAOS VOL connector, the following libraries are required:
             (i.e., `-DHDF5_ENABLE_MAP_API=ON` CMake option).
 
 + `libdaos` - The [DAOS](https://github.com/daos-stack/daos) library.
-            Minimum version required is 1.3.106-tb.
+            Minimum version required is 1.3.106-tb. CI builds and tests
+            against DAOS 2.6.5 (see `.github/workflows/ci.yml`).
 
 + `libuuid` - UUID support.
 

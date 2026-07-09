@@ -4,6 +4,8 @@
 option(HDF5_VOL_DAOS_TESTING_USE_SYSTEM_SERVER "Use system running server for testing." OFF)
 mark_as_advanced(HDF5_VOL_DAOS_TESTING_USE_SYSTEM_SERVER)
 
+set(HDF5_VOL_TEST_ENABLE_PARALLEL "ON" CACHE BOOL "Enable testing in parallel (requires MPI).")
+
 #------------------------------------------------------------------------------
 # DAOS server config
 #------------------------------------------------------------------------------
@@ -30,15 +32,14 @@ set(DAOS_SERVER_CONFIG_FILEPATH
 )
 
 # Postflags
+# Storage is formatted explicitly via "dmg storage format" (see daos_pool.sh.in).
 set(DAOS_SERVER_POSTFLAGS
-  "start"
-  "--recreate-superblocks"
-  "-o ${DAOS_SERVER_CONFIG_FILEPATH}"
+  "start -o ${DAOS_SERVER_CONFIG_FILEPATH}"
 )
 
 # Transport
-set(DAOS_SERVER_TRANSPORT "ofi+sockets" CACHE STRING
-  "Transport used by DAOS server for testing (sm, ofi+sockets)."
+set(DAOS_SERVER_TRANSPORT "ofi+tcp" CACHE STRING
+  "Transport used by DAOS server for testing (sm, ofi+tcp)."
 )
 mark_as_advanced(DAOS_SERVER_TRANSPORT)
 
@@ -53,6 +54,12 @@ set(DAOS_SERVER_SCM_SIZE "8" CACHE STRING
   "Size of RAM available for storage in GB."
 )
 mark_as_advanced(DAOS_SERVER_SCM_SIZE)
+
+# Engine targets
+set(DAOS_SERVER_TARGETS "4" CACHE STRING
+  "Number of storage targets for the DAOS server engine to use. Must not exceed the number of cores available on the host."
+)
+mark_as_advanced(DAOS_SERVER_TARGETS)
 
 # SCM mnt
 set(DAOS_SERVER_SCM_MNT "/mnt/daos" CACHE STRING
@@ -120,12 +127,17 @@ execute_process(COMMAND chmod u+x ${CMAKE_CURRENT_BINARY_DIR}/scripts/daos_pool.
 
 #------------------------------------------------------------------------------
 # DAOS client config
+#
+# Consumed both by test/daos_vol's own native tests and, when this project is
+# built inline as an HDF5_VOL_ALLOW_EXTERNAL subproject of HDF5's own build,
+# by the environment HDF5's test/API suite sets for this connector's ctest
+# entries (see HDF5_VOL_<name>_NAME / HDF5_EXTERNAL_VOL_TARGETS in HDF5's
+# CMakeVOL.cmake).
 #------------------------------------------------------------------------------
 
 set(HDF5_VOL_TEST_PLUGIN_PATH ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
 set(HDF5_VOL_TEST_PLUGIN_NAME "daos")
 
-# Preflags
 set(DAOS_CLIENT_ENV_VARS
   "D_LOG_FILE=${CMAKE_CURRENT_BINARY_DIR}/daos_client.log"
   "D_LOG_MASK=ERR"
@@ -134,77 +146,18 @@ set(DAOS_CLIENT_ENV_VARS
   "DAOS_AGENT_DRPC_DIR=${DAOS_AGENT_DIR}"
   "HDF5_PLUGIN_PATH=${HDF5_VOL_TEST_PLUGIN_PATH}"
   "HDF5_VOL_CONNECTOR=${HDF5_VOL_TEST_PLUGIN_NAME}"
+  # Disable automatic chunk sizing for the API tests
+  "HDF5_DAOS_CHUNK_TARGET_SIZE=1073741824"
 )
-
-#------------------------------------------------------------------------------
-# Test config
-#------------------------------------------------------------------------------
-
-# Define MPIEXEC flags
-set(MPIEXEC_SERVER_PREFLAGS "${DAOS_SERVER_PREFLAGS}")
-set(MPIEXEC_SERVER_POSTFLAGS "${DAOS_SERVER_POSTFLAGS}")
-
-if(NOT HDF5_VOL_DAOS_TESTING_USE_SYSTEM_SERVER)
-  # Clear pool and files
-  set(H5VL_TEST_INIT_COMMAND "rm -rf ${DAOS_SERVER_SCM_MNT}/* ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/*.h5")
-
-  # Client helper
-  set(HDF5_VOL_TEST_CLIENT_HELPER ${CMAKE_CURRENT_BINARY_DIR}/scripts/daos_agent.sh)
-  set(H5VL_TEST_CLIENT_HELPER_EXIT_COMMAND "killall daos_agent")
-
-  # Client setup
-  set(HDF5_VOL_TEST_CLIENT_INIT ${CMAKE_CURRENT_BINARY_DIR}/scripts/daos_pool.sh)
-
-  # Server
-  set(HDF5_VOL_TEST_SERVER ${DAOS_SERVER_EXECUTABLE})
-  set(H5VL_TEST_SERVER_EXIT_COMMAND "killall -9 daos_server")
-
-  # Test will start running after following line is printed
-  set(H5VL_TEST_SERVER_START_MSG "DAOS I/O Engine")
-
-  # Test will start running after following line is printed
-  set(H5VL_TEST_CLIENT_HELPER_START_MSG "listening on")
-
-  # Look for and match DAOS POOL UUID using regex
-  set(H5VL_TEST_CLIENT_INIT_TOKEN_REGEX "([a-f0-9]+-[a-f0-9]+-[a-f0-9]+-[a-f0-9]+-[a-f0-9]+)")
-  set(H5VL_TEST_CLIENT_INIT_TOKEN_VAR "DAOS_POOL")
-
-  # Allow server errors
-  set(HDF5_VOL_TEST_SERVER_ALLOW_ERRORS TRUE)
-endif()
-
-# Do not forget to include env command
-set(H5VL_TEST_ENV_VARS "env ${DAOS_CLIENT_ENV_VARS}")
 
 #------------------------------------------------------------------------------
 # DAOS VOL specific tests
 #------------------------------------------------------------------------------
 add_subdirectory(daos_vol)
 
-#------------------------------------------------------------------------------
-# VOL tests
-#------------------------------------------------------------------------------
-
-# We don't support filters
-set(H5VL_TEST_NO_FILTERS TRUE)
-
-# Disable automatic chunk sizing for VOL tests
-set(DAOS_CLIENT_ENV_VARS
-  ${DAOS_CLIENT_ENV_VARS}
-  "HDF5_DAOS_CHUNK_TARGET_SIZE=1073741824"
-)
-set(H5VL_TEST_ENV_VARS "env ${DAOS_CLIENT_ENV_VARS}")
-
-set(HDF5_VOL_TEST_EXTERNALLY_CONFIGURED TRUE)
-set(HDF5_VOL_TEST_ENABLE_PARALLEL "ON" CACHE BOOL "Enable testing in parallel (requires MPI).")
-if(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/vol/CMakeLists.txt)
-  message(STATUS "VOL test submodule not found, checking it out")
-  # get newest submodule info
-  execute_process(
-    COMMAND "${GIT_EXECUTABLE}" submodule update --init --recursive
-    WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
-    OUTPUT_VARIABLE GIT_SUBMODULE_UPDATE_OUTPUT
-  )
-  message(STATUS ${GIT_SUBMODULE_UPDATE_OUTPUT})
-endif()
-add_subdirectory(vol)
+# Relay HDF5_API_EXT_SERIAL_TESTS / HDF5_API_EXT_PARALLEL_TESTS (set by
+# test/daos_vol/CMakeLists.txt) further up so they reach HDF5's own
+# top-level scope when this connector is built inline as an
+# HDF5_VOL_ALLOW_EXTERNAL subproject.
+set(HDF5_API_EXT_SERIAL_TESTS ${HDF5_API_EXT_SERIAL_TESTS} PARENT_SCOPE)
+set(HDF5_API_EXT_PARALLEL_TESTS ${HDF5_API_EXT_PARALLEL_TESTS} PARENT_SCOPE)

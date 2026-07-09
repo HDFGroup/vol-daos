@@ -45,13 +45,13 @@
 #define TESTING(S)                                                                                           \
     do {                                                                                                     \
         if (MAINPROCESS)                                                                                     \
-            printf("Testing %-66s", S);                                                                      \
+            printf("Testing %-85s", S);                                                                      \
         fflush(stdout);                                                                                      \
     } while (0)
 #define TESTING_2(S)                                                                                         \
     do {                                                                                                     \
         if (MAINPROCESS)                                                                                     \
-            printf("    Testing %-62s", S);                                                                  \
+            printf("    Testing %-90s", S);                                                                  \
         fflush(stdout);                                                                                      \
     } while (0)
 #define PASSED()                                                                                             \

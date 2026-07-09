@@ -130,9 +130,12 @@ static int H5_daos_collective_error_check_comp_cb(tse_task_t *task, void *args);
      H5VL_CAP_FLAG_REF_MORE | H5VL_CAP_FLAG_OBJ_REF | H5VL_CAP_FLAG_REG_REF | H5VL_CAP_FLAG_ATTR_REF |       \
      H5VL_CAP_FLAG_STORED_DATATYPES | H5VL_CAP_FLAG_CREATION_ORDER | H5VL_CAP_FLAG_ITERATE |                 \
      H5VL_CAP_FLAG_STORAGE_SIZE | H5VL_CAP_FLAG_BY_IDX | H5VL_CAP_FLAG_GET_PLIST |                           \
-     H5VL_CAP_FLAG_FLUSH_REFRESH | H5VL_CAP_FLAG_EXTERNAL_LINKS | H5VL_CAP_FLAG_HARD_LINKS |                 \
-     H5VL_CAP_FLAG_SOFT_LINKS | H5VL_CAP_FLAG_UD_LINKS | H5VL_CAP_FLAG_TRACK_TIMES |                         \
-     H5VL_CAP_FLAG_FILL_VALUES)
+     H5VL_CAP_FLAG_FLUSH_REFRESH | H5VL_CAP_FLAG_HARD_LINKS | H5VL_CAP_FLAG_SOFT_LINKS |                     \
+     H5VL_CAP_FLAG_TRACK_TIMES | H5VL_CAP_FLAG_FILL_VALUES)
+/* External links (H5Lcreate_external) and user-defined links are not implemented:
+ * H5_daos_link_create() hard-errors on H5VL_LINK_CREATE_UD (daos_vol_link.c), so
+ * these flags must not be advertised or callers relying on them will fail at
+ * runtime instead of getting a capability-based rejection. */
 
 #else
 
@@ -1277,8 +1280,23 @@ H5_daos_term(void)
     /* Free default property list cache */
     DV_free((void *)H5_daos_plist_cache_g);
 
-    /* "Forget" connector id.  This should normally be called by the library
-     * when it is closing the id, so no need to close it here. */
+    /* "Forget" connector id. Do NOT close/decrement it here: H5_daos_term()
+     * is itself invoked by the library while closing the last reference to
+     * this same ID (however it was obtained - registration, name lookup, or
+     * H5VLget_connector_id_by_value() in H5_DAOS_G_INIT()), so decrementing
+     * it again from within this callback recurses into still-being-torn-down
+     * library state (confirmed: this previously aborted with a DAOS task
+     * scheduler assertion on process shutdown).
+     *
+     * Known gap: if H5_daos_term() is ever reached by some path other than
+     * this ID's own refcount hitting zero, the reference H5_DAOS_G_INIT()
+     * took via H5VLget_connector_id_by_value() would leak (ID and the
+     * connector object's refcount both). Closing it here unconditionally
+     * isn't safe (see above), and doing so conditionally would need both
+     * H5is_library_terminating() and a way to know H5_DAOS_g specifically
+     * came from H5_DAOS_G_INIT() rather than H5Pset_fapl_daos()'s
+     * registration/name-lookup paths - tracked in HDFGroup/vol-daos#74
+     * rather than guessed at here. */
     H5_DAOS_g = H5I_INVALID_HID;
 
     /* No longer initialized */

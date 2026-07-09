@@ -64,6 +64,9 @@ if(HDF5_VOL_TEST_ENABLE_PARALLEL)
   endforeach()
 endif()
 
-# Set list of executables to run with external VOL test suite
-set(HDF5_VOL_EXT_SERIAL_TESTS ${HDF5_VOL_EXT_SERIAL_TESTS_EXE} PARENT_SCOPE)
-set(HDF5_VOL_EXT_PARALLEL_TESTS ${HDF5_VOL_EXT_PARALLEL_TESTS_EXE} PARENT_SCOPE)
+# Set list of executables to run with HDF5's own external-VOL test suite
+# (HDF5_API_EXT_SERIAL_TESTS / HDF5_API_EXT_PARALLEL_TESTS, read by
+# test/API/CMakeLists.txt and testpar/API/CMakeLists.txt respectively when
+# this connector is built inline as an HDF5_VOL_ALLOW_EXTERNAL subproject).
+set(HDF5_API_EXT_SERIAL_TESTS ${HDF5_VOL_EXT_SERIAL_TESTS_EXE} PARENT_SCOPE)
+set(HDF5_API_EXT_PARALLEL_TESTS ${HDF5_VOL_EXT_PARALLEL_TESTS_EXE} PARENT_SCOPE)

@@ -1,7 +1,46 @@
 #!/bin/bash
 # This is a generated file, make sure you edit the .in file
+#
+# IMPORTANT: H5VLTestDriver scans BOTH stdout and stderr of this script for
+# a generic UUID-shaped token (the pool UUID) and launches the real test
+# client the instant it sees one - even the engine's own rank UUID (from
+# "dmg system query") matches that pattern and was previously mistaken for
+# the pool token. Do not print any UUID-shaped text here except the real
+# pool UUID at the very end. Server-side diagnostics are available via the
+# daos_control.log/daos_server.log/daos_agent.log files instead (dumped by
+# a separate CI step that reads them directly, bypassing this script).
 echo "Sleeping 5s"
 sleep 5
 env DAOS_AGENT_DRPC_DIR=@DAOS_AGENT_DIR@ \
-@DAOS_DMG_EXECUTABLE@ -i pool create -s=@DAOS_POOL_SIZE@G --label="daos_vol_test_pool" --nsvc=1
+@DAOS_DMG_EXECUTABLE@ -i storage format -l localhost
 
+echo "Waiting for engine to join the system..."
+for i in $(seq 1 30); do
+  if env DAOS_AGENT_DRPC_DIR=@DAOS_AGENT_DIR@ \
+     @DAOS_DMG_EXECUTABLE@ -i system query 2>/dev/null | grep -q Joined; then
+    echo "Engine joined after ${i}s"
+    break
+  fi
+  sleep 1
+done
+
+env DAOS_AGENT_DRPC_DIR=@DAOS_AGENT_DIR@ \
+  @DAOS_DMG_EXECUTABLE@ -i pool create --size=@DAOS_POOL_SIZE@G --nsvc=1 daos_vol_test_pool \
+  > /tmp/daos_pool_create.out 2>&1
+
+pool_uuid=$(grep -oE '[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}' /tmp/daos_pool_create.out | head -n1)
+
+# The client's own pool lookup (dc_mgmt_pool_find) can race with pool create
+# returning: confirm the pool is actually queryable (silently) before
+# printing its UUID for the H5VLTestDriver token regex to find.
+if [ -n "$pool_uuid" ]; then
+  for i in $(seq 1 30); do
+    if env DAOS_AGENT_DRPC_DIR=@DAOS_AGENT_DIR@ \
+       @DAOS_DMG_EXECUTABLE@ -i pool query "$pool_uuid" > /dev/null 2>&1; then
+      break
+    fi
+    sleep 1
+  done
+fi
+
+cat /tmp/daos_pool_create.out
